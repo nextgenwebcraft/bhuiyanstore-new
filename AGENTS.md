@@ -32,7 +32,7 @@ Packages deferred to Phase 3: `application`, `database`, `auth`, `ui`, `observab
 
 ```sh
 pnpm dev     # start the web app
-pnpm check   # format:check + lint (incl. module boundaries) + check:types + test:domain
+pnpm check   # format:check + lint (incl. module boundaries) + check:types + test (all Vitest)
 pnpm build   # production build
 ```
 

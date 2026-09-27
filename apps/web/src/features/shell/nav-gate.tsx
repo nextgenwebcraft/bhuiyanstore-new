@@ -27,7 +27,11 @@ export function NavGate({ path, children }: { path: string; children?: React.Rea
   }
   if (access === "forbidden") {
     return (
-      <StatePanel tone="warning" title={t("state.forbiddenTitle")} hint={t("state.forbiddenHint")} />
+      <StatePanel
+        tone="warning"
+        title={t("state.forbiddenTitle")}
+        hint={t("state.forbiddenHint")}
+      />
     );
   }
   if (!entry.item.implemented) {

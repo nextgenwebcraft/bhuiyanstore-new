@@ -13,8 +13,9 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "check:types": "pnpm -r --parallel typecheck",
-    "test:domain": "vitest run",
-    "check": "pnpm format:check && pnpm lint && pnpm check:types && pnpm test:domain"
+    "test": "vitest run",
+    "test:domain": "vitest run packages/domain",
+    "check": "pnpm format:check && pnpm lint && pnpm check:types && pnpm test"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",

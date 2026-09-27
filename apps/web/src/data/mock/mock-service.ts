@@ -57,7 +57,8 @@ export function createMockService(
     const granted = new Set<PermissionId>();
     for (const roleId of membership.roleIds) {
       const role = state.roles.find((r) => r.id === roleId);
-      const rolePermissions = role?.permissions === "all" ? permissionIds : (role?.permissions ?? []);
+      const rolePermissions =
+        role?.permissions === "all" ? permissionIds : (role?.permissions ?? []);
       rolePermissions.forEach((p) => granted.add(p));
     }
     // Stable canonical order, independent of role composition.

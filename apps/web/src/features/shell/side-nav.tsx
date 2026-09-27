@@ -34,7 +34,7 @@ export function SideNav({
                   <Link
                     href={companyHref(companyId, item.path)}
                     aria-current={active ? "page" : undefined}
-                    onClick={onNavigate}
+                    {...(onNavigate ? { onClick: onNavigate } : {})}
                     className={`flex min-h-10 items-center rounded-md border-l-4 px-3 text-sm ${
                       active
                         ? "border-brand bg-surface-muted font-semibold"

@@ -46,13 +46,18 @@ Do not resolve these in code; record the owner's answer here first.
 
 ## Technical decisions
 
-| ID  | Decision                                                                                  | Reason                                                                  |
-| --- | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| T01 | pnpm 10.22.0 workspace, one lockfile, exact versions (`save-exact`)                       | Guide §21.9                                                             |
-| T02 | TypeScript 6.0.3, not 7.x                                                                 | typescript-eslint 8.70 supports TypeScript `<6.1.0`                     |
-| T03 | ESLint 9.39.5, not 10.x                                                                   | eslint-plugin-react (via eslint-config-next 16.3.6) peers `eslint ^9.7` |
-| T04 | Module boundary checker: ESLint `no-restricted-imports` per package (`eslint.config.mjs`) | Guide §21.3 requires one checker; verified against planted violations   |
-| T05 | Workspace packages ship TS source, consumed via Next `transpilePackages`                  | No per-package build step during Phase 1                                |
-| T06 | Decimal arithmetic: decimal.js 10.6.0, one configured clone in `@bsd/domain`              | Guide §7.2, §10.4                                                       |
-| T07 | Bangla font: Noto Sans Bengali via `next/font/google` (self-hosted at build)              | Guide §5.1.1; print/PDF embedding still to verify                       |
-| T08 | Next.js 16.3.6, React 19.3.0, Tailwind CSS 4.3.3, Zod 4.6.5, Vitest 5.0.2                 | Latest stable, compatible releases at bootstrap (2026-09-27)            |
+| ID  | Decision                                                                                                                           | Reason                                                                               |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| T01 | pnpm 10.22.0 workspace, one lockfile, exact versions (`save-exact`)                                                                | Guide §21.9                                                                          |
+| T02 | TypeScript 6.0.3, not 7.x                                                                                                          | typescript-eslint 8.70 supports TypeScript `<6.1.0`                                  |
+| T03 | ESLint 9.39.5, not 10.x                                                                                                            | eslint-plugin-react (via eslint-config-next 16.3.6) peers `eslint ^9.7`              |
+| T04 | Module boundary checker: ESLint `no-restricted-imports` per package (`eslint.config.mjs`)                                          | Guide §21.3 requires one checker; verified against planted violations                |
+| T05 | Workspace packages ship TS source, consumed via Next `transpilePackages`                                                           | No per-package build step during Phase 1                                             |
+| T06 | Decimal arithmetic: decimal.js 10.6.0, one configured clone in `@bsd/domain`                                                       | Guide §7.2, §10.4                                                                    |
+| T07 | Bangla font: Noto Sans Bengali via `next/font/google` (self-hosted at build)                                                       | Guide §5.1.1; print/PDF embedding still to verify                                    |
+| T08 | Next.js 16.3.6, React 19.3.0, Tailwind CSS 4.3.3, Zod 4.6.5, Vitest 5.0.2                                                          | Latest stable, compatible releases at bootstrap (2026-09-27)                         |
+| T09 | TanStack Query 5.104.0 for client server-state; keys only from `apps/web/src/data/query-keys.ts`, scoped by actor and company      | Guide §7.2, §21.7; late responses cannot cross company or user                       |
+| T10 | Company boundary = `/c/[companyId]` layout remounting `CompanyShell` with `key={companyId}`                                        | Guide §4.2 step 4; one shared boundary instead of per-page switch logic              |
+| T11 | Mock state is in memory only; reload restores the seed                                                                             | D15 forbids operational local storage; "Reset demo" does the same explicitly         |
+| T12 | SR navigation follows the §5.3 SR account workspace (list, statement, incentives, settlements) instead of §5.2 "Deliveries / Dues" | §5.2 wording conflicts with D18 (SR is money-only); confirm at client review         |
+| T13 | No primitive component library yet; native `<select>`/`<dialog>` used                                                              | shadcn/ui (§7.2) to be added when the first composite primitive (combobox) is needed |

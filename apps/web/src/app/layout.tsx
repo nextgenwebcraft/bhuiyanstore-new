@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Noto_Sans_Bengali } from "next/font/google";
 import { t } from "@bsd/i18n";
 import "./globals.css";
+import { Providers } from "./providers";
 
 const notoSansBengali = Noto_Sans_Bengali({
   subsets: ["bengali", "latin"],
@@ -21,7 +22,9 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="bn" className={notoSansBengali.variable}>
-      <body className="min-h-dvh font-sans antialiased">{children}</body>
+      <body className="min-h-dvh font-sans antialiased">
+        <Providers>{children}</Providers>
+      </body>
     </html>
   );
 }

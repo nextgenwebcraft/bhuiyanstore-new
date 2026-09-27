@@ -17,7 +17,10 @@ export function DashboardPage() {
 
   return (
     <NavGate path="">
-      <PageHeader title={t("nav.dashboard")} description={`${t("dashboard.welcome")}, ${company.name}`} />
+      <PageHeader
+        title={t("nav.dashboard")}
+        description={`${t("dashboard.welcome")}, ${company.name}`}
+      />
       <StatePanel
         title={t("dashboard.noActivity")}
         hint={t("dashboard.noActivityHint")}
