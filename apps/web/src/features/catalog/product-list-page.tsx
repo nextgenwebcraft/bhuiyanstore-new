@@ -1,0 +1,157 @@
+"use client";
+
+import type { Product } from "@bsd/contracts";
+import { matchesSearch, t, toBengaliDigits } from "@bsd/i18n";
+import { useDeferredValue, useId, useState } from "react";
+import { Button } from "@/components/button";
+import { PageHeader } from "@/components/page-header";
+import { ListSkeleton } from "@/components/skeleton";
+import { StatePanel } from "@/components/state-panel";
+import { errorCodeOf } from "@/data/ports/service-error";
+import { useProducts } from "@/data/queries";
+import { NavGate } from "@/features/shell/nav-gate";
+import { useCurrentWorkspace } from "@/features/shell/workspace-context";
+
+const PATH = "masters/products";
+
+function StatusText({ status }: { status: Product["status"] }) {
+  return (
+    <span className={status === "active" ? "text-success" : "text-text-muted"}>
+      {t(`product.status.${status}`)}
+    </span>
+  );
+}
+
+function ProductResults({ products }: { products: Product[] }) {
+  return (
+    <>
+      {/* Desktop: compact table */}
+      <table className="hidden w-full border-collapse overflow-hidden rounded-lg bg-surface text-sm md:table">
+        <thead className="bg-surface-muted text-left">
+          <tr>
+            <th scope="col" className="px-4 py-3 font-semibold">
+              {t("product.sku")}
+            </th>
+            <th scope="col" className="px-4 py-3 font-semibold">
+              {t("product.name")}
+            </th>
+            <th scope="col" className="px-4 py-3 text-right font-semibold">
+              {t("product.piecesPerCarton")}
+            </th>
+            <th scope="col" className="px-4 py-3 font-semibold">
+              {t("product.status")}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {products.map((product) => (
+            <tr key={product.id} className="border-t border-border">
+              <td className="px-4 py-3 font-mono">{product.sku}</td>
+              <td className="px-4 py-3">
+                <div>{product.name}</div>
+                {product.aliases.length > 0 ? (
+                  <div className="text-text-muted">{product.aliases.join(", ")}</div>
+                ) : null}
+              </td>
+              <td className="px-4 py-3 text-right">{toBengaliDigits(product.piecesPerCarton)}</td>
+              <td className="px-4 py-3">
+                <StatusText status={product.status} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {/* Mobile: stacked cards instead of a squeezed table (guide section 5.1.1) */}
+      <ul className="flex flex-col gap-3 md:hidden">
+        {products.map((product) => (
+          <li key={product.id} className="rounded-lg border border-border bg-surface p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="font-medium">{product.name}</div>
+                {product.aliases.length > 0 ? (
+                  <div className="text-sm text-text-muted">{product.aliases.join(", ")}</div>
+                ) : null}
+              </div>
+              <StatusText status={product.status} />
+            </div>
+            <dl className="mt-3 grid grid-cols-2 gap-2 text-sm">
+              <dt className="text-text-muted">{t("product.sku")}</dt>
+              <dd className="font-mono">{product.sku}</dd>
+              <dt className="text-text-muted">{t("product.piecesPerCarton")}</dt>
+              <dd>{toBengaliDigits(product.piecesPerCarton)}</dd>
+            </dl>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
+function ProductList() {
+  const { company } = useCurrentWorkspace();
+  const products = useProducts(company.id);
+  const [query, setQuery] = useState("");
+  const deferredQuery = useDeferredValue(query);
+  const searchId = useId();
+
+  let body: React.ReactNode;
+  if (products.isPending) {
+    body = <ListSkeleton />;
+  } else if (products.isError) {
+    body = (
+      <StatePanel
+        tone="error"
+        title={t(`error.${errorCodeOf(products.error)}`)}
+        action={<Button onClick={() => void products.refetch()}>{t("state.retry")}</Button>}
+      />
+    );
+  } else if (products.data.length === 0) {
+    body = <StatePanel title={t("product.empty")} />;
+  } else {
+    const filtered = products.data.filter((p) =>
+      matchesSearch(deferredQuery, [p.sku, p.name, ...p.aliases]),
+    );
+    body = (
+      <>
+        <p className="mb-3 text-sm text-text-muted" aria-live="polite">
+          {t("product.count")}: {toBengaliDigits(String(filtered.length))}
+        </p>
+        {filtered.length === 0 ? (
+          <StatePanel title={t("state.noResults")} />
+        ) : (
+          <ProductResults products={filtered} />
+        )}
+      </>
+    );
+  }
+
+  return (
+    <>
+      <PageHeader title={t("nav.masters.products")} />
+      <div className="mb-4 max-w-md">
+        <label htmlFor={searchId} className="mb-1 block text-sm font-medium">
+          {t("product.search")}
+        </label>
+        <input
+          id={searchId}
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder={t("product.searchHint")}
+          autoComplete="off"
+          className="min-h-(--touch-target) w-full rounded-md border border-border bg-surface px-3"
+        />
+      </div>
+      {body}
+    </>
+  );
+}
+
+export function ProductListPage() {
+  return (
+    <NavGate path={PATH}>
+      <ProductList />
+    </NavGate>
+  );
+}

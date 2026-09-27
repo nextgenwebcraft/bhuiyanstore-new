@@ -1,0 +1,28 @@
+/*
+ * Semantic design tokens (guide sections 5.1, 21.6). Components consume these variables;
+ * do not scatter literal colors or spacing across pages. Brand variables are set per company
+ * via themeToCssVars().
+ */
+:root {
+  --brand-primary: #1f2937;
+  --brand-primary-foreground: #ffffff;
+  --brand-accent: var(--brand-primary);
+  --brand-chart-accent: var(--brand-primary);
+
+  --surface: #ffffff;
+  --surface-muted: #f5f6f8;
+  --border: #e3e5e9;
+  --text: #111827;
+  --text-muted: #5b6270;
+
+  /* Status colors are fixed across companies so a red brand never masquerades as an error. */
+  --status-error: #b42318;
+  --status-warning: #b54708;
+  --status-success: #067647;
+  --status-info: #175cd3;
+
+  --focus-ring: #2e90fa;
+  --space-unit: 8px;
+  --radius: 6px;
+  --touch-target: 44px;
+}

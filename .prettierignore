@@ -1,0 +1,5 @@
+pnpm-lock.yaml
+.next/
+node_modules/
+coverage/
+docs/DISTRIBUTION_SOFTWARE_IMPLEMENTATION_GUIDE.md

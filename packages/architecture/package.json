@@ -1,0 +1,13 @@
+{
+  "name": "@bsd/architecture",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Leaf IDs for modules, actions, resources and events (guide section 21.4). No imports from implementations.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p ."
+  }
+}
