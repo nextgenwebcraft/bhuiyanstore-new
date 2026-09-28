@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { netIssuedQuantity, toBaseQuantity, toCartonDisplay } from "./quantity";
+import { netIssuedQuantity, sumQuantities, toBaseQuantity, toCartonDisplay } from "./quantity";
 
 describe("toBaseQuantity", () => {
   it("matches workbook Jan 2026!M45 (7 cartons × 24)", () => {
@@ -22,6 +22,16 @@ describe("toBaseQuantity", () => {
 describe("toCartonDisplay", () => {
   it("normalizes excess loose pieces without changing quantity", () => {
     expect(toCartonDisplay("51", "24")).toEqual({ cartons: "2", loosePieces: "3" });
+  });
+});
+
+describe("sumQuantities", () => {
+  it("adds decimal quantities across batches", () => {
+    expect(sumQuantities(["120", "48.5", "0"])).toBe("168.5");
+  });
+
+  it("returns zero for an empty list", () => {
+    expect(sumQuantities([])).toBe("0");
   });
 });
 

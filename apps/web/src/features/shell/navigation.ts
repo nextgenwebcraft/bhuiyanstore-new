@@ -10,13 +10,25 @@ export type NavItem = {
   implemented: boolean;
 };
 
+/** Presentation-only grouping (guide section 21.6): compacts 10 sections into 4 hub cards. */
+export type NavGroupId = "operations" | "moneyStaff" | "reports" | "setup";
+
 export type NavSection = {
   id: string;
   labelKey: TranslationKey;
   /** Sections without a module (dashboard, masters, administration) are permission-gated only. */
   module?: WorkspaceModuleId;
+  /** Undefined only for "dashboard": it's the hub page itself, not a card on it. */
+  groupId?: NavGroupId;
   items: NavItem[];
 };
+
+export const navGroups: readonly { id: NavGroupId; labelKey: TranslationKey }[] = [
+  { id: "operations", labelKey: "nav.group.operations" },
+  { id: "moneyStaff", labelKey: "nav.group.moneyStaff" },
+  { id: "reports", labelKey: "nav.group.reports" },
+  { id: "setup", labelKey: "nav.group.setup" },
+];
 
 const item = (
   path: string,
@@ -41,6 +53,7 @@ export const navigation: readonly NavSection[] = [
     id: "sales",
     labelKey: "nav.sales",
     module: "sales",
+    groupId: "operations",
     items: [
       item("sales/daily-summaries", "nav.sales.dailySummaries", "sale.view"),
       item("sales/samari", "sales.samari", "sale.view"),
@@ -52,6 +65,7 @@ export const navigation: readonly NavSection[] = [
     id: "purchases",
     labelKey: "nav.purchases",
     module: "purchases",
+    groupId: "operations",
     items: [
       item("purchases/orders", "nav.purchases.orders", "purchase.view"),
       item("purchases/receipts", "nav.purchases.receipts", "purchase.view"),
@@ -69,9 +83,10 @@ export const navigation: readonly NavSection[] = [
     id: "inventory",
     labelKey: "nav.inventory",
     module: "inventory",
+    groupId: "operations",
     items: [
-      item("inventory/stock", "nav.inventory.stock", "inventory.view"),
-      item("inventory/batches", "nav.inventory.batches", "inventory.view"),
+      item("inventory/stock", "nav.inventory.stock", "inventory.view", true),
+      item("inventory/batches", "nav.inventory.batches", "inventory.view", true),
       item("inventory/custody", "nav.inventory.custody", "inventory.view"),
       item("inventory/counts", "nav.inventory.counts", "inventory.view"),
       item("inventory/damage", "nav.inventory.damage", "damage.report"),
@@ -82,6 +97,7 @@ export const navigation: readonly NavSection[] = [
     id: "sr-accounts",
     labelKey: "nav.srAccounts",
     module: "srAccounts",
+    groupId: "moneyStaff",
     items: [
       item("sr-accounts/representatives", "nav.srAccounts.representatives", "sr_loan.view"),
       item("sr-accounts/statement", "nav.srAccounts.statement", "sr_loan.view"),
@@ -93,6 +109,7 @@ export const navigation: readonly NavSection[] = [
     id: "dsr-staff",
     labelKey: "nav.dsrStaff",
     module: "dsrStaff",
+    groupId: "moneyStaff",
     items: [
       item("dsr/routes", "nav.dsrStaff.routes", "settlement.view"),
       item("dsr/assignments", "nav.dsrStaff.assignments", "settlement.view"),
@@ -105,6 +122,7 @@ export const navigation: readonly NavSection[] = [
     id: "finance",
     labelKey: "nav.finance",
     module: "finance",
+    groupId: "moneyStaff",
     items: [
       item("finance/supplier-deposits", "finance.supplierDeposit", "finance.view"),
       item("finance/cash-bank", "nav.finance.cashBank", "finance.view"),
@@ -119,6 +137,7 @@ export const navigation: readonly NavSection[] = [
     id: "reports",
     labelKey: "nav.reports",
     module: "reports",
+    groupId: "reports",
     items: [
       item("reports/operations", "nav.reports.operations", "report.view"),
       item("reports/stock", "nav.reports.stock", "report.view"),
@@ -130,6 +149,7 @@ export const navigation: readonly NavSection[] = [
   {
     id: "masters",
     labelKey: "nav.masters",
+    groupId: "setup",
     items: [
       item("masters/products", "nav.masters.products", "product.view", true),
       item("masters/suppliers", "nav.masters.suppliers", "company.view"),
@@ -140,6 +160,7 @@ export const navigation: readonly NavSection[] = [
   {
     id: "administration",
     labelKey: "nav.administration",
+    groupId: "setup",
     items: [
       item("admin/companies", "nav.administration.companies", "company.manage"),
       item("admin/modules", "nav.administration.modules", "company.manage"),
@@ -159,6 +180,14 @@ export function findNavEntry(path: string): { section: NavSection; item: NavItem
     if (match) return { section, item: match };
   }
   return undefined;
+}
+
+/**
+ * Resolves a bare module-landing path (e.g. "purchases"), distinct from a two-segment leaf path
+ * (e.g. "purchases/orders"). Excludes "dashboard": its landing is the root company page.
+ */
+export function findSectionById(id: string): NavSection | undefined {
+  return navigation.find((section) => section.id === id && section.id !== "dashboard");
 }
 
 /** Effective visibility = enabled module ∩ authorized permission (guide section 4.3). */

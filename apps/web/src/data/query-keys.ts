@@ -15,4 +15,6 @@ export const queryKeys = {
     [...queryKeys.companyScope(actorId, companyId), resourceIds.companyWorkspace] as const,
   products: (actorId: string, companyId: string) =>
     [...queryKeys.companyScope(actorId, companyId), resourceIds.product] as const,
+  batches: (actorId: string, companyId: string) =>
+    [...queryKeys.companyScope(actorId, companyId), resourceIds.batch] as const,
 };

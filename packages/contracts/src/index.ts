@@ -1,7 +1,13 @@
 export { errorCodes, type ErrorCode } from "./definitions/error-codes";
 export { permissionIds, type PermissionId } from "./definitions/permissions";
 export { workspaceModuleIds, type WorkspaceModuleId } from "./definitions/workspace-modules";
-export { productSchema, type Product } from "./catalog";
+export {
+  productSchema,
+  productCreateRequestSchema,
+  type Product,
+  type ProductCreateRequest,
+} from "./catalog";
+export { batchSchema, type Batch } from "./inventory";
 export { apiErrorSchema, type ApiError } from "./errors";
 export {
   companySchema,

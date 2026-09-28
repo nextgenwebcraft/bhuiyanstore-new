@@ -2,7 +2,14 @@ import { bn } from "@bsd/i18n";
 import { describe, expect, it } from "vitest";
 import { demoSeed } from "@/data/mock/demo-seed";
 import { createMockService } from "@/data/mock/mock-service";
-import { equivalentPath, findNavEntry, navigation, visibleNavigation } from "./navigation";
+import {
+  equivalentPath,
+  findNavEntry,
+  findSectionById,
+  navGroups,
+  navigation,
+  visibleNavigation,
+} from "./navigation";
 
 const service = createMockService(demoSeed, { latencyMs: 0 });
 
@@ -46,5 +53,24 @@ describe("navigation", () => {
 
   it("resolves the dashboard entry", () => {
     expect(findNavEntry("")?.section.id).toBe("dashboard");
+  });
+
+  it("assigns every non-dashboard section to one of the fixed groups", () => {
+    const groupIds = new Set(navGroups.map((g) => g.id));
+    for (const section of navigation) {
+      if (section.id === "dashboard") {
+        expect(section.groupId).toBeUndefined();
+      } else {
+        expect(Boolean(section.groupId && groupIds.has(section.groupId))).toBe(true);
+      }
+    }
+  });
+
+  it("resolves a module landing path but not the dashboard or a leaf path", () => {
+    expect(findSectionById("purchases")?.id).toBe("purchases");
+    expect(findSectionById("masters")?.id).toBe("masters");
+    expect(findSectionById("dashboard")).toBeUndefined();
+    expect(findSectionById("masters/products")).toBeUndefined();
+    expect(findSectionById("unknown")).toBeUndefined();
   });
 });

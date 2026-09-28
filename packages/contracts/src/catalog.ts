@@ -15,3 +15,12 @@ export const productSchema = z.object({
 });
 
 export type Product = z.infer<typeof productSchema>;
+
+/**
+ * Body shape for both create and update (explicit full-replace, no PATCH semantics): the caller
+ * always states the complete intended product record. `id`/`companyId` are assigned/verified by
+ * the service, never taken from the client.
+ */
+export const productCreateRequestSchema = productSchema.omit({ id: true, companyId: true });
+
+export type ProductCreateRequest = z.infer<typeof productCreateRequestSchema>;

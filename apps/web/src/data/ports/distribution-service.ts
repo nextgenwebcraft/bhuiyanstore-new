@@ -1,4 +1,4 @@
-import type { CompanyWorkspace, Product } from "@bsd/contracts";
+import type { Batch, CompanyWorkspace, Product, ProductCreateRequest } from "@bsd/contracts";
 
 export type RequestOptions = { signal?: AbortSignal };
 
@@ -14,4 +14,19 @@ export interface DistributionService {
   getWorkspace(companyId: string, options?: RequestOptions): Promise<CompanyWorkspace>;
   /** Requires `product.view` in the company. */
   listProducts(companyId: string, options?: RequestOptions): Promise<Product[]>;
+  /** Requires `product.create`; rejects a SKU already used in the company (VALIDATION_FAILED). */
+  createProduct(
+    companyId: string,
+    input: ProductCreateRequest,
+    options?: RequestOptions,
+  ): Promise<Product>;
+  /** Requires `product.edit`; rejects an unknown product or one from another company. */
+  updateProduct(
+    companyId: string,
+    productId: string,
+    input: ProductCreateRequest,
+    options?: RequestOptions,
+  ): Promise<Product>;
+  /** Requires `inventory.view` in the company. Read-only opening/receipt cost layers. */
+  listBatches(companyId: string, options?: RequestOptions): Promise<Batch[]>;
 }

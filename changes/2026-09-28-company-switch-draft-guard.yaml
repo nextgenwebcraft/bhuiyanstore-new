@@ -1,0 +1,25 @@
+id: 2026-09-28-company-switch-draft-guard
+reason: Close the documented TODO in CompanySwitcher (guide section 4.2 step 2) now that ProductForm is the first screen with real unsaved-input state
+owners: [organization-catalog]
+changedDefinitionIds:
+  - shell.draft-guard.DraftGuardProvider
+  - shell.draft-guard.useRegisterDraftGuard
+  - shell.draft-guard.useActiveDraftGuard
+  - shell.draft-switch-prompt.DraftSwitchPrompt
+affectedActionIds: not-applicable (no action registry yet; reuses the existing product.create/product.edit mutations via ProductForm's own submit path)
+affectedResources: not-applicable (no new data resource; a UI-state guard around existing product create/update calls)
+affectedMetrics: not-applicable
+affectedUi:
+  - CompanyShell (wraps children in DraftGuardProvider)
+  - CompanySwitcher (checks the active guard before navigating)
+  - ProductForm (registers itself while its dialog is open)
+schemaMigration: not-applicable (no database in Phase 1)
+backfill: not-applicable
+historicalPolicy: not-applicable
+contractCompatibility: additive; CompanySwitcher's external behavior is unchanged when no draft is open (the common case today)
+cacheAndProjectionPlan: not-applicable (no new query keys; the existing queryClient.cancelQueries call on switch is unchanged)
+securityReview: presentation-only guard; the save path is the same permission-checked product.create/product.edit mutation the form's own Save button already uses, so no new authorization surface
+tests:
+  - manual Playwright script (scratchpad, not committed) - open the product form, edit a field, switch company, confirm the Save/Discard/Stay prompt appears; Stay keeps the user on the current company with the dialog still open; Discard proceeds and closes the dialog; no component-test harness exists yet for this repo (implementation-status.md), so this is not a new Vitest suite
+rollout: prototype only
+recovery: revert commit

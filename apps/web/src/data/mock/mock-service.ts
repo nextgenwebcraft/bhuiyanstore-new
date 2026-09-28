@@ -1,6 +1,8 @@
 import {
+  batchSchema,
   companyWorkspaceSchema,
   permissionIds,
+  productCreateRequestSchema,
   productSchema,
   type CompanyWorkspace,
   type PermissionId,
@@ -74,6 +76,24 @@ export function createMockService(
     return companyWorkspaceSchema.parse({ company, permissions });
   }
 
+  function requirePermission(companyId: string, permission: PermissionId): void {
+    if (!workspace(companyId).permissions.includes(permission)) {
+      throw new ServiceError("FORBIDDEN");
+    }
+  }
+
+  /** Case-insensitive, scoped to the company; a duplicate SKU in another company is allowed. */
+  function assertUniqueSku(companyId: string, sku: string, excludeProductId?: string): void {
+    const normalized = sku.trim().toLowerCase();
+    const clash = state.products.some(
+      (p) =>
+        p.companyId === companyId &&
+        p.id !== excludeProductId &&
+        p.sku.trim().toLowerCase() === normalized,
+    );
+    if (clash) throw new ServiceError("VALIDATION_FAILED");
+  }
+
   return {
     users: seed.users,
     getActorId: () => actorId,
@@ -107,6 +127,42 @@ export function createMockService(
         throw new ServiceError("FORBIDDEN");
       }
       return productSchema.array().parse(state.products.filter((p) => p.companyId === companyId));
+    },
+
+    async createProduct(companyId, input, options) {
+      await delay(latencyMs, options?.signal);
+      requirePermission(companyId, "product.create");
+      const parsedInput = productCreateRequestSchema.parse(input);
+      assertUniqueSku(companyId, parsedInput.sku);
+      const product = productSchema.parse({
+        ...parsedInput,
+        id: crypto.randomUUID(),
+        companyId,
+      });
+      state.products.push(product);
+      return product;
+    },
+
+    async updateProduct(companyId, productId, input, options) {
+      await delay(latencyMs, options?.signal);
+      requirePermission(companyId, "product.edit");
+      const index = state.products.findIndex(
+        (p) => p.id === productId && p.companyId === companyId,
+      );
+      if (index === -1) throw new ServiceError("VALIDATION_FAILED");
+      const parsedInput = productCreateRequestSchema.parse(input);
+      assertUniqueSku(companyId, parsedInput.sku, productId);
+      const product = productSchema.parse({ ...parsedInput, id: productId, companyId });
+      state.products[index] = product;
+      return product;
+    },
+
+    async listBatches(companyId, options) {
+      await delay(latencyMs, options?.signal);
+      if (!workspace(companyId).permissions.includes("inventory.view")) {
+        throw new ServiceError("FORBIDDEN");
+      }
+      return batchSchema.array().parse(state.batches.filter((b) => b.companyId === companyId));
     },
   };
 }

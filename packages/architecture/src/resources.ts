@@ -5,6 +5,7 @@
 export const resourceIds = {
   companyWorkspace: "company-workspace",
   product: "product",
+  batch: "batch",
 } as const;
 
 export type ResourceId = (typeof resourceIds)[keyof typeof resourceIds];

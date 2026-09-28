@@ -2,7 +2,7 @@
 
 import type { Product } from "@bsd/contracts";
 import { matchesSearch, t, toBengaliDigits } from "@bsd/i18n";
-import { useDeferredValue, useId, useState } from "react";
+import { useDeferredValue, useId, useRef, useState } from "react";
 import { Button } from "@/components/button";
 import { PageHeader } from "@/components/page-header";
 import { ListSkeleton } from "@/components/skeleton";
@@ -11,6 +11,7 @@ import { errorCodeOf } from "@/data/ports/service-error";
 import { useProducts } from "@/data/queries";
 import { NavGate } from "@/features/shell/nav-gate";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
+import { ProductForm, type ProductFormHandle } from "./product-form";
 
 const PATH = "masters/products";
 
@@ -22,7 +23,15 @@ function StatusText({ status }: { status: Product["status"] }) {
   );
 }
 
-function ProductResults({ products }: { products: Product[] }) {
+function ProductResults({
+  products,
+  canEdit,
+  onEdit,
+}: {
+  products: Product[];
+  canEdit: boolean;
+  onEdit: (product: Product) => void;
+}) {
   return (
     <>
       {/* Desktop: compact table */}
@@ -41,6 +50,7 @@ function ProductResults({ products }: { products: Product[] }) {
             <th scope="col" className="px-4 py-3 font-semibold">
               {t("product.status")}
             </th>
+            {canEdit ? <th scope="col" className="px-4 py-3" /> : null}
           </tr>
         </thead>
         <tbody>
@@ -57,6 +67,11 @@ function ProductResults({ products }: { products: Product[] }) {
               <td className="px-4 py-3">
                 <StatusText status={product.status} />
               </td>
+              {canEdit ? (
+                <td className="px-4 py-3 text-right">
+                  <Button onClick={() => onEdit(product)}>{t("product.edit")}</Button>
+                </td>
+              ) : null}
             </tr>
           ))}
         </tbody>
@@ -81,6 +96,11 @@ function ProductResults({ products }: { products: Product[] }) {
               <dt className="text-text-muted">{t("product.piecesPerCarton")}</dt>
               <dd>{toBengaliDigits(product.piecesPerCarton)}</dd>
             </dl>
+            {canEdit ? (
+              <Button className="mt-3 w-full" onClick={() => onEdit(product)}>
+                {t("product.edit")}
+              </Button>
+            ) : null}
           </li>
         ))}
       </ul>
@@ -89,11 +109,14 @@ function ProductResults({ products }: { products: Product[] }) {
 }
 
 function ProductList() {
-  const { company } = useCurrentWorkspace();
+  const { company, permissions } = useCurrentWorkspace();
   const products = useProducts(company.id);
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
   const searchId = useId();
+  const formRef = useRef<ProductFormHandle>(null);
+  const canCreate = permissions.includes("product.create");
+  const canEdit = permissions.includes("product.edit");
 
   let body: React.ReactNode;
   if (products.isPending) {
@@ -120,7 +143,11 @@ function ProductList() {
         {filtered.length === 0 ? (
           <StatePanel title={t("state.noResults")} />
         ) : (
-          <ProductResults products={filtered} />
+          <ProductResults
+            products={filtered}
+            canEdit={canEdit}
+            onEdit={(product) => formRef.current?.openEdit(product)}
+          />
         )}
       </>
     );
@@ -128,7 +155,17 @@ function ProductList() {
 
   return (
     <>
-      <PageHeader title={t("nav.masters.products")} />
+      <PageHeader
+        title={t("nav.masters.products")}
+        actions={
+          canCreate ? (
+            <Button variant="primary" onClick={() => formRef.current?.openCreate()}>
+              {t("product.new")}
+            </Button>
+          ) : null
+        }
+      />
+      <ProductForm ref={formRef} companyId={company.id} />
       <div className="mb-4 max-w-md">
         <label htmlFor={searchId} className="mb-1 block text-sm font-medium">
           {t("product.search")}

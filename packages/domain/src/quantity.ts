@@ -30,6 +30,11 @@ export function toCartonDisplay(
   };
 }
 
+/** Sums decimal quantities, e.g. available quantity across a product's batches. */
+export function sumQuantities(values: readonly DecimalInput[]): string {
+  return values.reduce<Decimal>((total, v) => total.add(toDecimal(v)), new Decimal(0)).toString();
+}
+
 /** Net quantity kept by a DSR: Samari (issued) minus Firot (unsold returned). Confirmed D04. */
 export function netIssuedQuantity(samari: DecimalInput, firot: DecimalInput): string {
   const net = toDecimal(samari).sub(toDecimal(firot));
