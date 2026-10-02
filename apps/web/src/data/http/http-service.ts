@@ -2,18 +2,30 @@ import {
   apiErrorSchema,
   cashAccountSchema,
   companyWorkspaceSchema,
+  damageCaseSchema,
+  dashboardSummarySchema,
+  dayViewSchema,
+  dsrDaySchema,
   expenseCategorySchema,
   meSchema,
+  moneyEntrySchema,
+  monthCloseResultSchema,
+  monthViewSchema,
   openingSchema,
   openingWorkbookSheetsSchema,
+  payrollRunSchema,
   priceChangeSchema,
   productHistorySchema,
   productPackSchema,
   productSchema,
+  reportSchema,
   roleSchema,
+  staffAccountsSchema,
   staffMemberSchema,
   staffRecordSchema,
   staffRoleSchema,
+  staffStatementSchema,
+  stockEntrySchema,
   supplierSchema,
   userSchema,
   type Me,
@@ -77,8 +89,7 @@ async function failure(response: Response): Promise<ServiceError> {
 
 /**
  * Talks to `/api/v1` with the session cookie and validates every response against the shared
- * contracts. Modules whose API arrives in later phases (PLAN §9 C–F) fail with
- * MODULE_UNAVAILABLE instead of showing invented data.
+ * contracts.
  */
 export function createHttpService(onUnauthenticated: () => void): HttpDistributionService {
   async function request<T>(schema: z.ZodType<T>, path: string, call: Call = {}): Promise<T> {
@@ -91,9 +102,6 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
     return schema.parse(response.status === 204 ? undefined : ((await response.json()) as Json));
   }
 
-  const notYet = async (): Promise<never> => {
-    throw new ServiceError("MODULE_UNAVAILABLE");
-  };
   const id = (value: string) => encodeURIComponent(value);
   const company = (companyId: string) => `/companies/${id(companyId)}`;
   const product = (companyId: string, productId: string) =>
@@ -143,19 +151,72 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
         idempotent: true,
       }),
 
-    listBatches: notYet,
     listSuppliers: (companyId, options) =>
       request(z.array(supplierSchema), `${company(companyId)}/suppliers`, options),
     listStaff: (companyId, options) =>
       request(z.array(staffMemberSchema), `${company(companyId)}/staff-members`, options),
-    listGoodsReceipts: notYet,
-    postGoodsReceipt: notYet,
-    listDailySalesSummaries: notYet,
-    postDailySalesSummary: notYet,
-    listMarketDues: notYet,
-    listOldDueCollections: notYet,
-    postOldDueCollection: notYet,
-    getDashboardSummary: notYet,
+    getDashboardSummary: (companyId, date, options) =>
+      request(dashboardSummarySchema, `${company(companyId)}/dashboard?date=${id(date)}`, options),
+
+    getDayView: (companyId, date, options) =>
+      request(dayViewSchema, `${company(companyId)}/days/${id(date)}`, options),
+    listStockEntries: (companyId, date, options) =>
+      request(
+        z.array(stockEntrySchema),
+        `${company(companyId)}/stock-entries?date=${id(date)}`,
+        options,
+      ),
+    postStockEntries: (companyId, input) =>
+      request(
+        z.array(stockEntrySchema),
+        `${company(companyId)}/stock-entries`,
+        write("POST", input),
+      ),
+    reverseStockEntry: (companyId, entryId) =>
+      request(
+        stockEntrySchema,
+        `${company(companyId)}/stock-entries/${id(entryId)}/reverse`,
+        write("POST", {}),
+      ),
+    listDsrDays: (companyId, date, options) =>
+      request(z.array(dsrDaySchema), `${company(companyId)}/dsr-days?date=${id(date)}`, options),
+    saveDsrDay: (companyId, input) =>
+      request(dsrDaySchema, `${company(companyId)}/dsr-days`, write("PUT", input)),
+    postDsrDay: (companyId, dayId, input) =>
+      request(
+        dsrDaySchema,
+        `${company(companyId)}/dsr-days/${id(dayId)}/post`,
+        write("POST", input),
+      ),
+    reverseDsrDay: (companyId, dayId, input) =>
+      request(
+        dsrDaySchema,
+        `${company(companyId)}/dsr-days/${id(dayId)}/reverse`,
+        write("POST", input),
+      ),
+    discardDsrDay: (companyId, dayId, input) =>
+      request(z.undefined(), `${company(companyId)}/dsr-days/${id(dayId)}/discard`, {
+        method: "POST",
+        body: input,
+      }),
+    listMoneyEntries: (companyId, query, options) => {
+      const params = new URLSearchParams({ from: query.from });
+      if (query.to) params.set("to", query.to);
+      if (query.staffId) params.set("staffId", query.staffId);
+      return request(
+        z.array(moneyEntrySchema),
+        `${company(companyId)}/money-entries?${params.toString()}`,
+        options,
+      );
+    },
+    postMoneyEntry: (companyId, input) =>
+      request(moneyEntrySchema, `${company(companyId)}/money-entries`, write("POST", input)),
+    reverseMoneyEntry: (companyId, entryId) =>
+      request(
+        moneyEntrySchema,
+        `${company(companyId)}/money-entries/${id(entryId)}/reverse`,
+        write("POST", {}),
+      ),
 
     getProductHistory: (companyId, productId, options) =>
       request(productHistorySchema, `${product(companyId, productId)}/history`, options),
@@ -230,25 +291,115 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
         idempotent: true,
       });
     },
-    async downloadOpeningTemplate(companyId) {
-      const response = await send(`/api/v1${company(companyId)}/opening/template`, {});
-      if (!response.ok) {
-        const error = await failure(response);
-        if (error.code === "UNAUTHENTICATED") onUnauthenticated();
-        throw error;
-      }
-      const disposition = response.headers.get("content-disposition") ?? "";
-      const encoded = /filename\*=UTF-8''([^;]+)/i.exec(disposition)?.[1];
-      return {
-        fileName: encoded ? decodeURIComponent(encoded) : "opening.xlsx",
-        file: await response.blob(),
-      };
-    },
+    downloadOpeningTemplate: (companyId) =>
+      download(`${company(companyId)}/opening/template`, "opening.xlsx"),
     approveOpening: (companyId, input) =>
       request(openingSchema, `${company(companyId)}/opening/approve`, write("POST", input)),
     activateOpening: (companyId, input) =>
       request(openingSchema, `${company(companyId)}/opening/activate`, write("POST", input)),
+
+    getMonthView: (companyId, month, options) =>
+      request(monthViewSchema, `${company(companyId)}/months/${id(month)}`, options),
+    closeMonth: (companyId, month) =>
+      request(
+        monthCloseResultSchema,
+        `${company(companyId)}/months/${id(month)}/close`,
+        write("POST", {}),
+      ),
+    reopenMonth: (companyId, month) =>
+      request(
+        monthCloseResultSchema,
+        `${company(companyId)}/months/${id(month)}/reopen`,
+        write("POST", {}),
+      ),
+    getReport: (companyId, report, range, options) =>
+      request(
+        reportSchema,
+        `${company(companyId)}/reports/${id(report)}?${new URLSearchParams(range).toString()}`,
+        options,
+      ),
+    downloadReport: (companyId, report, range, format) =>
+      download(
+        `${company(companyId)}/reports/${id(report)}?${new URLSearchParams({ ...range, format }).toString()}`,
+        `${report}.${format}`,
+      ),
+
+    getStaffAccounts: (companyId, query, options) => {
+      const params = new URLSearchParams({ kind: query.kind });
+      if (query.date) params.set("date", query.date);
+      return request(
+        staffAccountsSchema,
+        `${company(companyId)}/staff-accounts?${params.toString()}`,
+        options,
+      );
+    },
+    getStaffStatement: (companyId, staffId, range, options) =>
+      request(
+        staffStatementSchema,
+        `${company(companyId)}/staff/${id(staffId)}/statement?${new URLSearchParams(range).toString()}`,
+        options,
+      ),
+    downloadStaffStatement: (companyId, staffId, range, format) =>
+      download(
+        `${company(companyId)}/staff/${id(staffId)}/statement?${new URLSearchParams({ ...range, format }).toString()}`,
+        `statement.${format}`,
+      ),
+    getPayrollRun: (companyId, month, options) =>
+      request(payrollRunSchema, `${company(companyId)}/payroll-runs/${id(month)}`, options),
+    savePayrollRun: (companyId, month, input) =>
+      request(
+        payrollRunSchema,
+        `${company(companyId)}/payroll-runs/${id(month)}`,
+        write("PUT", input),
+      ),
+    payrollCommand: (companyId, month, action, input) =>
+      request(
+        payrollRunSchema,
+        `${company(companyId)}/payroll-runs/${id(month)}/${id(action)}`,
+        write("POST", input),
+      ),
+    listDamageCases: (companyId, query, options) =>
+      request(
+        z.array(damageCaseSchema),
+        `${company(companyId)}/damage-cases${query.status ? `?status=${query.status}` : ""}`,
+        options,
+      ),
+    createDamageCase: (companyId, input) =>
+      request(damageCaseSchema, `${company(companyId)}/damage-cases`, write("POST", input)),
+    postDamageEvent: (companyId, caseId, input) =>
+      request(
+        damageCaseSchema,
+        `${company(companyId)}/damage-cases/${id(caseId)}/events`,
+        write("POST", input),
+      ),
+    reverseDamageEvent: (companyId, eventId) =>
+      request(
+        damageCaseSchema,
+        `${company(companyId)}/damage-events/${id(eventId)}/reverse`,
+        write("POST", {}),
+      ),
+    cancelDamageCase: (companyId, caseId) =>
+      request(
+        damageCaseSchema,
+        `${company(companyId)}/damage-cases/${id(caseId)}/cancel`,
+        write("POST", {}),
+      ),
   };
+
+  async function download(path: string, fallbackName: string) {
+    const response = await send(`/api/v1${path}`, {});
+    if (!response.ok) {
+      const error = await failure(response);
+      if (error.code === "UNAUTHENTICATED") onUnauthenticated();
+      throw error;
+    }
+    const disposition = response.headers.get("content-disposition") ?? "";
+    const encoded = /filename\*=UTF-8''([^;]+)/i.exec(disposition)?.[1];
+    return {
+      fileName: encoded ? decodeURIComponent(encoded) : fallbackName,
+      file: await response.blob(),
+    };
+  }
 }
 
 const configLists: Record<ConfigListId, { path: string; schema: z.ZodType }> = {

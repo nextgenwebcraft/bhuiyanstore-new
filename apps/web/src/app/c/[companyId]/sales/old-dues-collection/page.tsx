@@ -1,5 +1,5 @@
-import { OldDuesCollectionPage } from "@/features/sales/old-dues-page";
+import { MarketDuePage } from "@/features/daily/money-page";
 
-export default function OldDuesCollectionRoute() {
-  return <OldDuesCollectionPage />;
+export default function MarketDueRoute() {
+  return <MarketDuePage />;
 }

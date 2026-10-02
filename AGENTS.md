@@ -14,8 +14,9 @@ Before editing:
 3. Find the canonical owner of the fact/rule you are changing (guide §21.1) and change it once.
    Every calculation is owned by the month engine in `packages/domain` (PLAN §4).
 
-Current phase: **PLAN §9 Phase D — opening balances**, built; next Phase E daily entry (Phase A
-month engine and Phase B database/auth/API foundation done; Phase C masters built). The owner
+Current phase: **PLAN §9 Phase F — month view, reports and month close**, built; next Phase G
+staff/SR statements, payroll and damage legs (Phase A month engine and Phase B database/auth/API
+foundation done; Phases C masters, D opening and E daily entry built). The owner
 approved backend integration on 2026-10-02 (D30, [docs/client-approval.md](docs/client-approval.md)).
 Redis stays out until a measured need.
 

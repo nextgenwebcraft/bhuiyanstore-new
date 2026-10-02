@@ -1,30 +1,47 @@
 {
   "schemaVersion": 1,
   "mode": "demo",
-  "tenant": { "id": "tenant-demo", "name": "Distribution Demo" },
+  "tenant": {
+    "id": "tenant-demo",
+    "name": "Distribution Demo"
+  },
   "legalEntities": [
-    { "id": "entity-1", "name": "Demo Distributor", "currency": "BDT", "timezone": "Asia/Dhaka" }
+    {
+      "id": "entity-1",
+      "name": "Demo Distributor",
+      "currency": "BDT",
+      "timezone": "Asia/Dhaka"
+    }
   ],
   "companies": [
     {
       "id": "drinko",
       "legalEntityId": "entity-1",
       "name": "Drinko",
-      "theme": { "primary": "#B42318", "primaryForeground": "#FFFFFF" },
+      "theme": {
+        "primary": "#B42318",
+        "primaryForeground": "#FFFFFF"
+      },
       "modules": ["sales", "purchases", "inventory", "srAccounts", "dsrStaff", "finance", "reports"]
     },
     {
       "id": "demo-foods",
       "legalEntityId": "entity-1",
       "name": "Demo Foods",
-      "theme": { "primary": "#1D4ED8", "primaryForeground": "#FFFFFF" },
+      "theme": {
+        "primary": "#1D4ED8",
+        "primaryForeground": "#FFFFFF"
+      },
       "modules": ["sales", "purchases", "inventory", "finance", "reports"]
     },
     {
       "id": "demo-snacks",
       "legalEntityId": "entity-1",
       "name": "Demo Snacks",
-      "theme": { "primary": "#15803D", "primaryForeground": "#FFFFFF" },
+      "theme": {
+        "primary": "#15803D",
+        "primaryForeground": "#FFFFFF"
+      },
       "modules": ["sales", "inventory", "reports"]
     }
   ],
@@ -130,137 +147,22 @@
       "status": "active"
     }
   ],
-  "batches": [
-    {
-      "id": "batch-dr250-a",
-      "companyId": "drinko",
-      "productId": "drink-250",
-      "lotId": "DR250-A",
-      "receivedDate": "2026-01-05",
-      "expiryDate": "2026-12-31",
-      "location": "godown",
-      "unitCost": "18.500000",
-      "receivedQuantity": "480",
-      "availableQuantity": "480",
-      "reservedQuantity": "0",
-      "quarantineQuantity": "0"
-    },
-    {
-      "id": "batch-dr250-b",
-      "companyId": "drinko",
-      "productId": "drink-250",
-      "lotId": "DR250-B",
-      "receivedDate": "2026-02-10",
-      "expiryDate": "2027-01-31",
-      "location": "godown",
-      "unitCost": "19.750000",
-      "receivedQuantity": "240",
-      "availableQuantity": "240",
-      "reservedQuantity": "0",
-      "quarantineQuantity": "0"
-    },
-    {
-      "id": "batch-sd200-a",
-      "companyId": "drinko",
-      "productId": "sundrop-200",
-      "lotId": "SD200-A",
-      "receivedDate": "2026-01-15",
-      "expiryDate": "2026-11-30",
-      "location": "godown",
-      "unitCost": "14.250000",
-      "receivedQuantity": "576",
-      "availableQuantity": "576",
-      "reservedQuantity": "0",
-      "quarantineQuantity": "0"
-    },
-    {
-      "id": "batch-sd200-b",
-      "companyId": "drinko",
-      "productId": "sundrop-200",
-      "lotId": "SD200-B",
-      "receivedDate": "2026-03-01",
-      "location": "godown",
-      "unitCost": "14.900000",
-      "receivedQuantity": "240",
-      "availableQuantity": "240",
-      "reservedQuantity": "0",
-      "quarantineQuantity": "0"
-    },
-    {
-      "id": "batch-sdor250-a",
-      "companyId": "drinko",
-      "productId": "sundrop-orange-250",
-      "lotId": "SDOR250-A",
-      "receivedDate": "2026-02-20",
-      "expiryDate": "2026-10-15",
-      "location": "godown",
-      "unitCost": "15.100000",
-      "receivedQuantity": "288",
-      "availableQuantity": "216",
-      "reservedQuantity": "0",
-      "quarantineQuantity": "72"
-    },
-    {
-      "id": "batch-dr500-a",
-      "companyId": "drinko",
-      "productId": "drink-500",
-      "lotId": "DR500-A",
-      "receivedDate": "2026-01-20",
-      "expiryDate": "2027-06-30",
-      "location": "godown",
-      "unitCost": "32.400000",
-      "receivedQuantity": "180",
-      "availableQuantity": "180",
-      "reservedQuantity": "0",
-      "quarantineQuantity": "0"
-    },
-    {
-      "id": "batch-biscuit-a",
-      "companyId": "demo-foods",
-      "productId": "demo-biscuit",
-      "lotId": "DBIS-A",
-      "receivedDate": "2026-01-10",
-      "expiryDate": "2026-09-30",
-      "location": "godown",
-      "unitCost": "8.750000",
-      "receivedQuantity": "400",
-      "availableQuantity": "400",
-      "reservedQuantity": "0",
-      "quarantineQuantity": "0"
-    },
-    {
-      "id": "batch-wafer-a",
-      "companyId": "demo-foods",
-      "productId": "wafer-5",
-      "lotId": "WAF5-A",
-      "receivedDate": "2026-02-01",
-      "expiryDate": "2026-08-31",
-      "location": "godown",
-      "unitCost": "3.200000",
-      "receivedQuantity": "720",
-      "availableQuantity": "720",
-      "reservedQuantity": "0",
-      "quarantineQuantity": "0"
-    },
-    {
-      "id": "batch-noodles-a",
-      "companyId": "demo-snacks",
-      "productId": "mama-noodles-5",
-      "lotId": "MN5-A",
-      "receivedDate": "2026-01-25",
-      "expiryDate": "2027-01-25",
-      "location": "godown",
-      "unitCost": "4.500000",
-      "receivedQuantity": "960",
-      "availableQuantity": "960",
-      "reservedQuantity": "0",
-      "quarantineQuantity": "0"
-    }
-  ],
   "suppliers": [
-    { "id": "sup-drinko", "companyId": "drinko", "name": "Drinko Beverages Ltd. (ডেমো)" },
-    { "id": "sup-demo-foods", "companyId": "demo-foods", "name": "Demo Foods Ltd. (ডেমো)" },
-    { "id": "sup-demo-snacks", "companyId": "demo-snacks", "name": "Demo Snacks Ltd. (ডেমো)" }
+    {
+      "id": "sup-drinko",
+      "companyId": "drinko",
+      "name": "Drinko Beverages Ltd. (ডেমো)"
+    },
+    {
+      "id": "sup-demo-foods",
+      "companyId": "demo-foods",
+      "name": "Demo Foods Ltd. (ডেমো)"
+    },
+    {
+      "id": "sup-demo-snacks",
+      "companyId": "demo-snacks",
+      "name": "Demo Snacks Ltd. (ডেমো)"
+    }
   ],
   "staff": [
     {
@@ -269,48 +171,37 @@
       "kind": "dsr",
       "companyIds": ["drinko", "demo-foods"]
     },
-    { "id": "dsr-karim", "name": "করিম (ডেমো ডিএসআর)", "kind": "dsr", "companyIds": ["drinko"] },
+    {
+      "id": "dsr-karim",
+      "name": "করিম (ডেমো ডিএসআর)",
+      "kind": "dsr",
+      "companyIds": ["drinko"]
+    },
     {
       "id": "dsr-salam",
       "name": "সালাম (ডেমো ডিএসআর)",
       "kind": "dsr",
       "companyIds": ["demo-foods", "demo-snacks"]
     },
-    { "id": "sr-jamal", "name": "জামাল (ডেমো এসআর)", "kind": "sr", "companyIds": ["drinko"] },
-    { "id": "sr-kamal", "name": "কামাল (ডেমো এসআর)", "kind": "sr", "companyIds": ["demo-foods"] }
-  ],
-  "openingMarketDues": [
     {
-      "id": "open-due-1",
-      "companyId": "drinko",
-      "dsrId": "dsr-rahim",
-      "businessDate": "2026-09-20",
-      "amount": "1500.00"
+      "id": "sr-jamal",
+      "name": "জামাল (ডেমো এসআর)",
+      "kind": "sr",
+      "companyIds": ["drinko"]
     },
     {
-      "id": "open-due-2",
-      "companyId": "drinko",
-      "dsrId": "dsr-rahim",
-      "businessDate": "2026-09-25",
-      "amount": "800.00"
-    },
-    {
-      "id": "open-due-3",
-      "companyId": "drinko",
-      "dsrId": "dsr-karim",
-      "businessDate": "2026-09-22",
-      "amount": "1200.00"
-    },
-    {
-      "id": "open-due-4",
-      "companyId": "demo-foods",
-      "dsrId": "dsr-salam",
-      "businessDate": "2026-09-18",
-      "amount": "650.00"
+      "id": "sr-kamal",
+      "name": "কামাল (ডেমো এসআর)",
+      "kind": "sr",
+      "companyIds": ["demo-foods"]
     }
   ],
   "roles": [
-    { "id": "role-owner", "name": "মালিক", "permissions": "all" },
+    {
+      "id": "role-owner",
+      "name": "মালিক",
+      "permissions": "all"
+    },
     {
       "id": "role-manager",
       "name": "ম্যানেজার",
@@ -354,16 +245,49 @@
     }
   ],
   "users": [
-    { "id": "user-owner", "name": "মালিক (ডেমো)" },
-    { "id": "user-manager", "name": "ম্যানেজার (ডেমো)" },
-    { "id": "user-operator", "name": "ডিএসআর অপারেটর (ডেমো)" }
+    {
+      "id": "user-owner",
+      "name": "মালিক (ডেমো)"
+    },
+    {
+      "id": "user-manager",
+      "name": "ম্যানেজার (ডেমো)"
+    },
+    {
+      "id": "user-operator",
+      "name": "ডিএসআর অপারেটর (ডেমো)"
+    }
   ],
   "memberships": [
-    { "userId": "user-owner", "companyId": "drinko", "roleIds": ["role-owner"] },
-    { "userId": "user-owner", "companyId": "demo-foods", "roleIds": ["role-owner"] },
-    { "userId": "user-owner", "companyId": "demo-snacks", "roleIds": ["role-owner"] },
-    { "userId": "user-manager", "companyId": "drinko", "roleIds": ["role-manager"] },
-    { "userId": "user-manager", "companyId": "demo-foods", "roleIds": ["role-manager"] },
-    { "userId": "user-operator", "companyId": "drinko", "roleIds": ["role-dsr-operator"] }
+    {
+      "userId": "user-owner",
+      "companyId": "drinko",
+      "roleIds": ["role-owner"]
+    },
+    {
+      "userId": "user-owner",
+      "companyId": "demo-foods",
+      "roleIds": ["role-owner"]
+    },
+    {
+      "userId": "user-owner",
+      "companyId": "demo-snacks",
+      "roleIds": ["role-owner"]
+    },
+    {
+      "userId": "user-manager",
+      "companyId": "drinko",
+      "roleIds": ["role-manager"]
+    },
+    {
+      "userId": "user-manager",
+      "companyId": "demo-foods",
+      "roleIds": ["role-manager"]
+    },
+    {
+      "userId": "user-operator",
+      "companyId": "drinko",
+      "roleIds": ["role-dsr-operator"]
+    }
   ]
 }

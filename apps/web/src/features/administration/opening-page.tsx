@@ -38,6 +38,7 @@ import {
   useStaff,
 } from "@/data/queries";
 import { useService } from "@/data/service-context";
+import { downloadBlob } from "@/lib/download";
 import { NavGate } from "@/features/shell/nav-gate";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 
@@ -122,15 +123,6 @@ function requestOf(view: Opening, draft: Draft): OpeningSaveRequest {
 
 const isDirty = (view: Opening, draft: Draft) =>
   JSON.stringify(requestOf(view, draft)) !== JSON.stringify(requestOf(view, draftOf(view)));
-
-function downloadBlob(file: Blob, fileName: string) {
-  const url = URL.createObjectURL(file);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = fileName;
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
 
 // ---------------------------------------------------------------- small pieces
 

@@ -62,6 +62,13 @@ model Company {
   suppliers              Supplier[]
   staffAssignments       StaffAssignment[]
   opening                OpeningSession?
+  stockEntries           StockEntry[]
+  dsrDays                DsrDay[]
+  moneyEntries           MoneyEntry[]
+  monthCloses            MonthClose[]
+  payrollRuns            PayrollRun[]
+  damageCases            DamageCase[]
+  damageEvents           DamageEvent[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -245,6 +252,9 @@ model Product {
   packs        ProductPack[]
   prices       PriceChange[]
   openingStock OpeningStockLine[]
+  stockEntries StockEntry[]
+  dsrLines     DsrLine[]
+  damageLines  DamageCaseLine[]
 
   @@unique([companyId, sku])
   @@index([tenantId, companyId])
@@ -283,15 +293,16 @@ model PriceChange {
 // ---------------------------------------------------------------- parties
 
 model Supplier {
-  id        String   @id @default(cuid())
-  tenantId  String   @map("tenant_id")
-  companyId String   @map("company_id")
-  name      String
-  phone     String?
-  status    String   @default("active")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-  company   Company  @relation(fields: [companyId], references: [id])
+  id           String       @id @default(cuid())
+  tenantId     String       @map("tenant_id")
+  companyId    String       @map("company_id")
+  name         String
+  phone        String?
+  status       String       @default("active")
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+  company      Company      @relation(fields: [companyId], references: [id])
+  stockEntries StockEntry[]
 
   @@unique([companyId, name])
   @@map("supplier")
@@ -310,6 +321,10 @@ model Staff {
   tenant          Tenant               @relation(fields: [tenantId], references: [id])
   assignments     StaffAssignment[]
   openingBalances OpeningBalanceLine[]
+  dsrDays         DsrDay[]
+  moneyEntries    MoneyEntry[]
+  payrollLines    PayrollLine[]
+  damageCases     DamageCase[]
 
   @@index([tenantId])
   @@map("staff")
@@ -351,12 +366,13 @@ model StaffRole {
 }
 
 model ExpenseCategory {
-  id        String   @id @default(cuid())
-  tenantId  String   @map("tenant_id")
-  name      String
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now()) @map("created_at")
-  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  id           String       @id @default(cuid())
+  tenantId     String       @map("tenant_id")
+  name         String
+  active       Boolean      @default(true)
+  createdAt    DateTime     @default(now()) @map("created_at")
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  moneyEntries MoneyEntry[]
 
   @@unique([tenantId, name])
   @@map("expense_category")
@@ -446,4 +462,264 @@ model OpeningBalanceLine {
   @@unique([sessionId, kind, partyKey])
   @@index([cashAccountId])
   @@map("opening_balance_line")
+}
+
+// ---------------------------------------------------------------- daily entry (PLAN §2.2, §5)
+// Raw facts only; the month engine calculates everything else. Posted rows are immutable: a
+// correction reverses the row (status = reversed) and enters a new one.
+
+/// Godown facts per product and date: order (Excel C), receipt (G) or damage (N), in pieces.
+model StockEntry {
+  id           String    @id @default(cuid())
+  tenantId     String    @map("tenant_id")
+  companyId    String    @map("company_id")
+  date         DateTime  @db.Date
+  kind         String
+  productId    String    @map("product_id")
+  pieces       Decimal   @db.Decimal(20, 6)
+  supplierId   String?   @map("supplier_id")
+  reference    String    @default("")
+  lot          String?
+  expiry       DateTime? @db.Date
+  note         String    @default("")
+  status       String    @default("posted")
+  createdById  String    @map("created_by_id")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  reversedById String?   @map("reversed_by_id")
+  reversedAt   DateTime? @map("reversed_at")
+  company      Company   @relation(fields: [companyId], references: [id])
+  product      Product   @relation(fields: [productId], references: [id])
+  supplier     Supplier? @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, date])
+  @@map("stock_entry")
+}
+
+/// One DSR's day (D03): one live sheet per company, DSR and date (partial unique index in SQL).
+model DsrDay {
+  id                 String    @id @default(cuid())
+  tenantId           String    @map("tenant_id")
+  companyId          String    @map("company_id")
+  staffId            String    @map("staff_id")
+  date               DateTime  @db.Date
+  status             String    @default("draft")
+  version            Int       @default(1)
+  marketDueNew       Decimal   @default(0) @map("market_due_new") @db.Decimal(20, 2)
+  marketDueCollected Decimal   @default(0) @map("market_due_collected") @db.Decimal(20, 2)
+  note               String    @default("")
+  createdById        String    @map("created_by_id")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+  postedById         String?   @map("posted_by_id")
+  postedAt           DateTime? @map("posted_at")
+  reversedById       String?   @map("reversed_by_id")
+  reversedAt         DateTime? @map("reversed_at")
+  company            Company   @relation(fields: [companyId], references: [id])
+  staff              Staff     @relation(fields: [staffId], references: [id])
+  lines              DsrLine[]
+
+  @@index([companyId, date])
+  @@map("dsr_day")
+}
+
+/// Per product: Samari (issued), Firot (returned) and damaged pieces, with the carton-size snapshot.
+model DsrLine {
+  id              String          @id @default(cuid())
+  dsrDayId        String          @map("dsr_day_id")
+  productId       String          @map("product_id")
+  piecesPerCarton Int             @map("pieces_per_carton")
+  issued          Decimal         @default(0) @db.Decimal(20, 6)
+  returned        Decimal         @default(0) @db.Decimal(20, 6)
+  damaged         Decimal         @default(0) @db.Decimal(20, 6)
+  dsrDay          DsrDay          @relation(fields: [dsrDayId], references: [id], onDelete: Cascade)
+  product         Product         @relation(fields: [productId], references: [id])
+  splits          DsrPriceSplit[]
+
+  @@unique([dsrDayId, productId])
+  @@map("dsr_line")
+}
+
+/// Pieces sold at another price than the day's sale price (D06).
+model DsrPriceSplit {
+  id        String  @id @default(cuid())
+  lineId    String  @map("line_id")
+  quantity  Decimal @db.Decimal(20, 6)
+  unitPrice Decimal @map("unit_price") @db.Decimal(20, 6)
+  line      DsrLine @relation(fields: [lineId], references: [id], onDelete: Cascade)
+
+  @@map("dsr_price_split")
+}
+
+/// A typed money entry (D27): the kind decides the direction (MONEY_KIND_EFFECTS); amount > 0.
+model MoneyEntry {
+  id                String           @id @default(cuid())
+  tenantId          String           @map("tenant_id")
+  companyId         String           @map("company_id")
+  date              DateTime         @db.Date
+  kind              String
+  amount            Decimal          @db.Decimal(20, 2)
+  staffId           String?          @map("staff_id")
+  expenseCategoryId String?          @map("expense_category_id")
+  /// Named parts of a repayment, offset or salary recovery (NULL = advance → loan → shortage).
+  allocAdvance      Decimal?         @map("alloc_advance") @db.Decimal(20, 2)
+  allocLoan         Decimal?         @map("alloc_loan") @db.Decimal(20, 2)
+  allocShortage     Decimal?         @map("alloc_shortage") @db.Decimal(20, 2)
+  payrollRunId      String?          @map("payroll_run_id")
+  reference         String           @default("")
+  note              String           @default("")
+  status            String           @default("posted")
+  createdById       String           @map("created_by_id")
+  createdAt         DateTime         @default(now()) @map("created_at")
+  reversedById      String?          @map("reversed_by_id")
+  reversedAt        DateTime?        @map("reversed_at")
+  company           Company          @relation(fields: [companyId], references: [id])
+  staff             Staff?           @relation(fields: [staffId], references: [id], onDelete: Restrict)
+  expenseCategory   ExpenseCategory? @relation(fields: [expenseCategoryId], references: [id], onDelete: Restrict)
+  payrollRun        PayrollRun?      @relation(fields: [payrollRunId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, date])
+  @@index([staffId])
+  @@index([payrollRunId])
+  @@map("money_entry")
+}
+
+// ---------------------------------------------------------------- staff, payroll, damage (PLAN §9 Phase G)
+
+/// One salary run per company and month (D24, D25; one live run, partial unique index in SQL).
+/// draft → approved (salary and recovery posted as money entries) → paid (Cash Pabe posted).
+/// Reversing a run reverses every entry it posted; the run stays as history.
+model PayrollRun {
+  id           String        @id @default(cuid())
+  tenantId     String        @map("tenant_id")
+  companyId    String        @map("company_id")
+  month        String
+  /// Accrual date of salary and recovery (inside the month).
+  date         DateTime      @db.Date
+  status       String        @default("draft")
+  version      Int           @default(1)
+  payDate      DateTime?     @map("pay_date") @db.Date
+  note         String        @default("")
+  createdById  String        @map("created_by_id")
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+  approvedById String?       @map("approved_by_id")
+  approvedAt   DateTime?     @map("approved_at")
+  paidById     String?       @map("paid_by_id")
+  paidAt       DateTime?     @map("paid_at")
+  reversedById String?       @map("reversed_by_id")
+  reversedAt   DateTime?     @map("reversed_at")
+  company      Company       @relation(fields: [companyId], references: [id])
+  lines        PayrollLine[]
+  moneyEntries MoneyEntry[]
+
+  @@index([companyId, month])
+  @@map("payroll_run")
+}
+
+/// One person's salary and recovery in a run; Cash Pabe = salary − recovery (derived, D25).
+model PayrollLine {
+  id              String     @id @default(cuid())
+  runId           String     @map("run_id")
+  staffId         String     @map("staff_id")
+  salary          Decimal    @db.Decimal(20, 2)
+  recoverAdvance  Decimal    @default(0) @map("recover_advance") @db.Decimal(20, 2)
+  recoverLoan     Decimal    @default(0) @map("recover_loan") @db.Decimal(20, 2)
+  recoverShortage Decimal    @default(0) @map("recover_shortage") @db.Decimal(20, 2)
+  /// What the person owed on the run date, snapshotted at approval (the ledger then includes the recovery).
+  owedAdvance     Decimal?   @map("owed_advance") @db.Decimal(20, 2)
+  owedLoan        Decimal?   @map("owed_loan") @db.Decimal(20, 2)
+  owedShortage    Decimal?   @map("owed_shortage") @db.Decimal(20, 2)
+  /// False: the recovery follows the proposal and is recomputed at approval. True: a manager's
+  /// amount, re-checked at approval; needs a reason (guide §11.9).
+  override        Boolean    @default(false)
+  reason          String     @default("")
+  run             PayrollRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  staff           Staff      @relation(fields: [staffId], references: [id])
+
+  @@unique([runId, staffId])
+  @@map("payroll_line")
+}
+
+/// A damage case (D17, guide §9.7): damaged pieces received, with independent buyer and company
+/// legs recorded as events. Quantities only; Excel damage amounts are evidence, never inputs.
+model DamageCase {
+  id          String           @id @default(cuid())
+  tenantId    String           @map("tenant_id")
+  companyId   String           @map("company_id")
+  caseNumber  String           @map("case_number")
+  date        DateTime         @db.Date
+  origin      String
+  staffId     String?          @map("staff_id")
+  status      String           @default("open")
+  note        String           @default("")
+  createdById String           @map("created_by_id")
+  createdAt   DateTime         @default(now()) @map("created_at")
+  company     Company          @relation(fields: [companyId], references: [id])
+  staff       Staff?           @relation(fields: [staffId], references: [id], onDelete: Restrict)
+  lines       DamageCaseLine[]
+  events      DamageEvent[]
+
+  @@unique([companyId, caseNumber])
+  @@index([companyId, date])
+  @@map("damage_case")
+}
+
+model DamageCaseLine {
+  id        String        @id @default(cuid())
+  caseId    String        @map("case_id")
+  productId String        @map("product_id")
+  quantity  Decimal       @db.Decimal(20, 6)
+  case      DamageCase    @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  product   Product       @relation(fields: [productId], references: [id])
+  events    DamageEvent[]
+
+  @@unique([caseId, productId])
+  @@map("damage_case_line")
+}
+
+/// One physical action on a case line. Buyer replacement from godown stock and accepted company
+/// replacement move saleable stock (via the month engine); the other legs move damaged custody only.
+model DamageEvent {
+  id           String         @id @default(cuid())
+  tenantId     String         @map("tenant_id")
+  companyId    String         @map("company_id")
+  caseId       String         @map("case_id")
+  lineId       String         @map("line_id")
+  date         DateTime       @db.Date
+  kind         String
+  quantity     Decimal        @db.Decimal(20, 6)
+  /// Buyer replacement given from godown stock (not already on a DSR sheet's damage column).
+  fromStock    Boolean        @default(false) @map("from_stock")
+  /// Reviewed carrying cost per piece of a company replacement.
+  unitCost     Decimal?       @map("unit_cost") @db.Decimal(20, 6)
+  reference    String         @default("")
+  note         String         @default("")
+  status       String         @default("posted")
+  createdById  String         @map("created_by_id")
+  createdAt    DateTime       @default(now()) @map("created_at")
+  reversedById String?        @map("reversed_by_id")
+  reversedAt   DateTime?      @map("reversed_at")
+  company      Company        @relation(fields: [companyId], references: [id])
+  case         DamageCase     @relation(fields: [caseId], references: [id])
+  line         DamageCaseLine @relation(fields: [lineId], references: [id])
+
+  @@index([companyId, date])
+  @@index([caseId])
+  @@map("damage_event")
+}
+
+/// A closed month (PLAN §5): its closing snapshot is the next month's opening; postings dated in
+/// it are refused until an authorised user reopens it (the row is then deleted, audited).
+model MonthClose {
+  id         String   @id @default(cuid())
+  tenantId   String   @map("tenant_id")
+  companyId  String   @map("company_id")
+  month      String
+  closing    Json
+  closedById String   @map("closed_by_id")
+  closedAt   DateTime @default(now()) @map("closed_at")
+  company    Company  @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, month])
+  @@map("month_close")
 }

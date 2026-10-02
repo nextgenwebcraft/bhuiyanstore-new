@@ -83,10 +83,14 @@ export async function readBytes(request: Request, maxBytes: number): Promise<Uin
 
 /** An xlsx download; the name is ASCII-safe in `filename` and exact in `filename*`. */
 export function xlsxResponse(fileName: string, data: Uint8Array): Response {
+  return fileResponse(fileName, XLSX, data);
+}
+
+export function fileResponse(fileName: string, contentType: string, data: Uint8Array): Response {
   const ascii = fileName.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_");
   return new Response(data as unknown as BodyInit, {
     headers: {
-      "content-type": XLSX,
+      "content-type": contentType,
       "content-disposition": `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(fileName)}`,
       "cache-control": "no-store",
     },

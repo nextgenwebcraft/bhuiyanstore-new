@@ -49,6 +49,17 @@ export type ProductDayInput = {
   received?: DecimalInput;
   /** Damage recorded at product level (Excel column N); DSR lines may add their own. */
   damaged?: DecimalInput;
+  /**
+   * Good pieces handed to buyers straight from the godown for their damaged ones (D17). They
+   * leave stock and count in the damage value; unlike `damaged` they were never issued, so sold
+   * pieces and sales are unchanged.
+   */
+  replacedFromStock?: DecimalInput;
+  /**
+   * Company replacements for damaged goods, accepted into saleable stock (D17). No bill, no due
+   * from company and no payable; quantity × reviewed unit cost is the replacement recovery.
+   */
+  replacements?: readonly { quantity: DecimalInput; unitCost: DecimalInput }[];
   /** A price present here changes it from this day on (carry-forward). */
   orderPrice?: DecimalInput;
   costPrice?: DecimalInput;
@@ -88,6 +99,8 @@ export type MoneyKind =
   | "srRepayment"
   | "srOwed"
   | "srPayment"
+  | "staffOffset"
+  | "srOffset"
   | "supplierDeposit";
 
 export type OwedBucket = "advance" | "loan" | "shortage";
@@ -101,6 +114,8 @@ export type MoneyEntryInput = {
   category?: string;
   /** Explicit allocation for repayments and salary recovery; default advance → loan → shortage. */
   allocation?: Partial<Record<OwedBucket, DecimalInput>>;
+  /** Caller's reference (e.g. the posted entry's id), echoed on staff ledger lines. */
+  ref?: string;
 };
 
 export type DayInput = {
@@ -152,6 +167,8 @@ export type ProductDayResult = {
   receiptBill: string;
   receiptSale: string;
   damageValue: string;
+  replacedFromStock: string;
+  replacementReceived: string;
   dueFromCompany: string;
   stock: string;
   stockValue: string;
@@ -204,6 +221,9 @@ export type ProductMonthResult = {
   profitTotal: string;
   returnValue: string;
   damageValue: string;
+  replacedFromStock: string;
+  replacementReceived: string;
+  replacementValue: string;
   salesCartons: string;
   closingStock: string;
   closingValue: string;
@@ -238,6 +258,7 @@ export type MonthResult = {
     costTotal: string;
     profitTotal: string;
     damageValue: string;
+    replacementValue: string;
     closingValue: string;
   };
   persons: PersonMonthResult[];
@@ -283,9 +304,23 @@ export type MonthClosing = {
   companyPayable: string;
 };
 
+/** One money entry's effect on a person's account (D27 statement line), in posting order. */
+export type StaffEntryResult = {
+  date: string;
+  ref?: string;
+  staffId: StaffId;
+  kind: MoneyKind;
+  amount: string;
+  /** Signed change per balance made by this entry. */
+  change: StaffBalanceValues;
+  /** Balances after this entry. */
+  balances: StaffBalanceValues;
+};
+
 export type MonthOutput = {
   days: DayResult[];
   month: MonthResult;
   closing: MonthClosing;
+  staffEntries: StaffEntryResult[];
   warnings: EngineWarning[];
 };

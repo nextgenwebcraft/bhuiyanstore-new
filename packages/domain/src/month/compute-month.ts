@@ -13,6 +13,7 @@ import type {
   ProductId,
   StaffBalanceValues,
   StaffBalances,
+  StaffEntryResult,
   StaffId,
   StaffMonthResult,
 } from "./types";
@@ -88,6 +89,9 @@ type ProductTotals = {
   profitTotal: Decimal;
   returnValue: Decimal;
   damageValue: Decimal;
+  replacedFromStock: Decimal;
+  replacementReceived: Decimal;
+  replacementValue: Decimal;
 };
 
 function emptyProductTotals(): ProductTotals {
@@ -107,6 +111,9 @@ function emptyProductTotals(): ProductTotals {
     profitTotal: ZERO,
     returnValue: ZERO,
     damageValue: ZERO,
+    replacedFromStock: ZERO,
+    replacementReceived: ZERO,
+    replacementValue: ZERO,
   };
 }
 
@@ -195,6 +202,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
   let cashLeftTotal = ZERO;
 
   const days: DayResult[] = [];
+  const staffEntries: StaffEntryResult[] = [];
   let previousDate = "";
   for (const day of input.days) {
     if (!DATE_PATTERN.test(day.date)) throw new RangeError(`invalid date: ${day.date}`);
@@ -274,11 +282,23 @@ export function computeMonth(input: MonthInput): MonthOutput {
       const agg = lineAggregates.get(id);
       const ordered = dec(p?.ordered);
       const received = dec(p?.received);
+      const replacements = (p?.replacements ?? []).map((r) => ({
+        quantity: toDecimal(r.quantity),
+        unitCost: toDecimal(r.unitCost),
+      }));
+      for (const r of replacements) {
+        if (r.quantity.lte(0) || r.unitCost.isNegative()) {
+          throw new RangeError(`invalid replacement: ${id}`);
+        }
+      }
+      const replacementReceived = sum(replacements.map((r) => r.quantity));
+      const replacementValue = sum(replacements.map((r) => r.quantity.mul(r.unitCost)));
       const issued = agg?.issued ?? ZERO;
       const returned = agg?.returned ?? ZERO;
       const delivered = issued.sub(returned);
       const damaged = dec(p?.damaged).add(agg?.damaged ?? ZERO);
       const sold = delivered.sub(damaged);
+      const replacedFromStock = dec(p?.replacedFromStock);
 
       const priceFor = (kind: PriceKind, quantity: Decimal): Decimal => {
         const price = state.prices[kind];
@@ -289,14 +309,21 @@ export function computeMonth(input: MonthInput): MonthOutput {
         return price;
       };
       const orderPrice = priceFor("orderPrice", ordered.abs().add(received.abs()));
-      const costPrice = priceFor("costPrice", sold.abs().add(damaged.abs()));
+      const costPrice = priceFor(
+        "costPrice",
+        sold.abs().add(damaged.abs()).add(replacedFromStock.abs()),
+      );
       const salePrice = priceFor("salePrice", sold.abs().add(returned.abs()));
 
       const sales = sold.mul(salePrice).add(agg?.splitAdjustment ?? ZERO);
       const cost = sold.mul(costPrice);
       const grossProfit = sales.sub(cost);
       state.dueFromCompany = state.dueFromCompany.add(ordered).sub(received);
-      state.stock = state.stock.add(received).sub(delivered);
+      state.stock = state.stock
+        .add(received)
+        .add(replacementReceived)
+        .sub(delivered)
+        .sub(replacedFromStock);
       if (state.stock.isNegative()) {
         warn({ code: "NEGATIVE_STOCK", productId: id, detail: str(state.stock) });
       }
@@ -307,7 +334,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
       const receiptBill = received.mul(orderPrice);
       const receiptSale = received.mul(state.prices.salePrice ?? ZERO);
       const returnValue = returned.mul(state.prices.salePrice ?? ZERO);
-      const damageValue = damaged.mul(costPrice);
+      const damageValue = damaged.add(replacedFromStock).mul(costPrice);
       t.ordered = t.ordered.add(ordered);
       t.received = t.received.add(received);
       t.issued = t.issued.add(issued);
@@ -323,6 +350,9 @@ export function computeMonth(input: MonthInput): MonthOutput {
       t.profitTotal = t.profitTotal.add(grossProfit);
       t.returnValue = t.returnValue.add(returnValue);
       t.damageValue = t.damageValue.add(damageValue);
+      t.replacedFromStock = t.replacedFromStock.add(replacedFromStock);
+      t.replacementReceived = t.replacementReceived.add(replacementReceived);
+      t.replacementValue = t.replacementValue.add(replacementValue);
       companyReceipts = companyReceipts.add(receiptBill);
       companyPayable = companyPayable.add(receiptBill);
       daySales = daySales.add(sales);
@@ -351,6 +381,8 @@ export function computeMonth(input: MonthInput): MonthOutput {
         receiptBill: str(receiptBill),
         receiptSale: str(receiptSale),
         damageValue: str(damageValue),
+        replacedFromStock: str(replacedFromStock),
+        replacementReceived: str(replacementReceived),
         dueFromCompany: str(state.dueFromCompany),
         stock: str(state.stock),
         stockValue: str(stockValue),
@@ -406,6 +438,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
 
       if (effect.staff && entry.staffId) {
         const b = staffOf(entry.staffId);
+        const before = { ...b };
         if (effect.staff.balance === "owed") {
           const left = reduceOwed(b, amount, entry.allocation);
           if (left.gt(0)) {
@@ -426,6 +459,17 @@ export function computeMonth(input: MonthInput): MonthOutput {
             warn({ code: "NEGATIVE_BALANCE", staffId: entry.staffId, detail: key });
           }
         }
+        const change = emptyBalances();
+        for (const key of BALANCE_KEYS) change[key] = b[key].sub(before[key]);
+        staffEntries.push({
+          date: day.date,
+          ...(entry.ref === undefined ? {} : { ref: entry.ref }),
+          staffId: entry.staffId,
+          kind: entry.kind,
+          amount: str(amount),
+          change: balanceStrings(change),
+          balances: balanceStrings(b),
+        });
       }
     }
     for (const [key, value] of marketDue) {
@@ -479,6 +523,9 @@ export function computeMonth(input: MonthInput): MonthOutput {
       profitTotal: str(t.profitTotal),
       returnValue: str(t.returnValue),
       damageValue: str(t.damageValue),
+      replacedFromStock: str(t.replacedFromStock),
+      replacementReceived: str(t.replacementReceived),
+      replacementValue: str(t.replacementValue),
       salesCartons: cartons(t.delivered, p.id),
       closingStock: str(s.stock),
       closingValue: str(s.stock.mul(s.prices.costPrice ?? ZERO)),
@@ -552,6 +599,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
         costTotal: str(sum(allTotals.map((t) => t.costTotal))),
         profitTotal: str(gross),
         damageValue: str(sum(allTotals.map((t) => t.damageValue))),
+        replacementValue: str(sum(allTotals.map((t) => t.replacementValue))),
         closingValue: str(closingValue),
       },
       persons: personMonth,
@@ -583,6 +631,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
       cashLeftTotal: str(cashLeftTotal),
     },
     closing,
+    staffEntries,
     warnings,
   };
 }

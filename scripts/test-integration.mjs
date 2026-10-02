@@ -36,4 +36,6 @@ const root = new URL("..", import.meta.url);
 run(["exec", "prisma", "migrate", "deploy"], new URL("packages/database/", root), {
   PRISMA_MIGRATE_URL: url,
 });
-run(["exec", "vitest", "run", "--config", "vitest.integration.config.ts"], root);
+// Extra arguments are Vitest file filters, e.g. `pnpm test:integration phase-e`.
+const filters = process.argv.slice(2).filter((a) => /^[\w.-]+$/.test(a));
+run(["exec", "vitest", "run", "--config", "vitest.integration.config.ts", ...filters], root);

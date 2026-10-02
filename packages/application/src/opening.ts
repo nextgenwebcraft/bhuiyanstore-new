@@ -32,23 +32,14 @@ import type { AppContext, Tx } from "./context";
 import { fromDbDate, toDbDate, todayInDhaka } from "./dates";
 import { AppError, parseInput, type FieldError } from "./errors";
 import { runIdempotent } from "./idempotency";
+import { plain } from "./numeric";
 import { packOn } from "./products";
 
 export const MAX_OPENING_WORKBOOK_BYTES = MAX_WORKBOOK_BYTES;
 
 type Db = AppContext["db"] | Tx;
-type DecimalLike = { toFixed(): string } | null;
 
 const invalid = (path: string, code: string) => new AppError("VALIDATION_FAILED", [{ path, code }]);
-
-/** NUMERIC as a plain decimal string ("100.000000" → "100", "23.480000" → "23.48"). */
-function plain(value: DecimalLike): string | null {
-  if (value === null) return null;
-  return value
-    .toFixed()
-    .replace(/(\.\d*?)0+$/, "$1")
-    .replace(/\.$/, "");
-}
 
 const WHOLE = /^(0|[1-9]\d*)$/;
 const UNIT_PRICE = /^\d+(\.\d{1,6})?$/;

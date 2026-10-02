@@ -8,6 +8,7 @@ export {
   type SheetReadResult,
 } from "./month-sheet";
 export { compareWithSaved, type CheckResult, type Difference } from "./compare";
+export { buildReportWorkbook, reportCsv, type ExportableReport } from "./report-export";
 export {
   MAX_WORKBOOK_BYTES,
   buildOpeningTemplate,

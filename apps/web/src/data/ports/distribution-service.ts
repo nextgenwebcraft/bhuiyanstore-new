@@ -1,23 +1,30 @@
 import type {
-  Batch,
   CashAccount,
   CashAccountUpsertRequest,
   CompanyUpsertRequest,
   CompanyWorkspace,
-  DailySalesSummary,
-  DailySalesSummaryPostRequest,
+  DamageCase,
+  DamageCaseCreateRequest,
+  DamageEventRequest,
   DashboardSummary,
+  DayView,
+  DocumentTransitionRequest,
+  DsrDay,
+  DsrDaySaveRequest,
   ExpenseCategory,
   ExpenseCategoryUpsertRequest,
-  GoodsReceipt,
-  GoodsReceiptPostRequest,
-  MarketDueItem,
-  OldDueCollection,
-  OldDueCollectionPostRequest,
+  MoneyEntry,
+  MoneyEntryPostRequest,
+  MonthCloseResult,
+  MonthView,
   Opening,
   OpeningSaveRequest,
   OpeningTransitionRequest,
   OpeningWorkbookSheets,
+  PayrollAction,
+  PayrollRun,
+  PayrollSaveRequest,
+  PayrollTransitionRequest,
   PriceChange,
   PriceChangeRequest,
   Product,
@@ -25,15 +32,23 @@ import type {
   ProductHistory,
   ProductPack,
   ProductPackRequest,
+  Report,
+  ReportId,
+  ReportRange,
   Role,
   RoleUpsertRequest,
+  StaffAccountKind,
+  StaffAccounts,
   StaffAssignmentRequest,
   StaffCreateRequest,
   StaffMember,
   StaffRecord,
   StaffRole,
   StaffRoleUpsertRequest,
+  StaffStatement,
   StaffUpsertRequest,
+  StockEntry,
+  StockEntryPostRequest,
   Supplier,
   SupplierUpsertRequest,
   User,
@@ -73,57 +88,132 @@ export interface DistributionService {
     input: ProductCreateRequest,
     options?: RequestOptions,
   ): Promise<Product>;
-  /** Requires `inventory.view`. Quantities are derived from posted stock movements. */
-  listBatches(companyId: string, options?: RequestOptions): Promise<Batch[]>;
   /** Requires `company.view`. */
   listSuppliers(companyId: string, options?: RequestOptions): Promise<Supplier[]>;
   /** Requires `company.view`. SR and DSR people assigned to this company. */
   listStaff(companyId: string, options?: RequestOptions): Promise<StaffMember[]>;
-  /** Requires the purchases module and `purchase.view`. */
-  listGoodsReceipts(companyId: string, options?: RequestOptions): Promise<GoodsReceipt[]>;
   /**
-   * Posts a receipt atomically, creating one cost layer per line. `purchase` requires
-   * `purchase.post`; `supplier_incentive` requires `supplier_incentive.receive` (D16).
+   * The daily report for one business date (`YYYY-MM-DD`), from the month engine; requires
+   * `company.view`. Profit and stock value need their own permissions.
    */
-  postGoodsReceipt(
-    companyId: string,
-    input: GoodsReceiptPostRequest,
-    options?: RequestOptions,
-  ): Promise<GoodsReceipt>;
-  /** Requires the sales module and `sale.view`. Cost fields need `inventory.cost_view`. */
-  listDailySalesSummaries(
-    companyId: string,
-    options?: RequestOptions,
-  ): Promise<DailySalesSummary[]>;
-  /**
-   * Requires `sale.post`. One summary per company/DSR/date (D03, DUPLICATE_DOCUMENT); batches are
-   * allocated FEFO/FIFO (D05) and an uncovered quantity fails with INSUFFICIENT_STOCK.
-   */
-  postDailySalesSummary(
-    companyId: string,
-    input: DailySalesSummaryPostRequest,
-    options?: RequestOptions,
-  ): Promise<DailySalesSummary>;
-  /** Requires the sales module and `sale.view`. */
-  listMarketDues(companyId: string, options?: RequestOptions): Promise<MarketDueItem[]>;
-  /** Requires the sales module and `sale.view`. */
-  listOldDueCollections(companyId: string, options?: RequestOptions): Promise<OldDueCollection[]>;
-  /**
-   * Requires `collection.post`. Allocates oldest-first to the DSR's open market dues; an amount
-   * above the open total fails with AMOUNT_EXCEEDS_DUE.
-   */
-  postOldDueCollection(
-    companyId: string,
-    input: OldDueCollectionPostRequest,
-    options?: RequestOptions,
-  ): Promise<OldDueCollection>;
-  /** Requires `company.view`; profit/stock value need their own permissions. */
-  /** The daily report for one business date (`YYYY-MM-DD`); requires `company.view`. */
   getDashboardSummary(
     companyId: string,
     date: string,
     options?: RequestOptions,
   ): Promise<DashboardSummary>;
+
+  // Daily entry (PLAN §9 Phase E). Posted documents are corrected by reversal, never edited.
+
+  /** The engine's day block (PLAN §6); cost and profit are null without their permissions. */
+  getDayView(companyId: string, date: string, options?: RequestOptions): Promise<DayView>;
+  /** Requires `purchase.view`: the date's godown entries, reversed ones included. */
+  listStockEntries(
+    companyId: string,
+    date: string,
+    options?: RequestOptions,
+  ): Promise<StockEntry[]>;
+  /** Orders, receipts and damage of one date plus price changes from that date. */
+  postStockEntries(companyId: string, input: StockEntryPostRequest): Promise<StockEntry[]>;
+  /** Requires `purchase.reverse`. */
+  reverseStockEntry(companyId: string, entryId: string): Promise<StockEntry>;
+  /** Requires `sale.view`: every DSR sheet of the date. */
+  listDsrDays(companyId: string, date: string, options?: RequestOptions): Promise<DsrDay[]>;
+  /** Requires `sale.create`: creates (version 0) or replaces the DSR's draft for the date. */
+  saveDsrDay(companyId: string, input: DsrDaySaveRequest): Promise<DsrDay>;
+  /** Requires `sale.post`. */
+  postDsrDay(companyId: string, dayId: string, input: DocumentTransitionRequest): Promise<DsrDay>;
+  /** Requires `sale.reverse`. */
+  reverseDsrDay(
+    companyId: string,
+    dayId: string,
+    input: DocumentTransitionRequest,
+  ): Promise<DsrDay>;
+  /** Requires `sale.create`; drafts only. */
+  discardDsrDay(companyId: string, dayId: string, input: DocumentTransitionRequest): Promise<void>;
+  /** Market due kinds need `sale.view`, the others `finance.view`; only visible kinds return. */
+  listMoneyEntries(
+    companyId: string,
+    query: { from: string; to?: string; staffId?: string },
+    options?: RequestOptions,
+  ): Promise<MoneyEntry[]>;
+  /** The permission depends on the entry type (D27). */
+  postMoneyEntry(companyId: string, input: MoneyEntryPostRequest): Promise<MoneyEntry>;
+  /** Requires `payment.reverse`. */
+  reverseMoneyEntry(companyId: string, entryId: string): Promise<MoneyEntry>;
+
+  // Month view, reports and closing (PLAN §9 Phase F). The demo mock has none.
+
+  /** Requires `report.view`: the engine's month (`YYYY-MM`) with its close state. */
+  getMonthView(companyId: string, month: string, options?: RequestOptions): Promise<MonthView>;
+  /** Requires `period.close`. */
+  closeMonth(companyId: string, month: string): Promise<MonthCloseResult>;
+  /** Requires `period.close`; only the latest closed month. */
+  reopenMonth(companyId: string, month: string): Promise<MonthCloseResult>;
+  /** Requires `report.view` (profit also `report.profit_view`, staff balances `finance.view`). */
+  getReport(
+    companyId: string,
+    report: ReportId,
+    range: ReportRange,
+    options?: RequestOptions,
+  ): Promise<Report>;
+  /** Requires `report.export`. */
+  downloadReport(
+    companyId: string,
+    report: ReportId,
+    range: ReportRange,
+    format: "csv" | "xlsx",
+  ): Promise<{ fileName: string; file: Blob }>;
+
+  // Staff/SR accounts, payroll and damage cases (PLAN §9 Phase G). The demo mock has none.
+
+  /** Distributor accounts need `finance.view`; SR accounts `finance.view` or `sr_loan.view`. */
+  getStaffAccounts(
+    companyId: string,
+    query: { kind: StaffAccountKind; date?: string },
+    options?: RequestOptions,
+  ): Promise<StaffAccounts>;
+  /** One person's ledger lines over the range, with opening and closing balances. */
+  getStaffStatement(
+    companyId: string,
+    staffId: string,
+    range: ReportRange,
+    options?: RequestOptions,
+  ): Promise<StaffStatement>;
+  /** Also requires `report.export`. */
+  downloadStaffStatement(
+    companyId: string,
+    staffId: string,
+    range: ReportRange,
+    format: "csv" | "xlsx",
+  ): Promise<{ fileName: string; file: Blob }>;
+  /** Requires `compensation.view`: the month's live run, or a proposal when there is none. */
+  getPayrollRun(companyId: string, month: string, options?: RequestOptions): Promise<PayrollRun>;
+  /** Requires `compensation.manage`; creates (version 0) or replaces the draft. */
+  savePayrollRun(companyId: string, month: string, input: PayrollSaveRequest): Promise<PayrollRun>;
+  /** approve | pay | reverse | discard, each with its own permissions. */
+  payrollCommand(
+    companyId: string,
+    month: string,
+    action: PayrollAction,
+    input: PayrollTransitionRequest,
+  ): Promise<PayrollRun>;
+  /** Any of `damage.report`, `damage.claim_settle`, `damage.approve`. */
+  listDamageCases(
+    companyId: string,
+    query: { status?: "open" },
+    options?: RequestOptions,
+  ): Promise<DamageCase[]>;
+  /** Requires `damage.report`. */
+  createDamageCase(companyId: string, input: DamageCaseCreateRequest): Promise<DamageCase>;
+  /** The permission depends on the leg (guide §12.2). */
+  postDamageEvent(
+    companyId: string,
+    caseId: string,
+    input: DamageEventRequest,
+  ): Promise<DamageCase>;
+  reverseDamageEvent(companyId: string, eventId: string): Promise<DamageCase>;
+  /** Requires `damage.report`; only while no leg is posted. */
+  cancelDamageCase(companyId: string, caseId: string): Promise<DamageCase>;
 
   // Masters and configuration (PLAN §9 Phase C). The demo mock answers reads only.
 

@@ -1,0 +1,232 @@
+import { z } from "zod";
+import { engineWarningSchema } from "./daily";
+import { businessDateSchema, decimalStringSchema, idSchema } from "./primitives";
+
+/**
+ * Month view, period close and range reports (PLAN §2.5, §6, §9 Phase F). Every figure is a
+ * projection of one month-engine run; nothing here is a stored total.
+ */
+
+export const monthSchema = z
+  .string()
+  .regex(/^\d{4}-(0[1-9]|1[0-2])$/, { message: "validation.month.invalid" });
+
+const money = decimalStringSchema;
+/** Null without `inventory.cost_view` (profit figures also need `report.profit_view`). */
+const costMoney = decimalStringSchema.nullable();
+
+export const monthStatuses = ["open", "closed", "beforeOpening", "future", "noOpening"] as const;
+export type MonthStatus = (typeof monthStatuses)[number];
+
+export const monthProductRowSchema = z.object({
+  productId: idSchema,
+  sku: z.string(),
+  productName: z.string(),
+  piecesPerCarton: z.string(),
+  ordered: money,
+  received: money,
+  issued: money,
+  returned: money,
+  delivered: money,
+  damaged: money,
+  sold: money,
+  orderTotal: money,
+  receiptTotal: money,
+  salesTotal: money,
+  costTotal: costMoney,
+  profitTotal: costMoney,
+  returnValue: money,
+  damageValue: costMoney,
+  /** Pieces given to buyers from the godown for damaged ones (D17); part of the damage value. */
+  replacedFromStock: money,
+  /** Company replacement pieces received for damage claims (D17); no bill, no payable. */
+  replacementReceived: money,
+  replacementValue: costMoney,
+  salesCartons: money,
+  closingStock: money,
+  closingValue: costMoney,
+  closingAtSale: money,
+  closingCartons: money,
+  dueFromCompany: money,
+  dueFromCompanyValue: money,
+});
+
+export type MonthProductRow = z.infer<typeof monthProductRowSchema>;
+
+export const monthDayRowSchema = z.object({
+  date: businessDateSchema,
+  sales: money,
+  marketDueNew: money,
+  marketDueCollected: money,
+  srIncentive: money,
+  expenses: money,
+  cashIn: money,
+  cashOut: money,
+  cashLeft: money,
+  banked: money,
+});
+
+export const staffBalanceKeys = [
+  "advance",
+  "loan",
+  "shortage",
+  "credit",
+  "salaryPayable",
+  "srLoan",
+  "owedToSr",
+] as const;
+export type StaffBalanceKey = (typeof staffBalanceKeys)[number];
+
+export const staffBalancesSchema = z.object(
+  Object.fromEntries(staffBalanceKeys.map((k) => [k, money])) as Record<
+    StaffBalanceKey,
+    typeof money
+  >,
+);
+export type StaffBalancesDto = z.infer<typeof staffBalancesSchema>;
+
+export const monthStaffRowSchema = z.object({
+  staffId: idSchema,
+  staffName: z.string(),
+  opening: staffBalancesSchema,
+  closing: staffBalancesSchema,
+  owesUs: money,
+  weOwe: money,
+});
+
+export const monthViewSchema = z.object({
+  month: monthSchema,
+  status: z.enum(monthStatuses),
+  cutoffDate: businessDateSchema.nullable(),
+  /** First and last date the figures cover (go-live month starts at the cutoff; the current month ends today). */
+  from: businessDateSchema.nullable(),
+  to: businessDateSchema.nullable(),
+  closedAt: z.string().nullable(),
+  closedByName: z.string().nullable(),
+  canClose: z.boolean(),
+  /** Why closing is refused right now (an i18n key), when the actor may close. */
+  closeBlockedBy: z.string().nullable(),
+  canReopen: z.boolean(),
+  products: z.array(monthProductRowSchema),
+  totals: z.object({
+    orderTotal: money,
+    receiptTotal: money,
+    salesTotal: money,
+    costTotal: costMoney,
+    profitTotal: costMoney,
+    damageValue: costMoney,
+    replacementValue: costMoney,
+    closingValue: costMoney,
+  }),
+  days: z.array(monthDayRowSchema),
+  marketDue: z.object({
+    opening: money,
+    added: money,
+    collected: money,
+    closing: money,
+    byDsr: z.array(
+      z.object({
+        staffId: z.string(),
+        staffName: z.string(),
+        opening: money,
+        added: money,
+        collected: money,
+        closing: money,
+      }),
+    ),
+  }),
+  staff: z.array(monthStaffRowSchema),
+  companyPayable: z.object({ opening: money, receipts: money, deposits: money, closing: money }),
+  /** Requires `report.profit_view` (and cost view). */
+  profit: z
+    .object({
+      gross: money,
+      salaries: money,
+      expenses: money,
+      expensesByCategory: z.array(z.object({ name: z.string(), amount: money })),
+      srIncentive: money,
+      net: money,
+      netWithoutIncentive: money,
+    })
+    .nullable(),
+  cashLeftTotal: money,
+  warnings: z.array(engineWarningSchema),
+  canSeeCost: z.boolean(),
+  canSeeProfit: z.boolean(),
+});
+
+export type MonthView = z.infer<typeof monthViewSchema>;
+
+export const monthCloseResultSchema = z.object({
+  month: monthSchema,
+  status: z.enum(["closed", "open"]),
+});
+
+export type MonthCloseResult = z.infer<typeof monthCloseResultSchema>;
+
+export const reportRangeSchema = z.object({ from: businessDateSchema, to: businessDateSchema });
+export type ReportRange = z.infer<typeof reportRangeSchema>;
+
+// ---------------------------------------------------------------- range reports
+
+export const reportIds = [
+  "stock",
+  "sales",
+  "profit",
+  "market-due",
+  "company-due",
+  "damage",
+  "cartons",
+  "person-sales",
+  "staff-balances",
+  "daily-cash",
+] as const;
+export type ReportId = (typeof reportIds)[number];
+
+/**
+ * How a column is shown and exported. `quantity` is pieces (shown as cartons/pieces with the
+ * row's size); `cartons` is a carton count; `label` is an i18n key, or plain text when it is not
+ * one (e.g. an expense category name).
+ */
+export const reportColumnKinds = ["text", "label", "quantity", "cartons", "money", "rate"] as const;
+export type ReportColumnKind = (typeof reportColumnKinds)[number];
+
+export const reportQuerySchema = reportRangeSchema.refine((q) => q.from <= q.to, {
+  message: "validation.period.endBeforeStart",
+  path: ["to"],
+});
+
+export const reportTableSchema = z.object({
+  /** An i18n key for the table heading. */
+  title: z.string(),
+  columns: z.array(
+    z.object({
+      key: z.string(),
+      /** An i18n key. */
+      label: z.string(),
+      kind: z.enum(reportColumnKinds),
+    }),
+  ),
+  rows: z.array(
+    z.object({
+      /** Carton size for `quantity` columns of this row. */
+      piecesPerCarton: z.string().optional(),
+      cells: z.record(z.string(), z.string().nullable()),
+    }),
+  ),
+  /** Totals the engine itself produces (never summed here); keyed by column. */
+  totals: z.record(z.string(), z.string().nullable()).nullable(),
+});
+
+export type ReportTable = z.infer<typeof reportTableSchema>;
+
+export const reportSchema = z.object({
+  report: z.enum(reportIds),
+  from: businessDateSchema,
+  to: businessDateSchema,
+  cutoffDate: businessDateSchema.nullable(),
+  tables: z.array(reportTableSchema),
+  warnings: z.array(engineWarningSchema),
+});
+
+export type Report = z.infer<typeof reportSchema>;

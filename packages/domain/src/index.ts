@@ -34,5 +34,27 @@ export {
   type OpeningStockInput,
 } from "./opening";
 export { computeMonth } from "./month/compute-month";
+export { summarizeDay, type DaySummary, type DsrDaySummary } from "./month/day-summary";
 export { MONEY_KIND_EFFECTS, type MoneyKindEffect } from "./month/money-kinds";
+export {
+  RECOVERY_ORDER,
+  cashPay,
+  checkRecovery,
+  proposeRecovery,
+  recoveryTotal,
+  type OwedInput,
+  type Recovery,
+  type RecoveryIssue,
+} from "./month/payroll";
+export {
+  damageCaseSettled,
+  damageEventError,
+  damageEventKinds,
+  damageLineProgress,
+  damageOrigins,
+  type DamageEventError,
+  type DamageEventKind,
+  type DamageLineProgress,
+  type DamageOrigin,
+} from "./month/damage-case";
 export type * from "./month/types";

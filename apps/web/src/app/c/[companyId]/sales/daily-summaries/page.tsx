@@ -1,5 +1,5 @@
-import { DailySummariesPage } from "@/features/sales/summaries-page";
+import { DsrDaysPage } from "@/features/daily/dsr-days-page";
 
-export default function DailySummariesRoute() {
-  return <DailySummariesPage />;
+export default function DsrDaysRoute() {
+  return <DsrDaysPage />;
 }

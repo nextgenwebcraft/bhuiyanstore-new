@@ -18,20 +18,10 @@ export const queryKeys = {
     companyResource(actorId, companyId, resourceIds.companyWorkspace),
   products: (actorId: string, companyId: string) =>
     companyResource(actorId, companyId, resourceIds.product),
-  batches: (actorId: string, companyId: string) =>
-    companyResource(actorId, companyId, resourceIds.batch),
   suppliers: (actorId: string, companyId: string) =>
     companyResource(actorId, companyId, resourceIds.supplier),
   staff: (actorId: string, companyId: string) =>
     companyResource(actorId, companyId, resourceIds.staffMember),
-  goodsReceipts: (actorId: string, companyId: string) =>
-    companyResource(actorId, companyId, resourceIds.goodsReceipt),
-  dailySalesSummaries: (actorId: string, companyId: string) =>
-    companyResource(actorId, companyId, resourceIds.dailySalesSummary),
-  marketDues: (actorId: string, companyId: string) =>
-    companyResource(actorId, companyId, resourceIds.marketDue),
-  oldDueCollections: (actorId: string, companyId: string) =>
-    companyResource(actorId, companyId, resourceIds.oldDueCollection),
   dashboardSummary: (actorId: string, companyId: string, date: string) =>
     [...companyResource(actorId, companyId, resourceIds.dashboardSummary), date] as const,
   productHistory: (actorId: string, companyId: string, productId: string) =>
@@ -40,6 +30,38 @@ export const queryKeys = {
     companyResource(actorId, companyId, resourceIds.staffRecord),
   opening: (actorId: string, companyId: string) =>
     companyResource(actorId, companyId, resourceIds.opening),
+  dayView: (actorId: string, companyId: string, date: string) =>
+    [...companyResource(actorId, companyId, resourceIds.ledger), "day", date] as const,
+  stockEntries: (actorId: string, companyId: string, date: string) =>
+    [...companyResource(actorId, companyId, resourceIds.stockEntry), date] as const,
+  dsrDays: (actorId: string, companyId: string, date: string) =>
+    [...companyResource(actorId, companyId, resourceIds.dsrDay), date] as const,
+  moneyEntries: (actorId: string, companyId: string, from: string, to: string, staffId: string) =>
+    [...companyResource(actorId, companyId, resourceIds.moneyEntry), from, to, staffId] as const,
+  monthView: (actorId: string, companyId: string, month: string) =>
+    [...companyResource(actorId, companyId, resourceIds.ledger), "month", month] as const,
+  report: (actorId: string, companyId: string, report: string, from: string, to: string) =>
+    [
+      ...companyResource(actorId, companyId, resourceIds.ledger),
+      "report",
+      report,
+      from,
+      to,
+    ] as const,
+  staffAccounts: (actorId: string, companyId: string, kind: string, date: string) =>
+    [...companyResource(actorId, companyId, resourceIds.ledger), "accounts", kind, date] as const,
+  staffStatement: (actorId: string, companyId: string, staffId: string, from: string, to: string) =>
+    [
+      ...companyResource(actorId, companyId, resourceIds.ledger),
+      "statement",
+      staffId,
+      from,
+      to,
+    ] as const,
+  payrollRun: (actorId: string, companyId: string, month: string) =>
+    [...companyResource(actorId, companyId, resourceIds.payrollRun), month] as const,
+  damageCases: (actorId: string, companyId: string, status: string) =>
+    [...companyResource(actorId, companyId, resourceIds.damageCase), status] as const,
   /** Tenant-level lists and administration are scoped by actor only. */
   tenant: (actorId: string, resource: ResourceId) =>
     [...queryKeys.actor(actorId), "tenant", resource] as const,
@@ -47,21 +69,31 @@ export const queryKeys = {
 
 /**
  * Resources each posting command writes (guide 21.4 "downstream resource invalidations"). One
- * owner, so a screen cannot forget to refresh a dependent view after posting.
+ * owner, so a screen cannot forget to refresh a dependent view after posting. Every posting
+ * changes the engine output, so the ledger and dashboard always refresh.
  */
 export const postingEffects = {
-  goodsReceipt: [resourceIds.goodsReceipt, resourceIds.batch, resourceIds.dashboardSummary],
-  dailySalesSummary: [
-    resourceIds.dailySalesSummary,
-    resourceIds.batch,
-    resourceIds.marketDue,
+  stock: [
+    resourceIds.stockEntry,
+    resourceIds.productHistory,
+    resourceIds.ledger,
     resourceIds.dashboardSummary,
   ],
-  oldDueCollection: [
-    resourceIds.oldDueCollection,
-    resourceIds.marketDue,
+  dsrDay: [resourceIds.dsrDay, resourceIds.ledger, resourceIds.dashboardSummary],
+  money: [
+    resourceIds.moneyEntry,
+    resourceIds.payrollRun,
+    resourceIds.ledger,
     resourceIds.dashboardSummary,
   ],
+  payroll: [
+    resourceIds.payrollRun,
+    resourceIds.moneyEntry,
+    resourceIds.ledger,
+    resourceIds.dashboardSummary,
+  ],
+  damage: [resourceIds.damageCase, resourceIds.ledger, resourceIds.dashboardSummary],
+  monthClose: [resourceIds.ledger, resourceIds.payrollRun],
 } as const satisfies Record<string, readonly ResourceId[]>;
 
 export function resourceKey(actorId: string, companyId: string, resource: ResourceId) {

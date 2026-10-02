@@ -1,5 +1,5 @@
-import { GodownStockPage } from "@/features/inventory/godown-stock-page";
+import { StockPage } from "@/features/daily/day-report-page";
 
-export default function GodownStockRoute() {
-  return <GodownStockPage />;
+export default function StockRoute() {
+  return <StockPage />;
 }

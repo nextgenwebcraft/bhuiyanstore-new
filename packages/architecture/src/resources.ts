@@ -6,7 +6,6 @@ export const resourceIds = {
   companyWorkspace: "company-workspace",
   product: "product",
   productHistory: "product-history",
-  batch: "batch",
   supplier: "supplier",
   staffMember: "staff-member",
   staffRecord: "staff-record",
@@ -15,12 +14,15 @@ export const resourceIds = {
   cashAccount: "cash-account",
   role: "role",
   user: "user",
-  goodsReceipt: "goods-receipt",
-  dailySalesSummary: "daily-sales-summary",
-  marketDue: "market-due",
-  oldDueCollection: "old-due-collection",
   dashboardSummary: "dashboard-summary",
   opening: "opening",
+  stockEntry: "stock-entry",
+  dsrDay: "dsr-day",
+  moneyEntry: "money-entry",
+  payrollRun: "payroll-run",
+  damageCase: "damage-case",
+  /** Engine output for a date or month; every posting changes it. */
+  ledger: "ledger",
 } as const;
 
 export type ResourceId = (typeof resourceIds)[keyof typeof resourceIds];

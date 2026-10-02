@@ -3,18 +3,27 @@
 import { resourceIds, type ResourceId } from "@bsd/architecture";
 import type {
   CompanyUpsertRequest,
-  DailySalesSummaryPostRequest,
-  GoodsReceiptPostRequest,
-  OldDueCollectionPostRequest,
+  DamageCaseCreateRequest,
+  DamageEventRequest,
+  DsrDay,
+  DsrDaySaveRequest,
+  MoneyEntryPostRequest,
   Opening,
   OpeningSaveRequest,
+  PayrollAction,
+  PayrollSaveRequest,
+  PayrollTransitionRequest,
   PriceChangeRequest,
   ProductCreateRequest,
   ProductPackRequest,
+  ReportId,
+  ReportRange,
   RoleUpsertRequest,
+  StaffAccountKind,
   StaffAssignmentRequest,
   StaffCreateRequest,
   StaffUpsertRequest,
+  StockEntryPostRequest,
   SupplierUpsertRequest,
   UserCreateRequest,
   UserPasswordResetRequest,
@@ -62,15 +71,6 @@ export function useProducts(companyId: string) {
   });
 }
 
-export function useBatches(companyId: string) {
-  const service = useService();
-  const actorId = useActorId();
-  return useQuery({
-    queryKey: queryKeys.batches(actorId, companyId),
-    queryFn: ({ signal }) => service.listBatches(companyId, { signal }),
-  });
-}
-
 export function useSuppliers(companyId: string) {
   const service = useService();
   const actorId = useActorId();
@@ -86,42 +86,6 @@ export function useStaff(companyId: string) {
   return useQuery({
     queryKey: queryKeys.staff(actorId, companyId),
     queryFn: ({ signal }) => service.listStaff(companyId, { signal }),
-  });
-}
-
-export function useGoodsReceipts(companyId: string) {
-  const service = useService();
-  const actorId = useActorId();
-  return useQuery({
-    queryKey: queryKeys.goodsReceipts(actorId, companyId),
-    queryFn: ({ signal }) => service.listGoodsReceipts(companyId, { signal }),
-  });
-}
-
-export function useDailySalesSummaries(companyId: string) {
-  const service = useService();
-  const actorId = useActorId();
-  return useQuery({
-    queryKey: queryKeys.dailySalesSummaries(actorId, companyId),
-    queryFn: ({ signal }) => service.listDailySalesSummaries(companyId, { signal }),
-  });
-}
-
-export function useMarketDues(companyId: string) {
-  const service = useService();
-  const actorId = useActorId();
-  return useQuery({
-    queryKey: queryKeys.marketDues(actorId, companyId),
-    queryFn: ({ signal }) => service.listMarketDues(companyId, { signal }),
-  });
-}
-
-export function useOldDueCollections(companyId: string) {
-  const service = useService();
-  const actorId = useActorId();
-  return useQuery({
-    queryKey: queryKeys.oldDueCollections(actorId, companyId),
-    queryFn: ({ signal }) => service.listOldDueCollections(companyId, { signal }),
   });
 }
 
@@ -179,24 +143,232 @@ function usePostingMutation<TInput, TResult>(
   });
 }
 
-export function usePostGoodsReceipt(companyId: string) {
+// ------------------------------------------------------------- daily entry (Phase E)
+
+export function useDayView(companyId: string, date: string) {
   const service = useService();
-  return usePostingMutation(companyId, "goodsReceipt", (input: GoodsReceiptPostRequest) =>
-    service.postGoodsReceipt(companyId, input),
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.dayView(actorId, companyId, date),
+    queryFn: ({ signal }) => service.getDayView(companyId, date, { signal }),
+    placeholderData: (previous) => previous,
+  });
+}
+
+export function useStockEntries(companyId: string, date: string) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.stockEntries(actorId, companyId, date),
+    queryFn: ({ signal }) => service.listStockEntries(companyId, date, { signal }),
+  });
+}
+
+export function usePostStockEntries(companyId: string) {
+  const service = useService();
+  return usePostingMutation(companyId, "stock", (input: StockEntryPostRequest) =>
+    service.postStockEntries(companyId, input),
   );
 }
 
-export function usePostDailySalesSummary(companyId: string) {
+export function useReverseStockEntry(companyId: string) {
   const service = useService();
-  return usePostingMutation(companyId, "dailySalesSummary", (input: DailySalesSummaryPostRequest) =>
-    service.postDailySalesSummary(companyId, input),
+  return usePostingMutation(companyId, "stock", (entryId: string) =>
+    service.reverseStockEntry(companyId, entryId),
   );
 }
 
-export function usePostOldDueCollection(companyId: string) {
+export function useDsrDays(companyId: string, date: string) {
   const service = useService();
-  return usePostingMutation(companyId, "oldDueCollection", (input: OldDueCollectionPostRequest) =>
-    service.postOldDueCollection(companyId, input),
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.dsrDays(actorId, companyId, date),
+    queryFn: ({ signal }) => service.listDsrDays(companyId, date, { signal }),
+  });
+}
+
+export function useSaveDsrDay(companyId: string) {
+  const service = useService();
+  return usePostingMutation(companyId, "dsrDay", (input: DsrDaySaveRequest) =>
+    service.saveDsrDay(companyId, input),
+  );
+}
+
+export function useDsrDayCommand(companyId: string) {
+  const service = useService();
+  return usePostingMutation(
+    companyId,
+    "dsrDay",
+    async ({
+      action,
+      dayId,
+      version,
+    }: {
+      action: "post" | "reverse" | "discard";
+      dayId: string;
+      version: number;
+    }): Promise<DsrDay | null> => {
+      if (action === "post") return service.postDsrDay(companyId, dayId, { version });
+      if (action === "reverse") return service.reverseDsrDay(companyId, dayId, { version });
+      await service.discardDsrDay(companyId, dayId, { version });
+      return null;
+    },
+  );
+}
+
+export function useMoneyEntries(
+  companyId: string,
+  query: { from: string; to?: string; staffId?: string },
+  enabled = true,
+) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.moneyEntries(
+      actorId,
+      companyId,
+      query.from,
+      query.to ?? query.from,
+      query.staffId ?? "",
+    ),
+    queryFn: ({ signal }) => service.listMoneyEntries(companyId, query, { signal }),
+    enabled,
+  });
+}
+
+export function usePostMoneyEntry(companyId: string) {
+  const service = useService();
+  return usePostingMutation(companyId, "money", (input: MoneyEntryPostRequest) =>
+    service.postMoneyEntry(companyId, input),
+  );
+}
+
+export function useReverseMoneyEntry(companyId: string) {
+  const service = useService();
+  return usePostingMutation(companyId, "money", (entryId: string) =>
+    service.reverseMoneyEntry(companyId, entryId),
+  );
+}
+
+// ------------------------------------------------------------- month view and reports (Phase F)
+
+export function useMonthView(companyId: string, month: string) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.monthView(actorId, companyId, month),
+    queryFn: ({ signal }) => service.getMonthView(companyId, month, { signal }),
+    placeholderData: (previous) => previous,
+  });
+}
+
+export function useMonthCommand(companyId: string) {
+  const service = useService();
+  return usePostingMutation(
+    companyId,
+    "monthClose",
+    ({ action, month }: { action: "close" | "reopen"; month: string }) =>
+      action === "close"
+        ? service.closeMonth(companyId, month)
+        : service.reopenMonth(companyId, month),
+  );
+}
+
+export function useReport(companyId: string, report: ReportId, range: ReportRange) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.report(actorId, companyId, report, range.from, range.to),
+    queryFn: ({ signal }) => service.getReport(companyId, report, range, { signal }),
+    placeholderData: (previous) => previous,
+    enabled: range.from <= range.to,
+  });
+}
+
+// ------------------------------------------------------------- accounts, payroll, damage (Phase G)
+
+export function useStaffAccounts(companyId: string, kind: StaffAccountKind, date: string) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.staffAccounts(actorId, companyId, kind, date),
+    queryFn: ({ signal }) => service.getStaffAccounts(companyId, { kind, date }, { signal }),
+    placeholderData: (previous) => previous,
+  });
+}
+
+export function useStaffStatement(companyId: string, staffId: string, range: ReportRange) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.staffStatement(actorId, companyId, staffId, range.from, range.to),
+    queryFn: ({ signal }) => service.getStaffStatement(companyId, staffId, range, { signal }),
+    placeholderData: (previous) => previous,
+    enabled: staffId !== "" && range.from <= range.to,
+  });
+}
+
+export function usePayrollRun(companyId: string, month: string) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.payrollRun(actorId, companyId, month),
+    queryFn: ({ signal }) => service.getPayrollRun(companyId, month, { signal }),
+  });
+}
+
+export function useSavePayrollRun(companyId: string, month: string) {
+  const service = useService();
+  return usePostingMutation(companyId, "payroll", (input: PayrollSaveRequest) =>
+    service.savePayrollRun(companyId, month, input),
+  );
+}
+
+export function usePayrollCommand(companyId: string, month: string) {
+  const service = useService();
+  return usePostingMutation(
+    companyId,
+    "payroll",
+    ({ action, input }: { action: PayrollAction; input: PayrollTransitionRequest }) =>
+      service.payrollCommand(companyId, month, action, input),
+  );
+}
+
+export function useDamageCases(companyId: string, status: "open" | "all") {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.damageCases(actorId, companyId, status),
+    queryFn: ({ signal }) =>
+      service.listDamageCases(companyId, status === "open" ? { status } : {}, { signal }),
+  });
+}
+
+export function useCreateDamageCase(companyId: string) {
+  const service = useService();
+  return usePostingMutation(companyId, "damage", (input: DamageCaseCreateRequest) =>
+    service.createDamageCase(companyId, input),
+  );
+}
+
+export function useDamageCaseCommand(companyId: string) {
+  const service = useService();
+  return usePostingMutation(
+    companyId,
+    "damage",
+    (
+      command:
+        | { action: "event"; caseId: string; input: DamageEventRequest }
+        | { action: "reverse"; eventId: string }
+        | { action: "cancel"; caseId: string },
+    ) => {
+      if (command.action === "event") {
+        return service.postDamageEvent(companyId, command.caseId, command.input);
+      }
+      if (command.action === "reverse")
+        return service.reverseDamageEvent(companyId, command.eventId);
+      return service.cancelDamageCase(companyId, command.caseId);
+    },
   );
 }
 
@@ -455,6 +627,11 @@ export function useActivateOpening(companyId: string) {
   return useOpeningCommand(
     companyId,
     (version: number) => service.activateOpening(companyId, { version }),
-    [resourceIds.product, resourceIds.productHistory, resourceIds.dashboardSummary],
+    [
+      resourceIds.product,
+      resourceIds.productHistory,
+      resourceIds.ledger,
+      resourceIds.dashboardSummary,
+    ],
   );
 }

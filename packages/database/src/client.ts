@@ -11,13 +11,20 @@ export function createDatabase(connectionString: string): Database {
   const url = new URL(connectionString);
   const schema = url.searchParams.get("schema") ?? undefined;
   url.searchParams.delete("schema");
+  if (schema !== undefined && !/^[a-z_][a-z0-9_]*$/.test(schema)) {
+    throw new Error("Invalid schema name in the connection string");
+  }
   // pg already treats `require` as full certificate verification; say so explicitly.
   if (url.searchParams.get("sslmode") === "require") url.searchParams.set("sslmode", "verify-full");
+  // The adapter's `schema` qualifies model queries only; raw queries (row locks) need the search path.
   const adapter = new PrismaPg(
-    { connectionString: url.toString() },
+    schema
+      ? { connectionString: url.toString(), options: `-c search_path=${schema}` }
+      : { connectionString: url.toString() },
     schema ? { schema } : undefined,
   );
-  return new PrismaClient({ adapter });
+  // A day's posting or a month import writes many rows in one transaction over a remote link.
+  return new PrismaClient({ adapter, transactionOptions: { maxWait: 10_000, timeout: 60_000 } });
 }
 
 const globalForDb = globalThis as unknown as { bsdDatabase?: Database };

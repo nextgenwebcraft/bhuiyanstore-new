@@ -55,5 +55,19 @@ export const MONEY_KIND_EFFECTS: Readonly<Record<MoneyKind, MoneyKindEffect>> = 
   srRepayment: { cash: 1, staff: { balance: "srLoan", direction: -1 }, requiresStaff: true },
   srOwed: { cash: 0, staff: { balance: "owedToSr", direction: 1 }, requiresStaff: true },
   srPayment: { cash: -1, staff: { balance: "owedToSr", direction: -1 }, requiresStaff: true },
+  /** Explicit offset of staff credit against what the person owes; never automatic (D27). */
+  staffOffset: {
+    cash: 0,
+    staff: { balance: "owed", direction: -1 },
+    staffAlso: { balance: "credit", direction: -1 },
+    requiresStaff: true,
+  },
+  /** Explicit offset of money owed to an SR against the SR's loan (D18, guide §11.2). */
+  srOffset: {
+    cash: 0,
+    staff: { balance: "srLoan", direction: -1 },
+    staffAlso: { balance: "owedToSr", direction: -1 },
+    requiresStaff: true,
+  },
   supplierDeposit: { cash: 0, companyPayable: -1, requiresStaff: false },
 };
