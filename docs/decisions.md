@@ -1,7 +1,7 @@
 # Decision register
 
 Owner of accepted business and technical decisions (guide §21.1). Code references decisions by ID.
-Business rules D01–D22 are bootstrapped from guide §3. D23–D30 were confirmed by the owner on 2026-10-02 (D27 delegated to the implementer). D23–D28 are also listed there. The canonical phase plan is [PLAN.md](PLAN.md). See the guide for full wording. Change a
+Business rules D01–D22 are bootstrapped from guide §3. D23–D30 were confirmed by the owner on 2026-10-02 (D27 delegated to the implementer); D31 on 2026-10-03. D23–D28 are also listed there. The canonical phase plan is [PLAN.md](PLAN.md). See the guide for full wording. Change a
 decision here and in code together, never in a private note.
 
 ## Business rules (from guide §3)
@@ -38,6 +38,7 @@ decision here and in code together, never in a private note.
 | D28 | Confirmed 2026-10-02     | One generic system; all companies share entries, reports, opening template                                      |
 | D29 | Confirmed 2026-10-02     | Cost = qty × that day's purchase price per product (Excel method); batches track quantity/expiry only (PLAN §2) |
 | D30 | Confirmed 2026-10-02     | Owner approved moving to the real database + API now ([client-approval.md](client-approval.md))                 |
+| D31 | Confirmed 2026-10-03     | Goods due from company may be negative (more goods received than billed); whole pieces only                     |
 
 ## Pending business decisions
 

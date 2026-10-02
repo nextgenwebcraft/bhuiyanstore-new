@@ -377,7 +377,7 @@ describe("Phase H: a month before go-live becomes the draft opening", () => {
       pieces: "100",
       salePrice: "12",
       unitCost: "9.5",
-      dueFromCompany: null,
+      dueFromCompany: "-43",
     });
     expect(alpha.source?.dueFromCompany).toBe("-43");
     const beta = must(opening.stock.find((l) => l.productId === fresh.beta));

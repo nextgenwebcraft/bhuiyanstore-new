@@ -37,6 +37,23 @@ const PATH = "admin/import";
 
 /** The importer names its checks in English; the screen shows them by key. */
 const checkLabels: Record<string, TranslationKey> = {
+  Samari: "import.check.samari",
+  Firot: "import.check.firot",
+  "Sales amount": "import.check.salesAmount",
+  "Gross profit": "import.check.grossProfit",
+  "Goods due from company": "import.check.dueFromCompany",
+  "Stock pieces": "import.check.stockPieces",
+  "Stock value": "import.check.stockValue",
+  "Month receipt amount": "import.check.monthReceipt",
+  "Month sales": "import.check.monthSales",
+  "Month gross profit": "import.check.monthProfit",
+  "Month damage amount": "import.check.monthDamage",
+  "Month sales in cartons": "import.check.monthSalesCartons",
+  "Closing cartons": "import.check.closingCartons",
+  "Closing stock": "import.check.closingStock",
+  "Closing goods due from company": "import.check.closingDueFromCompany",
+  "Month total sales": "import.check.monthTotalSales",
+  "Month total gross profit": "import.check.monthTotalProfit",
   "Person net (issue − return)": "import.check.personNet",
   "Daily sales": "import.check.dailySales",
   "Daily cash left (Total Amount)": "import.check.dailyCash",
@@ -255,6 +272,7 @@ function ChecksTable({ checks }: { checks: ImportCheck[] }) {
           </tbody>
         </table>
       </div>
+      <p className="text-sm text-text-muted">{t("import.check.legend")}</p>
       {checks
         .filter((c) => c.unexplained.length > 0 || c.known.length > 0)
         .map((c) => (

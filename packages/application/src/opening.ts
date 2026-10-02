@@ -48,6 +48,7 @@ type Db = AppContext["db"] | Tx;
 const invalid = (path: string, code: string) => new AppError("VALIDATION_FAILED", [{ path, code }]);
 
 const WHOLE = /^(0|[1-9]\d*)$/;
+const SIGNED_WHOLE = /^(0|-?[1-9]\d*)$/;
 const UNIT_PRICE = /^\d+(\.\d{1,6})?$/;
 const AMOUNT = /^\d+(\.\d{1,2})?$/;
 const accept = (value: string | null | undefined, pattern: RegExp) =>
@@ -484,7 +485,7 @@ function fromMonthSheet(
       unitCost: accept(p.costPrice, UNIT_PRICE),
       salePrice: accept(p.salePrice, UNIT_PRICE),
       orderPrice: accept(p.orderPrice, UNIT_PRICE),
-      dueFromCompany: accept(p.dueFromCompany, WHOLE),
+      dueFromCompany: accept(p.dueFromCompany, SIGNED_WHOLE),
     });
   }
 
@@ -566,7 +567,7 @@ function fromTemplate(
       unitCost: check(r.row, "unit_cost", r.unitCost, UNIT_PRICE),
       salePrice: check(r.row, "sale_price", r.salePrice, UNIT_PRICE),
       orderPrice: check(r.row, "order_price", r.orderPrice, UNIT_PRICE),
-      dueFromCompany: check(r.row, "due_from_company", r.dueFromCompany, WHOLE),
+      dueFromCompany: check(r.row, "due_from_company", r.dueFromCompany, SIGNED_WHOLE),
     };
     stock.push({
       productId,
@@ -784,7 +785,7 @@ export async function importOpeningFromClosing(
       unitCost: accept(c.costPrice, UNIT_PRICE),
       salePrice: accept(c.salePrice, UNIT_PRICE),
       orderPrice: accept(c.orderPrice, UNIT_PRICE),
-      dueFromCompany: accept(c.dueFromCompany, WHOLE),
+      dueFromCompany: accept(c.dueFromCompany, SIGNED_WHOLE),
     });
   }
   const balances: ProposedBalance[] = [];

@@ -869,7 +869,13 @@ export async function getImportJob(
 export async function createImportJob(
   ctx: AppContext,
   companyId: string,
-  input: { data: Uint8Array; fileName: string; sheet: string },
+  input: {
+    data: Uint8Array;
+    fileName: string;
+    sheet: string;
+    /** "lastDay" adds blocks after the month's last day to that day (owner's confirmation). */
+    extraBlocks?: "ignore" | "lastDay";
+  },
   requestKey?: string,
 ): Promise<ImportJob> {
   const access = await requirePermission(ctx, companyId, "period.close", { write: true });
@@ -881,7 +887,7 @@ export async function createImportJob(
   }
   let read;
   try {
-    read = readMonthSheet(workbook, input.sheet);
+    read = readMonthSheet(workbook, input.sheet, { extraBlocks: input.extraBlocks ?? "ignore" });
   } catch {
     throw invalid("sheet", "validation.import.sheetLayout");
   }

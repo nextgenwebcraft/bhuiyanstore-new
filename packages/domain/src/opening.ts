@@ -93,6 +93,8 @@ export type OpeningCheckTotals = {
 };
 
 const isWholeNonNegative = (value: string) => /^(0|[1-9]\d*)$/.test(value);
+/** Goods due from the company may be negative: more received than ordered (D31). */
+const isWhole = (value: string) => /^(0|-?[1-9]\d*)$/.test(value);
 
 /**
  * Readiness checks and control totals for an opening (guide §16.1, §16.4, §16.6). Blank means
@@ -123,12 +125,12 @@ export function checkOpening(input: OpeningCheckInput): {
     const hasStock = line.pieces !== null && toDecimal(line.pieces).gt(0);
     if (hasStock && line.unitCost === null) add("opening.issue.costMissing", "error");
     if (hasStock && line.salePrice === null) add("opening.issue.salePriceMissing", "warning");
-    if (line.dueFromCompany !== null && !isWholeNonNegative(line.dueFromCompany)) {
+    if (line.dueFromCompany !== null && !isWhole(line.dueFromCompany)) {
       add("opening.issue.dueInvalid", "error");
     }
     issues.push(...rowIssues);
 
-    if (line.dueFromCompany !== null && isWholeNonNegative(line.dueFromCompany)) {
+    if (line.dueFromCompany !== null && isWhole(line.dueFromCompany)) {
       due = due.add(line.dueFromCompany);
     }
     if (rowIssues.some((i) => i.severity === "error")) {

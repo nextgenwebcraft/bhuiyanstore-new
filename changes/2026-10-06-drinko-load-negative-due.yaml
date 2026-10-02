@@ -1,0 +1,39 @@
+id: 2026-10-06-drinko-load-negative-due
+reason: Owner asked to clear business data and load the latest workbook month - Aug 2026 closing as the opening on 2026-09-01 and Sep 2026 posted and closed. Needed D31 (goods due from company may be negative) and an option to add the typed block after the last day to that day.
+owners: [domain, contracts, database, application, importer, web, i18n]
+changedDefinitionIds:
+  - packages/domain/src/opening.ts (opening check accepts a negative whole goods-due; D31)
+  - packages/contracts/src/opening.ts (dueFromCompany accepts a signed whole number)
+  - packages/application/src/opening.ts (signed whole goods-due in sheet import, template check and closing import)
+  - packages/database/prisma/migrations/20261006000000_opening_due_signed (opening_stock_line_due CHECK - whole, sign free)
+  - packages/importer/src/month-sheet.ts (ReadMonthOptions.extraBlocks ignore | lastDay; lastDay adds typed quantities and DSR lines of blocks after the month end to the last day and labels that day's and the closing comparisons as explained)
+  - packages/application/src/imports.ts (createImportJob passes extraBlocks)
+  - apps/web/src/app/api/v1/companies/[companyId]/imports/route.ts (?extraBlocks=lastDay)
+  - packages/i18n/src/bn.ts (validation.opening.due, opening.issue.dueInvalid wording)
+  - docs/decisions.md (D31)
+affectedActionIds:
+  - opening.save, opening.import, import.create (extraBlocks)
+affectedResources: [opening, importJob]
+affectedMetrics:
+  - goods due from company totals now include negative lines (D31); no formula changed
+affectedUi:
+  - opening screen accepts a negative goods-due; import upload accepts extraBlocks through the API only (no screen control yet)
+schemaMigration: 20261006000000_opening_due_signed (applied to public; test via pnpm test:integration)
+backfill: not-applicable (constraint relaxed only)
+historicalPolicy: unchanged
+contractCompatibility: request schema widened (negative dueFromCompany accepted); extraBlocks query parameter optional, default ignore
+cacheAndProjectionPlan: none
+securityReview: no new permission or route; the one-off load ran locally through the normal use cases (audited, idempotent) as the super-admin; the workbook stays gitignored and no workbook data was written to the repository
+knownGaps:
+  - the import screen has no extraBlocks control; the default stays ignore
+  - no unit test for the extraBlocks merge (the synthetic fixture has 2 days); covered by the real-workbook run (Sep 2026 closing stock 16/16 with ignore, the 12 lastDay differences equal the merged block)
+  - the loaded cutover is 2026-09-01 at the owner's request; D26 (go-live 2026-11-01 from an Oct 2026 sheet) is unchanged
+tests:
+  - pnpm check (format, lint, typecheck of 10 packages, 115 Vitest tests)
+  - pnpm test:integration 56/56 on the Neon test schema (Phase H opening import now expects a negative goods-due)
+  - pnpm build
+  - pnpm verify:workbook (local only) on Drinko 2026 new.xlsx - Aug 2026 matches; Sep 2026 differences are labelled
+  - the load itself - Aug 2026 opening import 0 unexplained, 0 errors; Sep 2026 documents 0 unexplained, round-trip check passed, month closed
+  - not run - browser walkthrough
+rollout: migration applied to public; data loaded into public (business tables cleared first; login, tenant, company, roles and audit log kept)
+recovery: revert the code and restore the old CHECK (due_from_company >= 0) only after removing negative lines

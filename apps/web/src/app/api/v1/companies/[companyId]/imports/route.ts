@@ -29,7 +29,12 @@ export async function POST(request: Request, { params }: Params) {
       return createImportJob(
         ctx,
         companyId,
-        { data, fileName: query.get("fileName") ?? "", sheet },
+        {
+          data,
+          fileName: query.get("fileName") ?? "",
+          sheet,
+          extraBlocks: query.get("extraBlocks") === "lastDay" ? "lastDay" : "ignore",
+        },
         idempotencyKey(request),
       );
     },

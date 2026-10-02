@@ -1,6 +1,7 @@
 import {
   Decimal,
   type DayInput,
+  type DecimalInput,
   type DsrLineInput,
   type MoneyEntryInput,
   type MoneyKind,
@@ -10,7 +11,7 @@ import {
   type ProductDayInput,
   type StaffBalances,
 } from "@bsd/domain";
-import type { Workbook, Worksheet } from "exceljs";
+import type { Cell, Workbook, Worksheet } from "exceljs";
 import {
   cellAt,
   columnNumber,
@@ -100,7 +101,19 @@ export function withinTolerance(a: Decimal, b: Decimal): boolean {
  * 20 columns wide), person grids by their Caton/Total labels, and right-side money columns by
  * name. Only raw inputs feed the engine; Excel's saved results become expectations to compare.
  */
-export function readMonthSheet(workbook: Workbook, sheetName: string): SheetReadResult {
+export type ReadMonthOptions = {
+  /**
+   * Typed values in blocks after the month's last day: left out (default), or added to the last
+   * day's quantities when the owner confirms that is where they belong. Prices stay the last day's.
+   */
+  extraBlocks?: "ignore" | "lastDay";
+};
+
+export function readMonthSheet(
+  workbook: Workbook,
+  sheetName: string,
+  options: ReadMonthOptions = {},
+): SheetReadResult {
   const ws = workbook.getWorksheet(sheetName);
   if (!ws) throw new RangeError(`sheet not found: ${sheetName}`);
   const month = monthOfSheetName(sheetName);
@@ -225,6 +238,47 @@ export function readMonthSheet(workbook: Workbook, sheetName: string): SheetRead
     return /^[A-Z]+\d+\s*[+-]/.test(f.trim()) ? new Decimal(0) : null;
   };
 
+  const personLines = (
+    block: (typeof blocks)[number],
+    onNet?: (person: string, staffId: string, productId: string, netCell: Cell) => void,
+  ): DsrLineInput[] => {
+    const lines: DsrLineInput[] = [];
+    for (const grid of grids) {
+      for (let c = block.start; c < block.end; c++) {
+        if (headerKey(textOf(cellAt(ws, grid.headerRow, c))) !== "caton") continue;
+        const label = (col: number) => headerKey(textOf(cellAt(ws, grid.headerRow, col)));
+        const next = (from: number, test: (key: string) => boolean): number | null => {
+          for (let x = from; x < block.end + 2; x++) if (test(label(x))) return x;
+          return null;
+        };
+        const issueTotal = next(c + 1, (k) => k === "total");
+        const returnStart = issueTotal && next(issueTotal + 1, (k) => k.startsWith("firot"));
+        const returnTotal = returnStart && next(returnStart + 1, (k) => k === "total");
+        const nameCol =
+          returnTotal && next(returnTotal + 1, (k) => k !== "" && k !== "amount" && k !== "pice");
+        if (!issueTotal || !returnTotal || !nameCol) continue;
+        const person = textOf(cellAt(ws, grid.headerRow, nameCol));
+        const staffId = headerKey(person);
+        persons.add(person);
+        for (const [productId, row] of grid.rows) {
+          const issued = gridQuantity(row, issueTotal, productId);
+          const returned = gridQuantity(row, returnTotal, productId);
+          if (!issued.isZero() || !returned.isZero()) {
+            lines.push({
+              staffId,
+              productId,
+              ...(issued.isZero() ? {} : { issued: issued.toString() }),
+              ...(returned.isZero() ? {} : { returned: returned.toString() }),
+            });
+          }
+          onNet?.(person, staffId, productId, cellAt(ws, row, nameCol));
+        }
+        c = nameCol;
+      }
+    }
+    return lines;
+  };
+
   const days: (DayInput & { money: MoneyEntryInput[] })[] = [];
   blocks.slice(0, daysInMonth).forEach((block, index) => {
     const date = `${month}-${String(index + 1).padStart(2, "0")}`;
@@ -297,57 +351,24 @@ export function readMonthSheet(workbook: Workbook, sheetName: string): SheetRead
       }
     }
 
-    for (const grid of grids) {
-      for (let c = block.start; c < block.end; c++) {
-        if (headerKey(textOf(cellAt(ws, grid.headerRow, c))) !== "caton") continue;
-        const label = (col: number) => headerKey(textOf(cellAt(ws, grid.headerRow, col)));
-        const next = (from: number, test: (key: string) => boolean): number | null => {
-          for (let x = from; x < block.end + 2; x++) if (test(label(x))) return x;
-          return null;
-        };
-        const issueTotal = next(c + 1, (k) => k === "total");
-        const returnStart = issueTotal && next(issueTotal + 1, (k) => k.startsWith("firot"));
-        const returnTotal = returnStart && next(returnStart + 1, (k) => k === "total");
-        const nameCol =
-          returnTotal && next(returnTotal + 1, (k) => k !== "" && k !== "amount" && k !== "pice");
-        if (!issueTotal || !returnTotal || !nameCol) continue;
-        const person = textOf(cellAt(ws, grid.headerRow, nameCol));
-        const staffId = headerKey(person);
-        persons.add(person);
-        for (const [productId, row] of grid.rows) {
-          const issued = gridQuantity(row, issueTotal, productId);
-          const returned = gridQuantity(row, returnTotal, productId);
-          if (!issued.isZero() || !returned.isZero()) {
-            dsrLines.push({
-              staffId,
-              productId,
-              ...(issued.isZero() ? {} : { issued: issued.toString() }),
-              ...(returned.isZero() ? {} : { returned: returned.toString() }),
-            });
-          }
-          const netCell = cellAt(ws, row, nameCol);
-          const saved = savedNumber(netCell);
-          const netFormula = formulaOf(netCell) ?? "";
-          if (saved) {
-            expectations.push({
-              check: "Person net (issue − return)",
-              where: where(
-                `${person} ${products.find((p) => p.id === productId)?.name ?? productId} (${netCell.address})`,
-              ),
-              excel: saved,
-              engine: (o) =>
-                o.days[index]?.persons.find(
-                  (x) => x.staffId === staffId && x.productId === productId,
-                )?.net ?? "0",
-              ...(netFormula.includes("*")
-                ? { knownMistake: `net multiplies: =${netFormula}` }
-                : {}),
-            });
-          }
-        }
-        c = nameCol;
-      }
-    }
+    dsrLines.push(
+      ...personLines(block, (person, staffId, productId, netCell) => {
+        const saved = savedNumber(netCell);
+        const netFormula = formulaOf(netCell) ?? "";
+        if (!saved) return;
+        expectations.push({
+          check: "Person net (issue − return)",
+          where: where(
+            `${person} ${products.find((p) => p.id === productId)?.name ?? productId} (${netCell.address})`,
+          ),
+          excel: saved,
+          engine: (o) =>
+            o.days[index]?.persons.find((x) => x.staffId === staffId && x.productId === productId)
+              ?.net ?? "0",
+          ...(netFormula.includes("*") ? { knownMistake: `net multiplies: =${netFormula}` } : {}),
+        });
+      }),
+    );
 
     days.push({ date, products: dayProducts, dsrLines, money: [] });
   });
@@ -384,8 +405,9 @@ export function readMonthSheet(workbook: Workbook, sheetName: string): SheetRead
       }
     }
   }
+  const mergeExtra = extraInputs > 0 && options.extraBlocks === "lastDay";
   const beyondMonthEnd =
-    extraInputs > 0
+    extraInputs > 0 && !mergeExtra
       ? `month totals include ${blocks.length - daysInMonth} block(s) after day ${daysInMonth}`
       : undefined;
   if (beyondMonthEnd) {
@@ -394,6 +416,46 @@ export function readMonthSheet(workbook: Workbook, sheetName: string): SheetRead
     );
   }
   const monthMistake = beyondMonthEnd ? { knownMistake: beyondMonthEnd } : {};
+  const lastDayInput = days.at(-1);
+  if (mergeExtra && lastDayInput) {
+    const add = (a: DecimalInput | undefined, b: DecimalInput) =>
+      new Decimal(b).add(a ?? "0").toString();
+    const merged: Record<string, ProductDayInput> = { ...lastDayInput.products };
+    const lines: DsrLineInput[] = [...(lastDayInput.dsrLines ?? [])];
+    for (const block of blocks.slice(daysInMonth)) {
+      for (const p of products) {
+        let target: ProductDayInput = { ...merged[p.id] };
+        for (const [field, key] of [
+          ["dueQty", "ordered"],
+          ["receive", "received"],
+          ["damage", "damaged"],
+        ] as const) {
+          const col = block.cols[field];
+          const v = col === undefined ? null : inputNumber(cellAt(ws, p.row, col));
+          if (v && !v.isZero()) target = { ...target, [key]: add(target[key], v) };
+        }
+        if (Object.keys(target).length) merged[p.id] = target;
+      }
+      for (const line of personLines(block)) {
+        const at = lines.findIndex(
+          (l) => l.staffId === line.staffId && l.productId === line.productId,
+        );
+        const same = lines[at];
+        if (!same) lines.push(line);
+        else {
+          lines[at] = {
+            ...same,
+            ...(line.issued ? { issued: add(same.issued, line.issued) } : {}),
+            ...(line.returned ? { returned: add(same.returned, line.returned) } : {}),
+          };
+        }
+      }
+    }
+    days[days.length - 1] = { ...lastDayInput, products: merged, dsrLines: lines };
+    notes.push(
+      `${extraInputs} typed values in block(s) after day ${daysInMonth} were added to day ${daysInMonth}`,
+    );
+  }
 
   // Right-side money columns, by header text.
   const right = headerCells.filter((h) => h.col >= lastBlockEnd);
@@ -695,6 +757,17 @@ export function readMonthSheet(workbook: Workbook, sheetName: string): SheetRead
   }
   const labels = (map: Map<string, string>) =>
     [...map].map(([key, label]) => ({ key, label: label || key }));
+
+  if (mergeExtra) {
+    // Excel's own day cells exclude the merged block, so they can no longer match.
+    const lastDayPrefix = `${sheetName} day ${daysInMonth} `;
+    const fromLastBlock = new Set(["Closing stock", "Closing goods due from company"]);
+    for (const e of expectations) {
+      if ((e.where.startsWith(lastDayPrefix) || fromLastBlock.has(e.check)) && !e.knownMistake) {
+        e.knownMistake = `day ${daysInMonth} includes the block(s) after it`;
+      }
+    }
+  }
 
   return {
     sheet: sheetName,
