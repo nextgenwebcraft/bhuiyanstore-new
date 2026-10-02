@@ -16,7 +16,13 @@ import {
   type OpeningWorkbookSheets,
 } from "@bsd/contracts";
 import type { Prisma } from "@bsd/database";
-import { OPENING_KIND_EFFECTS, checkOpening, type OpeningKindEffect } from "@bsd/domain";
+import {
+  OPENING_KIND_EFFECTS,
+  checkOpening,
+  toDecimal,
+  type MonthClosing,
+  type OpeningKindEffect,
+} from "@bsd/domain";
 import {
   MAX_WORKBOOK_BYTES,
   buildOpeningTemplate,
@@ -47,7 +53,7 @@ const AMOUNT = /^\d+(\.\d{1,2})?$/;
 const accept = (value: string | null | undefined, pattern: RegExp) =>
   value !== null && value !== undefined && pattern.test(value) ? value : null;
 
-const nameKey = (name: string) => name.replace(/\s+/g, " ").trim().toLowerCase();
+export const nameKey = (name: string) => name.replace(/\s+/g, " ").trim().toLowerCase();
 const partyKey = (line: { staffId: string | null; cashAccountId: string | null }) =>
   line.staffId ?? line.cashAccountId ?? "";
 const lineKey = (line: { kind: string; staffId: string | null; cashAccountId: string | null }) =>
@@ -421,7 +427,7 @@ export async function inspectOpeningWorkbook(
   );
 }
 
-function matchPerson(label: string, staff: Catalog["staff"]) {
+export function matchPerson<T extends { name: string }>(label: string, staff: T[]): T | undefined {
   const key = nameKey(label);
   return staff.find((s) => {
     const name = nameKey(s.name);
@@ -736,6 +742,102 @@ export async function importOpeningWorkbook(
       return viewOf(tx, access);
     },
   );
+}
+
+/**
+ * Writes a mapped month closing into the draft opening (PLAN §8 step 5, a month before go-live):
+ * products and people are already catalog IDs. The go-live date becomes the next month's first
+ * day. Same merge rules as a sheet upload: the owner's adjustments are kept.
+ */
+export async function importOpeningFromClosing(
+  tx: Tx,
+  ctx: AppContext,
+  access: CompanyAccess,
+  input: {
+    version: number;
+    cutoffDate: string;
+    fileName: string;
+    sheet: string;
+    fileHash: string;
+    jobId: string;
+    closing: MonthClosing;
+    products: { productId: string; label: string }[];
+    notes: string[];
+  },
+): Promise<void> {
+  const { closing } = input;
+  const stock: ProposedStock[] = [];
+  for (const p of input.products) {
+    const c = closing.products[p.productId];
+    if (!c) continue;
+    stock.push({
+      productId: p.productId,
+      source: {
+        label: p.label,
+        pieces: c.stock,
+        unitCost: c.costPrice ?? null,
+        salePrice: c.salePrice ?? null,
+        orderPrice: c.orderPrice ?? null,
+        dueFromCompany: c.dueFromCompany,
+      },
+      pieces: accept(c.stock, WHOLE),
+      unitCost: accept(c.costPrice, UNIT_PRICE),
+      salePrice: accept(c.salePrice, UNIT_PRICE),
+      orderPrice: accept(c.orderPrice, UNIT_PRICE),
+      dueFromCompany: accept(c.dueFromCompany, WHOLE),
+    });
+  }
+  const balances: ProposedBalance[] = [];
+  const add = (kind: OpeningBalanceKind, staffId: string | null, value: string) => {
+    if (toDecimal(value).isZero()) return;
+    balances.push({
+      kind,
+      staffId,
+      cashAccountId: null,
+      amount: accept(value, AMOUNT),
+      sourceAmount: value,
+      note: "",
+    });
+  };
+  for (const [staffKey, amount] of Object.entries(closing.marketDue)) {
+    add("market_due", staffKey || null, amount);
+  }
+  for (const [staffId, values] of Object.entries(closing.staff)) {
+    for (const [key, value] of Object.entries(values)) {
+      const kind = STAFF_KIND_OF[key];
+      if (kind && value) add(kind, staffId, value);
+    }
+  }
+  const payable = toDecimal(closing.companyPayable);
+  if (payable.isNegative()) add("company_advance", null, payable.abs().toString());
+  else add("company_payable", null, payable.toString());
+
+  const report = { notes: input.notes, unmatchedProducts: [], unmatchedPersons: [] };
+  const session = await ensureSession(tx, access);
+  await claimVersion(tx, session, input.version, {
+    cutoffDate: toDbDate(input.cutoffDate),
+    sourceFileName: input.fileName,
+    sourceSheet: input.sheet,
+    sourceHash: input.fileHash,
+    sourceImportedAt: new Date(),
+    sourceReport: report as Prisma.InputJsonValue,
+  });
+  await applyImport(tx, session, { stock, balances, report, overwrite: false });
+  await recordAudit(tx, ctx, {
+    companyId: access.company.id,
+    action: "opening.import",
+    resourceType: "opening",
+    resourceId: session.id,
+    after: {
+      importJobId: input.jobId,
+      fileName: input.fileName,
+      fileHash: input.fileHash,
+      sheet: input.sheet,
+      cutoffDate: input.cutoffDate,
+      products: stock.length,
+      balances: balances.length,
+    },
+  });
 }
 
 /** The company's standard opening template with its current values (guide §16.7). */

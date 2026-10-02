@@ -7,6 +7,10 @@ import type {
   DamageEventRequest,
   DsrDay,
   DsrDaySaveRequest,
+  ImportCommitRequest,
+  ImportDiscardRequest,
+  ImportJob,
+  ImportMappingRequest,
   MoneyEntryPostRequest,
   Opening,
   OpeningSaveRequest,
@@ -633,5 +637,84 @@ export function useActivateOpening(companyId: string) {
       resourceIds.ledger,
       resourceIds.dashboardSummary,
     ],
+  );
+}
+
+// ------------------------------------------------------------- Excel month import (Phase H)
+
+export function useImportJobs(companyId: string) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.importJobs(actorId, companyId),
+    queryFn: ({ signal }) => service.listImportJobs(companyId, { signal }),
+  });
+}
+
+export function useImportJob(companyId: string, jobId: string | null) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.importJob(actorId, companyId, jobId ?? ""),
+    queryFn: ({ signal }) => service.getImportJob(companyId, jobId ?? "", { signal }),
+    enabled: jobId !== null,
+  });
+}
+
+export function useInspectImportWorkbook(companyId: string) {
+  const service = useService();
+  return useMutation({
+    mutationFn: (file: Blob) => service.inspectImportWorkbook(companyId, file),
+  });
+}
+
+/** Job commands return the job; it replaces the cached one and the list is refetched. */
+function useImportJobCommand<TInput>(
+  companyId: string,
+  run: (input: TInput) => Promise<ImportJob>,
+) {
+  const actorId = useActorId();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: run,
+    onSuccess: async (job) => {
+      queryClient.setQueryData(queryKeys.importJob(actorId, companyId, job.id), job);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.importJobs(actorId, companyId) });
+    },
+  });
+}
+
+export function useCreateImportJob(companyId: string) {
+  const service = useService();
+  return useImportJobCommand(companyId, (input: { file: Blob; fileName: string; sheet: string }) =>
+    service.createImportJob(companyId, input),
+  );
+}
+
+export function useSaveImportMapping(companyId: string) {
+  const service = useService();
+  return useImportJobCommand(
+    companyId,
+    ({ jobId, input }: { jobId: string; input: ImportMappingRequest }) =>
+      service.saveImportMapping(companyId, jobId, input),
+  );
+}
+
+export function useDiscardImportJob(companyId: string) {
+  const service = useService();
+  return useImportJobCommand(
+    companyId,
+    ({ jobId, input }: { jobId: string; input: ImportDiscardRequest }) =>
+      service.discardImportJob(companyId, jobId, input),
+  );
+}
+
+export function useCommitImportJob(companyId: string) {
+  const service = useService();
+  return usePostingMutation(
+    companyId,
+    "importCommit",
+    ({ jobId, input }: { jobId: string; input: ImportCommitRequest }) =>
+      service.commitImportJob(companyId, jobId, input),
   );
 }

@@ -21,6 +21,7 @@ export const resourceIds = {
   moneyEntry: "money-entry",
   payrollRun: "payroll-run",
   damageCase: "damage-case",
+  importJob: "import-job",
   /** Engine output for a date or month; every posting changes it. */
   ledger: "ledger",
 } as const;

@@ -71,7 +71,7 @@ function monthStatus(month: string, active: ActiveOpening | null, closed: boolea
 }
 
 /** Why `month` can't be closed now (an i18n key), or null. Assumes the month is open. */
-async function closeBlocker(
+export async function closeBlocker(
   db: Db,
   companyId: string,
   month: string,

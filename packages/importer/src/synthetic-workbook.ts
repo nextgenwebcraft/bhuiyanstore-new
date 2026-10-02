@@ -28,11 +28,13 @@ const GRID_19 = ["Amount", "Caton", "Pice", "Total", "Firot Caton +", "Pice", "T
 const GRID_20 = ["Amount", "Caton", "Pice", "", "Total", "Firot Caton +", "Pice", "Total", "Mamun"];
 
 /** A synthetic two-day sheet in the workbook layout; no real data. */
-export function syntheticWorkbook(): ExcelJS.Workbook {
+export function syntheticWorkbook(
+  names: { sheet: string; previous: string } = { sheet: "Nov 2026", previous: "Oct 2026" },
+): ExcelJS.Workbook {
   const wb = new ExcelJS.Workbook();
-  const previous = wb.addWorksheet("Oct 2026");
+  const previous = wb.addWorksheet(names.previous);
   previous.getCell("VR7").value = 100;
-  const ws = wb.addWorksheet("Nov 2026");
+  const ws = wb.addWorksheet(names.sheet);
   const set = (r: number, c: number, value: ExcelJS.CellValue) => {
     ws.getCell(r, c).value = value;
   };
@@ -51,6 +53,7 @@ export function syntheticWorkbook(): ExcelJS.Workbook {
     "SR Rohim Sort",
     "SR Rohim Over",
     "Total Amount",
+    "Operating Cost",
   ].forEach((h, i) => set(5, 42 + i, h));
 
   // Products on rows 7 and 9; row 8 is blank, as in real sheets.
@@ -66,7 +69,7 @@ export function syntheticWorkbook(): ExcelJS.Workbook {
   set(7, 11, f("F15+0", 60));
   set(7, 15, 11);
   set(7, 16, f("(M7-N7)*O7", 528));
-  set(7, 20, f("'Oct 2026'!VR7+G7-M7", 100));
+  set(7, 20, f(`'${names.previous}'!VR7+G7-M7`, 100));
   set(9, 4, f("C9-G9", 0));
   set(9, 5, 20);
   set(9, 8, f("18+1", 19));
@@ -103,10 +106,11 @@ export function syntheticWorkbook(): ExcelJS.Workbook {
   set(7, 44, 50);
   set(7, 45, 40);
   set(7, 42, f("P10", 528));
-  set(7, 47, f("(AP7+AR7+AT7)-(AQ7+AS7)", 438));
+  set(7, 47, f("(AP7+AR7+AT7)-(AQ7+AS7+AV7)", 438));
   set(8, 46, f("4+6", 10));
   set(8, 42, f("AJ10", 270));
-  set(8, 47, f("(AP8+AR8+AT8)-(AQ8+AS8)", 280));
+  set(8, 48, 30);
+  set(8, 47, f("(AP8+AR8+AT8)-(AQ8+AS8+AV8)", 250));
   set(12, 43, f("AQ6+AQ10-AR10", 75));
   set(12, 45, f("(AS10-AT10)-AS11", 30));
   return wb;

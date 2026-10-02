@@ -4,6 +4,7 @@ export {
   readMonthSheet,
   type Expectation,
   type MoneyColumn,
+  type SheetLabel,
   type SheetProduct,
   type SheetReadResult,
 } from "./month-sheet";

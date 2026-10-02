@@ -31,7 +31,13 @@ export type Expectation = {
   knownMistake?: string;
 };
 
-export type SheetProduct = { id: string; name: string; row: number };
+export type SheetProduct = {
+  id: string;
+  name: string;
+  row: number;
+  /** Pieces per carton from the person-grid formulas; undefined when the sheet has none. */
+  cartonSize?: string;
+};
 
 export type MoneyColumn = {
   header: string;
@@ -49,8 +55,14 @@ export type SheetReadResult = {
   products: SheetProduct[];
   persons: string[];
   moneyColumns: MoneyColumn[];
+  /** Every person key the engine input uses (grid persons and staff money columns), labelled. */
+  people: SheetLabel[];
+  /** Every expense category key the engine input uses, labelled by its column header. */
+  categories: SheetLabel[];
   notes: string[];
 };
+
+export type SheetLabel = { key: string; label: string };
 
 const BLOCK_START = "due quantity";
 const BLOCK_FIELDS = {
@@ -663,8 +675,26 @@ export function readMonthSheet(workbook: Workbook, sheetName: string): SheetRead
     },
     days,
   };
+  for (const p of products) {
+    const size = cartonSize.get(p.id);
+    if (size) p.cartonSize = size.toString();
+  }
   const noSize = products.filter((p) => !cartonSize.has(p.id)).map((p) => p.name);
   if (noSize.length) notes.push(`carton size not found (using 1) for: ${noSize.join(", ")}`);
+
+  const people = new Map<string, string>();
+  for (const person of persons) people.set(headerKey(person), person.trim());
+  const categories = new Map<string, string>();
+  for (const column of moneyColumns) {
+    if (column.staffId && !people.has(column.staffId)) {
+      people.set(column.staffId, column.header.replace(/\s+(sort|over)$/i, "").trim());
+    }
+    if (column.category && !categories.has(column.category)) {
+      categories.set(column.category, column.header.trim());
+    }
+  }
+  const labels = (map: Map<string, string>) =>
+    [...map].map(([key, label]) => ({ key, label: label || key }));
 
   return {
     sheet: sheetName,
@@ -674,6 +704,8 @@ export function readMonthSheet(workbook: Workbook, sheetName: string): SheetRead
     products,
     persons: [...persons],
     moneyColumns,
+    people: labels(people),
+    categories: labels(categories),
     notes,
   };
 }

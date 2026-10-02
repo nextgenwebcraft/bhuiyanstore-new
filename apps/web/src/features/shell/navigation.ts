@@ -172,6 +172,7 @@ export const navigation: readonly NavSection[] = [
       item("admin/roles", "nav.administration.roles", "role.manage", true),
       item("admin/audit", "nav.administration.audit", "audit.view"),
       item("admin/opening", "nav.administration.opening", "opening.prepare", true),
+      item("admin/import", "nav.administration.import", "period.close", true),
     ],
   },
 ];

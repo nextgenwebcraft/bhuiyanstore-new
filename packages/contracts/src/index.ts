@@ -196,6 +196,33 @@ export {
   type OpeningTransitionRequest,
   type OpeningWorkbookSheets,
 } from "./opening";
+export {
+  importCheckSchema,
+  importCommitModes,
+  importCommitRequestSchema,
+  importDifferenceSchema,
+  importDiscardRequestSchema,
+  importIssueSchema,
+  importJobSchema,
+  importJobStatuses,
+  importJobSummarySchema,
+  importMappingRequestSchema,
+  importMappingSchema,
+  importOpeningDifferenceSchema,
+  importWorkbookSheetsSchema,
+  type ImportCheck,
+  type ImportCommitMode,
+  type ImportCommitRequest,
+  type ImportDiscardRequest,
+  type ImportIssue,
+  type ImportJob,
+  type ImportJobStatus,
+  type ImportJobSummary,
+  type ImportMapping,
+  type ImportMappingRequest,
+  type ImportOpeningDifference,
+  type ImportWorkbookSheets,
+} from "./imports";
 export { apiErrorSchema, type ApiError } from "./errors";
 export {
   companySchema,

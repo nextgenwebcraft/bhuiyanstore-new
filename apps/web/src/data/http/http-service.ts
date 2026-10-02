@@ -7,6 +7,9 @@ import {
   dayViewSchema,
   dsrDaySchema,
   expenseCategorySchema,
+  importJobSchema,
+  importJobSummarySchema,
+  importWorkbookSheetsSchema,
   meSchema,
   moneyEntrySchema,
   monthCloseResultSchema,
@@ -297,6 +300,42 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
       request(openingSchema, `${company(companyId)}/opening/approve`, write("POST", input)),
     activateOpening: (companyId, input) =>
       request(openingSchema, `${company(companyId)}/opening/activate`, write("POST", input)),
+
+    inspectImportWorkbook: (companyId, file) =>
+      request(importWorkbookSheetsSchema, `${company(companyId)}/imports`, {
+        method: "POST",
+        file,
+      }),
+    createImportJob: (companyId, input) => {
+      const query = new URLSearchParams({ sheet: input.sheet, fileName: input.fileName });
+      return request(importJobSchema, `${company(companyId)}/imports?${query.toString()}`, {
+        method: "POST",
+        file: input.file,
+        idempotent: true,
+      });
+    },
+    listImportJobs: (companyId, options) =>
+      request(z.array(importJobSummarySchema), `${company(companyId)}/imports`, options),
+    getImportJob: (companyId, jobId, options) =>
+      request(importJobSchema, `${company(companyId)}/imports/${id(jobId)}`, options),
+    saveImportMapping: (companyId, jobId, input) =>
+      request(
+        importJobSchema,
+        `${company(companyId)}/imports/${id(jobId)}/mapping`,
+        write("PUT", input),
+      ),
+    commitImportJob: (companyId, jobId, input) =>
+      request(
+        importJobSchema,
+        `${company(companyId)}/imports/${id(jobId)}/commit`,
+        write("POST", input),
+      ),
+    discardImportJob: (companyId, jobId, input) =>
+      request(
+        importJobSchema,
+        `${company(companyId)}/imports/${id(jobId)}/discard`,
+        write("POST", input),
+      ),
 
     getMonthView: (companyId, month, options) =>
       request(monthViewSchema, `${company(companyId)}/months/${id(month)}`, options),

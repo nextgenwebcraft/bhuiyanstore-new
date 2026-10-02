@@ -13,6 +13,12 @@ import type {
   DsrDaySaveRequest,
   ExpenseCategory,
   ExpenseCategoryUpsertRequest,
+  ImportCommitRequest,
+  ImportDiscardRequest,
+  ImportJob,
+  ImportJobSummary,
+  ImportMappingRequest,
+  ImportWorkbookSheets,
   MoneyEntry,
   MoneyEntryPostRequest,
   MonthCloseResult,
@@ -304,6 +310,32 @@ export interface DistributionService {
   approveOpening(companyId: string, input: OpeningTransitionRequest): Promise<Opening>;
   /** Requires `opening.activate`; locks the snapshot and sets catalog prices at the cutoff. */
   activateOpening(companyId: string, input: OpeningTransitionRequest): Promise<Opening>;
+
+  // Excel month import (PLAN §9 Phase H). Requires `period.close` unless noted.
+
+  /** Lists an uploaded workbook's month sheets, newest first. */
+  inspectImportWorkbook(companyId: string, file: Blob): Promise<ImportWorkbookSheets>;
+  /** Reads one month sheet into a new job: comparison with Excel and a proposed mapping. */
+  createImportJob(
+    companyId: string,
+    input: { file: Blob; fileName: string; sheet: string },
+  ): Promise<ImportJob>;
+  /** The latest jobs, newest first. */
+  listImportJobs(companyId: string, options?: RequestOptions): Promise<ImportJobSummary[]>;
+  /** A job with its mapping, issues and what a commit would post. */
+  getImportJob(companyId: string, jobId: string, options?: RequestOptions): Promise<ImportJob>;
+  saveImportMapping(
+    companyId: string,
+    jobId: string,
+    input: ImportMappingRequest,
+  ): Promise<ImportJob>;
+  /** Documents mode also needs every posting permission used; opening mode `opening.prepare`. */
+  commitImportJob(companyId: string, jobId: string, input: ImportCommitRequest): Promise<ImportJob>;
+  discardImportJob(
+    companyId: string,
+    jobId: string,
+    input: ImportDiscardRequest,
+  ): Promise<ImportJob>;
 }
 
 export type ConfigLists = {

@@ -69,6 +69,7 @@ model Company {
   payrollRuns            PayrollRun[]
   damageCases            DamageCase[]
   damageEvents           DamageEvent[]
+  importJobs             ImportJob[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -722,4 +723,35 @@ model MonthClose {
 
   @@unique([companyId, month])
   @@map("month_close")
+}
+
+// ---------------------------------------------------------------- Excel month import (PLAN §8)
+
+/// One uploaded month sheet: ready → committed | discarded. Keeps the sheet's raw engine input
+/// (sheet-local keys), its labels and the comparison with Excel's saved values; the workbook
+/// itself is never stored. Committed documents carry `import:{id}` as their reference.
+model ImportJob {
+  id            String    @id @default(cuid())
+  tenantId      String    @map("tenant_id")
+  companyId     String    @map("company_id")
+  status        String    @default("ready")
+  version       Int       @default(1)
+  fileName      String    @map("file_name")
+  fileHash      String    @map("file_hash")
+  sheet         String
+  month         String
+  input         Json
+  labels        Json
+  report        Json
+  mapping       Json
+  committedMode String?   @map("committed_mode")
+  createdById   String    @map("created_by_id")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  committedById String?   @map("committed_by_id")
+  committedAt   DateTime? @map("committed_at")
+  company       Company   @relation(fields: [companyId], references: [id])
+
+  @@index([companyId, createdAt])
+  @@map("import_job")
 }

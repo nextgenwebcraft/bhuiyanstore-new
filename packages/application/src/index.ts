@@ -10,6 +10,16 @@ export {
 } from "./damage";
 export { getPayrollRun, payrollCommand, savePayrollRun } from "./payroll";
 export {
+  commitImportJob,
+  createImportJob,
+  discardImportJob,
+  getImportJob,
+  inspectImportWorkbook,
+  listImportJobs,
+  MAX_IMPORT_WORKBOOK_BYTES,
+  saveImportMapping,
+} from "./imports";
+export {
   createRole,
   createUser,
   listRoles,

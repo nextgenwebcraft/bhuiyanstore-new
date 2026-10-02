@@ -44,8 +44,17 @@ describe("readMonthSheet", () => {
       ["SR Rohim Over", "staffRepayment", "sr rohim"],
       ["Due", "marketDueNew", null],
       ["SR Rohim Sort", "staffShortage", "sr rohim"],
+      ["Operating Cost", "expense", null],
     ]);
     expect(read.input.opening.marketDue).toEqual({ "": "25" });
+  });
+
+  it("labels every person key the input uses, for the owner's mapping", () => {
+    expect(read.people).toEqual([
+      { key: "mamun", label: "Mamun" },
+      { key: "sr rohim", label: "SR Rohim" },
+    ]);
+    expect(read.categories).toEqual([{ key: "operating", label: "Operating Cost" }]);
   });
 
   it("recalculates and matches every saved value", () => {

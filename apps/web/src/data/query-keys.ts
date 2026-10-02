@@ -62,6 +62,10 @@ export const queryKeys = {
     [...companyResource(actorId, companyId, resourceIds.payrollRun), month] as const,
   damageCases: (actorId: string, companyId: string, status: string) =>
     [...companyResource(actorId, companyId, resourceIds.damageCase), status] as const,
+  importJobs: (actorId: string, companyId: string) =>
+    [...companyResource(actorId, companyId, resourceIds.importJob), "list"] as const,
+  importJob: (actorId: string, companyId: string, jobId: string) =>
+    [...companyResource(actorId, companyId, resourceIds.importJob), "job", jobId] as const,
   /** Tenant-level lists and administration are scoped by actor only. */
   tenant: (actorId: string, resource: ResourceId) =>
     [...queryKeys.actor(actorId), "tenant", resource] as const,
@@ -94,6 +98,18 @@ export const postingEffects = {
   ],
   damage: [resourceIds.damageCase, resourceIds.ledger, resourceIds.dashboardSummary],
   monthClose: [resourceIds.ledger, resourceIds.payrollRun],
+  /** A committed import posts a whole month (or rewrites the draft opening) and closes it. */
+  importCommit: [
+    resourceIds.importJob,
+    resourceIds.stockEntry,
+    resourceIds.dsrDay,
+    resourceIds.moneyEntry,
+    resourceIds.productHistory,
+    resourceIds.opening,
+    resourceIds.payrollRun,
+    resourceIds.ledger,
+    resourceIds.dashboardSummary,
+  ],
 } as const satisfies Record<string, readonly ResourceId[]>;
 
 export function resourceKey(actorId: string, companyId: string, resource: ResourceId) {

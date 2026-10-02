@@ -323,6 +323,18 @@ and fix the October link to April.
 5. **Commit.** The month's documents are posted with source `import:{jobId}`, and the month is
    closed. Its closing becomes the next month's opening. If the month is before go-live, it can
    replace the manual opening, after the owner confirms.
+   - **Documents mode:** used when the company has an active opening and the month starts on or
+     after its cutoff. The month must be empty and closable. The engine input is the system's
+     own opening for the month (not the sheet's), plus the sheet's documents. Any opening
+     difference is shown and must be accepted. After posting, the ledger replays the month, and
+     its closing and totals must equal the engine result over that input, or nothing is saved.
+   - **Opening mode:** used when no opening is active. The engine closes the month from the
+     sheet's own opening, and that closing replaces the draft opening, with cutoff = the next
+     month's first day. Approval and activation stay separate steps (Phase D).
+   - Errors (unmapped labels, invalid values, wrong roles, a month that cannot be closed) block
+     the commit. Warnings (unexplained differences, opening differences, carton sizes) need
+     explicit acceptance. The workbook itself is never stored; only the raw inputs and the
+     comparison are.
 
 ## 9. Phases
 
@@ -351,6 +363,7 @@ staff, dashboard) move onto the API in phases C–F. Two changes come with that 
 ## 10. Open items (none blocks Phase A or B)
 
 - P01: rounding (provisional ROUND_HALF_UP to 2 places for money).
+- P07: how a real SR's workbook Sort/Over columns import (the importer refuses them for now).
 - P02: Drinko vs PRAN naming.
 - P03: go-live dates for other companies.
 - P04: pack sizes where grids disagree.
