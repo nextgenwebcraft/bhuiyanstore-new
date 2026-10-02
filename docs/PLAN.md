@@ -96,6 +96,7 @@ receipt_bill  = received × order_price                         Excel I
 receipt_sale  = received × sale_price                          Excel J (report only)
 due_from_co   = previous due_from_co + ordered − received      Excel D (W7 = D7+V7−Z7)
 stock         = previous stock + received − delivered          Excel T (AM7 = T7+Z7−AF7)
+                + company replacements − replaced from stock   (D17; no Excel column)
 stock_value   = stock × cost_price                             Excel U
 person_net    = person issue − person return                   Excel J45, Q45 (the software uses subtraction, always)
 person_amount = person_net × sale_price                        Excel C45, R45 (report only)
@@ -104,6 +105,16 @@ person_amount = person_net × sale_price                        Excel C45, R45 (
 Damaged pieces leave saleable stock as part of `delivered` and earn no revenue. A damaged item
 received from a buyer goes to damaged stock, and the company replacement is tracked separately
 (D17). It never adds back to saleable stock silently.
+
+Damage cases (D17) feed the engine only through two posted legs:
+
+- **Replaced from stock:** a good piece handed to a buyer straight from the godown (not on a DSR
+  sheet). It leaves stock, counts in the damage value, and is not a sale.
+- **Company replacement:** pieces the company sends back for accepted damage. They add to stock
+  with no bill, no due from the company and no payable. `replacement_value` = quantity × the
+  reviewed unit cost, reported apart from profit.
+
+Dispatch, acceptance, rejection and write-off move damaged custody only.
 
 ### 2.4 Daily money calculations (per day)
 
@@ -135,10 +146,13 @@ per product: receipt_total = Σ receipt_bill           Excel "Total Receive amou
              order_total   = Σ order_value            "Total du Product amount"
              closing_cartons = closing_stock ÷ carton size             "present Stock Per Caton"
              sales_cartons = Σ delivered ÷ carton size                 "Total sales per Product"
-             damage_value  = Σ damaged × cost_price   "Dmage Product Amount"
+             damage_value  = Σ (damaged + replaced_from_stock) × cost_price   "Dmage Product Amount"
+             replacement_value = Σ company replacement quantity × unit cost (D17, report only)
 per person:  month_net = Σ person_net; cartons = month_net ÷ carton size; amount = Σ daily person_amount
 market due:  closing = opening + Σ new market due − Σ credit           Excel "Total Due" (row 42)
 staff:       per person, owes us / we owe (D27); Excel net = Σ Sort − Σ Over − salary adjustment (row 42)
+             statement line per money entry = its change to each balance + the balances after it
+             payroll: recovery = advance → loan → shortage, capped at salary; Cash Pabe = salary − recovery
 profit:      gross = Σ gross_profit
              net   = gross − salaries − operating cost − month expenses − D:Comition (D20)
 cash book:   per account, opening + inflows − outflows (not Excel's cash_left, which is a daily view)
