@@ -1,7 +1,7 @@
 import { t } from "@bsd/i18n";
 
 export function Skeleton({ className = "" }: { className?: string }) {
-  return <div aria-hidden className={`animate-pulse rounded bg-border ${className}`} />;
+  return <div aria-hidden className={`animate-pulse rounded-lg bg-surface-hover ${className}`} />;
 }
 
 /** Loading placeholder for a list or table, announced once to assistive technology. */

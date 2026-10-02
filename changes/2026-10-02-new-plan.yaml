@@ -1,0 +1,22 @@
+id: 2026-10-02-new-plan
+reason: Owner asked for a new full-phase plan with API, built on the verified workbook calculations; owner approved backend integration and chose the Excel cost method
+owners: [documentation, governance]
+changedDefinitionIds:
+  - docs/PLAN.md (new canonical plan - calculation spec verified against Aug/Sep 2026, architecture, data model, API, phases A-I)
+  - AGENTS.md (canonical plan pointer, current phase, layout, D01-D30)
+  - decisions D06 (superseded in part), D29 (Excel cost method), D30 (backend approval)
+  - docs/client-approval.md (owner approval recorded)
+  - docs/implementation-status.md (new phase table)
+affectedActionIds: not-applicable (documentation only)
+affectedResources: none in code yet
+affectedMetrics: planned change - COGS, gross profit and stock value move from FEFO cost layers to quantity x daily purchase price (D29) when screens move onto the API
+affectedUi: none in this change
+schemaMigration: not-applicable (Phase B introduces the database)
+backfill: not-applicable
+historicalPolicy: not-applicable
+contractCompatibility: none in this change. Planned - daily summary input changes from cashCollected to new market due (baki); cost fields follow D29
+cacheAndProjectionPlan: not-applicable
+securityReview: workbook stays gitignored; verification engine lives outside the repo; real figures appear only as verification counts and totals in PLAN section 2.1
+tests: pnpm check run after the doc changes
+rollout: documentation
+recovery: revert commit

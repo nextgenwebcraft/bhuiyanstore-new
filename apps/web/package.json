@@ -10,15 +10,20 @@
     "typecheck": "tsc --noEmit -p ."
   },
   "dependencies": {
+    "@bsd/application": "workspace:*",
     "@bsd/architecture": "workspace:*",
+    "@bsd/auth": "workspace:*",
     "@bsd/contracts": "workspace:*",
+    "@bsd/database": "workspace:*",
     "@bsd/design-system": "workspace:*",
     "@bsd/domain": "workspace:*",
     "@bsd/i18n": "workspace:*",
     "@tanstack/react-query": "5.104.0",
+    "dotenv": "18.0.5",
     "next": "16.3.6",
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "server-only": "0.0.1",
     "zod": "4.6.5"
   },
   "devDependencies": {

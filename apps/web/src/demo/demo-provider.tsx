@@ -47,6 +47,10 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
+export function useOptionalDemoControls(): DemoControls | null {
+  return useContext(DemoContext);
+}
+
 export function useDemoControls(): DemoControls {
   const value = useContext(DemoContext);
   if (!value) throw new Error("DemoProvider is missing");

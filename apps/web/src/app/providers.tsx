@@ -2,8 +2,12 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
+import { HttpProvider } from "@/data/http/http-provider";
 import { ServiceError } from "@/data/ports/service-error";
 import { DemoProvider } from "@/demo/demo-provider";
+
+/** `http` uses the real `/api/v1` backend; anything else keeps the in-memory demo. */
+const dataSource = process.env.NEXT_PUBLIC_DATA_SOURCE === "http" ? "http" : "mock";
 
 function createQueryClient() {
   return new QueryClient({
@@ -21,9 +25,10 @@ function createQueryClient() {
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(createQueryClient);
+  const DataProvider = dataSource === "http" ? HttpProvider : DemoProvider;
   return (
     <QueryClientProvider client={queryClient}>
-      <DemoProvider>{children}</DemoProvider>
+      <DataProvider>{children}</DataProvider>
     </QueryClientProvider>
   );
 }

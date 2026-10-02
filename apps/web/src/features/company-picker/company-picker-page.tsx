@@ -2,18 +2,25 @@
 
 import { t } from "@bsd/i18n";
 import Link from "next/link";
+import { useState } from "react";
 import { Button } from "@/components/button";
+import { Icon } from "@/components/icons";
 import { ListSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
+import { useSession } from "@/data/http/http-provider";
 import { errorCodeOf } from "@/data/ports/service-error";
 import { useWorkspaces } from "@/data/queries";
-import { DemoBar } from "@/demo/demo-bar";
+import { TopBar } from "@/features/shell/top-bar";
 import { CompanyMark } from "@/features/shell/company-mark";
 import { ConnectionBanner } from "@/features/shell/connection-banner";
 import { companyHref } from "@/features/shell/navigation";
+import { CompanyForm } from "./company-form";
 
 export function CompanyPickerPage() {
   const workspaces = useWorkspaces();
+  const session = useSession();
+  const canCreate = session?.me.isSuperAdmin === true;
+  const [creating, setCreating] = useState(false);
 
   let body: React.ReactNode;
   if (workspaces.isPending) {
@@ -27,7 +34,7 @@ export function CompanyPickerPage() {
       />
     );
   } else if (workspaces.data.length === 0) {
-    body = <StatePanel title={t("company.none")} />;
+    body = <StatePanel title={t(canCreate ? "company.noneYet" : "company.none")} />;
   } else {
     body = (
       <ul className="grid gap-3 sm:grid-cols-2">
@@ -35,11 +42,16 @@ export function CompanyPickerPage() {
           <li key={company.id}>
             <Link
               href={companyHref(company.id)}
-              style={{ borderLeftColor: company.theme.primary }}
-              className="flex min-h-20 items-center gap-4 rounded-lg border border-l-8 border-border bg-surface p-4 hover:bg-surface-muted"
+              className="group flex min-h-20 items-center gap-4 rounded-xl border border-border bg-surface p-4 shadow-card transition-all hover:-translate-y-0.5 hover:border-border-strong hover:shadow-raised"
             >
               <CompanyMark company={company} size="lg" />
-              <span className="text-lg font-semibold">{company.name}</span>
+              <span className="min-w-0 flex-1 truncate text-base font-semibold">
+                {company.name}
+              </span>
+              <Icon
+                name="arrowRight"
+                className="size-4 text-text-subtle transition-transform group-hover:translate-x-0.5 group-hover:text-text-muted"
+              />
             </Link>
           </li>
         ))}
@@ -49,14 +61,25 @@ export function CompanyPickerPage() {
 
   return (
     <div className="min-h-dvh">
-      <DemoBar />
+      <header className="sticky top-0 z-20 flex h-16 items-center justify-between gap-3 border-b border-border bg-canvas/80 px-4 backdrop-blur-md sm:px-8">
+        <span className="text-sm font-semibold tracking-tight">{t("app.name")}</span>
+        <TopBar />
+      </header>
       <ConnectionBanner />
       <main id="main" className="mx-auto flex max-w-3xl flex-col gap-6 p-4 sm:p-8">
-        <header>
-          <p className="text-sm text-text-muted">{t("app.name")}</p>
-          <h1 className="text-2xl font-semibold">{t("company.choose")}</h1>
-          <p className="mt-1 text-text-muted">{t("company.chooseHint")}</p>
+        <header className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <h1 className="text-[22px] font-semibold tracking-tight">{t("company.choose")}</h1>
+            <p className="mt-1 text-sm text-text-muted">{t("company.chooseHint")}</p>
+          </div>
+          {canCreate ? (
+            <Button variant="primary" onClick={() => setCreating(true)}>
+              <Icon name="plus" className="size-4" />
+              {t("company.new")}
+            </Button>
+          ) : null}
         </header>
+        {creating ? <CompanyForm onClose={() => setCreating(false)} /> : null}
         {body}
       </main>
     </div>

@@ -1,0 +1,32 @@
+id: 2026-10-02-workbook-fit-review
+reason: Re-review of the supplied workbook (Drinko 2026.xlsx, re-saved copy) against the plan so every workbook column family maps to a software record, a derived report, a non-reproduced defect, a pending decision or excluded AB; generalized to many companies with their own products, staff and workbook layouts
+owners: [documentation, organization-catalog, sales, staff, reporting, opening-import]
+changedDefinitionIds:
+  - guide section 2.1 (re-saved workbook hash and formula-count delta)
+  - guide section 2.7 (new complete workbook-to-software map)
+  - guide section 2.8 (new findings - per-person grids, extra staff roles, staff column signs, profit excludes D:Comition, layout drift)
+  - guide section 8.1 Staff entity group (employer, StaffRole, role on assignment)
+  - guide section 11.1 (distributor staff roles beyond DSR)
+  - guide section 16.6 (new header-driven per-company workbook layout profiles)
+  - decisions P09 (pending); D23, D24, D25 (owner-confirmed 2026-10-02, replacing drafted P07, P08, P10)
+  - guide section 3 rule table (D23-D26; D07 now points to D26)
+  - guide sections 16.1, 16.2a, 16.5, 16.6 (opening = one corrected last-month sheet with readiness checks; January extraction kept as fixture only)
+  - decisions P03, P05 reworded; P09 closed by D27
+  - guide section 11.9 (new per-person staff money accounts, D27)
+  - guide section 4.3 and 16.7 (one generic system, standard opening template, D28)
+  - guide section 4.4 (new configuration model - dynamic data/settings vs fixed logic)
+  - guide sections 1, 5.2, 5.3, 8.1, 8.2 (StaffMoneyEntry/Allocation, Configuration group), 13 endpoints, 17 checklist, 18 tests T55-T62, 20 agent prompt
+  - decisions T12 note (guide 5.2 corrected)
+affectedActionIds: not-applicable (documentation only)
+affectedResources: [staff-member]
+affectedMetrics: none changed in code; guide documents that software profit will be lower than workbook VV42 by D:Comition (confirmed rule D20 / section 11.2)
+affectedUi: none in this change
+schemaMigration: not-applicable
+backfill: not-applicable
+historicalPolicy: not-applicable
+contractCompatibility: none in this change. Follow-up - contracts.staffMemberSchema kind (dsr|sr) must become employer + per-company role before staff payroll/balances are built
+cacheAndProjectionPlan: not-applicable
+securityReview: workbook stays gitignored; no real balances or names copied into seed data
+tests: not-applicable (documentation); pnpm format:check run on changed docs
+rollout: documentation
+recovery: revert commit

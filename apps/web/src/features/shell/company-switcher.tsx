@@ -63,18 +63,18 @@ export function CompanySwitcher({
   }
 
   return (
-    <div className="flex items-center gap-2">
-      <label htmlFor={selectId} className="sr-only">
+    <div className="flex flex-col gap-1">
+      <label htmlFor={selectId} className="px-1 text-[11px] font-medium text-text-muted">
         {t("company.switch")}
       </label>
       <select
         id={selectId}
         value={currentCompanyId}
         onChange={(event) => void handleChange(event.target.value)}
-        className="min-h-(--touch-target) rounded-md border border-white/40 bg-white/10 px-2 text-brand-foreground"
+        className="min-h-9 w-full rounded-lg border border-border bg-surface-muted px-2.5 text-sm text-text transition-colors hover:border-border-strong"
       >
         {options.map(({ company }) => (
-          <option key={company.id} value={company.id} className="text-text">
+          <option key={company.id} value={company.id}>
             {company.name}
           </option>
         ))}

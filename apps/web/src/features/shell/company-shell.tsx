@@ -8,7 +8,7 @@ import { ListSkeleton, Skeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
 import { errorCodeOf } from "@/data/ports/service-error";
 import { useWorkspace } from "@/data/queries";
-import { DemoBar } from "@/demo/demo-bar";
+import { TopBar } from "./top-bar";
 import { CompanyMark } from "./company-mark";
 import { CompanySwitcher } from "./company-switcher";
 import { ConnectionBanner } from "./connection-banner";
@@ -41,13 +41,18 @@ export function CompanyShell({
   if (workspace.isPending) {
     return (
       <div className="min-h-dvh">
-        <DemoBar />
-        <div className="flex h-16 items-center gap-3 border-b border-border bg-surface px-4">
-          <Skeleton className="size-9" />
-          <Skeleton className="h-5 w-40" />
-        </div>
-        <div className="mx-auto max-w-5xl p-4 sm:p-8">
-          <ListSkeleton />
+        <aside className="fixed inset-y-0 left-0 hidden w-64 flex-col gap-4 border-r border-border bg-surface p-4 md:flex">
+          <div className="flex items-center gap-3">
+            <Skeleton className="size-9 rounded-lg" />
+            <Skeleton className="h-5 w-32" />
+          </div>
+          <ListSkeleton rows={6} />
+        </aside>
+        <div className="md:pl-64">
+          <div className="h-16 border-b border-border" />
+          <div className="mx-auto max-w-6xl p-4 sm:p-8">
+            <ListSkeleton />
+          </div>
         </div>
       </div>
     );
@@ -57,7 +62,9 @@ export function CompanyShell({
     const code = errorCodeOf(workspace.error);
     return (
       <div className="min-h-dvh">
-        <DemoBar />
+        <header className="flex h-16 items-center justify-end border-b border-border px-4 sm:px-8">
+          <TopBar />
+        </header>
         <main className="mx-auto max-w-2xl p-4 sm:p-8">
           <StatePanel
             tone="error"
@@ -85,19 +92,37 @@ export function CompanyShell({
           >
             {t("app.skipToContent")}
           </a>
-          <DemoBar />
-          <header className="sticky top-0 z-20 flex min-h-16 items-center gap-3 bg-brand px-4 text-brand-foreground">
-            <MobileNav workspace={workspace.data} currentPath={currentPath} />
-            <CompanyMark company={company} />
-            <span className="min-w-0 flex-1 truncate text-lg font-semibold">{company.name}</span>
-            <CompanySwitcher currentCompanyId={company.id} currentPath={currentPath} />
-          </header>
-          <ConnectionBanner />
-          <div className="flex">
-            <aside className="sticky top-16 hidden h-[calc(100dvh-4rem)] w-64 shrink-0 overflow-y-auto border-r border-border bg-surface md:block">
+          <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-border bg-surface md:flex">
+            <span
+              aria-hidden
+              className="h-0.5 bg-linear-to-r from-brand via-brand/50 to-transparent"
+            />
+            <div className="flex h-16 shrink-0 items-center gap-3 px-4">
+              <CompanyMark company={company} />
+              <div className="min-w-0 flex-1 leading-tight">
+                <div className="truncate text-[15px] font-semibold">{company.name}</div>
+                <div className="truncate text-[11px] text-text-muted">{t("app.name")}</div>
+              </div>
+            </div>
+            <div className="px-3">
+              <CompanySwitcher currentCompanyId={company.id} currentPath={currentPath} />
+            </div>
+            <div className="scrollbar-none min-h-0 flex-1 overflow-y-auto">
               <SideNav workspace={workspace.data} currentPath={currentPath} />
-            </aside>
-            <main id="main" className="min-w-0 flex-1 p-4 sm:p-8">
+            </div>
+          </aside>
+          <div className="md:pl-64">
+            <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-border bg-canvas/80 px-4 backdrop-blur-md sm:px-8">
+              <MobileNav workspace={workspace.data} currentPath={currentPath} />
+              <div className="flex min-w-0 flex-1 items-center gap-2 md:hidden">
+                <CompanyMark company={company} size="sm" />
+                <span className="truncate font-semibold">{company.name}</span>
+              </div>
+              <div className="hidden flex-1 md:block" />
+              <TopBar />
+            </header>
+            <ConnectionBanner />
+            <main id="main" className="mx-auto w-full max-w-6xl p-4 sm:p-8">
               {children}
             </main>
           </div>

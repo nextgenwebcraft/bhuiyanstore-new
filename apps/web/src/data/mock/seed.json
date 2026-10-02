@@ -257,6 +257,58 @@
       "quarantineQuantity": "0"
     }
   ],
+  "suppliers": [
+    { "id": "sup-drinko", "companyId": "drinko", "name": "Drinko Beverages Ltd. (ডেমো)" },
+    { "id": "sup-demo-foods", "companyId": "demo-foods", "name": "Demo Foods Ltd. (ডেমো)" },
+    { "id": "sup-demo-snacks", "companyId": "demo-snacks", "name": "Demo Snacks Ltd. (ডেমো)" }
+  ],
+  "staff": [
+    {
+      "id": "dsr-rahim",
+      "name": "রহিম (ডেমো ডিএসআর)",
+      "kind": "dsr",
+      "companyIds": ["drinko", "demo-foods"]
+    },
+    { "id": "dsr-karim", "name": "করিম (ডেমো ডিএসআর)", "kind": "dsr", "companyIds": ["drinko"] },
+    {
+      "id": "dsr-salam",
+      "name": "সালাম (ডেমো ডিএসআর)",
+      "kind": "dsr",
+      "companyIds": ["demo-foods", "demo-snacks"]
+    },
+    { "id": "sr-jamal", "name": "জামাল (ডেমো এসআর)", "kind": "sr", "companyIds": ["drinko"] },
+    { "id": "sr-kamal", "name": "কামাল (ডেমো এসআর)", "kind": "sr", "companyIds": ["demo-foods"] }
+  ],
+  "openingMarketDues": [
+    {
+      "id": "open-due-1",
+      "companyId": "drinko",
+      "dsrId": "dsr-rahim",
+      "businessDate": "2026-09-20",
+      "amount": "1500.00"
+    },
+    {
+      "id": "open-due-2",
+      "companyId": "drinko",
+      "dsrId": "dsr-rahim",
+      "businessDate": "2026-09-25",
+      "amount": "800.00"
+    },
+    {
+      "id": "open-due-3",
+      "companyId": "drinko",
+      "dsrId": "dsr-karim",
+      "businessDate": "2026-09-22",
+      "amount": "1200.00"
+    },
+    {
+      "id": "open-due-4",
+      "companyId": "demo-foods",
+      "dsrId": "dsr-salam",
+      "businessDate": "2026-09-18",
+      "amount": "650.00"
+    }
+  ],
   "roles": [
     { "id": "role-owner", "name": "মালিক", "permissions": "all" },
     {
@@ -270,8 +322,11 @@
         "product.edit",
         "purchase.view",
         "purchase.create",
+        "purchase.post",
         "sale.view",
         "sale.create",
+        "sale.post",
+        "collection.post",
         "inventory.view",
         "damage.report",
         "finance.view",

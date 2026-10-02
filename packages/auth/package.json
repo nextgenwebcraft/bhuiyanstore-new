@@ -1,0 +1,22 @@
+{
+  "name": "@bsd/auth",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Better Auth configuration, session lookup and the one-time super-admin bootstrap (guide §12.1). Server-side only.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "bootstrap-admin": "tsx src/bootstrap-admin.ts"
+  },
+  "dependencies": {
+    "@bsd/database": "workspace:*",
+    "better-auth": "1.7.7"
+  },
+  "devDependencies": {
+    "dotenv": "18.0.5",
+    "tsx": "4.23.15"
+  }
+}

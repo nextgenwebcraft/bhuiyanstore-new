@@ -32,3 +32,31 @@ export const companyWorkspaceSchema = z.object({
 });
 
 export type CompanyWorkspace = z.infer<typeof companyWorkspaceSchema>;
+
+/** Full-replace body for creating or updating a company; the tenant comes from the session. */
+export const companyUpsertRequestSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  theme: companyThemeSchema,
+  modules: z.array(z.enum(workspaceModuleIds)),
+});
+
+export type CompanyUpsertRequest = z.infer<typeof companyUpsertRequestSchema>;
+
+/** The signed-in person (`GET /api/v1/me`). */
+export const meSchema = z.object({
+  id: idSchema,
+  name: z.string(),
+  email: z.string(),
+  isSuperAdmin: z.boolean(),
+  mustChangePassword: z.boolean(),
+});
+
+export type Me = z.infer<typeof meSchema>;
+
+/** Minimum length is enforced again by the auth server; 12 matches guide §12.1. */
+export const passwordChangeRequestSchema = z.object({
+  currentPassword: z.string().min(1).max(256),
+  newPassword: z.string().min(12).max(128),
+});
+
+export type PasswordChangeRequest = z.infer<typeof passwordChangeRequestSchema>;

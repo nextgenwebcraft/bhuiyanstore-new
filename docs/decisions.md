@@ -1,48 +1,56 @@
 # Decision register
 
 Owner of accepted business and technical decisions (guide §21.1). Code references decisions by ID.
-Business rules D01–D22 are bootstrapped from guide §3; see the guide for full wording. Change a
+Business rules D01–D22 are bootstrapped from guide §3. D23–D30 were confirmed by the owner on 2026-10-02 (D27 delegated to the implementer). D23–D28 are also listed there. The canonical phase plan is [PLAN.md](PLAN.md). See the guide for full wording. Change a
 decision here and in code together, never in a private note.
 
 ## Business rules (from guide §3)
 
-| ID  | Status                  | Summary                                                                          |
-| --- | ----------------------- | -------------------------------------------------------------------------------- |
-| D01 | Confirmed               | Companies are supplier brands under one distributor legal entity                 |
-| D02 | Confirmed               | SR supplier-employed; DSR distributor-employed; no SR payroll                    |
-| D03 | Confirmed               | One daily product summary per brand/DSR/date; no customer module                 |
-| D04 | Confirmed / AB deferred | Samari = issue, Firot = unsold return, Credit = old-dues collection; AB excluded |
-| D05 | Implementation default  | FEFO when expiry known, else FIFO; authorized override with reason               |
-| D06 | Implementation default  | Actual receipt cost layers; sale prices are transaction snapshots                |
-| D07 | Decided                 | Excel baseline, owner-adjusted opening cutover                                   |
-| D08 | Confirmed / decided     | Bangla, BDT, Asia/Dhaka, no tax invoice; 2-place settlement, 6-place cost        |
-| D09 | Implementation default  | Shared staff/cash; brand-attributed events                                       |
-| D10 | Decided                 | One shared godown; internal custody/quarantine locations                         |
-| D11 | Confirmed               | DSR personal due recovered from salary, capped; remainder carries forward        |
-| D12 | Implementation default  | Source-linked corrections and returns                                            |
-| D13 | Implementation default  | Period locks, approvals, optimistic concurrency, idempotency                     |
-| D14 | Confirmed               | Neon PostgreSQL; Redis only after a measured SQL baseline                        |
-| D15 | Confirmed               | Online only, responsive mobile; no offline queue or local drafts                 |
-| D16 | Confirmed               | Company incentive = free product stock; no cash/payable effect                   |
-| D17 | Confirmed               | Separate buyer and supplier damage replacement legs by product/batch             |
-| D18 | Confirmed               | SR Sort = SR loan receivable; SR Over = SR payable                               |
-| D19 | Confirmed               | Banking Amount = outgoing deposit to supplier                                    |
-| D20 | Confirmed               | D:Comition and supplier incentive products have no accounting connection         |
-| D21 | Confirmed               | Buyer replacement may be pending; market due never enters payroll                |
-| D22 | Confirmed               | Dynamic per-company products with batches and variable prices                    |
+| ID  | Status                   | Summary                                                                                                         |
+| --- | ------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| D01 | Confirmed                | Companies are supplier brands under one distributor legal entity                                                |
+| D02 | Confirmed                | SR supplier-employed; DSR distributor-employed; no SR payroll                                                   |
+| D03 | Confirmed                | One daily product summary per brand/DSR/date; no customer module                                                |
+| D04 | Confirmed / AB deferred  | Samari = issue, Firot = unsold return, Credit = old-dues collection; AB excluded                                |
+| D05 | Implementation default   | FEFO when expiry known, else FIFO; authorized override with reason                                              |
+| D06 | Superseded in part (D29) | Sale prices are transaction snapshots; receipt cost layers no longer drive COGS                                 |
+| D07 | Decided                  | Excel baseline, owner-adjusted opening cutover                                                                  |
+| D08 | Confirmed / decided      | Bangla, BDT, Asia/Dhaka, no tax invoice; 2-place settlement, 6-place cost                                       |
+| D09 | Implementation default   | Shared staff/cash; brand-attributed events                                                                      |
+| D10 | Decided                  | One shared godown; internal custody/quarantine locations                                                        |
+| D11 | Confirmed                | DSR personal due recovered from salary, capped; remainder carries forward                                       |
+| D12 | Implementation default   | Source-linked corrections and returns                                                                           |
+| D13 | Implementation default   | Period locks, approvals, optimistic concurrency, idempotency                                                    |
+| D14 | Confirmed                | Neon PostgreSQL; Redis only after a measured SQL baseline                                                       |
+| D15 | Confirmed                | Online only, responsive mobile; no offline queue or local drafts                                                |
+| D16 | Confirmed                | Company incentive = free product stock; no cash/payable effect                                                  |
+| D17 | Confirmed                | Separate buyer and supplier damage replacement legs by product/batch                                            |
+| D18 | Confirmed                | SR Sort = SR loan receivable; SR Over = SR payable                                                              |
+| D19 | Confirmed                | Banking Amount = outgoing deposit to supplier                                                                   |
+| D20 | Confirmed                | D:Comition and supplier incentive products have no accounting connection                                        |
+| D21 | Confirmed                | Buyer replacement may be pending; market due never enters payroll                                               |
+| D22 | Confirmed                | Dynamic per-company products with batches and variable prices                                                   |
+| D23 | Confirmed 2026-10-02     | Workbook "SR Mamun/Mahedi" are DSRs; product custody (Samari/Firot) is DSR-only                                 |
+| D24 | Confirmed 2026-10-02     | D11 salary recovery applies to every salaried distributor employee, not only DSR                                |
+| D25 | Confirmed 2026-10-02     | "Cash Pabe" = salary still to be paid after deductions (derived, never entered)                                 |
+| D26 | Confirmed 2026-10-02     | Opening = upload one corrected last-month sheet (`Oct 2026`); go-live 2026-11-01                                |
+| D27 | Decided 2026-10-02       | Per-person staff money account with typed entries (guide §11.9)                                                 |
+| D28 | Confirmed 2026-10-02     | One generic system; all companies share entries, reports, opening template                                      |
+| D29 | Confirmed 2026-10-02     | Cost = qty × that day's purchase price per product (Excel method); batches track quantity/expiry only (PLAN §2) |
+| D30 | Confirmed 2026-10-02     | Owner approved moving to the real database + API now ([client-approval.md](client-approval.md))                 |
 
 ## Pending business decisions
 
 Do not resolve these in code; record the owner's answer here first.
 
-| ID  | Question                                                                       | Source          | Provisional handling                                |
-| --- | ------------------------------------------------------------------------------ | --------------- | --------------------------------------------------- |
-| P01 | Rounding mode, line-vs-summary rounding and residual account                   | Guide §10.4     | `ROUND_HALF_UP` in `packages/domain/src/decimal.ts` |
-| P02 | Workspace/catalog naming: file title says Drinko, `Jan 2026!G3` says PRAN      | Guide §2.1      | Demo uses synthetic names                           |
-| P03 | Go-live / opening cutover date                                                 | Guide §2.5, §16 | None; the opening wizard requires an explicit date  |
-| P04 | Pack definitions where carton factors differ (`Mar 2026!F109` ×72, `I109` ×24) | Guide §2.5      | Per-product factor, snapshotted per line            |
-| P05 | Physical reconciliation of negative saved stock (`Jan 2026!T14`, `T28`, `T32`) | Guide §2.5      | Negative available stock blocked by default         |
-| P06 | Discount, expiry, batch allocation and return policies (Phase 2 confirmation)  | Guide §17       | Implementation defaults D05, D12                    |
+| ID  | Question                                                                                                                  | Source      | Provisional handling                                                                                                                                               |
+| --- | ------------------------------------------------------------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| P01 | Rounding mode, line-vs-summary rounding and residual account                                                              | Guide §10.4 | `ROUND_HALF_UP` in `packages/domain/src/decimal.ts`; each price split and each allocation's cost rounded to 2 places, then summed (`packages/domain/src/sales.ts`) |
+| P02 | Workspace/catalog naming: file title says Drinko, `Jan 2026!G3` says PRAN                                                 | Guide §2.1  | Demo uses synthetic names                                                                                                                                          |
+| P03 | Go-live date for companies other than Drinko (Drinko: 2026-11-01, D26)                                                    | Guide §16.1 | The opening wizard requires an explicit date per company                                                                                                           |
+| P04 | Pack definitions where carton factors differ (`Mar 2026!F109` ×72, `I109` ×24)                                            | Guide §2.5  | Per-product factor, snapshotted per line                                                                                                                           |
+| P05 | Correct negative or blank closing stock in the uploaded last-month sheet (current `Sep 2026` copy: 10 negative, 17 blank) | Guide §16.1 | Readiness check blocks activation; owner corrects in Excel or on screen; negative available stock blocked by default                                               |
+| P06 | Discount, expiry, batch allocation and return policies (Phase 2 confirmation)                                             | Guide §17   | Implementation defaults D05, D12                                                                                                                                   |
 
 ## Technical decisions
 
@@ -59,6 +67,9 @@ Do not resolve these in code; record the owner's answer here first.
 | T09 | TanStack Query 5.104.0 for client server-state; keys only from `apps/web/src/data/query-keys.ts`, scoped by actor and company                                                                                                                                                                                           | Guide §7.2, §21.7; late responses cannot cross company or user                                                                                                                                                                                 |
 | T10 | Company boundary = `/c/[companyId]` layout remounting `CompanyShell` with `key={companyId}`                                                                                                                                                                                                                             | Guide §4.2 step 4; one shared boundary instead of per-page switch logic                                                                                                                                                                        |
 | T11 | Mock state is in memory only; reload restores the seed                                                                                                                                                                                                                                                                  | D15 forbids operational local storage; "Reset demo" does the same explicitly                                                                                                                                                                   |
-| T12 | SR navigation follows the §5.3 SR account workspace (list, statement, incentives, settlements) instead of §5.2 "Deliveries / Dues"                                                                                                                                                                                      | §5.2 wording conflicts with D18 (SR is money-only); confirm at client review                                                                                                                                                                   |
+| T12 | SR navigation follows the §5.3 SR account workspace (list, statement, incentives, settlements) instead of §5.2 "Deliveries / Dues"                                                                                                                                                                                      | §5.2 wording conflicted with D18 (SR is money-only); guide §5.2 corrected 2026-10-02 to match                                                                                                                                                  |
 | T13 | No primitive component library yet; native `<select>`/`<dialog>` used                                                                                                                                                                                                                                                   | shadcn/ui (§7.2) to be added when the first composite primitive (combobox) is needed                                                                                                                                                           |
 | T14 | Navigation IA: guide §5.2's 10 sections/~45 screens are grouped into 4 fixed presentation groups (Operations, Money & Staff, Reports, Setup); the dashboard is a card hub of modules, each module has a card-grid landing page at its own path, and the sidebar shows only group headers + module links (no leaf items) | §5.2's flat list is functionally correct but visually overwhelming for a small operator-run distribution business; this reorganizes presentation only — no module, screen, permission or business rule is removed, so it doesn't touch D01–D22 |
+| T15 | Mock stock is an append-only movement ledger; batch quantities (received/available/reserved/quarantine) are derived from movements on every read. Seed batches become `opening` movements at init                                                                                                                       | Guide §9.1 invariant 4 and §21.1 "Physical stock history"; the same shape the Phase 3 StockBalance projection will rebuild from                                                                                                                |
+| T16 | Added permission `collection.post` for old-dues collection (Credit); the demo manager role now also holds `purchase.post`, `sale.post`, `collection.post`. The DSR operator keeps create-only rights, so the forbidden state stays demonstrable                                                                         | No permission covered posting a collection; `payment.*` is the supplier-payment flow (D19) and must not be reused                                                                                                                              |
+| T17 | A daily summary rejects current cash collected above its net sales (VALIDATION_FAILED) instead of recording an excess                                                                                                                                                                                                   | Guide §10.3: current collection + new market due must reconcile to net sales; excess cash is a DSR settlement/suspense matter (§11.6), not built yet                                                                                           |

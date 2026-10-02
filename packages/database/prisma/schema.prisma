@@ -1,0 +1,449 @@
+// PLAN §5. Every row carries tenant_id; company-owned rows carry company_id.
+// Money and quantities use NUMERIC (Decimal), never float. Tables are snake_case.
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------- organization
+
+model Tenant {
+  id                String            @id @default(cuid())
+  name              String
+  createdAt         DateTime          @default(now()) @map("created_at")
+  legalEntities     LegalEntity[]
+  companies         Company[]
+  users             User[]
+  roles             Role[]
+  staff             Staff[]
+  staffRoles        StaffRole[]
+  expenseCategories ExpenseCategory[]
+
+  @@map("tenant")
+}
+
+model LegalEntity {
+  id           String        @id @default(cuid())
+  tenantId     String        @map("tenant_id")
+  name         String
+  currency     String        @default("BDT")
+  timezone     String        @default("Asia/Dhaka")
+  createdAt    DateTime      @default(now()) @map("created_at")
+  tenant       Tenant        @relation(fields: [tenantId], references: [id])
+  companies    Company[]
+  cashAccounts CashAccount[]
+
+  @@map("legal_entity")
+}
+
+model Company {
+  id                     String            @id @default(cuid())
+  tenantId               String            @map("tenant_id")
+  legalEntityId          String            @map("legal_entity_id")
+  name                   String
+  themePrimary           String            @map("theme_primary")
+  themePrimaryForeground String            @map("theme_primary_foreground")
+  themeAccent            String?           @map("theme_accent")
+  logoRef                String?           @map("logo_ref")
+  status                 String            @default("active")
+  createdAt              DateTime          @default(now()) @map("created_at")
+  updatedAt              DateTime          @updatedAt @map("updated_at")
+  tenant                 Tenant            @relation(fields: [tenantId], references: [id])
+  legalEntity            LegalEntity       @relation(fields: [legalEntityId], references: [id])
+  modules                CompanyModule[]
+  memberships            Membership[]
+  products               Product[]
+  suppliers              Supplier[]
+  staffAssignments       StaffAssignment[]
+  opening                OpeningSession?
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("company")
+}
+
+model CompanyModule {
+  companyId String  @map("company_id")
+  module    String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@id([companyId, module])
+  @@map("company_module")
+}
+
+// ---------------------------------------------------------------- identity (Better Auth tables + access)
+
+model User {
+  id                 String       @id
+  name               String
+  email              String       @unique
+  emailVerified      Boolean      @default(false) @map("email_verified")
+  image              String?
+  createdAt          DateTime     @default(now()) @map("created_at")
+  updatedAt          DateTime     @updatedAt @map("updated_at")
+  tenantId           String?      @map("tenant_id")
+  isSuperAdmin       Boolean      @default(false) @map("is_super_admin")
+  mustChangePassword Boolean      @default(false) @map("must_change_password")
+  active             Boolean      @default(true)
+  tenant             Tenant?      @relation(fields: [tenantId], references: [id])
+  sessions           Session[]
+  accounts           Account[]
+  memberships        Membership[]
+
+  @@map("user")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime @map("expires_at")
+  token     String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  ipAddress String?  @map("ip_address")
+  userAgent String?  @map("user_agent")
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String    @map("account_id")
+  providerId            String    @map("provider_id")
+  userId                String    @map("user_id")
+  accessToken           String?   @map("access_token")
+  refreshToken          String?   @map("refresh_token")
+  idToken               String?   @map("id_token")
+  accessTokenExpiresAt  DateTime? @map("access_token_expires_at")
+  refreshTokenExpiresAt DateTime? @map("refresh_token_expires_at")
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime @map("expires_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+/// Roles are composed only of permission IDs defined in @bsd/contracts (guide §12.2).
+model Role {
+  id          String           @id @default(cuid())
+  tenantId    String           @map("tenant_id")
+  name        String
+  createdAt   DateTime         @default(now()) @map("created_at")
+  tenant      Tenant           @relation(fields: [tenantId], references: [id])
+  permissions RolePermission[]
+  memberships MembershipRole[]
+
+  @@unique([tenantId, name])
+  @@map("role")
+}
+
+model RolePermission {
+  roleId     String @map("role_id")
+  permission String
+  role       Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permission])
+  @@map("role_permission")
+}
+
+model Membership {
+  id        String           @id @default(cuid())
+  userId    String           @map("user_id")
+  companyId String           @map("company_id")
+  createdAt DateTime         @default(now()) @map("created_at")
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company   Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  roles     MembershipRole[]
+
+  @@unique([userId, companyId])
+  @@map("membership")
+}
+
+model MembershipRole {
+  membershipId String     @map("membership_id")
+  roleId       String     @map("role_id")
+  membership   Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  role         Role       @relation(fields: [roleId], references: [id])
+
+  @@id([membershipId, roleId])
+  @@map("membership_role")
+}
+
+// ---------------------------------------------------------------- platform
+
+/// Append-only. Never updated or deleted by the application.
+model AuditEvent {
+  id           String   @id @default(cuid())
+  tenantId     String   @map("tenant_id")
+  companyId    String?  @map("company_id")
+  actorId      String   @map("actor_id")
+  action       String
+  resourceType String   @map("resource_type")
+  resourceId   String   @map("resource_id")
+  before       Json?
+  after        Json?
+  requestId    String?  @map("request_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, companyId, createdAt])
+  @@index([resourceType, resourceId])
+  @@map("audit_event")
+}
+
+/// One outcome per actor/scope/action/request key (guide §13.3). `scope` is a company ID or "tenant".
+model IdempotencyRecord {
+  id          String   @id @default(cuid())
+  actorId     String   @map("actor_id")
+  scope       String
+  action      String
+  requestKey  String   @map("request_key")
+  payloadHash String   @map("payload_hash")
+  response    Json
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([actorId, scope, action, requestKey])
+  @@map("idempotency_record")
+}
+
+// ---------------------------------------------------------------- catalog
+
+model Product {
+  id           String             @id @default(cuid())
+  tenantId     String             @map("tenant_id")
+  companyId    String             @map("company_id")
+  sku          String
+  name         String
+  aliases      String[]
+  baseUnit     String             @default("piece") @map("base_unit")
+  status       String             @default("active")
+  createdAt    DateTime           @default(now()) @map("created_at")
+  updatedAt    DateTime           @updatedAt @map("updated_at")
+  company      Company            @relation(fields: [companyId], references: [id])
+  packs        ProductPack[]
+  prices       PriceChange[]
+  openingStock OpeningStockLine[]
+
+  @@unique([companyId, sku])
+  @@index([tenantId, companyId])
+  @@map("product")
+}
+
+/// Carton size history (guide §4.4). effective_from NULL = since creation (one per product).
+/// Posted lines snapshot their own size (guide §9.2).
+model ProductPack {
+  id              String    @id @default(cuid())
+  productId       String    @map("product_id")
+  piecesPerCarton Int       @map("pieces_per_carton")
+  effectiveFrom   DateTime? @map("effective_from") @db.Date
+  createdAt       DateTime  @default(now()) @map("created_at")
+  product         Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, effectiveFrom])
+  @@map("product_pack")
+}
+
+/// Per-piece order/cost/sale price from a date on; the latest change on or before a date wins (PLAN §5).
+model PriceChange {
+  id            String   @id @default(cuid())
+  productId     String   @map("product_id")
+  kind          String
+  price         Decimal  @db.Decimal(20, 6)
+  effectiveFrom DateTime @map("effective_from") @db.Date
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  product       Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, kind, effectiveFrom])
+  @@map("price_change")
+}
+
+// ---------------------------------------------------------------- parties
+
+model Supplier {
+  id        String   @id @default(cuid())
+  tenantId  String   @map("tenant_id")
+  companyId String   @map("company_id")
+  name      String
+  phone     String?
+  status    String   @default("active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  company   Company  @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, name])
+  @@map("supplier")
+}
+
+/// A person, independent of user accounts (guide §11.1). Names never become columns.
+model Staff {
+  id              String               @id @default(cuid())
+  tenantId        String               @map("tenant_id")
+  name            String
+  employer        String
+  phone           String?
+  status          String               @default("active")
+  createdAt       DateTime             @default(now()) @map("created_at")
+  updatedAt       DateTime             @updatedAt @map("updated_at")
+  tenant          Tenant               @relation(fields: [tenantId], references: [id])
+  assignments     StaffAssignment[]
+  openingBalances OpeningBalanceLine[]
+
+  @@index([tenantId])
+  @@map("staff")
+}
+
+/// One role in one company for a period (`to` NULL = open-ended); periods never overlap per company.
+model StaffAssignment {
+  id        String    @id @default(cuid())
+  staffId   String    @map("staff_id")
+  companyId String    @map("company_id")
+  roleId    String    @map("role_id")
+  from      DateTime  @db.Date
+  to        DateTime? @db.Date
+  createdAt DateTime  @default(now()) @map("created_at")
+  staff     Staff     @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  company   Company   @relation(fields: [companyId], references: [id])
+  role      StaffRole @relation(fields: [roleId], references: [id])
+
+  @@index([companyId])
+  @@index([staffId])
+  @@map("staff_assignment")
+}
+
+// ---------------------------------------------------------------- configuration lists (guide §4.4)
+
+/// `kind` is what the fixed rules read (dsr | sr | general); the name is tenant data.
+model StaffRole {
+  id          String            @id @default(cuid())
+  tenantId    String            @map("tenant_id")
+  name        String
+  kind        String
+  active      Boolean           @default(true)
+  createdAt   DateTime          @default(now()) @map("created_at")
+  tenant      Tenant            @relation(fields: [tenantId], references: [id])
+  assignments StaffAssignment[]
+
+  @@unique([tenantId, name])
+  @@map("staff_role")
+}
+
+model ExpenseCategory {
+  id        String   @id @default(cuid())
+  tenantId  String   @map("tenant_id")
+  name      String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, name])
+  @@map("expense_category")
+}
+
+/// Cash, bank and mobile-money accounts of the legal entity, shared by its companies (D01).
+model CashAccount {
+  id              String               @id @default(cuid())
+  tenantId        String               @map("tenant_id")
+  legalEntityId   String               @map("legal_entity_id")
+  name            String
+  kind            String
+  active          Boolean              @default(true)
+  createdAt       DateTime             @default(now()) @map("created_at")
+  legalEntity     LegalEntity          @relation(fields: [legalEntityId], references: [id])
+  openingBalances OpeningBalanceLine[]
+
+  @@unique([legalEntityId, name])
+  @@map("cash_account")
+}
+
+// ---------------------------------------------------------------- opening balances (PLAN §7)
+
+/// One opening per company: draft → approved → active. Any save returns it to draft and bumps
+/// `version`; approve and activate act on the version the user reviewed. Active is locked.
+model OpeningSession {
+  id               String               @id @default(cuid())
+  tenantId         String               @map("tenant_id")
+  companyId        String               @unique @map("company_id")
+  status           String               @default("draft")
+  version          Int                  @default(0)
+  cutoffDate       DateTime?            @map("cutoff_date") @db.Date
+  sourceFileName   String?              @map("source_file_name")
+  sourceSheet      String?              @map("source_sheet")
+  sourceHash       String?              @map("source_hash")
+  sourceImportedAt DateTime?            @map("source_imported_at")
+  /// Reader notes and unmatched labels from the import, shown for review.
+  sourceReport     Json?                @map("source_report")
+  approvedById     String?              @map("approved_by_id")
+  approvedAt       DateTime?            @map("approved_at")
+  activatedById    String?              @map("activated_by_id")
+  activatedAt      DateTime?            @map("activated_at")
+  createdAt        DateTime             @default(now()) @map("created_at")
+  updatedAt        DateTime             @updatedAt @map("updated_at")
+  company          Company              @relation(fields: [companyId], references: [id])
+  stock            OpeningStockLine[]
+  balances         OpeningBalanceLine[]
+
+  @@index([tenantId])
+  @@map("opening_session")
+}
+
+/// NULL = unknown (never zero). `source` keeps the imported evidence beside the adjusted values.
+model OpeningStockLine {
+  id             String         @id @default(cuid())
+  sessionId      String         @map("session_id")
+  productId      String         @map("product_id")
+  pieces         Decimal?       @db.Decimal(20, 6)
+  unitCost       Decimal?       @map("unit_cost") @db.Decimal(20, 6)
+  salePrice      Decimal?       @map("sale_price") @db.Decimal(20, 6)
+  orderPrice     Decimal?       @map("order_price") @db.Decimal(20, 6)
+  dueFromCompany Decimal?       @map("due_from_company") @db.Decimal(20, 6)
+  note           String         @default("")
+  source         Json?
+  session        OpeningSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  product        Product        @relation(fields: [productId], references: [id])
+
+  @@unique([sessionId, productId])
+  @@map("opening_stock_line")
+}
+
+/// One typed money balance (guide §16.7); `party_key` makes (kind, party) unique with NULL parties.
+model OpeningBalanceLine {
+  id            String         @id @default(cuid())
+  sessionId     String         @map("session_id")
+  kind          String
+  staffId       String?        @map("staff_id")
+  cashAccountId String?        @map("cash_account_id")
+  partyKey      String         @map("party_key")
+  amount        Decimal?       @db.Decimal(20, 2)
+  sourceAmount  Decimal?       @map("source_amount") @db.Decimal(20, 6)
+  note          String         @default("")
+  session       OpeningSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  staff         Staff?         @relation(fields: [staffId], references: [id])
+  cashAccount   CashAccount?   @relation(fields: [cashAccountId], references: [id])
+
+  @@unique([sessionId, kind, partyKey])
+  @@index([cashAccountId])
+  @@map("opening_balance_line")
+}

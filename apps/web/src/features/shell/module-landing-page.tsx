@@ -42,7 +42,7 @@ export function ModuleLandingPage({ sectionId }: { sectionId: string }) {
           hint={t("state.forbiddenHint")}
         />
       ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {visibleItems.map((item) => (
             <ModuleCard
               key={item.path}

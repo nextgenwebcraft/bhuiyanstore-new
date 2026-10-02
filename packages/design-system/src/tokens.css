@@ -2,6 +2,10 @@
  * Semantic design tokens (guide sections 5.1, 21.6). Components consume these variables;
  * do not scatter literal colors or spacing across pages. Brand variables are set per company
  * via themeToCssVars().
+ *
+ * Low-glare palette for long working days: a tinted canvas instead of pure white, slate text
+ * instead of pure black, and soft borders/shadows. Text colors keep WCAG AA (4.5:1) on both
+ * --surface and --canvas; --text-subtle is for icons and dividers only, never body text.
  */
 :root {
   --brand-primary: #1f2937;
@@ -9,11 +13,15 @@
   --brand-accent: var(--brand-primary);
   --brand-chart-accent: var(--brand-primary);
 
+  --canvas: #f4f6fa;
   --surface: #ffffff;
-  --surface-muted: #f5f6f8;
-  --border: #e3e5e9;
-  --text: #111827;
-  --text-muted: #5b6270;
+  --surface-muted: #f1f4f8;
+  --surface-hover: #eaeef4;
+  --border: #e3e8ef;
+  --border-strong: #cfd6e0;
+  --text: #1c2433;
+  --text-muted: #5b6678;
+  --text-subtle: #8f99aa;
 
   /* Status colors are fixed across companies so a red brand never masquerades as an error. */
   --status-error: #b42318;
@@ -23,6 +31,9 @@
 
   --focus-ring: #2e90fa;
   --space-unit: 8px;
-  --radius: 6px;
+  --radius: 10px;
   --touch-target: 44px;
+
+  --shadow-card: 0 1px 2px rgb(16 24 40 / 0.04), 0 1px 3px rgb(16 24 40 / 0.05);
+  --shadow-raised: 0 12px 32px -8px rgb(16 24 40 / 0.14), 0 2px 6px rgb(16 24 40 / 0.05);
 }

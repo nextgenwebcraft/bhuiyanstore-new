@@ -4,20 +4,34 @@
 @theme inline {
   --color-brand: var(--brand-primary);
   --color-brand-foreground: var(--brand-primary-foreground);
+  --color-canvas: var(--canvas);
   --color-surface: var(--surface);
   --color-surface-muted: var(--surface-muted);
+  --color-surface-hover: var(--surface-hover);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
   --color-text: var(--text);
   --color-text-muted: var(--text-muted);
+  --color-text-subtle: var(--text-subtle);
   --color-error: var(--status-error);
   --color-warning: var(--status-warning);
   --color-success: var(--status-success);
   --color-info: var(--status-info);
+  --shadow-card: var(--shadow-card);
+  --shadow-raised: var(--shadow-raised);
   --font-sans: var(--font-bengali), system-ui, sans-serif;
 }
 
+/* Scrolls by wheel, touch and keyboard without a visible scrollbar. */
+@utility scrollbar-none {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 body {
-  background: var(--surface-muted);
+  background: var(--canvas);
   color: var(--text);
   font-variant-numeric: tabular-nums;
 }
@@ -25,6 +39,10 @@ body {
 :focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--brand-primary) 18%, transparent);
 }
 
 @media (prefers-reduced-motion: reduce) {

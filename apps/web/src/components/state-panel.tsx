@@ -1,9 +1,15 @@
 type Tone = "neutral" | "warning" | "error";
 
 const toneClasses: Record<Tone, string> = {
-  neutral: "border-border",
-  warning: "border-warning",
-  error: "border-error",
+  neutral: "border-border bg-surface",
+  warning: "border-warning/30 bg-warning/5",
+  error: "border-error/30 bg-error/5",
+};
+
+const dotClasses: Record<Tone, string> = {
+  neutral: "bg-text-subtle",
+  warning: "bg-warning",
+  error: "bg-error",
 };
 
 /**
@@ -24,11 +30,14 @@ export function StatePanel({
   return (
     <section
       role={tone === "error" ? "alert" : "status"}
-      className={`flex flex-col items-start gap-2 rounded-lg border border-l-4 bg-surface p-6 ${toneClasses[tone]}`}
+      className={`flex flex-col items-start gap-2 rounded-xl border p-5 shadow-card ${toneClasses[tone]}`}
     >
-      <h2 className="text-lg font-semibold">{title}</h2>
-      {hint ? <p className="text-text-muted">{hint}</p> : null}
-      {action ? <div className="mt-2">{action}</div> : null}
+      <h2 className="flex items-center gap-2.5 text-base font-semibold">
+        <span aria-hidden className={`size-2 shrink-0 rounded-full ${dotClasses[tone]}`} />
+        {title}
+      </h2>
+      {hint ? <p className="pl-4.5 text-sm text-text-muted">{hint}</p> : null}
+      {action ? <div className="mt-1 pl-4.5">{action}</div> : null}
     </section>
   );
 }

@@ -5,7 +5,7 @@ import { normalizeDigits, t } from "@bsd/i18n";
 import { forwardRef, useId, useImperativeHandle, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/button";
 import { StatePanel } from "@/components/state-panel";
-import { errorCodeOf } from "@/data/ports/service-error";
+import { describeError } from "@/data/ports/service-error";
 import { useCreateProduct, useUpdateProduct } from "@/data/queries";
 import { useRegisterDraftGuard } from "@/features/shell/draft-guard";
 
@@ -107,10 +107,9 @@ export const ProductForm = forwardRef<ProductFormHandle, { companyId: string }>(
         close();
         return true;
       } catch (error) {
-        const code = errorCodeOf(error);
-        setServerError(
-          code === "VALIDATION_FAILED" ? t("product.duplicateSku") : t(`error.${code}`),
-        );
+        const described = describeError(error, ["sku", "name", "piecesPerCarton"]);
+        setFieldErrors(described.fields);
+        setServerError(described.form ?? null);
         return false;
       }
     }

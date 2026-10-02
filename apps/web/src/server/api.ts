@@ -1,0 +1,131 @@
+import "server-only";
+import { AppError, HTTP_STATUS, type AppContext } from "@bsd/application";
+import { actorFromHeaders, auth } from "@bsd/auth";
+import { database } from "@bsd/database";
+
+const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+function errorResponse(error: AppError, requestId: string): Response {
+  return Response.json(error.toApiError(requestId), { status: HTTP_STATUS[error.code] });
+}
+
+const XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+type Body = "json" | "xlsx";
+
+/**
+ * Writes only accept same-origin JSON (or a raw workbook for uploads). Neither is a type an HTML
+ * form can send, so a cross-site form cannot ride the session cookie.
+ */
+function assertSameOriginBody(request: Request, body: Body): void {
+  if (!UNSAFE_METHODS.has(request.method)) return;
+  const origin = request.headers.get("origin");
+  if (origin && new URL(origin).host !== new URL(request.url).host) {
+    throw new AppError("FORBIDDEN");
+  }
+  const type = request.headers.get("content-type")?.toLowerCase() ?? "";
+  if (body === "xlsx") {
+    if (!type.startsWith(XLSX) && !type.startsWith("application/octet-stream")) {
+      throw new AppError("VALIDATION_FAILED", [{ path: "file", code: "validation.file.xlsx" }]);
+    }
+    return;
+  }
+  if (!type.startsWith("application/json")) {
+    throw new AppError("VALIDATION_FAILED", [{ path: "", code: "validation.json.required" }]);
+  }
+}
+
+/**
+ * Runs one `/api/v1` request: resolves the session actor, maps `AppError` to an `ApiError`
+ * response and hides unexpected failures behind INTERNAL with a request id for the logs.
+ * A handler may return its own `Response` (file downloads).
+ */
+export async function handle(
+  request: Request,
+  run: (ctx: AppContext) => Promise<unknown>,
+  successStatus = 200,
+  options: { body?: Body } = {},
+): Promise<Response> {
+  const requestId = crypto.randomUUID();
+  try {
+    assertSameOriginBody(request, options.body ?? "json");
+    const db = database();
+    const actor = await actorFromHeaders(auth(), db, request.headers);
+    if (!actor) throw new AppError("UNAUTHENTICATED");
+    const result = await run({ db, actor, requestId });
+    if (result instanceof Response) return result;
+    return result === undefined
+      ? new Response(null, { status: 204 })
+      : Response.json(result, { status: successStatus });
+  } catch (error) {
+    if (error instanceof AppError) return errorResponse(error, requestId);
+    console.error(`[api] ${request.method} ${new URL(request.url).pathname} ${requestId}`, error);
+    return errorResponse(new AppError("INTERNAL", undefined, true), requestId);
+  }
+}
+
+export async function readJson(request: Request): Promise<unknown> {
+  try {
+    return await request.json();
+  } catch {
+    throw new AppError("VALIDATION_FAILED", [{ path: "", code: "validation.json.invalid" }]);
+  }
+}
+
+/** A raw upload body, refused before buffering when it declares more than `maxBytes`. */
+export async function readBytes(request: Request, maxBytes: number): Promise<Uint8Array> {
+  const tooLarge = () =>
+    new AppError("VALIDATION_FAILED", [{ path: "file", code: "validation.opening.fileTooLarge" }]);
+  if (Number(request.headers.get("content-length") ?? 0) > maxBytes) throw tooLarge();
+  const data = new Uint8Array(await request.arrayBuffer());
+  if (data.byteLength > maxBytes) throw tooLarge();
+  return data;
+}
+
+/** An xlsx download; the name is ASCII-safe in `filename` and exact in `filename*`. */
+export function xlsxResponse(fileName: string, data: Uint8Array): Response {
+  const ascii = fileName.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_");
+  return new Response(data as unknown as BodyInit, {
+    headers: {
+      "content-type": XLSX,
+      "content-disposition": `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+      "cache-control": "no-store",
+    },
+  });
+}
+
+export function idempotencyKey(request: Request): string | undefined {
+  return request.headers.get("idempotency-key")?.trim() || undefined;
+}
+
+type TenantListService = {
+  list(ctx: AppContext): Promise<unknown>;
+  create(ctx: AppContext, input: unknown, requestKey?: string): Promise<unknown>;
+  update(ctx: AppContext, id: string, input: unknown, requestKey?: string): Promise<unknown>;
+};
+
+type IdParams = { params: Promise<{ id: string }> };
+
+/** GET/POST for a tenant configuration list (staff roles, expense categories, cash accounts). */
+export function tenantListRoutes(service: TenantListService) {
+  return {
+    GET: (request: Request) => handle(request, (ctx) => service.list(ctx)),
+    POST: (request: Request) =>
+      handle(
+        request,
+        async (ctx) => service.create(ctx, await readJson(request), idempotencyKey(request)),
+        201,
+      ),
+  };
+}
+
+/** PUT for one entry of a tenant configuration list. */
+export function tenantListItemRoutes(service: TenantListService) {
+  return {
+    PUT: async (request: Request, { params }: IdParams) => {
+      const { id } = await params;
+      return handle(request, async (ctx) =>
+        service.update(ctx, id, await readJson(request), idempotencyKey(request)),
+      );
+    },
+  };
+}

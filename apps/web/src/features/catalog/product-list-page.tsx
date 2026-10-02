@@ -12,6 +12,7 @@ import { useProducts } from "@/data/queries";
 import { NavGate } from "@/features/shell/nav-gate";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 import { ProductForm, type ProductFormHandle } from "./product-form";
+import { ProductHistoryDialog } from "./product-history-dialog";
 
 const PATH = "masters/products";
 
@@ -27,10 +28,12 @@ function ProductResults({
   products,
   canEdit,
   onEdit,
+  onHistory,
 }: {
   products: Product[];
   canEdit: boolean;
   onEdit: (product: Product) => void;
+  onHistory: (product: Product) => void;
 }) {
   return (
     <>
@@ -50,7 +53,7 @@ function ProductResults({
             <th scope="col" className="px-4 py-3 font-semibold">
               {t("product.status")}
             </th>
-            {canEdit ? <th scope="col" className="px-4 py-3" /> : null}
+            <th scope="col" className="px-4 py-3" />
           </tr>
         </thead>
         <tbody>
@@ -67,11 +70,14 @@ function ProductResults({
               <td className="px-4 py-3">
                 <StatusText status={product.status} />
               </td>
-              {canEdit ? (
-                <td className="px-4 py-3 text-right">
-                  <Button onClick={() => onEdit(product)}>{t("product.edit")}</Button>
-                </td>
-              ) : null}
+              <td className="px-4 py-3">
+                <div className="flex justify-end gap-2">
+                  <Button onClick={() => onHistory(product)}>{t("product.history")}</Button>
+                  {canEdit ? (
+                    <Button onClick={() => onEdit(product)}>{t("product.edit")}</Button>
+                  ) : null}
+                </div>
+              </td>
             </tr>
           ))}
         </tbody>
@@ -96,11 +102,16 @@ function ProductResults({
               <dt className="text-text-muted">{t("product.piecesPerCarton")}</dt>
               <dd>{toBengaliDigits(product.piecesPerCarton)}</dd>
             </dl>
-            {canEdit ? (
-              <Button className="mt-3 w-full" onClick={() => onEdit(product)}>
-                {t("product.edit")}
+            <div className="mt-3 flex gap-2">
+              <Button className="flex-1" onClick={() => onHistory(product)}>
+                {t("product.history")}
               </Button>
-            ) : null}
+              {canEdit ? (
+                <Button className="flex-1" onClick={() => onEdit(product)}>
+                  {t("product.edit")}
+                </Button>
+              ) : null}
+            </div>
           </li>
         ))}
       </ul>
@@ -115,6 +126,7 @@ function ProductList() {
   const deferredQuery = useDeferredValue(query);
   const searchId = useId();
   const formRef = useRef<ProductFormHandle>(null);
+  const [historyOf, setHistoryOf] = useState<Product | null>(null);
   const canCreate = permissions.includes("product.create");
   const canEdit = permissions.includes("product.edit");
 
@@ -147,6 +159,7 @@ function ProductList() {
             products={filtered}
             canEdit={canEdit}
             onEdit={(product) => formRef.current?.openEdit(product)}
+            onHistory={setHistoryOf}
           />
         )}
       </>
@@ -166,6 +179,12 @@ function ProductList() {
         }
       />
       <ProductForm ref={formRef} companyId={company.id} />
+      <ProductHistoryDialog
+        companyId={company.id}
+        product={historyOf}
+        canEdit={canEdit}
+        onClose={() => setHistoryOf(null)}
+      />
       <div className="mb-4 max-w-md">
         <label htmlFor={searchId} className="mb-1 block text-sm font-medium">
           {t("product.search")}

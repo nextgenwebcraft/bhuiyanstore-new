@@ -1,5 +1,5 @@
 import type { Batch } from "@bsd/contracts";
-import { t, toBengaliDigits } from "@bsd/i18n";
+import { formatRate, t, toBengaliDigits } from "@bsd/i18n";
 
 /**
  * Shared batch row rendering (guide section 21.6, R10): reused by the batch drawer (one
@@ -37,6 +37,9 @@ export function BatchTable({
             <th scope="col" className="px-4 py-3 font-semibold">
               {t("inventory.column.expiry")}
             </th>
+            <th scope="col" className="px-4 py-3 font-semibold">
+              {t("inventory.column.origin")}
+            </th>
             <th scope="col" className="px-4 py-3 text-right font-semibold">
               {t("inventory.column.available")}
             </th>
@@ -63,11 +66,12 @@ export function BatchTable({
               <td className="px-4 py-3">
                 {batch.expiryDate ? toBengaliDigits(batch.expiryDate) : t("inventory.noExpiry")}
               </td>
+              <td className="px-4 py-3">{t(`inventory.origin.${batch.origin}`)}</td>
               <td className="px-4 py-3 text-right">{toBengaliDigits(batch.availableQuantity)}</td>
               <td className="px-4 py-3 text-right">{toBengaliDigits(batch.reservedQuantity)}</td>
               <td className="px-4 py-3 text-right">{toBengaliDigits(batch.quarantineQuantity)}</td>
               {showCost ? (
-                <td className="px-4 py-3 text-right">{toBengaliDigits(batch.unitCost)}</td>
+                <td className="px-4 py-3 text-right">{formatRate(batch.unitCost)}</td>
               ) : null}
             </tr>
           ))}
@@ -88,6 +92,8 @@ export function BatchTable({
               <dd>
                 {batch.expiryDate ? toBengaliDigits(batch.expiryDate) : t("inventory.noExpiry")}
               </dd>
+              <dt className="text-text-muted">{t("inventory.column.origin")}</dt>
+              <dd>{t(`inventory.origin.${batch.origin}`)}</dd>
               <dt className="text-text-muted">{t("inventory.column.available")}</dt>
               <dd>{toBengaliDigits(batch.availableQuantity)}</dd>
               <dt className="text-text-muted">{t("inventory.column.reserved")}</dt>
@@ -97,7 +103,7 @@ export function BatchTable({
               {showCost ? (
                 <>
                   <dt className="text-text-muted">{t("inventory.column.cost")}</dt>
-                  <dd>{toBengaliDigits(batch.unitCost)}</dd>
+                  <dd>{formatRate(batch.unitCost)}</dd>
                 </>
               ) : null}
             </dl>

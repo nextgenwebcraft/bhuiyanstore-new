@@ -3,7 +3,8 @@
 ## Coding-agent implementation guide and delivery checklist
 
 **Prepared:** 27 September 2026  
-**Updated:** owner-confirmed daily DSR product summaries without a customer module; monetary SR loans, SR incentives paid by the distributor, DSR salary recovery with carry-forward/credit, and product-level supplier damage replacement. Retains Neon PostgreSQL, SSOT, dependency/change-control rules, Bangla and online-only mobile UX.  
+**Updated 2 October 2026:** workbook-to-software map (§2.7–2.8), configuration model (§4.4), per-person staff money accounts (§11.9), last-month opening with the standard template (§16.1, §16.2a, §16.7), D23–D28.  
+**Earlier:** owner-confirmed daily DSR product summaries without a customer module; monetary SR loans, SR incentives paid by the distributor, DSR salary recovery with carry-forward/credit, and product-level supplier damage replacement. Retains Neon PostgreSQL, SSOT, dependency/change-control rules, Bangla and online-only mobile UX.  
 **Source analyzed:** `Drinko 2026.xlsx`, all 12 monthly worksheets; final workbook review completed 27 September 2026  
 **Requested stack:** Next.js with server-side APIs + **Neon PostgreSQL**; Redis introduced after a correct, measured database implementation  
 **Delivery sequence:** interactive JSON prototype → client approval of screens and actions → secure database/API implementation → operational verification → Redis and measured optimization → opening-data migration and launch.
@@ -71,8 +72,10 @@ Build a fast distribution workspace where users record a business event once and
 - Suppliers, supplier representatives, distributor staff and optional route labels; no customer/shop master or customer invoice workflow.
 - Purchase receipts, supplier bills/payments, company goods outstanding, and free supplier-incentive stock receipts without cash payment.
 - Batch inventory, daily DSR sales summaries, Samari issue, Firot unsold return, damage intake, supplier replacement and stock counts.
-- Supplier-employed SR delivery/dues tracking with manual settlement, and distributor-employed DSR operations with salary-based due recovery.
-- Cash/bank movements, aggregate sales dues, supplier balances, SR loans/payables/incentives, expenses and DSR salary records.
+- Supplier-employed SR money accounts (loans, repayments, money owed to the SR, incentives; no products, no salary), and distributor-employed DSR operations.
+- One money account per staff member with typed entries (advance, loan, shortage, repayment, staff credit) and monthly payroll with salary recovery for every distributor employee (section 11.9).
+- Cash/bank movements, aggregate sales dues, supplier balances, SR loans/payables/incentives and expenses.
+- Configurable lists per tenant/company (section 4.4) and one standard opening template for every company (section 16.7).
 - Product-and-batch damage claims with partial supplier replacement receipts and outstanding replacement quantities.
 - Reports, opening balances, exports, audit history, and period closing.
 
@@ -91,7 +94,7 @@ Bangla is the required default user-interface language, and all operational scre
 
 All monthly sheet XML was inspected for populated cells, labels, formulas, saved values, and cross-sheet references. Shared formulas were expanded for selected detailed traces. The workbook contains **356,742 cells with a value or formula, including 314,894 formula cells**, across January–December 2026. January's primary product list occupies `B7:B39`, with 33 labeled rows. Across the twelve primary grids there are **38 distinct trimmed product labels**, not necessarily 38 distinct SKUs; lower grids contain further aliases/conflicting names. The 33 January opening rows are not the complete catalog. See sections 2.6 and 16.3a.
 
-These are storage/structure counts, not transaction counts. Blank-formatted cells are excluded. The workbook was not recalculated in Excel, and its saved results may be stale. No cells marked as cached Excel errors were found in the scan; some formulas have no saved result, and this does not establish that the formulas or business calculations are correct. Empty formula caches remain unknown, not zero. The source file has SHA-256 `7b32fea8b7a306008b78b0c18a3445cb4d9488bf039a6259d25544cba489a882`; retain this with the import provenance. Workbook drawing parts contained no additional text, and no embedded media, comments, macros or external-link parts were found in the ZIP-part inspection.
+These are storage/structure counts, not transaction counts. Blank-formatted cells are excluded. The workbook was not recalculated in Excel, and its saved results may be stale. No cells marked as cached Excel errors were found in the scan; some formulas have no saved result, and this does not establish that the formulas or business calculations are correct. Empty formula caches remain unknown, not zero. The source file has SHA-256 `7b32fea8b7a306008b78b0c18a3445cb4d9488bf039a6259d25544cba489a882`; retain this with the import provenance. A re-saved copy reviewed on 2 October 2026 (`docs/Drinko 2026.xlsx`, gitignored) has SHA-256 `d4886b8364304c3c99bc070a5c2bfcf7eb063a877a405737869b3945c4e91bc3`. Its formula counts match the table below, except `Sep 2026` (29,547). Sections 2.7–2.8 were verified against this copy. The importer records whichever hash it actually reads and never assumes two copies are identical. Workbook drawing parts contained no additional text, and no embedded media, comments, macros or external-link parts were found in the ZIP-part inspection.
 
 | Sheet | Cells with value/formula | Formula cells |
 |---|---:|---:|
@@ -133,7 +136,7 @@ The sheet combines several different kinds of records in one wide layout:
 | `Jan 2026!VT5:WC5` | Monthly receipt/sales/profit, stock value, cartons, product sales, damage amount | Report center with explicit metric definitions |
 | `Jan 2026!WD5:WF5` | Company damage received/paid amounts; Banking Amount means deposits made by the distributor to supplier companies, confirmed by owner | Supplier damage claims and outgoing supplier deposits/payments; not the distributor's bank balance |
 | `Jan 2026!WG5:WJ5`, `WI6`, `WI42` | Daily amount fields and opening/cumulative due arithmetic | Aggregate market-sales dues and supplier open items; Credit collects previous dues, separately from personal staff loans |
-| `Jan 2026!WK5:WV5` | Commission, operating costs, named SR/DSR shortages/excess, manager, totals | Separate external SR dues and internal DSR settlement; expense categories and DSR compensation |
+| `Jan 2026!WK5:WV5` | Commission, operating costs, named SR/DSR shortages/excess, manager, totals | SR money accounts and per-person staff money accounts (section 11.9); expense categories and staff compensation |
 | `Mar 2026!J44`, `Q44`, `J80` | Named people attached to issue/return grids | Person/assignment records; confirm each person's actual SR/DSR function before mapping |
 | `Apr 2026!XA5:XG17` | Salaries, cash payable, AB, expenses, profit, commission history | Salary, distributor-paid SR incentive and supplier-gifted incentive stock history; AB is deferred and excluded |
 | `Feb 2026!D7`, `T7` | Previous-month outstanding quantity and stock carried forward | Opening records plus immutable movement ledgers |
@@ -190,6 +193,109 @@ The following are source observations. They qualify the replacement design; they
 
 Seed reviewable expense labels from the workbook: godown rent (`Jan 2026!WK38` / `WL38=14000`), garage (`WK39` / `WL39=2000`), loading/unloading (`Apr 2026!XA16`) and Eid-related expense (`XA17`, `XE17=6000`). These are proposed categories, not recurring approved amounts or automatically imported opening liabilities. Determine whether each cost belongs in overhead, landed inventory cost or employee compensation before posting; link a payroll-related bonus rather than recording the expense twice.
 
+### 2.7 Complete workbook-to-software map
+
+Every populated column family in the workbook maps to one of the following:
+
+- a software record (the event users enter once)
+- a derived report metric (never entered)
+- a defect that is not reproduced
+- a pending decision (`docs/decisions.md`)
+- AB, which is excluded
+
+Nothing in the workbook is left unmapped. Cell letters refer to `Jan 2026` unless stated. Later months shift the right-side letters (section 2.8), so the importer resolves columns by header text (section 16.6), not by these letters.
+
+This sheet is one supplier brand's book. Each company workspace gets the same structure with its own products, staff assignments, opening balances and prices (D01, D22). The software has no fixed product rows, product count, staff columns or 31-day grid.
+
+**Daily product block** (31 blocks per sheet, each 19 columns wide, `B:V`, `W:AO`, …; one block per business day; one row per product)
+
+| Column(s)                                      | Workbook meaning / formula                                                                                   | Software owner                                                                                                                                                                                                      | Status                                                                                                                    |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `B` Product Name                               | Row label; rows change occupant between months                                                               | `Product` per company, with source aliases (section 16.3a)                                                                                                                                                          | Mapped; never join by row                                                                                                 |
+| `A7:A37`                                       | Labels `25.07.01`…`25.07.31` beside product rows                                                             | None. These are date-like labels, not SKU codes                                                                                                                                                                     | Ignored as evidence only                                                                                                  |
+| `C` Due Quantity                               | Quantity ordered but not yet received from the company that day                                              | Purchase order / company goods outstanding increase                                                                                                                                                                 | Mapped (procurement)                                                                                                      |
+| `D` Balance Quantity                           | `D7=8+C7-G7`; next block `W7=D7+V7-Z7`                                                                       | Derived: **কোম্পানি থেকে পাওনা পণ্য** per product                                                                                                                                                                   | Derived metric                                                                                                            |
+| `E` Due price, `F` Due Total Price             | Order/reference rate; `F7=C7*E7`                                                                             | Purchase order line rate and amount                                                                                                                                                                                 | Mapped; separate from bill/receipt cost                                                                                   |
+| `G` Receive                                    | Pieces received that day                                                                                     | `GoodsReceipt` line (purchase or supplier incentive, D16)                                                                                                                                                           | Mapped (implemented in prototype)                                                                                         |
+| `H` Purchase Unit Price                        | Receipt cost per piece for that day                                                                          | Receipt line unit cost and the cost layer it creates (D06)                                                                                                                                                          | Mapped (implemented)                                                                                                      |
+| `I` Total Price                                | `I7=E7*G7` (receipt valued at the **due** rate, not `H`)                                                     | Derived receipt value = quantity × actual receipt cost                                                                                                                                                              | Defect not reproduced (section 2.5)                                                                                       |
+| `J` Total Due Receive sales Price              | `J7=G7*O7`, receipt valued at sale price                                                                     | Derived report metric "receipt at suggested sale value"                                                                                                                                                             | Report only, no posting                                                                                                   |
+| `K` Samari, `L` Firot                          | Sum of the per-person issue/return grids: Jan `K7=M45`; Mar onward `K7=M45+F45+F81`, `L7=P45+I45+I81`        | Per-person custody issue / unsold return events (sections 9.5, 11.3)                                                                                                                                                | Mapped; DSR-only custody (D23)                                                                                            |
+| `M` Delevary                                   | `M7=K7-L7`                                                                                                   | Derived proposed sold quantity, confirmed on the daily summary                                                                                                                                                      | Derived metric                                                                                                            |
+| `N` DAMAGE PRODUCT                             | Damaged pieces; deducted from revenue and cost but `T` deducts full `M`                                      | Damage case: buyer leg and company leg (D17, section 9.7)                                                                                                                                                           | Mapped; mixed formula not reproduced                                                                                      |
+| `O` Sales Unit Price                           | One sale price per product per day                                                                           | Actual-price splits on the daily summary line; the suggested price is only a default                                                                                                                                | Mapped (implemented, supports several prices per day)                                                                     |
+| `P` Total Price Sales Price                    | `P7=(M7*O7)-(N7*O7)`                                                                                         | Daily summary line net sales                                                                                                                                                                                        | Mapped (implemented)                                                                                                      |
+| `Q` Total Purchase Price                       | `Q7=(M7*H7)-(N7*H7)` at the day's single rate                                                                | COGS from actual batch allocations (section 9.6)                                                                                                                                                                    | Mapped (implemented); single-rate cost not reproduced                                                                     |
+| `R` Firot Product Price                        | `R7=L7*O7`                                                                                                   | Derived report metric "unsold return at sale value"                                                                                                                                                                 | Report only                                                                                                               |
+| `S` total profit                               | `S7=P7-(M7-N7)*H7`                                                                                           | Gross profit = net sales − allocated COGS                                                                                                                                                                           | Mapped (implemented)                                                                                                      |
+| `T` present stock Per Pice, `U` stock amount   | `T7=43674+G7-M7`; `U7=T7*H7`; next block `AM7=T7+Z7-AF7`                                                     | Stock balance derived from the movement ledger; value from remaining layers                                                                                                                                         | Mapped (implemented); embedded opening is the section 16 import source                                                    |
+| `V` Due Quantity                               | Next day's due-quantity input (first column of the next block's chain)                                       | Same as `C` for the next date                                                                                                                                                                                       | Mapped                                                                                                                    |
+| Row 4 date label                               | `01.07.025`, `02.04.025`, …                                                                                  | Business date chosen explicitly on each document                                                                                                                                                                    | Not parsed (section 2.5)                                                                                                  |
+| Rows 40–42 under the block                     | Day totals (`P40`, `Q40`), "Cross Check" `S42=P40-Q40`                                                       | Daily business summary report                                                                                                                                                                                       | Report only; not a reconciliation                                                                                         |
+
+**Per-person issue/return grids** (rows 44–77 and, from March, 79–113, under every block)
+
+| Column(s)                                     | Workbook meaning / formula                                                                                   | Software owner                                                                                                         | Status                                         |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| Caton / Pice / Total (`K:M`, `D:F`, …)        | Cartons × product factor + loose pieces, e.g. `M45=K45*24+L45`, `M46=K46*96+L46`, `M77=K77*170+L77`           | Issue line in cartons + pieces with the product's factor snapshotted                                                    | Mapped (factor per product, section 9.2)       |
+| Firot Caton / Pice / Total (`N:P`, `G:I`, …)  | Unsold return in cartons + pieces                                                                            | Firot return line, same snapshot rule                                                                                  | Mapped                                         |
+| Person label (`J44` Mamun, `Q44` Mahedi, `J80` Raju) | Net issued − returned per person: `J45=F45-I45`, `Q45=M45-P45`; Raju `J81=F81*I81` (defect)          | Per-person daily product summary; person is a `Staff` record, never a column                                            | Mapped; persons are DSRs (D23); defect fixed (section 2.5) |
+| Amount (`C`, `R`, `V`, from April)            | `C45=J45*O7`, `R45=Q45*O7`: person's net quantity × that day's single price                                  | Person/product daily sales value derived from posted summary lines (actual price splits)                               | Report only                                    |
+
+**Right-side monthly product totals** (`VS:WC` in January)
+
+| Column(s)                                        | Workbook meaning / formula                                                            | Software owner                                                                                             | Status                                    |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| `VS` / `VW` present stock amount                 | `VR7*VF7`: closing stock × last day's purchase rate (two identical columns)           | Stock valuation report from remaining cost layers                                                          | Single-rate valuation not reproduced      |
+| `VT` Total Receive amount                        | Sum of the 31 daily `I` values                                                        | Purchase/receipt report for the month                                                                      | Report                                    |
+| `VU` Total sale                                  | Sum of the 31 daily `P` values                                                        | Monthly sales = sum of posted summary lines (section 14.2)                                                 | Report                                    |
+| `VV` Total Profit; `VV42` monthly net            | Sum of daily `S`; `VV42=VV40-(WL40+WQ41+WS41+WT41)`                                   | Gross profit report; profit and loss (section 14.1)                                                        | Report; see section 2.8 on D:Comition     |
+| `VX` total product Sale price                    | Closing stock × last sale price                                                       | "Stock at suggested sale value" report metric                                                              | Report only                               |
+| `VY` Balance Quantity amount, `VZ` due amount    | `VB7*VC7`; sum of daily `F`                                                           | Company goods outstanding value; purchase order totals                                                     | Report                                    |
+| `WA` present Stock Per Caton, `WB` sales per product | `VR7/24`, `VR8/96`, `VR13/150`: per-product factor; `WB` = month's `M` ÷ factor   | Carton-equivalent columns in stock and sales reports, from conversion snapshots                            | Report                                    |
+| `WC` Dmage Product Amount                        | Σ damage × that day's purchase rate; `WC42=WC40-WD40`                                 | Damage and replacement report (product-based, D17)                                                         | Report; cash-style closing not reproduced |
+| `WD` / `WE` company damage received / paid       | Money columns for company damage                                                      | Company replacement leg in product quantities (D17)                                                        | Evidence only                             |
+| `WF` Banking Amount                              | Deposits to supplier companies                                                        | Supplier deposit / payment (D19)                                                                           | Mapped                                    |
+| May onward `VS45:WA45`                           | Per-person monthly net quantity, CV (÷24), last price, amount                         | Person/product monthly movement report (section 14.1)                                                      | Report; last-price amount not reproduced  |
+
+**Right-side daily money columns** (one row per day, `WG:WV` in January)
+
+| Column(s)                                     | Workbook meaning / formula                                                                                      | Software owner                                                                                                     | Status                                                 |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------ |
+| `WG` Per Day Due in amount                    | `=F40`, the day's company-order value                                                                           | Daily purchase-order value report                                                                                  | Report                                                 |
+| `WH` Per Day sales in amount                  | `=P40` (one day references a cost column, section 2.6)                                                          | Daily sales from posted summaries                                                                                  | Report; wrong-column defect not reproduced             |
+| `WI` Due; `WI6` opening; `WI42=WI40-WJ40`     | New unpaid market sales per day; opening 232,016                                                                | Market due created by daily summaries (D21); opening legacy market due (section 16.2)                              | Mapped (implemented)                                   |
+| `WJ` Credit                                   | Old-dues collected that day                                                                                     | Old-dues collection (D04)                                                                                          | Mapped (implemented)                                   |
+| `WK` D:Comition                               | Distributor-paid SR incentive                                                                                   | `SRIncentive` expense + payment (D20, section 11.8)                                                                | Mapped                                                 |
+| `WL` Operating Cost; `WK38:WL39` Godawon, Garaj | Daily operating expenses; month-end rent rows                                                                 | Expense documents by category                                                                                      | Mapped                                                 |
+| `<role> <name> Sort` / `Over` pairs           | "SR" Mamun, "SR" Mahedi (actually DSRs, D23), DSR Rohim and Imon: personal due (Sort) and excess (Over)       | `StaffMoneyEntry` (shortage / staff credit) for distributor staff, recovered from salary (D11, D24, section 11.9); real SRs use `SRLoan`/`SRPayable` (D18) | Mapped                                                 |
+| Single staff columns (DRI Sayed Sort, Manager, Arafat, Abubokkor, SABBIR, Alif) | Daily amounts in one column; month-end row 39–41 holds salary   | Typed staff money entries (section 11.9)                                                                           | Mapped (D27); column signs not imported                |
+| Rows 39–42 under staff columns                | Salary (`WQ39=11200`, `WT39=10500`) and signed net `WQ42=(WQ40-WR40)-WQ41`                                      | Compensation accrual and signed staff statement (section 11.6)                                                     | Mapped; never rebuilt from column totals               |
+| `WU` Total Amount                             | `(WH+WJ+Overs+WT)-(WI+WK+WL+Sorts+WS)`                                                                          | Derived **হাতে অবশিষ্ট টাকা** in the daily business summary, beside **মোট বিক্রয়** (section 11.2)               | Derived from events; signs from posted direction       |
+| `WV41` Total Cost                             | `WT41+WS41+WQ41+WL40` (salaries + operating cost)                                                               | Profit and loss expense total                                                                                      | Report                                                 |
+
+**Month-end salary, profit and commission blocks** (`Feb 2026!WW:WZ`, `Mar 2026!XA:XF`, `Apr`–`Oct 2026!XA:XI` or `WZ:XH`, `Nov`/`Dec 2026!XA:XE`)
+
+| Section                                                     | Workbook meaning / formula                                                                                           | Software owner                                                                                                      | Status                                         |
+| ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| Salari (`Apr XB`)                                           | Agreed monthly salary per distributor employee: Maneger 10,500; Rohim 13,500; Sayed 8,000; Imon 5,500; Sabbir 3,250 | Compensation rule (fixed salary, section 11.7) and monthly accrual                                                  | Mapped                                         |
+| Cash Pabe (`XC`), AB (`XD`), net (`XE8=WR42+XC8`)           | Remaining pay owed; AB; net including the staff Sort/Over balance                                                    | Payroll run: accrual − approved recovery (D11) = amount to pay                                                       | Mapped; AB excluded; Cash Pabe derived (D25)   |
+| Khoroch (`XE12=WM40`), Comition, Godawon, Geraj, Lod Unlod, Ed ul Fitor | Monthly expenses; rent changed 14,000 → 17,000 and garage 2,000 → 2,300 between January and April     | Expense categories with dated amounts, no fixed recurring values                                                     | Mapped                                         |
+| Profit (`XE51=XF50-XE50`, `Feb WZ`)                          | Gross profit − salaries − expenses                                                                                   | Profit and loss report from the ledger (section 14.1)                                                               | Report; see section 2.8                        |
+| History of comition (`XG:XI`)                               | Supplier incentive products (Drinko 900c = 21,600; Drinko 1000c = 24,000) mixed with D:Comition and SR loans         | Two separate reports (section 11.8)                                                                                 | Mixed balance not reproduced (D20)             |
+
+### 2.8 Findings from the 2 October 2026 re-review
+
+| Finding | Evidence | Required treatment |
+|---|---|---|
+| Samari and Firot are the sum of named per-person grids | `Mar 2026!K7=M45+F45+F81`, `L7=P45+I45+I81`; grids labelled `J44` Mamun, `Q44` Mahedi, `J80` Raju; Mamun and Mahedi have `SR … Sort/Over` columns; Raju has no money column | The per-person daily product summary is the source of the brand's daily totals. The owner confirmed that Mamun and Mahedi are DSRs despite the "SR" label (D23). Import them as DSRs and confirm Raju's role and every DSR's salary during onboarding: Mamun and Mahedi have no row in `Apr 2026!XA7:XB11` |
+| Distributor staff beyond SR/DSR | Manager/Manejar, DRI Sayed (driver), Imon, Arafat (Feb), Abubokkor (Mar), SABBIR (Apr onward), Alif (Jun, Aug); salaries in `Apr 2026!XA7:XB11` | `Staff` needs distributor roles beyond DSR (manager, driver, helper/other), effective-dated and per company assignment. Personal balance, salary and salary recovery apply to every distributor employee (D24) |
+| Single staff columns change sign between months | `Jan 2026!WU7` adds `WT` (Manager); `Apr 2026!WY7` subtracts `WW` (SABBIR) and excludes `WX` (Manejar) | Replaced by typed per-person entries whose type fixes the cash direction (section 11.9, D27). Do not import a column's sign |
+| Workbook monthly profit leaves out D:Comition | `Jan 2026!VV42=VV40-(WL40+WQ41+WS41+WT41)` excludes `WK40=29799`; `Feb 2026!VV42` likewise. `Apr 2026!XA13` lists Comition but `XE13=WO50` is empty | Section 11.2 and D20 already require D:Comition as an operating expense. Software profit will be lower than the workbook figure by the SR incentives paid. Show this difference in the parallel-run comparison; it is a confirmed rule, not a software error |
+| Right-side layout shifts by month | `Mar`, `Apr`, `Jul 2026` insert `WH` "Per Day Due in amount", moving every later column right by one; staff columns added and removed; `Nov`/`Dec 2026` have no salary block; commission history starts at `XD`, `XF`, `XG` or `XC` | Fixed column letters cannot import this workbook or another company's. Use header-driven layout discovery (section 16.6) |
+| Per-person grid count grows | January: one grid (`K7=M45`); March onward: three grids, rows 44–77 and 79–113 | Persons per brand per day are unbounded records; the UI lists assigned staff instead of fixed grids |
+| Later tabs still chain from April | `Dec 2026!T7='Apr 2026'!VS7+G7-M7`, `D7='Apr 2026'!VC7+C7-G7` | The opening comes from one corrected last-month sheet, checked for the right carry-forward link before upload (section 16.1, D26) |
+
 ## 3. Confirmed business rules and implementation decisions
 
 These rules supersede provisional interpretations of the spreadsheet. The owner explicitly deferred **AB**: exclude it from v1 forms, payroll and financial calculations. Retain its original cells only as import evidence; do not invent its meaning or make AB a launch dependency.
@@ -202,7 +308,7 @@ These rules supersede provisional interpretations of the spreadsheet. The owner 
 | D04 — CONFIRMED / DEFERRED | Samari = products issued for selling; Firot = unsold returned; Credit = old-dues collection; AB deferred | Issue/return are custody events. Collection settles an existing aggregate due and is not new revenue. AB has no effect |
 | D05 — IMPLEMENTATION DEFAULT | FEFO for known expiry, otherwise FIFO by receipt | Authorized batch override with reason; immutable actual allocation |
 | D06 — IMPLEMENTATION DEFAULT | Actual receipt cost layers | Same manufacturer lot can have multiple receipt costs; sales prices are transaction snapshots |
-| D07 — DECIDED | Excel baseline, owner-adjusted cutover | January carry-in rows prefill opening; actual cutover stock/costs and additional dynamic products are owner-reviewed |
+| D07 — DECIDED | Excel baseline, owner-adjusted cutover | The last completed month's closing figures prefill the opening (D26); actual cutover stock/costs and additional dynamic products are owner-reviewed |
 | D08 — CONFIRMED / DECIDED | Bangla, BDT, Asia/Dhaka, no tax invoice in v1 | Mobile UI/prints; decimal money; 2-place settlement, 6-place cost precision |
 | D09 — IMPLEMENTATION DEFAULT | Shared distributor staff/cash; brand-attributed events | No duplicated balances; one summary per brand/DSR/business day |
 | D10 — DECIDED | One shared godown | Internal DSR custody/quarantine; no multiwarehouse administration |
@@ -218,6 +324,12 @@ These rules supersede provisional interpretations of the spreadsheet. The owner 
 | D20 — CONFIRMED | D:Comition and supplier incentive products have no accounting connection | D:Comition is distributor↔SR expense/payment; loans and repayments stay in SR/cash accounts. Free incentive products are supplier company→distributor inventory receipts. No cross-deduction, cross-offset or shared incentive running balance |
 | D21 — CONFIRMED | Buyer gets product replacement, pending if unavailable; unpaid shop sales stay separate from personal DSR dues | Anonymous return-case reference/DSR link without customer master; aggregate market due never enters payroll automatically |
 | D22 — CONFIRMED | Products dynamic per company, with batch and variable prices | No hardcoded 33/38-product limit, fixed staff columns or inherited row identities; opening importer uses explicit mappings |
+| D23 — CONFIRMED (2 Oct 2026) | The workbook's "SR Mamun" and "SR Mahedi" are actually DSRs (distributor staff); the "SR" label is wrong | Only DSRs take product custody (Samari/Firot) and own daily product summaries. Their Sort/Over columns are DSR personal due/excess (section 11.6), not SR loans. SRs stay money-only (D18) |
+| D24 — CONFIRMED (2 Oct 2026) | Every salaried distributor employee (DSR, manager, driver, helper) has owed money adjusted from salary | D11 recovery, cap and carry-forward apply to all distributor staff. SRs are paid by their company, so their owed money stays an SR loan receivable and is never salary-recovered |
+| D25 — CONFIRMED (2 Oct 2026) | "Cash Pabe" means salary still to be paid after deductions | Derived in the payroll run as accrued pay − approved recovery − payments made; never entered or imported as its own balance |
+| D26 — CONFIRMED (2 Oct 2026) | Opening = one uploaded sheet: the last completed month before go-live, corrected in Excel first. For this company: `Oct 2026`, go-live 1 November 2026 | Import closing stock, cost, price, company goods outstanding and proposed balances (section 16.2a); validate the carry-forward link and negatives; owner corrects on screen; no history or other months imported |
+| D27 — DECIDED (2 Oct 2026, delegated by owner) | Each staff member has their own money account with typed entries: advance, loan, approved shortage, repayment, staff credit, payment, salary accrual/recovery/payment; SRs get loan/repayment/owed/payment/incentive only | Entry type fixes the cash direction and balance; statement shows "person owes us" and "we owe person" separately; payroll recovers advance → loan → shortage, capped, carry forward (section 11.9) |
+| D28 — CONFIRMED (2 Oct 2026) | One generic system: every company uses identical entry screens, entry types, reports and opening template | Companies differ only by data and configuration (section 4.3); one standard opening template (section 16.7); workbook readers are adapters into it |
 
 The prototype approval gate checks usability and actions, not questions already answered here. Opening control totals and actual lot quantities still require normal owner review. The owner has confirmed the business meanings below; AB alone is intentionally deferred and excluded. In particular, never connect SR incentive/loan accounts to supplier incentive-product balances merely because the spreadsheet formula combines them.
 
@@ -289,7 +401,46 @@ Store approved design tokens, not arbitrary user-provided CSS: primary, primary 
 
 Example themes: Drinko red, a second demo company's blue, a third green. Red branding must not replace red error text or make status depend on color alone.
 
+**One generic system for every company (D28).** All companies share the same:
+
+- entry screens and entry types
+- calculations and reports
+- permissions model
+- opening template (section 16.7)
+
+A company differs only in data: its products and carton sizes, prices, batches, staff assignments, opening balances, enabled modules and theme. No company-specific screens, columns, formulas or code paths. A new company is created by configuration plus its own opening data, never by a code change.
+
 Effective module visibility = enabled module ∩ authorized action(s). Disabling a module must preserve historical records; dependency rules prevent disabling inventory while stock-posting sales remain enabled. Read-only historical access is explicit.
+
+### 4.4 Configuration model: what is dynamic and what is fixed
+
+The system is dynamic in its **data and settings** and fixed in its **business logic**. Users can add and change anything in the first table below without a code change. The second table is versioned code with tests, because it decides stock, money and accounting. There is no user-written formula engine and no custom field that affects money or stock (guide introduction, item 8).
+
+| Dynamic (configured by authorized users, audited) | Scope | Notes |
+|---|---|---|
+| Companies, enabled modules, theme | Tenant | New company = configuration + opening data (D28) |
+| Products, aliases, units and carton sizes, suggested prices, expiry/batch tracking flag | Company | Pack size changes are versioned; documents keep their snapshot |
+| Suppliers and supplier accounts | Tenant, assigned to companies | One supplier can serve several companies |
+| Staff, staff roles, company assignments, salary and compensation rules | Tenant; assignment per company | Roles are a list (DSR, manager, driver, helper, …); one person across companies |
+| Routes and route templates | Company | Optional labels; never mandatory entry |
+| Expense categories (Godown rent, Garage, Load/unload, Eid bonus, …) | Tenant | Amounts are dated entries, never fixed recurring values |
+| Cash, bank and mobile-money accounts | Legal entity | Shared across companies (D01, D09) |
+| Reason lists (damage, adjustment, correction, write-off) | Tenant | Required on the matching entries |
+| Approval thresholds (price override, backdating window, adjustment value) | Tenant or company | Effective-dated |
+| Payroll policy: recovery order (default advance → loan → shortage) and cap | Tenant | Per-run override with reason (section 11.9) |
+| Batch policy defaults (FEFO/FIFO, expiry warning days) | Company | Override with reason (D05) |
+| Document numbering formats | Company | Unique per company and document type |
+| Bangla display labels for configurable lists | Tenant | Fixed entry types keep dictionary labels |
+
+| Fixed (code, versioned, tested) | Why |
+|---|---|
+| Entry types and their stock/cash/ledger effects (receipt kinds, daily summary, Samari/Firot, collection, damage legs, staff money entry types, SR entry types, deposits) | Each type has one canonical posting owner (section 21) |
+| Calculations: allocation, COGS, market due, salary recovery, rounding (P01) | Must reconcile and be testable |
+| Action and permission catalog | Roles are dynamic combinations of fixed actions (section 12.2) |
+| Report definitions and metric formulas | Reports read posted data; saved filters are dynamic |
+| Opening template structure (section 16.7) | Same for every company; company products/staff prefill it |
+
+Every configuration change is effective-dated and audited. It never rewrites posted history: a price, pack size, role or policy change applies only to documents dated from its effective date. Deactivate instead of delete once a record is referenced. If a client needs a new entry type or calculation, that is a reviewed code change with a decision record, not a setting.
 
 ## 5. UI/UX specification
 
@@ -315,12 +466,12 @@ Dashboard
 Sales           DSR daily summaries · Samari issue · Firot return · Old-dues collection
 Purchases       Orders · Receipts · Bills · Supplier payments · Supplier returns
 Inventory       Godown stock · Batches · DSR custody · Counts · Damage · Claims
-SR accounts     Supplier representatives · Deliveries · Dues · Manual settlements
-DSR staff       Routes · Assignments · Issue & return · Settlements · Salary recovery
-Finance         Company deposits · Cash & bank · Expenses · Receivables · Payables · Journals · Period close
+Staff           Staff accounts (owe / advance / credit) · Payroll · Routes · Route settlements
+SR accounts     SR list · Loans & repayments · Owed to SR · SR incentives
+Finance         Company deposits · Cash & bank · Expenses · Market dues · Payables · Journals · Period close
 Reports         Operations · Stock · Money · Staff · Reconciliation
-Masters         Products & units · Suppliers · SR/DSR · Shared godown
-Administration  Companies · Modules · Users · Roles · Audit · Opening data
+Masters         Products & units · Suppliers · Staff & roles · Shared godown
+Administration  Companies · Modules · Settings & lists · Users · Roles · Audit · Opening data (template)
 ```
 
 Hide irrelevant navigation through configuration. Keep position/order stable across companies.
@@ -339,10 +490,13 @@ Hide irrelevant navigation through configuration. Keep position/order stable acr
 | Damage replacement workspace | Return-case reference, DSR, product, damaged quantity/batch evidence, buyer replacement due, company dispatch/acceptance/replacement due | Receive damage, issue replacement or keep pending, send to company, receive partial replacements, close/reverse |
 | SR account workspace | Brand, SR, money lent, repayments, incentive paid, money owed to SR and running cash balance | Give loan, record repayment, pay incentive, settle SR payable; no product due or SR salary |
 | DSR day workspace | The same daily-sales workspace with issue/return, damage and settlement tabs; separate market due and personal due | Reuse the same summary/line editor and commands; no duplicate sales form or posting flow |
+| Staff account | Person, role(s), two balances (আমাদের পাওনা split into advance/loan/shortage; আমরা দেব), entry history with cash effect | Give advance, give loan, charge approved shortage, receive repayment, record staff credit, pay credit, explicit offset (section 11.9) |
+| Payroll run | Month, staff list with salary, proposed recovery by type, Cash Pabe (remaining pay), carried balance | Review/override recovery with reason, approve, pay, print payslip |
+| Settings & lists | Configurable lists from section 4.4 with effective dates and usage status | Add, edit with effective date, deactivate; no delete once referenced |
 | Settlement review | Expected vs counted cash, stock reconciliation, shortage/excess, reasons, linked transactions | Request correction, approve, post, view outstanding differences |
 | Company deposits | Supplier brand, amount, date, funding account, bank/deposit reference, allocation and remaining advance | Record deposit, allocate to supplier bill, reverse with audit trail |
 | Cash/bank | Actual distributor funding accounts, dated movements and reconciliation status | Receive/pay; inspect outgoing supplier deposits |
-| Opening wizard | Cutoff, products/batches, party balances, staff custody, cash/bank, validation, preview | Save, import preview, reconcile, approve, activate |
+| Opening wizard | Cutoff, standard template download/upload or last-month sheet adapter, readiness checks, products/batches, staff balances by type, market due, company accounts, cash/bank, preview | Download template, upload, correct on screen, reconcile, approve, activate |
 | Roles | Module/action matrix, scope, sensitive-field permissions, effective-permission preview | Create role, assign members, preview impact, save |
 | Supplier incentive-product statement | Supplier/company, product/batch, received quantity/value, receipt/reversal history and remaining stock | Receive free stock through procurement; drill into receipt/layer/stock history; no SR money fields |
 | Catalog import review | All-month source labels, aliases, conflicting rows/units and unresolved mappings | Match existing product, create distinct SKU, mark source error, review actual opening stock |
@@ -613,7 +767,7 @@ Every tenant-owned record needs `tenant_id`. Accounting records need `legal_enti
 | Identity | User, Session, Membership, Role, Permission, RolePermission, RoleAssignment | Assignments include tenant/company/location/route scope |
 | Catalog | Product, ProductAlias, ProductUnit, PriceRule | Product code unique per company; conversions versioned |
 | Suppliers | Party, SupplierAccount, PartyCompanyAssignment | Supplier identity/brand assignments only; do not implement CustomerAccount or a placeholder customer |
-| Staff | Staff, StaffCompanyAssignment, Route, RouteAssignment | Staff ID independent of login; assignments effective-dated |
+| Staff | Staff (employer: supplier/distributor), StaffRole (per-tenant list), StaffCompanyAssignment (role, effective dates), Route, RouteAssignment | Staff ID independent of login; assignments effective-dated; one person across companies (section 11.1) |
 | External SR accounts | SupplierRepresentative, SRLoan, SRRepayment, SRPayable, SRSettlementAllocation, SRIncentive | Money-only loans/payables; incentive expense/payment links; company product outstanding stays in procurement |
 | Procurement | PurchaseOrder, OrderLine, GoodsReceipt, ReceiptLine, SupplierInvoice, InvoiceLine, ReceiptInvoiceMatch, SupplierIncentiveReceiptDetail | GoodsReceipt kind distinguishes purchase, free supplier incentive and damage replacement. Only billed purchases create supplier liability; each receipt creates stock once |
 | Batches | ProductBatch, ReceiptCostLayer, PriceSuggestionHistory | Same physical lot may have several receipt cost layers |
@@ -622,8 +776,10 @@ Every tenant-owned record needs `tenant_id`. Accounting records need `legal_enti
 | Returns/damage | SummaryAdjustment, SupplierReturn, ReturnAllocation, DamageCase, DamageCaseLine, BuyerReplacementIssue, SupplierDamageDispatch, SupplierReplacementReceipt, ReplacementAllocation | Separate physical legs and quantity caps; source batch and replacement batch remain distinct; no customer relation or automatic sales cancellation |
 | Money | Payment, PaymentAllocation, CashAccount, BankAccount, BankReconciliation | Payment allocation can span invoices; unused amounts remain advances |
 | Accounting | Account, JournalEntry, JournalLine, FiscalPeriod, PostingSequence | Balanced entries, immutable posting, controlled period locks |
-| Staff settlement | RouteSession, RouteStockEvent, CollectionHandover, Settlement, SettlementLine, StaffBalanceEntry | Link to daily summaries/payments; do not duplicate their effects |
-| Compensation | CompensationRule, CommissionAccrual, PayrollRun, PayrollLine, Advance, Recovery | Effective dates, basis and source event uniqueness |
+| Staff settlement | RouteSession, RouteStockEvent, CollectionHandover, Settlement, SettlementLine | Link to daily summaries/payments; do not duplicate their effects; approved shortages/excess create StaffMoneyEntry rows |
+| Staff money | StaffMoneyEntry (typed), StaffMoneyAllocation | One account per person (section 11.9); entry type fixes cash and balance effect; allocations settle open items |
+| Compensation | CompensationRule, CommissionAccrual, PayrollRun, PayrollLine, PayrollRecovery | Effective dates, basis and source event uniqueness; recovery allocates against StaffMoneyEntry open items |
+| Configuration | ExpenseCategory, ReasonCode, StaffRole, ApprovalPolicy, PayrollPolicy, NumberingSequence, CompanySetting | Effective-dated, audited, deactivate instead of delete (section 4.4) |
 | Incentive reporting | Separate SR incentive expense/payment view and supplier incentive-product receipt view | Read their respective canonical sources; no combined ledger, allocation table or balance connecting them |
 | Onboarding | OpeningSession, OpeningStockLine, OpeningOpenItem, OpeningAccountBalance | Cutoff, validation, approval and one-time activation |
 | Governance | ApprovalRequest, AuditEvent, IdempotencyRecord, OutboxEvent, ExportJob, Attachment | Scope, actor, correlation, version and durable retry tracking |
@@ -715,7 +871,26 @@ SR loan disbursement owns one cash outflow. SR repayment owns one cash inflow. A
 
 Derived remaining balances are original amounts plus approved corrections minus allocations. Lock targets during allocation; enforce entity/brand/person/currency, positive amounts, source uniqueness and cumulative limits. SR incentive expense is recognized once; paying an accrued incentive settles its payable rather than recognizing the expense twice.
 
-An unpaid incentive references the existing SRPayable, not another independent payable total. DSR personal receivable and DSR excess-credit payable use typed StaffBalanceEntry accounts with separate allocation targets; payroll consumes only the personal-receivable type. Refunds consume only approved credit-payable balances. Avoid parallel `currentDue` fields. Cross-record source references need concrete scoped foreign keys or a validated canonical source-event registry, not unchecked strings.
+**StaffMoneyEntry / StaffMoneyAllocation** (distributor staff; SRs use the SR records above)
+
+```text
+StaffMoneyEntry:
+  id, tenant_id, legal_entity_id, company_id nullable (brand attribution)
+  staff_id, entry_type [advance, loan, shortage, repayment, staff_credit,
+                        credit_payment, offset]
+  amount (positive decimal string), business_date, cash_account_id nullable
+  cash_effect [out, in, none] (derived from entry_type, never user-entered)
+  balance_side [owes_us, we_owe] (derived), source_type, source_id nullable
+  reason_code_id, note, approval_id nullable, reversal_of_id nullable
+  posted_at, posting_sequence, actor_id
+StaffMoneyAllocation:
+  id, settling_entry_id (repayment / payroll recovery / offset / credit_payment)
+  target_entry_id (advance / loan / shortage / staff_credit), amount
+```
+
+Remaining balance per open item = amount − sum(allocations) ± approved reversals. Allocations lock their targets and cannot exceed the remaining amount. Payroll recovery creates allocations in the configured order (section 11.9). It never edits entries.
+
+An unpaid incentive references the existing SRPayable, not another independent payable total. Staff receivable types (advance, loan, shortage) and staff credit are separate StaffMoneyEntry types with separate allocation targets. Payroll consumes only receivable types. Refunds consume only approved credit-payable balances. Avoid parallel `currentDue` fields. Cross-record source references need concrete scoped foreign keys or a validated canonical source-event registry, not unchecked strings.
 
 **Supplier incentive receipt extension**
 
@@ -1036,6 +1211,13 @@ Proposed currency display/settlement precision is 2 decimals for BDT. Keep finer
 
 SR is supplier-employed and supplier-paid, but the distributor can pay that SR an incentive. DSR is distributor-employed. SR money loans, SR payables and SR incentive expense are separate from DSR payroll. Use dynamic representative/staff records; names never become database columns. User accounts are optional and separate from person records.
 
+The workbook also has other distributor employees: a manager, a driver (DRI Sayed) and helpers (Imon, Sabbir, Arafat, Abubokkor, Alif). Each has a salary and personal money entries (section 2.8). Model `Staff` with:
+
+- an employer: supplier or distributor
+- an effective-dated role per company: SR, DSR, manager, driver, helper or other
+
+Roles come from a per-tenant list, not a code enum that needs a deploy to extend. Payroll, personal balances, staff statements and recovery of owed money from salary apply to every distributor employee (D11, D24). SR rules apply only to supplier-employed people: an SR is paid by their company, so money an SR owes the distributor stays an SR loan receivable and is never salary-recovered (D18). Only DSRs take product custody (D23); a person labelled "SR" in a workbook is imported by actual role after owner review. Staff money entries follow section 11.9 (D27).
+
 ### 11.2 SR money loans, repayments, payables and incentives
 
 **SR Sort is money lent by the distributor to the SR. SR Over is money the distributor owes the SR. SR due is never product quantity.** Record brand, SR, date, amount, funding account/custodian, reason, evidence and original source event.
@@ -1165,6 +1347,46 @@ Opening incentive goods are included once in normal reviewed opening stock, with
 
 Register `supplier_incentive.receive` and supplier incentive-product report read/export actions separately from `sr_loan.*`, `sr_payable.*`, and `sr_incentive.*`. Their contracts, permission IDs, query keys, cache tags, event handlers and tests preserve this boundary. Supplier receipt actions call procurement/inventory/finance owners; SR money actions call Supplier SR/finance owners. Reuse UI primitives, not financial balances or business commands.
 
+### 11.9 Staff money accounts: one account per person, typed entries (D27)
+
+Every person has their own money account. A person is any distributor employee (DSR, manager, driver, helper) or an external SR. An entry always names:
+
+- the person and the entry type
+- the date, the amount, and the funding or receiving cash/bank account
+- the brand it's attributed to (optional)
+- a reason
+
+There are no "Sort/Over" columns and no signed amounts typed by users. The entry type alone decides whether money left or entered the cash box, and which balance changes.
+
+**Distributor staff entries** (DSR, manager, driver, helper)
+
+| Entry (Bangla label) | Meaning | Cash box | Balance affected |
+|---|---|---|---|
+| অগ্রিম বেতন প্রদান | Salary advance paid to the person | Decreases | Person owes us: **advance** |
+| ধার প্রদান | Personal loan to the person | Decreases | Person owes us: **loan** |
+| ঘাটতি (অনুমোদিত) | Approved cash or stock shortage charged to the person (section 11.6) | Reduces the day's cash left, which starts from sales (PLAN §2.4); no cash leaves the box | Person owes us: **shortage** |
+| টাকা ফেরত গ্রহণ | Person repays us in cash | Increases | Reduces what the person owes, allocated to chosen items or oldest first |
+| অতিরিক্ত জমা / আমাদের খরচ বহন | Person handed in excess cash, or paid a business cost personally | Increases (excess) or no change (cost paid personally) | We owe the person: **staff credit** |
+| পাওনা পরিশোধ | We pay the person what we owe | Decreases | Reduces staff credit |
+| বেতন হিসাব (monthly) | Salary accrued for the month | No change | Salary payable |
+| বেতন থেকে সমন্বয় | Recovery from that salary (D11, D24) | No change | Reduces salary payable and what the person owes |
+| বেতন প্রদান | Remaining salary paid; this is Cash Pabe (D25) | Decreases | Salary payable becomes zero, or carries over |
+
+Payroll recovers the default order: **advance → loan → approved shortage**, oldest first within each type. Recovery is capped at the salary available, and any remainder carries forward (D11). The manager can change the amount or the order for one run, with a reason. Staff credit is never netted automatically. Offsetting it against what the person owes needs an explicit offset entry.
+
+**SR entries** (supplier-employed; D02, D18, D20): ধার প্রদান (SR loan), ধার ফেরত (repayment), এসআরকে দিতে হবে (amount owed to the SR), পরিশোধ (payment), এসআর ইনসেনটিভ প্রদান (D:Comition). SRs have no salary entries and no salary recovery.
+
+**Person statement** (one screen per person, any period). It shows two separate balances, never just one signed number:
+
+- **আমাদের পাওনা** (person owes us), split into advance, loan and shortage
+- **আমরা দেব** (we owe the person): staff credit, salary still to pay, and money owed to an SR
+
+Each line drills down to its entry. A signed net appears only as secondary context.
+
+**Daily cash** (হাতে অবশিষ্ট টাকা) adds and subtracts these entries by their cash-box effect in the table above. This replaces the workbook's per-month column signs (section 2.8).
+
+**Opening balances** are entered per person and per type: advance, loan, shortage, staff credit, SR loan, money owed to SR. They come from the template in section 16.7 or the last-month sheet (section 16.2a). They are not entered as one net figure.
+
 ## 12. Authentication, authorization, and security
 
 ### 12.1 Seeded super-admin
@@ -1273,7 +1495,8 @@ Use `/api/v1/companies/{companyId}/...` for company-scoped operations and explic
 | `POST /companies/{id}/supplier-incentive-receipts/{receiptId}/post` | Post free product stock/value with no cash/bill/payable effect |
 | `POST /companies/{id}/damage-cases/{caseId}/replacement-issues` | Fulfill buyer replacement quantity from actual available batches |
 | `POST /companies/{id}/supplier-replacement-receipts/{receiptId}/post` | Receive replacement stock and allocate to accepted company claims |
-| `POST /entities/{id}/payroll/{runId}/due-recoveries` | Allocate approved DSR dues against salary without duplicate recovery |
+| `POST /entities/{id}/payroll/{runId}/due-recoveries` | Allocate approved staff open items (advance → loan → shortage) against salary without duplicate recovery |
+| `POST /entities/{id}/staff/{staffId}/money-entries` | Post one typed staff money entry (section 11.9); idempotent by request key |
 | `GET /companies/{id}/reports/stock-as-of` | Exact filtered stock view or explicitly marked projection |
 | `POST /entities/{id}/payments` | Authorized shared/entity payment with explicit allocations |
 | `POST /entities/{id}/opening-sessions/{id}/activate` | One-time atomic opening activation |
@@ -1492,15 +1715,49 @@ These are engineering budgets to validate, not guarantees. Choose simpler archit
 
 ### 16.1 Decided source boundary and editable opening rows
 
-**Decision:** use the **carry-in balances before the first daily block of `Jan 2026`** as the reproducible opening-import baseline for this supplied workbook. This is the earliest sheet and contains explicit starting quantities embedded in formulas. The later sheets contain changing layouts and incorrect carry-forwards, so do not automatically choose September/December or sum monthly totals as opening data.
+**Decision (owner, 2 October 2026; D26):** the whole workbook is **not** imported. The owner uploads **one sheet: the last completed month before go-live**. Its **closing** figures become the opening dataset, after review and correction on screen. For this company:
+
+- the uploaded sheet is `Oct 2026`
+- go-live is **1 November 2026**
+- before uploading, the owner corrects September and October in Excel
+
+Daily history, earlier months and monthly totals are never imported.
+
+The importer must check the uploaded sheet before showing any values. Each failure becomes a review item, not a silent fix:
+
+- **Carry-forward link.** The opening terms (`T7`, `D7`, the opening `Due` in row 6) must reference the previous month's sheet. The current copy fails this: `Oct 2026!T7='Apr 2026'!VS7+G7-M7`, and opening `Due` is blank from June onward.
+- **No negative closing stock.** The current copy's `Sep 2026` closing has 10 negative products, e.g. Drinko 250ml −25,104 pieces. Its `Aug 2026` closing has none.
+- **Duplicate or blank product labels.** For example, `Aug 2026!B33` and `B35` are both "Sun Drop 200ml".
+- **Negative goods still due from the company.** For example, Sun Drop 250ml shows −1,440 in August–September.
+- **Saved results present.** A formula with no saved result means "recalculate in Excel and re-save", never zero.
+
+Sections 16.2–16.3 below describe the January carry-in extraction done during the original analysis. Keep it only as a parser fixture and a historical reference. The production opening uses the closing-column mapping in section 16.2a.
 
 The owner wants to take opening data from Excel and adjust it. Build a **prefilled, editable opening grid**, not an empty form requiring re-entry. Keep imported original values beside owner-adjusted values and compute the difference. Excel provides the baseline; the reviewed adjusted snapshot becomes the software opening dataset. Do not overwrite the source workbook.
 
-This January baseline is not asserted to be current stock. If production starts later, the owner updates it to the actual cutoff quantities and balances in the same grid; do not silently relabel January values as current. Save the source period separately from the explicit activation date. Row-4 dates conflict with the sheet year, so do not derive the activation date from them or auto-post historical transactions.
+The uploaded month's closing figures are a proposal, not a signed stock count. The owner confirms or corrects every product and balance in the grid before activation. Save the source sheet and period separately from the explicit activation date. Row-4 dates conflict with the sheet year, so do not derive the activation date from them or auto-post historical transactions.
 
 Show one row per product with expandable legacy/known batch rows. Underneath, post one record per brand × product × batch/cost layer × location × condition. Default physical location is the single shared godown, while the stock still belongs to the selected supplier-brand workspace. Real batch information is absent from the source; create transparent legacy opening layers and allow the owner to split a row into known lots before activation.
 
-### 16.2 Exact workbook mapping
+### 16.2a Closing-month mapping (production opening source)
+
+Columns are found by header text in the uploaded sheet's right-side monthly section (section 16.6). The letters shown are from `Aug`/`Sep 2026`.
+
+| Opening field | Source in the last-month sheet | Treatment |
+|---|---|---|
+| Product | Column `B`, rows 7 to the first total row | Map to company products with review (section 16.3a); never by row number |
+| Opening quantity (pieces) | `present stock Per Pice` (`VR`) = last day's stock | Must be ≥ 0; blank means "unknown"; the owner enters a count or confirms zero |
+| Opening unit cost | Last day's `Purchase Unit Price` (`VF`) | Editable proposal for one legacy cost layer; split into known lots if the owner can |
+| Suggested sale price | Last day's `Sales Unit Price` (`VM`) | Default suggestion only |
+| Goods still due from company | `Balance Quantity` (`VB`) | Opening company goods outstanding per product; a negative value is an error to resolve |
+| Carton factor | Same product's `present Stock Per Caton` divisor and issue-grid factors | Verified factor only; mismatches flagged (P04) |
+| Market due (বাজারের বকেয়া) | Closing `Total Due` under the `Due` column (row 42, e.g. `Jan 2026!WI42`) | Prefill only when row 6 links to the previous month; split per DSR if known; otherwise owner entry |
+| DSR / staff personal due or excess | Row 42 signed net under each `<name> Sort/Over` pair | Prefill as a proposal per person; classified on review (section 11.6); recovered from salary after go-live (D11, D24) |
+| SR loan / money owed to SR | Same, for confirmed real SRs only (D18, D23) | Separate receivable and payable per SR |
+| Company deposits / payable | Not reliably in the sheet | Owner enters actual remaining payable or advance per company |
+| Cash in hand / bank | Not in the sheet | Owner enters actual balances once for the distributor |
+
+### 16.2 January carry-in mapping (original analysis; parser fixture only)
 
 | Opening field | Workbook source | Transformation and safeguards |
 |---|---|---|
@@ -1521,7 +1778,7 @@ Use a reviewed restricted formula parser: allow expected references, literals an
 
 Examples: `T7=43674+G7-M7` means opening 43,674 pieces, while its saved ending value is 43,554. `T8=24228+G8-M8` means opening 24,228, not 23,832. `D7=8+C7-G7` contains a carry-in quantity of 8, confirmed as products not yet received from the company and separate from the 43,674 physically held pieces; retain supplier/product/unit mapping at activation. Supplier deposits do not themselves receive those outstanding goods into stock.
 
-### 16.3 Extracted editable product baseline
+### 16.3 Extracted January product baseline (historical reference, not the production opening)
 
 The following values are from January's first-block formulas and price cells, not generated demo amounts. Quantities are pieces. Costs/prices are source rates in Tk/BDT. These are proposed prefill values awaiting the owner's adjustments, not a signed current stock count. The row number identifies `B`, `T`, `H`, `O` and `D` source cells described above.
 
@@ -1606,10 +1863,10 @@ Missing means unknown, not zero. The wizard can offer an explicit “no opening 
 
 ### 16.5 Activation workflow
 
-1. Upload/select the supplied workbook, show detected sheet/layout and the decided January carry-in source boundary.
+1. Select the company, upload the workbook, choose the last completed month's sheet, and show its detected layout and readiness checks (section 16.1).
 2. Preview product mapping and extracted originals; preserve unknowns and row errors.
 3. Adjust quantities/costs/prices/dues directly, split known batches if available, and review the valid-row subtotal.
-4. Resolve legacy money-due ownership, required company deposit balances, SR/DSR dues and actual distributor cash/bank using separate tabs.
+4. Resolve legacy money-due ownership, required company deposit balances, SR balances, staff balances by type (section 11.9) and actual distributor cash/bank using separate tabs.
 5. Set the real go-live cutoff; confirm adjusted values represent balances immediately before new software transactions begin.
 6. Review quantity, value, separately classified outstanding quantity, monetary balances and a balanced opening journal. Quantity-only obligations must have approved meaning/ownership and must not implicitly post money. Do not hide differences in profit or auto-clear them to suspense.
 7. Approve the versioned adjusted dataset; later edits invalidate that approval.
@@ -1617,6 +1874,42 @@ Missing means unknown, not zero. The wizard can offer an explicit “no opening 
 9. Lock the opening snapshot and start new transactions; retain source, changes, approval and control totals for audit.
 
 All brands share one distributor, so shared cash and parties are imported once. The workbook supplies this brand's baseline only; do not copy its quantities or money dues into other brands. Import other brands' own opening datasets through the same reviewed schema adapters.
+
+### 16.6 One workbook per company: header-driven layout profiles
+
+This reader is a convenience adapter only. Whatever it reads, it produces the same rows as the standard opening template (section 16.7), and those rows go through the same review and validation. A company without a compatible workbook uses the template directly.
+
+A client may run several companies, each with its own workbook, product set and staff columns. Each workbook follows the same family of layout as `Drinko 2026.xlsx`, but the products, row counts and right-side columns differ. Even within this one file the right-side columns move between months (section 2.8). The importer therefore discovers each workbook's layout and never hardcodes cell letters.
+
+1. **Company first.** The user picks the target company workspace before uploading. One upload targets exactly one company. File hash, sheet and cell provenance are stored per company.
+2. **Detect daily blocks.** Find the repeating row-5 header sequence (`Product Name` … `Due Quantity`). Record the block width (19 in this file) and each block's start column. Reject the sheet if block widths are inconsistent.
+3. **Detect product rows.** Read column `B` from row 7 down to the first `Total` or summary row. The product count is whatever is present (33 here); empty rows are recorded, not dropped silently.
+4. **Detect person grids.** Locate the carton/piece/total header rows under the primary grid (rows 44 and 80 here). Read the person label from the net column. Map each person to a `Staff` record through review, never by grid position.
+5. **Detect right-side columns by header text.** Use a reviewed alias table, for example `Due`, `Credit`, `D:Comition`, `Operating Cost`, `Banking Amount`, `Per Day sales in amount`, `<role> <name> Sort/Over`, `Salari`, `Cash Pabe`. Unknown headers become review items, not ignored columns. Staff column headers propose staff candidates with role hints (SR, DSR, DRI, Manager) for the owner to confirm.
+6. **Extract only the opening baseline** from the one selected last-month sheet (section 16.2a): closing stock, last cost and sale price, goods still due from the company, verified carton factors and proposed money balances. Monthly totals, salaries and the commission history remain evidence for review (section 2.7), not opening balances.
+7. **Shared people across companies.** The same person can appear in several companies' workbooks. Staff identity is resolved once at the distributor level (D09). Each company adds an assignment; it never creates a second person or a duplicate balance.
+
+Keep the alias table and detection rules in one importer module, versioned with fixtures from this workbook (January, March and April layouts, plus November without a salary block). Add a fixture for each new company layout before importing it. A layout the importer can't classify stops with a clear review list; it never guesses.
+
+### 16.7 Standard opening template (same for every company; D28)
+
+The software generates a downloadable opening workbook for the selected company. It is pre-listed with that company's products and assigned staff. The owner fills it in, uploads it, reviews it in the opening grid and activates it. Opening entry on screen uses the same fields, so typing and uploading give identical results.
+
+| Sheet | One row per | Columns |
+|---|---|---|
+| Products | product | product code (prefilled), name, carton size, opening pieces, unit cost, suggested sale price, expiry/lot (optional), goods still due from the company (pieces) |
+| Staff balances | person × balance type | person (prefilled), role, type (advance / loan / shortage / staff credit / SR loan / owed to SR), amount, note |
+| Market due | DSR, or one legacy bucket | DSR (or "legacy"), amount |
+| Company accounts | supplier company | payable to company, advance/deposit with company, pending damage replacement (product, pieces) |
+| Cash and bank | account | account name, type (cash/bank/mobile), balance — entered once for the distributor, not per company |
+
+The same rules apply to every company:
+
+- **Validation.** Amounts and quantities are decimal strings. Negative stock, unknown products, duplicate rows and blank required cells are errors. Blank means unknown, not zero, and an explicit zero is allowed.
+- **Provenance.** Every row keeps a reference to the file it came from, plus the original value and the adjusted value.
+- **Activation.** Activation is atomic and idempotent.
+
+For Drinko, the corrected `Oct 2026` sheet is read by the adapter (sections 16.2a, 16.6) into these same rows (D26).
 
 ### 16.6 Legacy lots, limits and reconciliation
 
@@ -1643,6 +1936,11 @@ Before later activity, an authorized reversal/replacement of opening may be allo
 - [ ] Build purchase → receipt → stock → sale → collection as one complete mock workflow.
 - [ ] Build return, damage, supplier claim, route issue/return and settlement flows.
 - [ ] Build compensation, expenses, supplier-company deposits, cash/bank, Bangla reports, roles and Excel-prefilled editable opening-data screens.
+- [ ] Replace the prototype's `dsr | sr` staff kind with employer + per-company role from a configurable role list (section 11.1, D23).
+- [ ] Build per-person staff money accounts with typed entries, the two-balance statement and a payroll run with ordered, capped recovery and Cash Pabe (section 11.9; D11, D24, D25, D27).
+- [ ] Build Settings & lists for the dynamic items in section 4.4 (expense categories, reasons, roles, payroll policy, approval thresholds), effective-dated.
+- [ ] Build the standard opening template download/upload and readiness checks (sections 16.1, 16.7; D26, D28), with the Drinko last-month sheet adapter as a fixture.
+- [ ] Demonstrate adding a new company with its own products and staff purely by configuration (D28).
 - [ ] Demonstrate dynamic catalogs, money-only SR loans/payables/incentives, personal-versus-market DSR dues, independent buyer/company replacement queues and actual-price product reports.
 - [ ] Implement mock state changes and reports derived from mock events.
 - [ ] Add every error/loading/empty/forbidden/connection-loss state in section 5.
@@ -1666,6 +1964,7 @@ Before later activity, an authorized reversal/replacement of opening may be allo
 - [ ] Approve role/action/scope matrix and approval thresholds.
 - [ ] Review required Bangla UI/printing at desktop and mobile widths; retain online-only operation, one shared godown and no v1 tax-invoice module as decided.
 - [ ] Review the Excel-prefilled opening grid from section 16, owner adjustments, cutoff and labeled legacy-layer records.
+- [ ] Demonstrate staff money accounts and payroll for a DSR, a manager and a helper; SR money accounts without salary; the configuration screens; and a second company running on the same screens.
 - [ ] Record accepted/rejected/pending decisions per action; implement review changes in the mock.
 - [ ] Obtain explicit approval to integrate the backend for the approved scope/version.
 
@@ -1711,10 +2010,10 @@ Before later activity, an authorized reversal/replacement of opening may be allo
 - [ ] Implement source-linked supplier commercial returns separately from damage dispatch and claim-allocated replacement receipts.
 - [ ] Implement damage intake, quarantine, buyer replacement/pending queue, company damage dispatch/acceptance/partial replacement, and owned-stock write-off as distinct events.
 - [ ] Implement route sessions, batch loading, sales/delivery, unsold returns and collection handovers.
-- [ ] Implement external SR account, delivery links, open due items and manual partial settlement/reversal with no SR payroll.
+- [ ] Implement external SR money account (loans, repayments, money owed to SR, incentives) with manual partial settlement/reversal; no product links and no SR payroll (D18, D23).
 - [ ] Implement cash/stock reconciliation and shortage/excess review.
 - [ ] Implement compensation rules selected by the client, effective dates and source deduplication.
-- [ ] Implement payroll accrual/payment, advances and approved recoveries.
+- [ ] Implement payroll accrual/payment, StaffMoneyEntry/StaffMoneyAllocation (section 8.2) and approved recoveries for all distributor staff.
 - [ ] Implement DSR due-to-payroll allocations, deduction caps, carried remainder and duplicate-recovery prevention.
 - [ ] Prevent sales, collections, expenses or shortages from being posted again at settlement.
 - [ ] Reconcile staff cash, stock custody, commissions, claims and their control accounts.
@@ -1759,7 +2058,7 @@ Before later activity, an authorized reversal/replacement of opening may be allo
 - [ ] Approve go-live cutoff and all-brand/shared-account migration boundary.
 - [ ] Prepare actual product/SKU/unit mappings without joining by sheet position.
 - [ ] Discover all-month catalog candidates, resolve grid/name/unit conflicts, and approve stable product mappings before stock import.
-- [ ] Prefill January carry-in quantities/costs from Excel; allow owner adjustments and reconcile the three negative source opening quantities before activation. Review actual go-live stock for later-only products; no automatic zero or row-predecessor carryover.
+- [ ] Prefill closing quantities/costs from the uploaded last-month sheet (section 16.2a); run the readiness checks; allow owner adjustments and resolve every negative or blank quantity before activation. Review actual go-live stock for later-only products; no automatic zero or row-predecessor carryover.
 - [ ] Obtain aggregate sales-due, supplier, SR/DSR and actual cash/account opening records; no customer list required.
 - [ ] Validate unknown legacy lots and approve their documented limitations.
 - [ ] Rehearse the wizard against staging, including duplicate import and failed activation.
@@ -1818,7 +2117,7 @@ Before later activity, an authorized reversal/replacement of opening may be allo
 | T27 | DSR due exceeds approved available pay | Recovery follows configured cap; remainder carried forward; cash salary never silently negative |
 | T28 | Supplier has 10 units outstanding and SR has money loan 1,000 | Goods receipt reduces only company quantity due; SR repayment reduces only money loan; neither duplicates the other |
 | T29 | Two concurrent SR settlements or DSR payroll recoveries target the same due | Combined recovery cannot exceed approved outstanding amount; duplicate attempts are rejected or replayed safely |
-| T30 | Extract January T7/T8 and T14 opening values | 43,674 / 24,228 / -47 respectively; not cached first-day ending balances; negative row blocks its activation |
+| T30 | Parser fixture: extract January T7/T8 and T14 opening values | 43,674 / 24,228 / -47 respectively; not cached first-day ending balances; negative row blocks its activation |
 | T31 | Banking Amount deposit 10,000, of which 6,000 applies to an existing bill | Funding account decreases 10,000; payable decreases 6,000; supplier advance is 4,000; no revenue or bank-balance increase |
 | T32 | Owner overrides imported opening quantity with zero and reimports same file | Zero is preserved; no duplicate opening row and no erased adjustment |
 | T33 | Required Bangla UI at 360px and Bangla printed daily summary | All primary actions/errors are localized and usable; glyphs/numbers/totals are readable |
@@ -1843,6 +2142,14 @@ Before later activity, an authorized reversal/replacement of opening may be allo
 | T52 | Legacy incentive products in opening stock alongside mixed spreadsheet commission total | Import stock once; reject mixed running total as a new balance; no repeated incentive income, stock or cash |
 | T53 | Supplier incentive products valued at 33,600; then SR incentive paid 200 and loan given 1,000 | Supplier receipt quantity/value stays unchanged; SR expense 200 and loan asset 1,000 affect their own accounts; cash decreases 1,200 |
 | T54 | SR repays 400 of that loan | SR loan falls from 1,000 to 600; cash rises 400; supplier incentive report and stock remain unchanged |
+| T55 | Try to post a daily summary or Samari issue for an SR | Rejected; only DSR-role staff hold product custody (D23) |
+| T56 | Manager: salary 10,500, advance 2,000, loan 1,000, approved shortage 500 | Recovery advance 2,000 → loan 1,000 → shortage 500; Cash Pabe 7,000; all three open items zero (D24, D25, D27) |
+| T57 | Helper: salary 3,250, advance 4,000 | Recover 3,250, pay 0, advance 750 carried to next month; no negative salary |
+| T58 | Same day: advance 500 (out), repayment 200 (in), approved shortage 100 (sales money never handed in), excess handed in 50 (in) | Daily cash −350 (PLAN §2.4); person owes 400; we owe 50; nothing netted automatically |
+| T59 | Upload a last-month sheet whose opening references a non-previous month (`Oct 2026!T7='Apr 2026'!VS7…`) or has negative closing stock | Readiness check blocks activation and lists each cell; nothing posted (D26) |
+| T60 | Standard template filled for company B with different products; then typed on screen for company C | Both produce identical staging rows and validation; no company-specific code path (D28) |
+| T61 | Change a product's carton size and an expense category name with a future effective date | Earlier documents and reports unchanged; new documents use the new values |
+| T62 | Add a new company with its own products, staff assignments and opening data | Works through configuration and the opening template only; existing companies unaffected |
 
 ### 18.2 Security and company-switch tests
 
@@ -1959,7 +2266,7 @@ Keep changes reviewable: each slice delivers a workflow, its contracts, required
 
 ### 20.4 Starter instruction for the coding agent
 
-> Read this implementation guide and its mandatory section 21 SSOT/dependency rules. Start only with Phase 1: a polished responsive Next.js prototype using deterministic JSON, shared contracts and one mock service adapter. Use Bangla, online-only operation, one shared godown, dynamic per-brand products/themes, batch cost layers and actual transaction price splits. The companies are supplier brands within one distributor. Record one daily product summary per brand/DSR/date; do not build customer masters or sales invoices. Keep aggregate market unpaid sales separate from personal DSR debts. Recover personal DSR dues from salary, carry any remainder, and offer Bangla refund-or-retain-credit actions for excess cash. SR dues are money loans; track repayments, payables and distributor-paid SR incentives without SR payroll. Company incentive is free product stock: receive a batch/value without cash, supplier bill or payable, and report it directly from its receipt/layer records. Keep supplier incentive products completely separate from D:Comition, SR loans, repayments and payables; never reproduce the spreadsheet's mixed balance. Damage uses independent buyer replacement/pending and company return/replacement queues, with quantity and batch/cost traceability. Banking Amount is an outgoing supplier deposit. Prefill owner-editable opening data from section 16; January rows are not a hardcoded catalog. Exclude AB and tax-invoice functionality. Demonstrate every registered action, failure state and calculation with internally consistent fixtures. Obtain version-specific client UI/action approval before production API integration. Then implement Neon PostgreSQL, secure atomic APIs, reports and operational verification, followed by measured Redis optimization and reviewed opening activation. Use one owner per fact/rule/action, reusable components, schema-derived contracts, dependency coverage, safe migrations and CI evidence. Do not introduce a second posting path or change confirmed business meanings.
+> Read this implementation guide and its mandatory section 21 SSOT/dependency rules. Start only with Phase 1: a polished responsive Next.js prototype using deterministic JSON, shared contracts and one mock service adapter. Use Bangla, online-only operation, one shared godown, dynamic per-brand products/themes, batch cost layers and actual transaction price splits. The companies are supplier brands within one distributor. Record one daily product summary per brand/DSR/date; do not build customer masters or sales invoices. Keep aggregate market unpaid sales separate from personal DSR debts. Give every staff member a typed money account (advance, loan, shortage, credit; section 11.9), recover what distributor staff owe from salary, carry any remainder, keep all companies on the same screens with differences only in configuration (section 4.4), and offer Bangla refund-or-retain-credit actions for excess cash. SR dues are money loans; track repayments, payables and distributor-paid SR incentives without SR payroll. Company incentive is free product stock: receive a batch/value without cash, supplier bill or payable, and report it directly from its receipt/layer records. Keep supplier incentive products completely separate from D:Comition, SR loans, repayments and payables; never reproduce the spreadsheet's mixed balance. Damage uses independent buyer replacement/pending and company return/replacement queues, with quantity and batch/cost traceability. Banking Amount is an outgoing supplier deposit. Prefill owner-editable opening data from section 16; January rows are not a hardcoded catalog. Exclude AB and tax-invoice functionality. Demonstrate every registered action, failure state and calculation with internally consistent fixtures. Obtain version-specific client UI/action approval before production API integration. Then implement Neon PostgreSQL, secure atomic APIs, reports and operational verification, followed by measured Redis optimization and reviewed opening activation. Use one owner per fact/rule/action, reusable components, schema-derived contracts, dependency coverage, safe migrations and CI evidence. Do not introduce a second posting path or change confirmed business meanings.
 
 ## 21. SSOT, reusable UI, dependency governance and safe change rules
 

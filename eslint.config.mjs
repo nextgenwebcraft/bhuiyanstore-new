@@ -22,7 +22,13 @@ const serverOnlyPackages = [
 
 export default tseslint.config(
   {
-    ignores: ["**/node_modules/**", "**/.next/**", "**/coverage/**", "**/next-env.d.ts"],
+    ignores: [
+      "**/node_modules/**",
+      "**/.next/**",
+      "**/coverage/**",
+      "**/next-env.d.ts",
+      "packages/database/src/generated/**",
+    ],
   },
   js.configs.recommended,
   ...tseslint.configs.strict,
@@ -35,7 +41,12 @@ export default tseslint.config(
     settings: { next: { rootDir: "apps/web" } },
   },
   {
-    files: ["packages/domain/**/*.ts", "packages/contracts/**/*.ts", "packages/i18n/**/*.ts"],
+    files: [
+      "packages/domain/**/*.ts",
+      "packages/contracts/**/*.ts",
+      "packages/i18n/**/*.ts",
+      "packages/importer/**/*.ts",
+    ],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -59,8 +70,18 @@ export default tseslint.config(
   },
   {
     files: ["apps/web/src/**/*.{ts,tsx}"],
+    // Route handlers and server helpers are the only web code that may touch the backend.
+    ignores: ["apps/web/src/app/api/**", "apps/web/src/server/**"],
     rules: {
-      "no-restricted-imports": ["error", { patterns: serverOnlyPackages }],
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            ...serverOnlyPackages,
+            { group: ["@/server", "@/server/*"], message: "Server-only module." },
+          ],
+        },
+      ],
     },
   },
 );

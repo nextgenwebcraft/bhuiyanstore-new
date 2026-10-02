@@ -10,6 +10,7 @@ function batch(
     lotId: undefined,
     receivedDate: "2026-01-01",
     location: "godown",
+    origin: "opening",
     unitCost: "10.000000",
     receivedQuantity: overrides.availableQuantity,
     reservedQuantity: "0",

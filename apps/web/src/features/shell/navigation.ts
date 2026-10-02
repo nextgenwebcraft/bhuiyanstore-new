@@ -55,10 +55,10 @@ export const navigation: readonly NavSection[] = [
     module: "sales",
     groupId: "operations",
     items: [
-      item("sales/daily-summaries", "nav.sales.dailySummaries", "sale.view"),
+      item("sales/daily-summaries", "nav.sales.dailySummaries", "sale.view", true),
       item("sales/samari", "sales.samari", "sale.view"),
       item("sales/firot", "sales.firot", "sale.view"),
-      item("sales/old-dues-collection", "sales.oldDuesCollection", "sale.view"),
+      item("sales/old-dues-collection", "sales.oldDuesCollection", "sale.view", true),
     ],
   },
   {
@@ -68,7 +68,7 @@ export const navigation: readonly NavSection[] = [
     groupId: "operations",
     items: [
       item("purchases/orders", "nav.purchases.orders", "purchase.view"),
-      item("purchases/receipts", "nav.purchases.receipts", "purchase.view"),
+      item("purchases/receipts", "nav.purchases.receipts", "purchase.view", true),
       item("purchases/bills", "nav.purchases.bills", "purchase.view"),
       item("purchases/payments", "nav.purchases.payments", "purchase.view"),
       item("purchases/returns", "nav.purchases.returns", "purchase.view"),
@@ -152,9 +152,10 @@ export const navigation: readonly NavSection[] = [
     groupId: "setup",
     items: [
       item("masters/products", "nav.masters.products", "product.view", true),
-      item("masters/suppliers", "nav.masters.suppliers", "company.view"),
-      item("masters/staff", "nav.masters.staff", "company.view"),
+      item("masters/suppliers", "nav.masters.suppliers", "company.view", true),
+      item("masters/staff", "nav.masters.staff", "company.view", true),
       item("masters/godown", "inventory.godown", "inventory.view"),
+      item("masters/lists", "nav.masters.lists", "company.view", true),
     ],
   },
   {
@@ -164,10 +165,10 @@ export const navigation: readonly NavSection[] = [
     items: [
       item("admin/companies", "nav.administration.companies", "company.manage"),
       item("admin/modules", "nav.administration.modules", "company.manage"),
-      item("admin/users", "nav.administration.users", "membership.manage"),
-      item("admin/roles", "nav.administration.roles", "role.manage"),
+      item("admin/users", "nav.administration.users", "membership.manage", true),
+      item("admin/roles", "nav.administration.roles", "role.manage", true),
       item("admin/audit", "nav.administration.audit", "audit.view"),
-      item("admin/opening", "nav.administration.opening", "opening.prepare"),
+      item("admin/opening", "nav.administration.opening", "opening.prepare", true),
     ],
   },
 ];

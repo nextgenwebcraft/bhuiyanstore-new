@@ -1,0 +1,56 @@
+id: 2026-10-02-receipt-sale-collection
+reason: Phase 1 core mock workflow (guide section 17) - purchase/incentive receipt -> stock -> DSR daily summary -> old-dues collection, with stock derived from a movement ledger
+owners: [procurement, inventory, sales, organization-catalog, reporting]
+changedDefinitionIds:
+  - contracts.batchSchema (added origin)
+  - contracts.supplierSchema
+  - contracts.staffMemberSchema
+  - contracts.goodsReceiptPostRequestSchema / goodsReceiptSchema
+  - contracts.dailySalesSummaryPostRequestSchema / dailySalesSummarySchema
+  - contracts.marketDueItemSchema
+  - contracts.oldDueCollectionPostRequestSchema / oldDueCollectionSchema
+  - contracts.dashboardSummarySchema
+  - contracts.errorCodes (MODULE_UNAVAILABLE, INSUFFICIENT_STOCK, DUPLICATE_DOCUMENT, AMOUNT_EXCEEDS_DUE, IDEMPOTENCY_CONFLICT)
+  - contracts.permissionIds (collection.post)
+  - architecture.resourceIds (supplier, staff-member, goods-receipt, daily-sales-summary, market-due, old-due-collection, dashboard-summary)
+  - domain.sortByAllocationPriority (stable ID tie-break)
+  - domain.allocateByPriority
+  - domain.saleTotals / priceSplitAmount / allocationCost / sumAmounts / allocateOldestFirst
+  - domain.businessDateOf
+  - i18n.formatAmount / formatRate
+  - ports.DistributionService (listSuppliers, listStaff, listGoodsReceipts, postGoodsReceipt, listDailySalesSummaries, postDailySalesSummary, listMarketDues, listOldDueCollections, postOldDueCollection, getDashboardSummary)
+affectedActionIds: not-applicable (no action registry yet); new commands goods_receipt.post, daily_sales_summary.post, old_due_collection.post
+affectedResources:
+  [
+    batch,
+    supplier,
+    staff-member,
+    goods-receipt,
+    daily-sales-summary,
+    market-due,
+    old-due-collection,
+    dashboard-summary,
+  ]
+affectedMetrics: dashboard netSales, cashCollected, marketDueOutstanding, grossProfit, stockValue - all computed by the mock service from posted documents and movements; the UI only formats
+affectedUi:
+  - ReceiptsPage / ReceiptForm
+  - DailySummariesPage / SummaryForm
+  - OldDuesCollectionPage
+  - SuppliersPage, StaffPage
+  - DashboardPage (metrics)
+  - BatchTable (origin column, rate formatting)
+  - navigation (5 items now implemented)
+schemaMigration: not-applicable (no database in Phase 1); demo seed gains suppliers, staff, openingMarketDues and manager posting permissions
+backfill: not-applicable
+historicalPolicy: posted receipts/summaries snapshot product name, carton factor, unit cost and sale price; later catalog edits never change them
+contractCompatibility: batchSchema gains a required origin field (all producers are in-repo); everything else additive
+cacheAndProjectionPlan: postingEffects in query-keys.ts declares each command's invalidated resources; mutations await the refetch before reporting success
+securityReview: every command checks membership, module and permission in the service; cost/profit fields redacted server-side without inventory.cost_view / report.profit_view; staff company assignments filtered to companies the actor can access; idempotency records are scoped by actor, company and action
+tests:
+  - packages/domain/src/allocation.test.ts
+  - packages/domain/src/sales.test.ts (guide 9.6 sale arithmetic)
+  - packages/i18n/src/format.test.ts
+  - apps/web/src/data/mock/mock-service.test.ts (posting, atomic failure, idempotency, D03 uniqueness, quarantine/expiry exclusion, redaction, collection allocation)
+  - manual Playwright script (temp dir, not committed): full flow, permission/module states, 390px overflow, console errors
+rollout: prototype only
+recovery: revert commit

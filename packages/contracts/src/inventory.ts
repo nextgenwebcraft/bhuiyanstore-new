@@ -19,8 +19,11 @@ export const batchSchema = z.object({
   expiryDate: businessDateSchema.optional(),
   receivedDate: businessDateSchema,
   location: z.literal("godown"),
+  /** Receipt origin of the cost layer; supplier_incentive layers feed the D16 statement. */
+  origin: z.enum(["opening", "purchase", "supplier_incentive"]),
   /** Actual receipt cost for this layer (D06); shown only with inventory.cost_view. */
   unitCost: decimalStringSchema,
+  /** Derived from posted stock movements, never stored as an editable total (guide 9.1). */
   receivedQuantity: decimalStringSchema,
   availableQuantity: decimalStringSchema,
   reservedQuantity: decimalStringSchema,

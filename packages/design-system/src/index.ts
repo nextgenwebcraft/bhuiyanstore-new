@@ -1,2 +1,2 @@
 export { contrastRatio, MIN_TEXT_CONTRAST } from "./contrast";
-export { themeToCssVars } from "./theme";
+export { DEFAULT_COMPANY_THEME, themeToCssVars } from "./theme";

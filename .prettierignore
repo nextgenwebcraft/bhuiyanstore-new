@@ -2,4 +2,6 @@ pnpm-lock.yaml
 .next/
 node_modules/
 coverage/
+packages/database/src/generated/
+packages/database/prisma/migrations/
 docs/DISTRIBUTION_SOFTWARE_IMPLEMENTATION_GUIDE.md

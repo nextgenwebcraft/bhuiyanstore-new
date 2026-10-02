@@ -21,3 +21,11 @@ export const idSchema = z.string().min(1);
 export const positiveIntegerStringSchema = z
   .string()
   .regex(/^[1-9]\d*$/, { message: "validation.positiveInteger.invalid" });
+
+/** A whole number ≥ 0 carried as a string, e.g. cartons or loose pieces on an entry line. */
+export const nonNegativeIntegerStringSchema = z
+  .string()
+  .regex(/^(0|[1-9]\d*)$/, { message: "validation.nonNegativeInteger.invalid" });
+
+/** Client-generated idempotency key for a posting command (guide 5.4, 13.2). */
+export const requestKeySchema = z.string().min(8).max(100);

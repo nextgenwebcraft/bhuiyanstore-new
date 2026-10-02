@@ -1,0 +1,21 @@
+{
+  "name": "@bsd/application",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Command and query services: permission checks, validation, one transaction, idempotency and audit per write (PLAN §3). Server-side only.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@bsd/auth": "workspace:*",
+    "@bsd/contracts": "workspace:*",
+    "@bsd/database": "workspace:*",
+    "@bsd/domain": "workspace:*",
+    "@bsd/importer": "workspace:*",
+    "zod": "4.6.5"
+  }
+}
