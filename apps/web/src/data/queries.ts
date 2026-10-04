@@ -28,7 +28,6 @@ import type {
   StaffCreateRequest,
   StaffUpsertRequest,
   StockEntryPostRequest,
-  SupplierUpsertRequest,
   UserCreateRequest,
   UserPasswordResetRequest,
   UserUpdateRequest,
@@ -75,15 +74,6 @@ export function useProducts(companyId: string) {
   });
 }
 
-export function useSuppliers(companyId: string) {
-  const service = useService();
-  const actorId = useActorId();
-  return useQuery({
-    queryKey: queryKeys.suppliers(actorId, companyId),
-    queryFn: ({ signal }) => service.listSuppliers(companyId, { signal }),
-  });
-}
-
 export function useStaff(companyId: string) {
   const service = useService();
   const actorId = useActorId();
@@ -99,7 +89,6 @@ export function useDashboardSummary(companyId: string, date: string) {
   return useQuery({
     queryKey: queryKeys.dashboardSummary(actorId, companyId, date),
     queryFn: ({ signal }) => service.getDashboardSummary(companyId, date, { signal }),
-    placeholderData: (previous) => previous,
   });
 }
 
@@ -155,7 +144,6 @@ export function useDayView(companyId: string, date: string) {
   return useQuery({
     queryKey: queryKeys.dayView(actorId, companyId, date),
     queryFn: ({ signal }) => service.getDayView(companyId, date, { signal }),
-    placeholderData: (previous) => previous,
   });
 }
 
@@ -262,7 +250,6 @@ export function useMonthView(companyId: string, month: string) {
   return useQuery({
     queryKey: queryKeys.monthView(actorId, companyId, month),
     queryFn: ({ signal }) => service.getMonthView(companyId, month, { signal }),
-    placeholderData: (previous) => previous,
   });
 }
 
@@ -284,7 +271,6 @@ export function useReport(companyId: string, report: ReportId, range: ReportRang
   return useQuery({
     queryKey: queryKeys.report(actorId, companyId, report, range.from, range.to),
     queryFn: ({ signal }) => service.getReport(companyId, report, range, { signal }),
-    placeholderData: (previous) => previous,
     enabled: range.from <= range.to,
   });
 }
@@ -297,7 +283,6 @@ export function useStaffAccounts(companyId: string, kind: StaffAccountKind, date
   return useQuery({
     queryKey: queryKeys.staffAccounts(actorId, companyId, kind, date),
     queryFn: ({ signal }) => service.getStaffAccounts(companyId, { kind, date }, { signal }),
-    placeholderData: (previous) => previous,
   });
 }
 
@@ -307,7 +292,6 @@ export function useStaffStatement(companyId: string, staffId: string, range: Rep
   return useQuery({
     queryKey: queryKeys.staffStatement(actorId, companyId, staffId, range.from, range.to),
     queryFn: ({ signal }) => service.getStaffStatement(companyId, staffId, range, { signal }),
-    placeholderData: (previous) => previous,
     enabled: staffId !== "" && range.from <= range.to,
   });
 }
@@ -418,17 +402,6 @@ export function useSetProductPrice(companyId: string, productId: string) {
   const service = useService();
   return useMasterMutation([resourceIds.productHistory], (input: PriceChangeRequest) =>
     service.setProductPrice(companyId, productId, input),
-  );
-}
-
-export function useSaveSupplier(companyId: string) {
-  const service = useService();
-  return useMasterMutation(
-    [resourceIds.supplier],
-    ({ supplierId, input }: { supplierId?: string; input: SupplierUpsertRequest }) =>
-      supplierId
-        ? service.updateSupplier(companyId, supplierId, input)
-        : service.createSupplier(companyId, input),
   );
 }
 

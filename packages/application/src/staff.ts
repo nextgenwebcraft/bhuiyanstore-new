@@ -33,7 +33,6 @@ type StaffRow = {
   id: string;
   name: string;
   employer: string;
-  phone: string | null;
   status: string;
   assignments: AssignmentRow[];
 };
@@ -59,7 +58,6 @@ function toRecord(row: StaffRow, visible: Set<string>): StaffRecord {
     id: row.id,
     name: row.name,
     employer: row.employer,
-    ...(row.phone ? { phone: row.phone } : {}),
     status: row.status,
     assignments: row.assignments
       .filter((a) => visible.has(a.companyId))
@@ -228,7 +226,6 @@ export async function createStaff(
           tenantId: ctx.actor.tenantId,
           name: data.name,
           employer: data.employer,
-          phone: data.phone || null,
           status: data.status,
           assignments: {
             create: {
@@ -279,7 +276,6 @@ export async function updateStaff(
         data: {
           name: data.name,
           employer: data.employer,
-          phone: data.phone || null,
           status: data.status,
         },
         include: withAssignments,

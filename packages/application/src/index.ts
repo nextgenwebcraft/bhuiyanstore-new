@@ -84,4 +84,3 @@ export {
   updateStaff,
   updateStaffAssignment,
 } from "./staff";
-export { createSupplier, listSuppliers, updateSupplier } from "./suppliers";

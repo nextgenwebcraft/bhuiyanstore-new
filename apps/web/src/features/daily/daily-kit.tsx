@@ -5,10 +5,10 @@ import { businessDateOf, shiftBusinessDate, toCartonDisplay } from "@bsd/domain"
 import { formatAmount, formatBusinessDate, normalizeDigits, t, toBengaliDigits } from "@bsd/i18n";
 import { useSyncExternalStore } from "react";
 import { Button, ButtonLink } from "@/components/button";
-import { inputClass } from "@/components/field";
+import { DatePicker } from "@/components/date-picker";
 import { Icon } from "@/components/icons";
 import { QueryError } from "@/components/query-error";
-import { Skeleton } from "@/components/skeleton";
+import { TableSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
 import { useDayView } from "@/data/queries";
 import { companyHref } from "@/features/shell/navigation";
@@ -60,18 +60,13 @@ export function DateBar({
       >
         <Icon name="chevronLeft" className="size-4" />
       </Button>
-      <label className="sr-only" htmlFor={id}>
-        {t("dashboard.date")}
-      </label>
-      <input
+      <DatePicker
         id={id}
-        type="date"
         value={date}
         max={today}
-        onChange={(event) => {
-          if (event.target.value) onChange(event.target.value);
-        }}
-        className={`${inputClass} w-auto text-sm tabular-nums`}
+        long
+        label={t("dashboard.date")}
+        onChange={(next) => next && onChange(next)}
       />
       <Button
         aria-label={t("dashboard.nextDay")}
@@ -107,21 +102,17 @@ export function DateHeading({ date }: { date: string }) {
 export function DayGate({
   companyId,
   date,
+  skeleton = <TableSkeleton rows={8} columns={8} />,
   children,
 }: {
   companyId: string;
   date: string;
+  /** Placeholder shaped like the page's content while the day view loads. */
+  skeleton?: React.ReactNode;
   children: (view: DayView) => React.ReactNode;
 }) {
   const view = useDayView(companyId, date);
-  if (view.isPending) {
-    return (
-      <div className="flex flex-col gap-4">
-        <Skeleton className="h-12" />
-        <Skeleton className="h-64" />
-      </div>
-    );
-  }
+  if (view.isPending) return skeleton;
   if (view.isError) return <QueryError error={view.error} onRetry={() => void view.refetch()} />;
   const data = view.data;
   if (!data.cutoffDate) {
@@ -148,7 +139,7 @@ export function DayGate({
     );
   }
   if (date > todayDate()) return <StatePanel title={t("dashboard.futureDate")} />;
-  return <div className={view.isPlaceholderData ? "opacity-60" : undefined}>{children(data)}</div>;
+  return children(data);
 }
 
 // ---------------------------------------------------------------- inputs and display
@@ -204,16 +195,59 @@ export function cartonText(pieces: string, piecesPerCarton: string): string {
   return toBengaliDigits(`${negative ? "-" : ""}${cartons}/${loosePieces}`);
 }
 
+/** `cartonText` with the total pieces on hover, where a carton holds more than one piece. */
+export function CartonQty({
+  pieces,
+  piecesPerCarton,
+}: {
+  pieces: string;
+  piecesPerCarton: string;
+}) {
+  const text = cartonText(pieces, piecesPerCarton);
+  if (text === toBengaliDigits(pieces)) return text;
+  const hint = `${t("common.totalPieces")}: ${formatAmount(pieces)} (${t("common.perCarton")} ${toBengaliDigits(piecesPerCarton)})`;
+  return (
+    <span title={hint} className="cursor-help">
+      {text}
+    </span>
+  );
+}
+
 export const money = (value: string | null) => (value === null ? "—" : formatAmount(value));
 export const quantity = (value: string) => toBengaliDigits(value);
 
-export const tableShell = "overflow-x-auto rounded-xl border border-border bg-surface shadow-card";
+export { TableScroller } from "@/components/table-scroller";
+/** The first (product or person) column stays in view while a wide table scrolls sideways. */
+export const stickyHead =
+  "sticky left-0 z-10 bg-surface-muted shadow-[inset_-1px_0_0_var(--color-border)]";
+export const stickyCell =
+  "sticky left-0 z-10 bg-surface shadow-[inset_-1px_0_0_var(--color-border)]";
 export const tableClass = "w-full border-collapse text-sm";
 export const theadClass = "bg-surface-muted text-left text-xs text-text-muted";
 export const thClass = "px-3 py-2.5 font-medium";
 export const thNum = "px-3 py-2.5 text-right font-medium";
 export const tdClass = "px-3 py-2";
 export const tdNum = "px-3 py-2 text-right tabular-nums";
+
+/** A numeric column header, with "(cartons/pieces)" under quantity columns. */
+export function ColumnHead({
+  label,
+  quantity = false,
+}: {
+  label: string;
+  quantity?: boolean | undefined;
+}) {
+  return (
+    <th scope="col" className={`${thNum} whitespace-nowrap`}>
+      {label}
+      {quantity ? (
+        <span className="block text-[10.5px] font-normal text-text-subtle">
+          {t("common.cartonPiece")}
+        </span>
+      ) : null}
+    </th>
+  );
+}
 
 export function StatusChip({ status }: { status: "draft" | "posted" | "reversed" | "none" }) {
   const tone =

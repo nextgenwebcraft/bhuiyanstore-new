@@ -293,15 +293,16 @@ describe("Phase H: Excel month import into documents", () => {
     expect(month.staff.find((s) => s.staffId === live.rohim)?.owesUs).toBe("30");
 
     const stock = await listStockEntries(ctx, live.company, "2026-09-01");
-    expect(stock.map((s) => [s.kind, s.pieces, s.reference])).toEqual([
-      ["receipt", "48", `import:${job.id}`],
-    ]);
+    expect(stock.map((s) => [s.kind, s.pieces])).toEqual([["receipt", "48"]]);
+    const stockRows = await ctx.db.stockEntry.findMany({ where: { companyId: live.company } });
+    expect(stockRows.map((r) => r.reference)).toEqual([`import:${job.id}`]);
     const money = await listMoneyEntries(ctx, live.company, {
       from: "2026-09-01",
       to: "2026-09-30",
     });
     expect(money).toHaveLength(5);
-    expect(money.every((m) => m.reference === `import:${job.id}`)).toBe(true);
+    const moneyRows = await ctx.db.moneyEntry.findMany({ where: { companyId: live.company } });
+    expect(moneyRows.every((m) => m.reference === `import:${job.id}`)).toBe(true);
   });
 
   it("refuses a second commit and a closed month", async () => {

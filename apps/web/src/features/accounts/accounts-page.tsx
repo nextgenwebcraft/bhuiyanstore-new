@@ -11,10 +11,11 @@ import { formatBusinessDate, t, type TranslationKey } from "@bsd/i18n";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { Button, ButtonLink } from "@/components/button";
+import { DateRangePicker } from "@/components/date-picker";
 import { Field, inputClass } from "@/components/field";
 import { PageHeader } from "@/components/page-header";
 import { QueryError } from "@/components/query-error";
-import { ListSkeleton } from "@/components/skeleton";
+import { SummarySkeleton, TableSkeleton } from "@/components/skeleton";
 import { StatTile } from "@/components/stat-tile";
 import { StatePanel } from "@/components/state-panel";
 import { describeError } from "@/data/ports/service-error";
@@ -24,7 +25,7 @@ import {
   DateBar,
   money,
   tableClass,
-  tableShell,
+  TableScroller,
   tdClass,
   tdNum,
   thClass,
@@ -78,7 +79,7 @@ export function StaffAccountsPage({
         actions={<DateBar date={date} onChange={setDate} />}
       />
       {query.isPending ? (
-        <ListSkeleton />
+        <TableSkeleton rows={6} columns={8} />
       ) : query.isError ? (
         <QueryError error={query.error} onRetry={() => void query.refetch()} />
       ) : !query.data.cutoffDate ? (
@@ -90,7 +91,7 @@ export function StaffAccountsPage({
       ) : query.data.rows.length === 0 ? (
         <Empty text={t("accounts.empty")} />
       ) : (
-        <div className={`${tableShell} ${query.isPlaceholderData ? "opacity-60" : ""}`}>
+        <TableScroller>
           <table className={tableClass}>
             <thead className={theadClass}>
               <tr>
@@ -143,7 +144,7 @@ export function StaffAccountsPage({
               ))}
             </tbody>
           </table>
-        </div>
+        </TableScroller>
       )}
     </NavGate>
   );
@@ -182,7 +183,7 @@ function StatementBody({ statement }: { statement: StaffStatement }) {
       {statement.lines.length === 0 ? (
         <Empty text={t("report.empty")} />
       ) : (
-        <div className={tableShell}>
+        <TableScroller>
           <table className={tableClass}>
             <thead className={theadClass}>
               <tr>
@@ -200,9 +201,6 @@ function StatementBody({ statement }: { statement: StaffStatement }) {
                     {balanceLabel(k)}
                   </th>
                 ))}
-                <th scope="col" className={thClass}>
-                  {t("common.reference")}
-                </th>
               </tr>
             </thead>
             <tbody>
@@ -215,7 +213,6 @@ function StatementBody({ statement }: { statement: StaffStatement }) {
                     {money(statement.opening[k])}
                   </td>
                 ))}
-                <td className={tdClass} />
               </tr>
               {statement.lines.map((line, index) => (
                 <tr key={line.entryId ?? index} className="border-t border-border">
@@ -243,15 +240,11 @@ function StatementBody({ statement }: { statement: StaffStatement }) {
                       </td>
                     );
                   })}
-                  <td className={tdClass}>
-                    {line.reference || "—"}
-                    {line.note ? <div className="text-xs text-text-muted">{line.note}</div> : null}
-                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
-        </div>
+        </TableScroller>
       )}
     </div>
   );
@@ -269,7 +262,7 @@ function Statement({
   const query = useStaffStatement(companyId, staffId, range);
   if (range.from > range.to)
     return <StatePanel tone="error" title={t("validation.period.endBeforeStart")} />;
-  if (query.isPending) return <ListSkeleton />;
+  if (query.isPending) return <SummarySkeleton stats={4} rows={8} />;
   if (query.isError) return <QueryError error={query.error} onRetry={() => void query.refetch()} />;
   if (!query.data.cutoffDate) {
     return (
@@ -280,11 +273,7 @@ function Statement({
       />
     );
   }
-  return (
-    <div className={query.isPlaceholderData ? "opacity-60" : ""}>
-      <StatementBody statement={query.data} />
-    </div>
-  );
+  return <StatementBody statement={query.data} />;
 }
 
 function StatementContent({
@@ -331,31 +320,7 @@ function StatementContent({
         description={t("accounts.statementDescription")}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <label className="sr-only" htmlFor="statement-from">
-              {t("common.from")}
-            </label>
-            <input
-              id="statement-from"
-              type="date"
-              value={range.from}
-              onChange={(event) =>
-                event.target.value && setRange({ ...range, from: event.target.value })
-              }
-              className={`${inputClass} w-auto text-sm`}
-            />
-            <span aria-hidden>–</span>
-            <label className="sr-only" htmlFor="statement-to">
-              {t("common.to")}
-            </label>
-            <input
-              id="statement-to"
-              type="date"
-              value={range.to}
-              onChange={(event) =>
-                event.target.value && setRange({ ...range, to: event.target.value })
-              }
-              className={`${inputClass} w-auto text-sm`}
-            />
+            <DateRangePicker value={range} onChange={setRange} max={businessDateOf(new Date())} />
             {canExport && staffId ? (
               <>
                 <Button disabled={busy} onClick={() => void exportAs("csv")}>
@@ -405,7 +370,7 @@ export function StaffStatementPage(props: {
   kind: StaffAccountKind;
 }) {
   return (
-    <Suspense fallback={<ListSkeleton />}>
+    <Suspense fallback={<SummarySkeleton stats={4} rows={8} />}>
       <StatementContent {...props} />
     </Suspense>
   );

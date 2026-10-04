@@ -15,17 +15,19 @@ import { useDsrDayCommand, useDsrDays, useSaveDsrDay, useStaffRecords } from "@/
 import { NavGate } from "@/features/shell/nav-gate";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 import {
+  CartonQty,
   CellInput,
   DateBar,
   DateHeading,
   DayGate,
   SectionTitle,
   StatusChip,
-  cartonText,
+  TableScroller,
   clean,
   money,
+  stickyCell,
+  stickyHead,
   tableClass,
-  tableShell,
   tdClass,
   tdNum,
   thClass,
@@ -36,20 +38,29 @@ import {
 
 const PATH = "sales/daily-summaries";
 
+/** Each column group of the sheet gets its own tint, carried from the header into every row. */
+const GROUP = {
+  issued: { head: "bg-info/10 text-info", sub: "bg-info/5", cell: "bg-info/[0.03]" },
+  returned: { head: "bg-success/10 text-success", sub: "bg-success/5", cell: "bg-success/[0.03]" },
+  damaged: { head: "bg-error/10 text-error", sub: "bg-error/5", cell: "bg-error/[0.03]" },
+} as const;
+const groupHead =
+  "border-b border-l border-border px-3 py-2 text-center text-xs font-semibold tracking-wide";
+const loneHead = "border-l border-border px-3 py-2 text-center text-xs font-semibold align-middle";
+const subHead = "border-border px-2 py-1.5 text-center text-[11px] font-medium text-text-muted";
+const inputCell = "border-border px-2 py-2 text-center [&_input]:mx-auto";
+
 type LineDraft = {
   issuedCartons: string;
   issuedPieces: string;
   returnedCartons: string;
   returnedPieces: string;
   damaged: string;
-  splitQuantity: string;
-  splitPrice: string;
 };
 type SheetDraft = {
   lines: Record<string, LineDraft>;
   marketDueNew: string;
   marketDueCollected: string;
-  note: string;
 };
 
 const blankLine: LineDraft = {
@@ -58,8 +69,6 @@ const blankLine: LineDraft = {
   returnedCartons: "",
   returnedPieces: "",
   damaged: "",
-  splitQuantity: "",
-  splitPrice: "",
 };
 
 /** DSRs assigned to the company on the date (D23: product custody is DSR-only). */
@@ -87,15 +96,12 @@ function draftOf(sheet: DsrDay | undefined): SheetDraft {
   for (const line of sheet?.lines ?? []) {
     const [issuedCartons, issuedPieces] = split(line.issued, line.piecesPerCarton);
     const [returnedCartons, returnedPieces] = split(line.returned, line.piecesPerCarton);
-    const first = line.splits[0];
     lines[line.productId] = {
       issuedCartons,
       issuedPieces,
       returnedCartons,
       returnedPieces,
       damaged: line.damaged === "0" ? "" : line.damaged,
-      splitQuantity: first?.quantity ?? "",
-      splitPrice: first?.unitPrice ?? "",
     };
   }
   const amount = (value: string | undefined) =>
@@ -104,7 +110,6 @@ function draftOf(sheet: DsrDay | undefined): SheetDraft {
     lines,
     marketDueNew: amount(sheet?.marketDueNew),
     marketDueCollected: amount(sheet?.marketDueCollected),
-    note: sheet?.note ?? "",
   };
 }
 
@@ -129,25 +134,15 @@ function requestOf(
     ].map(whole);
     if (!parts.every(isWhole)) return t("validation.wholeNumber");
     const [ic, ip, rc, rp, damaged] = parts as [string, string, string, string, string];
-    const quantity = clean(d.splitQuantity);
-    const price = clean(d.splitPrice);
-    if ((quantity === "") !== (price === "")) return t("dsr.sheet.splitBoth");
     const issued = toBaseQuantity(ic, ip, product.piecesPerCarton);
     const returned = toBaseQuantity(rc, rp, product.piecesPerCarton);
-    if (issued === "0" && returned === "0" && damaged === "0" && !quantity) continue;
-    lines.push({
-      productId: product.productId,
-      issued,
-      returned,
-      damaged,
-      splits: quantity ? [{ quantity, unitPrice: price }] : [],
-    });
+    if (issued === "0" && returned === "0" && damaged === "0") continue;
+    lines.push({ productId: product.productId, issued, returned, damaged });
   }
   return {
     ...base,
     marketDueNew: clean(draft.marketDueNew) || "0",
     marketDueCollected: clean(draft.marketDueCollected) || "0",
-    note: draft.note.trim(),
     lines,
   };
 }
@@ -245,52 +240,47 @@ function SheetEditor({
         <StatusChip status={sheet?.status ?? "none"} />
       </div>
       {posted ? <StatePanel title={t("dsr.sheet.postedHint")} /> : null}
-      <div className={tableShell}>
+      <TableScroller>
         <table className={tableClass}>
           <thead className={theadClass}>
             <tr>
-              <th scope="col" rowSpan={2} className={thClass}>
+              <th scope="col" rowSpan={2} className={`${thClass} ${stickyHead} align-bottom`}>
                 {t("godown.column.product")}
               </th>
-              <th scope="colgroup" colSpan={2} className={`${thNum} text-center`}>
+              <th scope="colgroup" colSpan={2} className={`${groupHead} ${GROUP.issued.head}`}>
                 {t("dsr.sheet.issued")}
               </th>
-              <th scope="colgroup" colSpan={2} className={`${thNum} text-center`}>
+              <th scope="colgroup" colSpan={2} className={`${groupHead} ${GROUP.returned.head}`}>
                 {t("dsr.sheet.returned")}
               </th>
-              <th scope="col" rowSpan={2} className={thNum}>
+              <th scope="col" rowSpan={2} className={`${loneHead} ${GROUP.damaged.head}`}>
                 {t("dsr.sheet.damaged")}
               </th>
-              <th scope="colgroup" colSpan={2} className={`${thNum} text-center`}>
-                {t("dsr.sheet.split")}
-              </th>
-              <th scope="col" rowSpan={2} className={thNum}>
+              <th
+                scope="col"
+                rowSpan={2}
+                className={`${thNum} border-l border-border align-bottom`}
+              >
                 {t("dsr.sheet.salePrice")}
               </th>
               {posted ? (
-                <th scope="col" rowSpan={2} className={thNum}>
+                <th scope="col" rowSpan={2} className={`${thNum} align-bottom`}>
                   {t("dsr.sheet.engineAmount")}
                 </th>
               ) : null}
             </tr>
             <tr>
-              <th scope="col" className={thNum}>
+              <th scope="col" className={`${subHead} border-l ${GROUP.issued.sub}`}>
                 {t("godown.column.cartons")}
               </th>
-              <th scope="col" className={thNum}>
+              <th scope="col" className={`${subHead} ${GROUP.issued.sub}`}>
                 {t("godown.column.pieces")}
               </th>
-              <th scope="col" className={thNum}>
+              <th scope="col" className={`${subHead} border-l ${GROUP.returned.sub}`}>
                 {t("godown.column.cartons")}
               </th>
-              <th scope="col" className={thNum}>
+              <th scope="col" className={`${subHead} ${GROUP.returned.sub}`}>
                 {t("godown.column.pieces")}
-              </th>
-              <th scope="col" className={thNum}>
-                {t("dsr.sheet.splitQty")}
-              </th>
-              <th scope="col" className={thNum}>
-                {t("dsr.sheet.splitPrice")}
               </th>
             </tr>
           </thead>
@@ -299,56 +289,45 @@ function SheetEditor({
               const name = product.productName;
               return (
                 <tr key={product.productId} className="border-t border-border">
-                  <th scope="row" className={`${tdClass} text-left font-medium`}>
+                  <th scope="row" className={`${tdClass} ${stickyCell} text-left font-medium`}>
                     <div>{name}</div>
                     <div className="text-xs font-normal text-text-muted">
                       {product.sku} · {t("godown.column.stock")}{" "}
-                      {cartonText(product.stock, product.piecesPerCarton)}
+                      <CartonQty pieces={product.stock} piecesPerCarton={product.piecesPerCarton} />
                     </div>
                   </th>
-                  <td className={tdNum}>
+                  <td className={`${inputCell} border-l ${GROUP.issued.cell}`}>
                     {cell(
                       product.productId,
                       "issuedCartons",
                       `${name} ${t("dsr.sheet.issued")} ${t("godown.column.cartons")}`,
                     )}
                   </td>
-                  <td className={tdNum}>
+                  <td className={`${inputCell} ${GROUP.issued.cell}`}>
                     {cell(
                       product.productId,
                       "issuedPieces",
                       `${name} ${t("dsr.sheet.issued")} ${t("godown.column.pieces")}`,
                     )}
                   </td>
-                  <td className={tdNum}>
+                  <td className={`${inputCell} border-l ${GROUP.returned.cell}`}>
                     {cell(
                       product.productId,
                       "returnedCartons",
                       `${name} ${t("dsr.sheet.returned")} ${t("godown.column.cartons")}`,
                     )}
                   </td>
-                  <td className={tdNum}>
+                  <td className={`${inputCell} ${GROUP.returned.cell}`}>
                     {cell(
                       product.productId,
                       "returnedPieces",
                       `${name} ${t("dsr.sheet.returned")} ${t("godown.column.pieces")}`,
                     )}
                   </td>
-                  <td className={tdNum}>
+                  <td className={`${inputCell} border-l ${GROUP.damaged.cell}`}>
                     {cell(product.productId, "damaged", `${name} ${t("dsr.sheet.damaged")}`)}
                   </td>
-                  <td className={tdNum}>
-                    {cell(product.productId, "splitQuantity", `${name} ${t("dsr.sheet.splitQty")}`)}
-                  </td>
-                  <td className={tdNum}>
-                    {cell(
-                      product.productId,
-                      "splitPrice",
-                      `${name} ${t("dsr.sheet.splitPrice")}`,
-                      "decimal",
-                    )}
-                  </td>
-                  <td className={tdNum}>
+                  <td className={`${tdNum} border-l border-border`}>
                     {product.salePrice ? formatRate(product.salePrice) : "—"}
                   </td>
                   {posted ? (
@@ -359,8 +338,8 @@ function SheetEditor({
             })}
           </tbody>
         </table>
-      </div>
-      <div className="grid gap-4 sm:grid-cols-3">
+      </TableScroller>
+      <div className="grid gap-4 sm:grid-cols-2 lg:max-w-2xl">
         <Field id={`${id}-due`} label={t("dsr.sheet.marketDueNew")}>
           <input
             id={`${id}-due`}
@@ -378,16 +357,6 @@ function SheetEditor({
             value={draft.marketDueCollected}
             disabled={locked}
             onChange={(event) => setDraft({ ...draft, marketDueCollected: event.target.value })}
-            className={inputClass}
-          />
-        </Field>
-        <Field id={`${id}-note`} label={t("dsr.sheet.note")} hint={t("common.optional")}>
-          <input
-            id={`${id}-note`}
-            value={draft.note}
-            maxLength={500}
-            disabled={locked}
-            onChange={(event) => setDraft({ ...draft, note: event.target.value })}
             className={inputClass}
           />
         </Field>
@@ -438,7 +407,7 @@ function Sheets({ companyId, date, view }: { companyId: string; date: string; vi
   const sheets = useDsrDays(companyId, date);
   const [open, setOpen] = useState<string | null>(null);
 
-  if (records.isPending || sheets.isPending) return <ListSkeleton />;
+  if (records.isPending || sheets.isPending) return <ListSkeleton rows={4} action />;
   if (records.isError)
     return <QueryError error={records.error} onRetry={() => void records.refetch()} />;
   if (sheets.isError)
@@ -500,7 +469,7 @@ export function DsrDaysPage() {
         actions={<DateBar date={date} onChange={setDate} />}
       />
       <DateHeading date={date} />
-      <DayGate companyId={company.id} date={date}>
+      <DayGate companyId={company.id} date={date} skeleton={<ListSkeleton rows={4} action />}>
         {(view) => <Sheets key={date} companyId={company.id} date={date} view={view} />}
       </DayGate>
     </NavGate>

@@ -21,14 +21,7 @@ import {
   type StockEntry,
 } from "@bsd/contracts";
 import type { Prisma } from "@bsd/database";
-import {
-  Decimal,
-  MONEY_KIND_EFFECTS,
-  sumAmounts,
-  sumQuantities,
-  summarizeDay,
-  toDecimal,
-} from "@bsd/domain";
+import { MONEY_KIND_EFFECTS, sumAmounts, summarizeDay, toDecimal } from "@bsd/domain";
 import {
   loadCompanyAccess,
   requirePermission,
@@ -125,11 +118,6 @@ function toStockEntry(row: StockRow): StockEntry {
     sku: row.product.sku,
     productName: row.product.name,
     pieces: plain(row.pieces),
-    supplierId: row.supplierId,
-    reference: row.reference,
-    lot: row.lot,
-    expiry: row.expiry ? fromDbDate(row.expiry) : null,
-    note: row.note,
     status: row.status,
     createdAt: row.createdAt.toISOString(),
     reversedAt: iso(row.reversedAt),
@@ -169,14 +157,6 @@ export async function postStockEntries(
   ]);
   requireWriteReady(ctx);
 
-  request.lines.forEach((line, index) => {
-    if (line.kind !== "receipt" && (line.lot || line.expiry)) {
-      throw invalid(`lines.${index}.lot`, "validation.daily.lotReceiptOnly");
-    }
-    if (line.kind === "damage" && line.supplierId) {
-      throw invalid(`lines.${index}.supplierId`, "validation.daily.supplierNotForDamage");
-    }
-  });
   const priceKeys = new Set<string>();
   request.prices.forEach((price, index) => {
     const key = `${price.productId}|${price.kind}`;
@@ -195,17 +175,6 @@ export async function postStockEntries(
       ];
       const known = await tx.product.count({ where: { companyId, id: { in: productIds } } });
       if (known !== productIds.length) throw invalid("lines", "validation.daily.unknownProduct");
-      const supplierIds = [
-        ...new Set(request.lines.flatMap((l) => (l.supplierId ? [l.supplierId] : []))),
-      ];
-      if (supplierIds.length) {
-        const suppliers = await tx.supplier.count({
-          where: { companyId, id: { in: supplierIds } },
-        });
-        if (suppliers !== supplierIds.length) {
-          throw invalid("lines", "validation.daily.unknownSupplier");
-        }
-      }
 
       const date = toDbDate(request.date);
       if (request.lines.length) {
@@ -217,11 +186,6 @@ export async function postStockEntries(
             kind: line.kind,
             productId: line.productId,
             pieces: line.pieces,
-            supplierId: line.supplierId,
-            reference: line.reference,
-            lot: line.lot,
-            expiry: line.expiry ? toDbDate(line.expiry) : null,
-            note: line.note,
             createdById: ctx.actor.userId,
           })),
         });
@@ -293,7 +257,7 @@ export async function reverseStockEntry(
 const dsrInclude = {
   staff: { select: { name: true } },
   lines: {
-    include: { product: { select: { sku: true, name: true } }, splits: true },
+    include: { product: { select: { sku: true, name: true } } },
     orderBy: { product: { sku: "asc" } },
   },
 } as const;
@@ -309,7 +273,6 @@ function toDsrDay(row: DsrRow): DsrDay {
     version: row.version,
     marketDueNew: plain(row.marketDueNew),
     marketDueCollected: plain(row.marketDueCollected),
-    note: row.note,
     lines: row.lines.map((line) => ({
       productId: line.productId,
       sku: line.product.sku,
@@ -318,10 +281,6 @@ function toDsrDay(row: DsrRow): DsrDay {
       issued: plain(line.issued),
       returned: plain(line.returned),
       damaged: plain(line.damaged),
-      splits: line.splits.map((s) => ({
-        quantity: plain(s.quantity),
-        unitPrice: plain(s.unitPrice),
-      })),
     })),
     postedAt: iso(row.postedAt),
     reversedAt: iso(row.reversedAt),
@@ -350,7 +309,7 @@ async function loadDsrDay(db: Db, companyId: string, id: string): Promise<DsrRow
 
 /**
  * Creates (version 0) or replaces the live draft for one DSR and date. Lines with nothing entered
- * are dropped. Price splits may not exceed the pieces sold on the line.
+ * are dropped. Every piece sells at the day's sale price, as in the workbook.
  */
 export async function saveDsrDay(
   ctx: AppContext,
@@ -362,17 +321,13 @@ export async function saveDsrDay(
   const request = parseInput(dsrDaySaveRequestSchema, input);
   const seen = new Set<string>();
   const lines = request.lines.filter(
-    (l) => l.issued !== "0" || l.returned !== "0" || l.damaged !== "0" || l.splits.length,
+    (l) => l.issued !== "0" || l.returned !== "0" || l.damaged !== "0",
   );
   lines.forEach((line) => {
     const index = request.lines.indexOf(line);
     if (seen.has(line.productId))
       throw invalid(`lines.${index}`, "validation.daily.duplicateProduct");
     seen.add(line.productId);
-    const sold = toDecimal(line.issued).sub(line.returned).sub(line.damaged);
-    if (toDecimal(sumQuantities(line.splits.map((s) => s.quantity))).gt(Decimal.max(sold, 0))) {
-      throw invalid(`lines.${index}.splits`, "validation.daily.splitExceedsSold");
-    }
   });
 
   return runIdempotent(
@@ -405,7 +360,6 @@ export async function saveDsrDay(
       const data = {
         marketDueNew: request.marketDueNew,
         marketDueCollected: request.marketDueCollected,
-        note: request.note,
       };
       let id: string;
       if (live) {
@@ -446,9 +400,6 @@ export async function saveDsrDay(
             issued: line.issued,
             returned: line.returned,
             damaged: line.damaged,
-            splits: {
-              create: line.splits.map((s) => ({ quantity: s.quantity, unitPrice: s.unitPrice })),
-            },
           },
         });
       }
@@ -588,8 +539,6 @@ function toMoneyEntry(row: MoneyRow): MoneyEntry {
     categoryName: row.expenseCategory?.name ?? null,
     allocation: allocationOf(row),
     payrollRunId: row.payrollRunId,
-    reference: row.reference,
-    note: row.note,
     status: row.status,
     createdAt: row.createdAt.toISOString(),
     reversedAt: iso(row.reversedAt),
@@ -732,8 +681,6 @@ export async function postMoneyEntry(
           allocAdvance: allocation?.advance ?? null,
           allocLoan: allocation?.loan ?? null,
           allocShortage: allocation?.shortage ?? null,
-          reference: request.reference,
-          note: request.note,
           createdById: ctx.actor.userId,
         },
         include: moneyInclude,

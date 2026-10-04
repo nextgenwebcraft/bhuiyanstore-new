@@ -16,9 +16,10 @@ import { Field, inputClass } from "@/components/field";
 import { FormDialog } from "@/components/form-dialog";
 import { PageHeader } from "@/components/page-header";
 import { QueryError } from "@/components/query-error";
-import { ListSkeleton } from "@/components/skeleton";
+import { ListSkeleton, SummarySkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
 import { StatTile } from "@/components/stat-tile";
+import { TableScroller } from "@/components/table-scroller";
 import { describeError } from "@/data/ports/service-error";
 import {
   useCommitImportJob,
@@ -67,7 +68,6 @@ const checkLabel = (check: string) => {
 
 const dayOf = (instant: string) => formatBusinessDate(businessDateOf(new Date(instant)));
 
-const tableClass = "overflow-x-auto rounded-xl border border-border bg-surface shadow-card";
 const headClass = "bg-surface-muted text-left text-xs text-text-muted";
 
 function StatusBadge({ status }: { status: ImportJobSummary["status"] }) {
@@ -237,7 +237,7 @@ function JobsList({
 function ChecksTable({ checks }: { checks: ImportCheck[] }) {
   return (
     <div className="flex flex-col gap-2">
-      <div className={tableClass}>
+      <TableScroller>
         <table className="w-full border-collapse text-sm">
           <thead className={headClass}>
             <tr>
@@ -271,7 +271,7 @@ function ChecksTable({ checks }: { checks: ImportCheck[] }) {
             ))}
           </tbody>
         </table>
-      </div>
+      </TableScroller>
       <p className="text-sm text-text-muted">{t("import.check.legend")}</p>
       {checks
         .filter((c) => c.unexplained.length > 0 || c.known.length > 0)
@@ -350,7 +350,7 @@ function MappingTable({
 }) {
   if (rows.length === 0) return null;
   return (
-    <div className={tableClass}>
+    <TableScroller>
       <table className="w-full border-collapse text-sm">
         <caption className="px-3 pt-3 text-left text-sm font-semibold">{title}</caption>
         <thead className={headClass}>
@@ -398,7 +398,7 @@ function MappingTable({
           })}
         </tbody>
       </table>
-    </div>
+    </TableScroller>
   );
 }
 
@@ -631,7 +631,7 @@ function JobView({ job }: { job: ImportJob }) {
 
       {ready && job.openingDifferences.length > 0 ? (
         <Section title={t("import.section.openingDifferences")}>
-          <div className={tableClass}>
+          <TableScroller>
             <table className="w-full border-collapse text-sm">
               <thead className={headClass}>
                 <tr>
@@ -661,7 +661,7 @@ function JobView({ job }: { job: ImportJob }) {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableScroller>
         </Section>
       ) : null}
 
@@ -764,7 +764,7 @@ function JobView({ job }: { job: ImportJob }) {
 function JobDetail({ jobId }: { jobId: string }) {
   const { company } = useCurrentWorkspace();
   const job = useImportJob(company.id, jobId);
-  if (job.isPending) return <ListSkeleton />;
+  if (job.isPending) return <SummarySkeleton stats={3} rows={5} />;
   if (job.isError) return <QueryError error={job.error} onRetry={() => void job.refetch()} />;
   // A new version (mapping saved, committed, discarded) starts a fresh local copy.
   return <JobView key={`${job.data.id}-${job.data.version}`} job={job.data} />;
@@ -803,7 +803,7 @@ function ImportScreen() {
       <div className="grid gap-6 lg:grid-cols-[minmax(0,18rem)_1fr]">
         <section className="flex flex-col gap-2">
           <h2 className="text-sm font-semibold text-text-muted">{t("import.jobs")}</h2>
-          {jobs.isPending ? <ListSkeleton /> : null}
+          {jobs.isPending ? <ListSkeleton rows={3} detail /> : null}
           {jobs.isError ? (
             <QueryError error={jobs.error} onRetry={() => void jobs.refetch()} />
           ) : null}

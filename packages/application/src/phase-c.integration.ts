@@ -23,7 +23,6 @@ import {
   updateStaff,
   updateStaffAssignment,
 } from "./staff";
-import { createSupplier, listSuppliers, updateSupplier } from "./suppliers";
 import { contextFor, resetTestSchema, testDatabase } from "./test-support";
 
 process.env.BETTER_AUTH_SECRET ??= "integration-test-secret-integration-test-secret";
@@ -215,29 +214,6 @@ describe("product packs and price history", () => {
   });
 });
 
-describe("suppliers", () => {
-  it("creates, renames and deactivates suppliers per company", async () => {
-    const ctx = contextFor(db, admin);
-    const pran = await createSupplier(
-      ctx,
-      drinko,
-      { name: "PRAN", status: "active" },
-      "key-c-supplier-1",
-    );
-    await expectField(createSupplier(ctx, drinko, { name: "PRAN", status: "active" }), "name");
-    await createSupplier(ctx, snacks, { name: "PRAN", phone: "01700000000", status: "active" });
-    const updated = await updateSupplier(ctx, drinko, pran.id, {
-      name: "PRAN-RFL",
-      status: "inactive",
-    });
-    expect(updated).toMatchObject({ name: "PRAN-RFL", status: "inactive" });
-    expect((await listSuppliers(ctx, snacks)).map((s) => [s.name, s.phone])).toEqual([
-      ["PRAN", "01700000000"],
-    ]);
-    await expectField(updateSupplier(ctx, snacks, pran.id, { name: "X", status: "active" }), "id");
-  });
-});
-
 describe("staff, roles and assignments", () => {
   it("seeds starter roles and blocks changing the kind of a role in use", async () => {
     const roles = await staffRoles.list(contextFor(db, admin));
@@ -357,10 +333,6 @@ describe("staff, roles and assignments", () => {
     const raju = (await listStaffRecords(viewerCtx, drinko)).find((s) => s.id === person.id);
     expect(raju?.assignments.map((a) => a.companyId)).toEqual([drinko]);
     await expectCode(listStaffRecords(viewerCtx, snacks), "COMPANY_NOT_FOUND");
-    await expectCode(
-      createSupplier(viewerCtx, drinko, { name: "Nope", status: "active" }),
-      "FORBIDDEN",
-    );
     await expectCode(
       createStaff(viewerCtx, drinko, {
         name: "Nope",

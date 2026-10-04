@@ -5,9 +5,10 @@ import { businessDateOf } from "@bsd/domain";
 import { formatRate, normalizeDigits, t, toBengaliDigits } from "@bsd/i18n";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/button";
+import { DatePicker } from "@/components/date-picker";
 import { Field, inputClass } from "@/components/field";
 import { QueryError } from "@/components/query-error";
-import { ListSkeleton } from "@/components/skeleton";
+import { TableSkeleton } from "@/components/skeleton";
 import { describeError, type DescribedError } from "@/data/ports/service-error";
 import { useAddProductPack, useProductHistory, useSetProductPrice } from "@/data/queries";
 
@@ -70,13 +71,12 @@ function PackForm({ companyId, productId }: { companyId: string; productId: stri
           label={t("product.history.effectiveFrom")}
           error={errors.fields.effectiveFrom}
         >
-          <input
+          <DatePicker
             id={`${id}-from`}
-            type="date"
-            required
             value={effectiveFrom}
-            onChange={(event) => setEffectiveFrom(event.target.value)}
-            className={inputClass}
+            label={t("product.history.effectiveFrom")}
+            onChange={setEffectiveFrom}
+            className="w-full"
           />
         </Field>
       </div>
@@ -148,13 +148,12 @@ function PriceForm({ companyId, productId }: { companyId: string; productId: str
           label={t("product.history.effectiveFrom")}
           error={errors.fields.effectiveFrom}
         >
-          <input
+          <DatePicker
             id={`${id}-from`}
-            type="date"
-            required
             value={effectiveFrom}
-            onChange={(event) => setEffectiveFrom(event.target.value)}
-            className={inputClass}
+            label={t("product.history.effectiveFrom")}
+            onChange={setEffectiveFrom}
+            className="w-full"
           />
         </Field>
       </div>
@@ -176,7 +175,7 @@ function History({
   canEdit: boolean;
 }) {
   const history = useProductHistory(companyId, product.id);
-  if (history.isPending) return <ListSkeleton rows={3} />;
+  if (history.isPending) return <TableSkeleton rows={3} columns={4} title />;
   if (history.isError) {
     return <QueryError error={history.error} onRetry={() => void history.refetch()} />;
   }

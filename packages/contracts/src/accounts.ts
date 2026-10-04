@@ -38,8 +38,6 @@ export const staffStatementLineSchema = z.object({
   date: businessDateSchema,
   kind: z.enum(moneyEntryKinds),
   amount: money,
-  reference: z.string(),
-  note: z.string(),
   payrollRunId: idSchema.nullable(),
   change: staffBalancesSchema,
   balances: staffBalancesSchema,
@@ -92,7 +90,6 @@ export const payrollRunSchema = z.object({
   version: z.number().int().nonnegative(),
   date: businessDateSchema,
   payDate: businessDateSchema.nullable(),
-  note: z.string(),
   cutoffDate: businessDateSchema.nullable(),
   lines: z.array(payrollLineSchema),
   totals: z.object({ salary: money, recovery: money, cashPay: money }),
@@ -113,7 +110,6 @@ export const payrollSaveRequestSchema = z.object({
   /** 0 creates the draft; otherwise the version the user edited. */
   version: z.number().int().nonnegative(),
   date: businessDateSchema,
-  note: z.string().trim().max(500).default(""),
   lines: z.array(payrollLineRequestSchema).max(500),
 });
 export type PayrollSaveRequest = z.input<typeof payrollSaveRequestSchema>;

@@ -5,10 +5,11 @@ import { businessDateOf } from "@bsd/domain";
 import { formatBusinessDate, t } from "@bsd/i18n";
 import { useState } from "react";
 import { Button } from "@/components/button";
-import { Field, inputClass } from "@/components/field";
+import { DatePicker, MonthPicker } from "@/components/date-picker";
+import { Field } from "@/components/field";
 import { PageHeader } from "@/components/page-header";
 import { QueryError } from "@/components/query-error";
-import { ListSkeleton } from "@/components/skeleton";
+import { FormSkeleton, TableSkeleton } from "@/components/skeleton";
 import { StatTile } from "@/components/stat-tile";
 import { StatePanel } from "@/components/state-panel";
 import { describeError } from "@/data/ports/service-error";
@@ -18,7 +19,7 @@ import {
   clean,
   money,
   tableClass,
-  tableShell,
+  TableScroller,
   tdClass,
   tdNum,
   thClass,
@@ -126,7 +127,7 @@ function RunEditor({ run, month }: { run: PayrollRun; month: string }) {
       lines.push({ staffId: line.staffId, salary, recovery, reason: d.reason.trim() });
     }
     try {
-      await save.mutateAsync({ version: run.version, date, note: run.note, lines });
+      await save.mutateAsync({ version: run.version, date, lines });
     } catch (e) {
       setError(describeError(e, []).form);
     }
@@ -149,26 +150,26 @@ function RunEditor({ run, month }: { run: PayrollRun; month: string }) {
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-end gap-4">
         <Field id="payroll-date" label={t("payroll.runDate")} className="w-48">
-          <input
+          <DatePicker
             id="payroll-date"
-            type="date"
             value={date}
             disabled={!editable || !can.manage}
             min={`${month}-01`}
             max={lastOfMonth(month)}
-            onChange={(event) => event.target.value && setDate(event.target.value)}
-            className={inputClass}
+            label={t("payroll.runDate")}
+            onChange={(next) => next && setDate(next)}
+            className="w-full"
           />
         </Field>
         {run.status === "approved" && can.pay ? (
           <Field id="payroll-pay-date" label={t("payroll.payDate")} className="w-48">
-            <input
+            <DatePicker
               id="payroll-pay-date"
-              type="date"
               value={payDate}
               min={run.date}
-              onChange={(event) => event.target.value && setPayDate(event.target.value)}
-              className={inputClass}
+              label={t("payroll.payDate")}
+              onChange={(next) => next && setPayDate(next)}
+              className="w-full"
             />
           </Field>
         ) : null}
@@ -189,7 +190,7 @@ function RunEditor({ run, month }: { run: PayrollRun; month: string }) {
           {t("payroll.empty")}
         </p>
       ) : (
-        <div className={tableShell}>
+        <TableScroller>
           <table className={tableClass}>
             <thead className={theadClass}>
               <tr>
@@ -295,7 +296,7 @@ function RunEditor({ run, month }: { run: PayrollRun; month: string }) {
               })}
             </tbody>
           </table>
-        </div>
+        </TableScroller>
       )}
       {error ? <StatePanel tone="error" title={error} /> : null}
       <div className="flex flex-wrap gap-2">
@@ -343,22 +344,21 @@ export function PayrollPage({ path }: { path: string }) {
         description={t("payroll.description")}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <label className="sr-only" htmlFor="payroll-month">
-              {t("month.picker")}
-            </label>
-            <input
+            <MonthPicker
               id="payroll-month"
-              type="month"
               value={month}
-              onChange={(event) => event.target.value && setMonth(event.target.value)}
-              className={`${inputClass} w-auto text-sm`}
+              label={t("month.picker")}
+              onChange={setMonth}
             />
             {run ? <StatusBadge status={run.status} /> : null}
           </div>
         }
       />
       {query.isPending ? (
-        <ListSkeleton />
+        <div className="flex flex-col gap-6">
+          <FormSkeleton fields={2} />
+          <TableSkeleton rows={6} columns={8} />
+        </div>
       ) : query.isError ? (
         <QueryError error={query.error} onRetry={() => void query.refetch()} />
       ) : !query.data.cutoffDate ? (

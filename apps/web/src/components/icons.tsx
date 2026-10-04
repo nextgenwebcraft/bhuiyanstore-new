@@ -81,6 +81,15 @@ const paths = {
   plus: <path d="M12 5v14M5 12h14" />,
   chevronLeft: <path d="m14.5 6-6 6 6 6" />,
   chevronRight: <path d="m9.5 6 6 6-6 6" />,
+  search: (
+    <>
+      <circle cx="11" cy="11" r="6.5" />
+      <path d="m16 16 4.5 4.5" />
+    </>
+  ),
+  check: <path d="m5 12.5 4.5 4.5L19 7.5" />,
+  chevronDown: <path d="m6 9.5 6 6 6-6" />,
+  chevronUpDown: <path d="m8 9 4-4 4 4M8 15l4 4 4-4" />,
   calendar: (
     <>
       <rect x="3.5" y="5" width="17" height="15.5" rx="2" />

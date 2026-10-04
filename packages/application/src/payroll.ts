@@ -205,7 +205,6 @@ async function viewOf(
     version: row?.version ?? 0,
     date,
     payDate: row?.payDate ? fromDbDate(row.payDate) : null,
-    note: row?.note ?? "",
     cutoffDate,
     lines,
     totals: totalsOf(lines),
@@ -323,7 +322,6 @@ export async function savePayrollRun(
           where: { id: live.id, version: request.version, status: "draft" },
           data: {
             date: toDbDate(request.date),
-            note: request.note,
             version: { increment: 1 },
           },
         });
@@ -338,7 +336,6 @@ export async function savePayrollRun(
             companyId,
             month,
             date: toDbDate(request.date),
-            note: request.note,
             createdById: ctx.actor.userId,
             lines: { create: lines },
           },

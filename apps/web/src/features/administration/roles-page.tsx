@@ -109,7 +109,7 @@ function Roles() {
     setDraft({ id: role.id, name: role.name, permissions: role.permissions });
 
   let body: React.ReactNode;
-  if (roles.isPending) body = <ListSkeleton />;
+  if (roles.isPending) body = <ListSkeleton rows={4} detail action />;
   else if (roles.isError) {
     body = <QueryError error={roles.error} onRetry={() => void roles.refetch()} />;
   } else if (roles.data.length === 0) body = <StatePanel title={t("role.empty")} />;

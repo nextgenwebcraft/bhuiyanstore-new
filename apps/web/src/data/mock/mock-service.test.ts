@@ -32,9 +32,8 @@ describe("demo seed", () => {
     }
   });
 
-  it("assigns suppliers and staff only to existing companies", () => {
+  it("assigns staff only to existing companies", () => {
     const companyIds = new Set(demoSeed.companies.map((c) => c.id));
-    for (const s of demoSeed.suppliers) expect(companyIds).toContain(s.companyId);
     for (const p of demoSeed.staff) p.companyIds.forEach((id) => expect(companyIds).toContain(id));
   });
 });

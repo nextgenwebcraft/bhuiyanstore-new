@@ -18,8 +18,6 @@ export const queryKeys = {
     companyResource(actorId, companyId, resourceIds.companyWorkspace),
   products: (actorId: string, companyId: string) =>
     companyResource(actorId, companyId, resourceIds.product),
-  suppliers: (actorId: string, companyId: string) =>
-    companyResource(actorId, companyId, resourceIds.supplier),
   staff: (actorId: string, companyId: string) =>
     companyResource(actorId, companyId, resourceIds.staffMember),
   dashboardSummary: (actorId: string, companyId: string, date: string) =>

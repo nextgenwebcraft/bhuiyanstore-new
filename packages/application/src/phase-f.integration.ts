@@ -175,9 +175,7 @@ beforeAll(async () => {
       version: 0,
       marketDueNew: f.due,
       marketDueCollected: "0",
-      lines: [
-        { productId: id.alpha, issued: f.issued, returned: f.returned, damaged: "0", splits: [] },
-      ],
+      lines: [{ productId: id.alpha, issued: f.issued, returned: f.returned, damaged: "0" }],
     });
     await postDsrDay(ctx, company, sheet.id, { version: sheet.version });
     if (f.expense !== "0") {

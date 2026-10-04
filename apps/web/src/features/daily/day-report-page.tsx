@@ -1,20 +1,24 @@
 "use client";
 
-import type { DayProductRow, DayView } from "@bsd/contracts";
-import { formatRate, t, type TranslationKey } from "@bsd/i18n";
+import type { DayProductRow, DayView, EngineWarningDto } from "@bsd/contracts";
+import { formatAmount, formatRate, formatShortDate, t, type TranslationKey } from "@bsd/i18n";
 import { PageHeader } from "@/components/page-header";
 import { StatePanel } from "@/components/state-panel";
+import { useProducts, useStaff } from "@/data/queries";
 import { NavGate } from "@/features/shell/nav-gate";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 import {
   DateBar,
   DateHeading,
   DayGate,
+  CartonQty,
+  ColumnHead,
   SectionTitle,
-  cartonText,
+  TableScroller,
   money,
+  stickyCell,
+  stickyHead,
   tableClass,
-  tableShell,
   tdClass,
   tdNum,
   thClass,
@@ -22,16 +26,22 @@ import {
   theadClass,
   useWorkingDate,
 } from "./daily-kit";
+import { groupWarnings } from "./warning-groups";
 
 type Column = {
   key: TranslationKey;
-  cell: (row: DayProductRow) => string;
+  cell: (row: DayProductRow) => React.ReactNode;
+  /** A quantity shown as cartons/pieces; its header says so. */
+  quantity?: true;
   /** Hidden when the actor can't see cost (or profit). */
   needs?: "cost" | "profit";
 };
 
-const qty = (field: keyof DayProductRow) => (row: DayProductRow) =>
-  cartonText(row[field] as string, row.piecesPerCarton);
+const qty = (key: TranslationKey, field: keyof DayProductRow): Column => ({
+  key,
+  quantity: true,
+  cell: (row) => <CartonQty pieces={row[field] as string} piecesPerCarton={row.piecesPerCarton} />,
+});
 const amount = (field: keyof DayProductRow) => (row: DayProductRow) =>
   money(row[field] as string | null);
 const rate = (field: keyof DayProductRow) => (row: DayProductRow) => {
@@ -41,21 +51,21 @@ const rate = (field: keyof DayProductRow) => (row: DayProductRow) => {
 
 /** The workbook's day block, column by column (PLAN §2.2). */
 const DAY_COLUMNS: Column[] = [
-  { key: "day.column.ordered", cell: qty("ordered") },
-  { key: "day.column.received", cell: qty("received") },
-  { key: "day.column.issued", cell: qty("issued") },
-  { key: "day.column.returned", cell: qty("returned") },
-  { key: "day.column.delivered", cell: qty("delivered") },
-  { key: "day.column.damaged", cell: qty("damaged") },
-  { key: "day.column.sold", cell: qty("sold") },
+  qty("day.column.ordered", "ordered"),
+  qty("day.column.received", "received"),
+  qty("day.column.issued", "issued"),
+  qty("day.column.returned", "returned"),
+  qty("day.column.delivered", "delivered"),
+  qty("day.column.damaged", "damaged"),
+  qty("day.column.sold", "sold"),
   { key: "day.column.salePrice", cell: rate("salePrice") },
   { key: "day.column.sales", cell: amount("sales") },
   { key: "day.column.costPrice", cell: rate("costPrice"), needs: "cost" },
   { key: "day.column.cost", cell: amount("cost"), needs: "cost" },
   { key: "day.column.grossProfit", cell: amount("grossProfit"), needs: "profit" },
   { key: "day.column.receiptBill", cell: amount("receiptBill") },
-  { key: "day.column.dueFromCompany", cell: qty("dueFromCompany") },
-  { key: "day.column.stock", cell: qty("stock") },
+  qty("day.column.dueFromCompany", "dueFromCompany"),
+  qty("day.column.stock", "stock"),
   { key: "day.column.stockValue", cell: amount("stockValue"), needs: "cost" },
 ];
 
@@ -69,27 +79,22 @@ function ProductTable({ view, columns }: { view: DayView; columns: Column[] }) {
   const shown = visible(columns, view);
   if (view.products.length === 0) return <StatePanel title={t("product.empty")} />;
   return (
-    <div className={tableShell}>
+    <TableScroller>
       <table className={tableClass}>
         <thead className={theadClass}>
           <tr>
-            <th scope="col" className={`${thClass} sticky left-0 bg-surface-muted`}>
+            <th scope="col" className={`${thClass} ${stickyHead}`}>
               {t("godown.column.product")}
             </th>
             {shown.map((c) => (
-              <th key={c.key} scope="col" className={`${thNum} whitespace-nowrap`}>
-                {t(c.key)}
-              </th>
+              <ColumnHead key={c.key} label={t(c.key)} quantity={c.quantity} />
             ))}
           </tr>
         </thead>
         <tbody>
           {view.products.map((row) => (
             <tr key={row.productId} className="border-t border-border">
-              <th
-                scope="row"
-                className={`${tdClass} sticky left-0 bg-surface text-left font-medium`}
-              >
+              <th scope="row" className={`${tdClass} ${stickyCell} text-left font-medium`}>
                 {row.productName}
                 <div className="text-xs font-normal text-text-muted">{row.sku}</div>
               </th>
@@ -102,7 +107,7 @@ function ProductTable({ view, columns }: { view: DayView; columns: Column[] }) {
           ))}
         </tbody>
       </table>
-    </div>
+    </TableScroller>
   );
 }
 
@@ -135,28 +140,62 @@ function MoneyBlock({ view }: { view: DayView }) {
   );
 }
 
-export function Warnings({
-  view,
-}: {
-  view: {
-    warnings: DayView["warnings"];
-    products: readonly { productId: string; productName: string }[];
-  };
-}) {
-  if (view.warnings.length === 0) return null;
-  const names = new Map(view.products.map((p) => [p.productId, p.productName]));
+const NAMES_SHOWN = 8;
+
+/** Product or people names, the first few in full and the rest as a count. */
+function nameList(ids: string[], names: Map<string, string>, unit: TranslationKey): string {
+  const known = ids.map((id) => names.get(id)).filter((n): n is string => Boolean(n));
+  if (known.length === 0) return `${formatAmount(String(ids.length))} ${t(unit)}`;
+  const shown = known.slice(0, NAMES_SHOWN).join(", ");
+  const rest = ids.length - Math.min(known.length, NAMES_SHOWN);
+  return rest > 0 ? `${shown} ${t("warning.andMore")} ${formatAmount(String(rest))}` : shown;
+}
+
+/** The engine's warnings, one line per kind with the days and the products or people affected. */
+export function Warnings({ warnings }: { warnings: readonly EngineWarningDto[] }) {
+  const { company } = useCurrentWorkspace();
+  const products = useProducts(company.id);
+  const staff = useStaff(company.id);
+  if (warnings.length === 0) return null;
+  const productNames = new Map((products.data ?? []).map((p) => [p.id, p.name]));
+  const staffNames = new Map((staff.data ?? []).map((s) => [s.id, s.name]));
+  const groups = groupWarnings(warnings);
+
   return (
-    <StatePanel
-      tone="warning"
-      title={t("day.warnings")}
-      hint={view.warnings
-        .map((w) => {
-          const label = t(`warning.${w.code}` as TranslationKey);
-          const product = w.productId ? names.get(w.productId) : undefined;
-          return product ? `${label} (${product})` : label;
-        })
-        .join(" · ")}
-    />
+    <section
+      role="status"
+      className="flex flex-col gap-3 rounded-xl border border-warning/30 bg-warning/5 p-5 shadow-card"
+    >
+      <h2 className="flex items-center gap-2.5 text-base font-semibold">
+        <span aria-hidden className="size-2 shrink-0 rounded-full bg-warning" />
+        {t("day.warnings")}
+      </h2>
+      <ul className="flex flex-col gap-2.5 pl-4.5">
+        {groups.map((g) => (
+          <li key={g.code} className="text-sm">
+            <div className="flex flex-wrap items-baseline gap-x-2">
+              <span className="font-medium">{t(`warning.${g.code}` as TranslationKey)}</span>
+              <span className="text-xs text-text-muted tabular-nums">
+                {formatAmount(String(g.days))} {t("warning.days")}
+                {g.days > 1
+                  ? ` · ${formatShortDate(g.firstDate)} – ${formatShortDate(g.lastDate)}`
+                  : ` · ${formatShortDate(g.firstDate)}`}
+              </span>
+            </div>
+            {g.productIds.length > 0 ? (
+              <p className="mt-0.5 text-text-muted">
+                {nameList(g.productIds, productNames, "warning.products")}
+              </p>
+            ) : null}
+            {g.staffIds.length > 0 ? (
+              <p className="mt-0.5 text-text-muted">
+                {nameList(g.staffIds, staffNames, "warning.people")}
+              </p>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -193,7 +232,7 @@ export function DayReportPage() {
     <DayPage path="reports/operations" title="nav.reports.operations" description="day.description">
       {(view) => (
         <div className="flex flex-col gap-4">
-          <Warnings view={view} />
+          <Warnings warnings={view.warnings} />
           <ProductTable view={view} columns={DAY_COLUMNS} />
           <SectionTitle>{t("day.money.title")}</SectionTitle>
           <MoneyBlock view={view} />
@@ -204,8 +243,8 @@ export function DayReportPage() {
 }
 
 const STOCK_COLUMNS: Column[] = [
-  { key: "day.column.stock", cell: qty("stock") },
-  { key: "day.column.dueFromCompany", cell: qty("dueFromCompany") },
+  qty("day.column.stock", "stock"),
+  qty("day.column.dueFromCompany", "dueFromCompany"),
   { key: "day.column.costPrice", cell: rate("costPrice"), needs: "cost" },
   { key: "day.column.salePrice", cell: rate("salePrice") },
   { key: "day.column.stockValue", cell: amount("stockValue"), needs: "cost" },
@@ -216,7 +255,7 @@ export function StockPage() {
     <DayPage path="inventory/stock" title="nav.inventory.stock" description="stock.description">
       {(view) => (
         <div className="flex flex-col gap-4">
-          <Warnings view={view} />
+          <Warnings warnings={view.warnings} />
           <ProductTable view={view} columns={STOCK_COLUMNS} />
         </div>
       )}
@@ -248,22 +287,16 @@ export function PersonsPage({ kind }: { kind: "issued" | "returned" }) {
               return (
                 <section key={staffId}>
                   <h2 className="mb-2 text-sm font-semibold">{staffName}</h2>
-                  <div className={tableShell}>
+                  <TableScroller>
                     <table className={tableClass}>
                       <thead className={theadClass}>
                         <tr>
-                          <th scope="col" className={thClass}>
+                          <th scope="col" className={`${thClass} ${stickyHead}`}>
                             {t("godown.column.product")}
                           </th>
-                          <th scope="col" className={thNum}>
-                            {t(`day.column.${kind}`)}
-                          </th>
-                          <th scope="col" className={thNum}>
-                            {t("day.column.net")}
-                          </th>
-                          <th scope="col" className={thNum}>
-                            {t("day.column.damaged")}
-                          </th>
+                          <ColumnHead label={t(`day.column.${kind}`)} quantity />
+                          <ColumnHead label={t("day.column.net")} quantity />
+                          <ColumnHead label={t("day.column.damaged")} quantity />
                           <th scope="col" className={thNum}>
                             {t("day.column.sales")}
                           </th>
@@ -274,19 +307,25 @@ export function PersonsPage({ kind }: { kind: "issued" | "returned" }) {
                           const size = products.get(r.productId)?.piecesPerCarton ?? "1";
                           return (
                             <tr key={r.productId} className="border-t border-border">
-                              <td className={tdClass}>
+                              <td className={`${tdClass} ${stickyCell}`}>
                                 {products.get(r.productId)?.productName ?? r.productId}
                               </td>
-                              <td className={tdNum}>{cartonText(r[kind], size)}</td>
-                              <td className={tdNum}>{cartonText(r.net, size)}</td>
-                              <td className={tdNum}>{cartonText(r.damaged, size)}</td>
+                              <td className={tdNum}>
+                                <CartonQty pieces={r[kind]} piecesPerCarton={size} />
+                              </td>
+                              <td className={tdNum}>
+                                <CartonQty pieces={r.net} piecesPerCarton={size} />
+                              </td>
+                              <td className={tdNum}>
+                                <CartonQty pieces={r.damaged} piecesPerCarton={size} />
+                              </td>
                               <td className={tdNum}>{money(r.amount)}</td>
                             </tr>
                           );
                         })}
                       </tbody>
                     </table>
-                  </div>
+                  </TableScroller>
                 </section>
               );
             })}

@@ -2,29 +2,10 @@ import { z } from "zod";
 import { businessDateSchema, idSchema } from "./primitives";
 
 const nameSchema = z.string().trim().min(1).max(120);
-const phoneSchema = z.string().trim().max(40);
 
+/** Deactivate instead of delete once referenced (guide §4.4). */
 export const recordStatuses = ["active", "inactive"] as const;
-
-/** A supplier company account for one brand workspace (D01). No customer master exists (D03). */
-export const supplierSchema = z.object({
-  id: idSchema,
-  companyId: idSchema,
-  name: z.string().min(1),
-  phone: z.string().optional(),
-  /** Deactivate instead of delete once referenced (guide §4.4). */
-  status: z.enum(recordStatuses).default("active"),
-});
-
-export type Supplier = z.infer<typeof supplierSchema>;
-
-export const supplierUpsertRequestSchema = z.object({
-  name: nameSchema,
-  phone: phoneSchema.optional(),
-  status: z.enum(recordStatuses),
-});
-
-export type SupplierUpsertRequest = z.infer<typeof supplierUpsertRequestSchema>;
+export type RecordStatus = (typeof recordStatuses)[number];
 
 /**
  * What a staff role means to the fixed rules: only DSRs take product custody (D23), SRs are
@@ -69,7 +50,6 @@ export const staffRecordSchema = z.object({
   id: idSchema,
   name: z.string().min(1),
   employer: z.enum(staffEmployers),
-  phone: z.string().optional(),
   status: z.enum(recordStatuses),
   assignments: z.array(staffAssignmentSchema),
 });
@@ -79,7 +59,6 @@ export type StaffRecord = z.infer<typeof staffRecordSchema>;
 export const staffUpsertRequestSchema = z.object({
   name: nameSchema,
   employer: z.enum(staffEmployers),
-  phone: phoneSchema.optional(),
   status: z.enum(recordStatuses),
 });
 

@@ -55,8 +55,6 @@ import type {
   StaffUpsertRequest,
   StockEntry,
   StockEntryPostRequest,
-  Supplier,
-  SupplierUpsertRequest,
   User,
   UserCreateRequest,
   UserPasswordResetRequest,
@@ -94,8 +92,6 @@ export interface DistributionService {
     input: ProductCreateRequest,
     options?: RequestOptions,
   ): Promise<Product>;
-  /** Requires `company.view`. */
-  listSuppliers(companyId: string, options?: RequestOptions): Promise<Supplier[]>;
   /** Requires `company.view`. SR and DSR people assigned to this company. */
   listStaff(companyId: string, options?: RequestOptions): Promise<StaffMember[]>;
   /**
@@ -241,13 +237,6 @@ export interface DistributionService {
     productId: string,
     input: PriceChangeRequest,
   ): Promise<PriceChange>;
-  /** Requires `supplier.manage`; names are unique per company. */
-  createSupplier(companyId: string, input: SupplierUpsertRequest): Promise<Supplier>;
-  updateSupplier(
-    companyId: string,
-    supplierId: string,
-    input: SupplierUpsertRequest,
-  ): Promise<Supplier>;
   /** Requires `company.view`; assignments in companies the actor cannot see are left out. */
   listStaffRecords(companyId: string, options?: RequestOptions): Promise<StaffRecord[]>;
   /** Super-admin only: every person of the tenant, to assign someone to a second brand (D09). */

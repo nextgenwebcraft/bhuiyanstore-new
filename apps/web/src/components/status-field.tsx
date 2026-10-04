@@ -1,8 +1,6 @@
-import { recordStatuses, type Supplier } from "@bsd/contracts";
+import { recordStatuses, type RecordStatus } from "@bsd/contracts";
 import { t } from "@bsd/i18n";
 import { Field, inputClass } from "./field";
-
-type RecordStatus = Supplier["status"];
 
 /** Active/inactive picker for masters and lists: records are deactivated, never deleted (4.4). */
 export function StatusField({

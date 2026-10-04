@@ -3,8 +3,10 @@
 import { themeToCssVars } from "@bsd/design-system";
 import { t } from "@bsd/i18n";
 import { usePathname } from "next/navigation";
+import { useRef } from "react";
 import { ButtonLink } from "@/components/button";
-import { ListSkeleton, Skeleton } from "@/components/skeleton";
+import { Icon } from "@/components/icons";
+import { NavSkeleton, PageSkeleton, Skeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
 import { errorCodeOf } from "@/data/ports/service-error";
 import { useWorkspace } from "@/data/queries";
@@ -14,6 +16,7 @@ import { CompanySwitcher } from "./company-switcher";
 import { ConnectionBanner } from "./connection-banner";
 import { DraftGuardProvider } from "./draft-guard";
 import { MobileNav } from "./mobile-nav";
+import { QuickJump, type QuickJumpHandle } from "./quick-jump";
 import { SideNav } from "./side-nav";
 import { WorkspaceProvider } from "./workspace-context";
 
@@ -37,6 +40,8 @@ export function CompanyShell({
   const pathname = usePathname();
   const currentPath = subPath(pathname, companyId);
   const workspace = useWorkspace(companyId);
+  const jumpRef = useRef<QuickJumpHandle>(null);
+  const openSearch = () => jumpRef.current?.open();
 
   if (workspace.isPending) {
     return (
@@ -46,12 +51,13 @@ export function CompanyShell({
             <Skeleton className="size-9 rounded-lg" />
             <Skeleton className="h-5 w-32" />
           </div>
-          <ListSkeleton rows={6} />
+          <Skeleton className="h-9 w-full" />
+          <NavSkeleton />
         </aside>
         <div className="md:pl-64">
           <div className="h-16 border-b border-border" />
           <div className="mx-auto max-w-6xl p-4 sm:p-8">
-            <ListSkeleton />
+            <PageSkeleton />
           </div>
         </div>
       </div>
@@ -97,34 +103,40 @@ export function CompanyShell({
               aria-hidden
               className="h-0.5 bg-linear-to-r from-brand via-brand/50 to-transparent"
             />
-            <div className="flex h-16 shrink-0 items-center gap-3 px-4">
-              <CompanyMark company={company} />
-              <div className="min-w-0 flex-1 leading-tight">
-                <div className="truncate text-[15px] font-semibold">{company.name}</div>
-                <div className="truncate text-[11px] text-text-muted">{t("app.name")}</div>
-              </div>
-            </div>
-            <div className="px-3">
-              <CompanySwitcher currentCompanyId={company.id} currentPath={currentPath} />
+            <div className="flex h-16 shrink-0 items-center px-2.5">
+              <CompanySwitcher company={company} currentPath={currentPath} />
             </div>
             <div className="scrollbar-none min-h-0 flex-1 overflow-y-auto">
-              <SideNav workspace={workspace.data} currentPath={currentPath} />
+              <SideNav workspace={workspace.data} currentPath={currentPath} onSearch={openSearch} />
             </div>
           </aside>
           <div className="md:pl-64">
             <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-border bg-canvas/80 px-4 backdrop-blur-md sm:px-8">
-              <MobileNav workspace={workspace.data} currentPath={currentPath} />
+              <MobileNav
+                workspace={workspace.data}
+                currentPath={currentPath}
+                onSearch={openSearch}
+              />
               <div className="flex min-w-0 flex-1 items-center gap-2 md:hidden">
                 <CompanyMark company={company} size="sm" />
                 <span className="truncate font-semibold">{company.name}</span>
               </div>
               <div className="hidden flex-1 md:block" />
+              <button
+                type="button"
+                onClick={openSearch}
+                aria-label={t("nav.jump.open")}
+                className="inline-flex size-10 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-hover hover:text-text md:hidden"
+              >
+                <Icon name="search" />
+              </button>
               <TopBar />
             </header>
             <ConnectionBanner />
-            <main id="main" className="mx-auto w-full max-w-6xl p-4 sm:p-8">
+            <main id="main" className="mx-auto w-full max-w-6xl p-4 pb-24 sm:p-8 md:pb-8">
               {children}
             </main>
+            <QuickJump ref={jumpRef} workspace={workspace.data} />
           </div>
         </div>
       </DraftGuardProvider>

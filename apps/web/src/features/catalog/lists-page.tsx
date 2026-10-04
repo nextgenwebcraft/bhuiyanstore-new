@@ -126,7 +126,7 @@ function ListSection<K extends ConfigListId>({ list, canEdit }: { list: K; canEd
   };
 
   let body: React.ReactNode;
-  if (items.isPending) body = <ListSkeleton rows={3} />;
+  if (items.isPending) body = <ListSkeleton rows={4} action />;
   else if (items.isError) {
     body = <QueryError error={items.error} onRetry={() => void items.refetch()} />;
   } else if (items.data.length === 0) body = <StatePanel title={t("settings.empty")} />;

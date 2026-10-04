@@ -3,32 +3,30 @@
 import type { DayView, PriceKind, StockEntryKind, StockEntryPostRequest } from "@bsd/contracts";
 import { toBaseQuantity } from "@bsd/domain";
 import { formatRate, t, type TranslationKey } from "@bsd/i18n";
-import { useId, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/button";
-import { Field, inputClass } from "@/components/field";
 import { PageHeader } from "@/components/page-header";
+import { TableSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
 import { describeError } from "@/data/ports/service-error";
-import {
-  usePostStockEntries,
-  useReverseStockEntry,
-  useStockEntries,
-  useSuppliers,
-} from "@/data/queries";
+import { usePostStockEntries, useReverseStockEntry, useStockEntries } from "@/data/queries";
 import { NavGate } from "@/features/shell/nav-gate";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 import {
+  CartonQty,
   CellInput,
+  ColumnHead,
   DateBar,
   DateHeading,
   DayGate,
   SectionTitle,
   StatusChip,
-  cartonText,
+  TableScroller,
   clean,
   quantity,
+  stickyCell,
+  stickyHead,
   tableClass,
-  tableShell,
   tdClass,
   tdNum,
   thClass,
@@ -45,10 +43,15 @@ const PRICES: Record<StockEntryKind, PriceKind[]> = {
 };
 const PRICE_FIELD = { order: "orderPrice", cost: "costPrice", sale: "salePrice" } as const;
 
-type Row = { cartons: string; pieces: string; lot: string; expiry: string } & Partial<
-  Record<PriceKind, string>
->;
-const emptyRow: Row = { cartons: "", pieces: "", lot: "", expiry: "" };
+/** A receipt is one batch: its purchase and sale price apply from that day (D29). */
+const PRICE_LABEL: Record<StockEntryKind, Partial<Record<PriceKind, TranslationKey>>> = {
+  order: { order: "godown.column.orderPrice" },
+  receipt: { cost: "godown.column.batchCostPrice", sale: "godown.column.batchSalePrice" },
+  damage: {},
+};
+
+type Row = { cartons: string; pieces: string } & Partial<Record<PriceKind, string>>;
+const emptyRow: Row = { cartons: "", pieces: "" };
 
 function GodownForm({
   companyId,
@@ -61,13 +64,9 @@ function GodownForm({
   kind: StockEntryKind;
   view: DayView;
 }) {
-  const id = useId();
   const { permissions } = useCurrentWorkspace();
-  const suppliers = useSuppliers(companyId);
   const post = usePostStockEntries(companyId);
   const [rows, setRows] = useState<Record<string, Row>>({});
-  const [supplierId, setSupplierId] = useState("");
-  const [reference, setReference] = useState("");
   const [error, setError] = useState<string | undefined>();
   const [done, setDone] = useState(false);
   const canPrice = permissions.includes("product.edit");
@@ -92,15 +91,7 @@ function GodownForm({
       if (!/^\d+$/.test(cartons) || !/^\d+$/.test(pieces)) return t("validation.wholeNumber");
       const total = toBaseQuantity(cartons, pieces, product.piecesPerCarton);
       if (total !== "0") {
-        lines.push({
-          kind,
-          productId: product.productId,
-          pieces: total,
-          supplierId: kind === "damage" ? null : supplierId || null,
-          reference: reference.trim(),
-          lot: kind === "receipt" && row.lot.trim() ? row.lot.trim() : null,
-          expiry: kind === "receipt" && row.expiry ? row.expiry : null,
-        });
+        lines.push({ kind, productId: product.productId, pieces: total });
       }
       for (const priceKind of prices) {
         const value = clean(row[priceKind] ?? "");
@@ -130,41 +121,16 @@ function GodownForm({
   if (view.products.length === 0) return <StatePanel title={t("product.empty")} />;
   return (
     <div className="flex flex-col gap-4">
-      {kind !== "damage" ? (
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field id={`${id}-supplier`} label={t("godown.supplier")} hint={t("common.optional")}>
-            <select
-              id={`${id}-supplier`}
-              value={supplierId}
-              onChange={(event) => setSupplierId(event.target.value)}
-              className={inputClass}
-            >
-              <option value="">—</option>
-              {(suppliers.data ?? [])
-                .filter((s) => s.status === "active")
-                .map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-            </select>
-          </Field>
-          <Field id={`${id}-reference`} label={t("godown.reference")} hint={t("common.optional")}>
-            <input
-              id={`${id}-reference`}
-              value={reference}
-              maxLength={100}
-              onChange={(event) => setReference(event.target.value)}
-              className={inputClass}
-            />
-          </Field>
-        </div>
+      {kind === "receipt" && prices.length ? (
+        <p className="rounded-lg border border-info/30 bg-info/5 px-4 py-3 text-sm">
+          {t("godown.batchHint")}
+        </p>
       ) : null}
-      <div className={tableShell}>
+      <TableScroller>
         <table className={tableClass}>
           <thead className={theadClass}>
             <tr>
-              <th scope="col" className={thClass}>
+              <th scope="col" className={`${thClass} ${stickyHead}`}>
                 {t("godown.column.product")}
               </th>
               <th scope="col" className={thNum}>
@@ -175,22 +141,13 @@ function GodownForm({
               </th>
               {prices.map((p) => (
                 <th key={p} scope="col" className={thNum}>
-                  {t(`godown.column.${p}Price` as TranslationKey)}
+                  {t(PRICE_LABEL[kind][p] ?? (`godown.column.${p}Price` as TranslationKey))}
                 </th>
               ))}
-              {kind === "receipt" ? (
-                <>
-                  <th scope="col" className={thClass}>
-                    {t("godown.column.lot")}
-                  </th>
-                  <th scope="col" className={thClass}>
-                    {t("godown.column.expiry")}
-                  </th>
-                </>
-              ) : null}
-              <th scope="col" className={thNum}>
-                {t(kind === "order" ? "godown.column.due" : "godown.column.stock")}
-              </th>
+              <ColumnHead
+                label={t(kind === "order" ? "godown.column.due" : "godown.column.stock")}
+                quantity
+              />
             </tr>
           </thead>
           <tbody>
@@ -198,7 +155,7 @@ function GodownForm({
               const row = rows[product.productId] ?? emptyRow;
               return (
                 <tr key={product.productId} className="border-t border-border">
-                  <th scope="row" className={`${tdClass} text-left font-medium`}>
+                  <th scope="row" className={`${tdClass} ${stickyCell} text-left font-medium`}>
                     <div>{product.productName}</div>
                     <div className="text-xs font-normal text-text-muted">
                       {product.sku} · {t("godown.column.size")} {quantity(product.piecesPerCarton)}
@@ -235,42 +192,18 @@ function GodownForm({
                       </td>
                     );
                   })}
-                  {kind === "receipt" ? (
-                    <>
-                      <td className={tdClass}>
-                        <CellInput
-                          label={`${product.productName} ${t("godown.column.lot")}`}
-                          value={row.lot}
-                          onChange={(lot) => set(product.productId, { lot })}
-                          mode="text"
-                          width="w-24"
-                        />
-                      </td>
-                      <td className={tdClass}>
-                        <input
-                          type="date"
-                          aria-label={`${product.productName} ${t("godown.column.expiry")}`}
-                          value={row.expiry}
-                          onChange={(event) =>
-                            set(product.productId, { expiry: event.target.value })
-                          }
-                          className="min-h-9 rounded-md border border-border bg-surface px-2 text-sm"
-                        />
-                      </td>
-                    </>
-                  ) : null}
                   <td className={tdNum}>
-                    {cartonText(
-                      kind === "order" ? product.dueFromCompany : product.stock,
-                      product.piecesPerCarton,
-                    )}
+                    <CartonQty
+                      pieces={kind === "order" ? product.dueFromCompany : product.stock}
+                      piecesPerCarton={product.piecesPerCarton}
+                    />
                   </td>
                 </tr>
               );
             })}
           </tbody>
         </table>
-      </div>
+      </TableScroller>
       <p className="text-xs text-text-muted">
         {t("godown.quantityHint")} {prices.length ? t("godown.priceHint") : ""}
       </p>
@@ -318,24 +251,21 @@ function PostedEntries({
     <>
       <SectionTitle>{t("godown.posted.title")}</SectionTitle>
       {error ? <StatePanel tone="error" title={error} /> : null}
-      {rows.length === 0 ? (
+      {entries.isPending ? (
+        <TableSkeleton rows={3} columns={5} />
+      ) : rows.length === 0 ? (
         <p className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-sm text-text-muted">
           {t("godown.posted.empty")}
         </p>
       ) : (
-        <div className={tableShell}>
+        <TableScroller>
           <table className={tableClass}>
             <thead className={theadClass}>
               <tr>
-                <th scope="col" className={thClass}>
+                <th scope="col" className={`${thClass} ${stickyHead}`}>
                   {t("godown.column.product")}
                 </th>
-                <th scope="col" className={thNum}>
-                  {t("godown.column.quantity")}
-                </th>
-                <th scope="col" className={thClass}>
-                  {t("godown.reference")}
-                </th>
+                <ColumnHead label={t("godown.column.quantity")} quantity />
                 <th scope="col" className={thClass}>
                   {t("common.status")}
                 </th>
@@ -347,19 +277,13 @@ function PostedEntries({
             <tbody>
               {rows.map((entry) => (
                 <tr key={entry.id} className="border-t border-border">
-                  <td className={tdClass}>
-                    {entry.productName}
-                    {entry.lot ? (
-                      <span className="ml-2 text-xs text-text-muted">
-                        {t("godown.column.lot")} {entry.lot}
-                        {entry.expiry ? ` · ${entry.expiry}` : ""}
-                      </span>
-                    ) : null}
-                  </td>
+                  <td className={`${tdClass} ${stickyCell}`}>{entry.productName}</td>
                   <td className={tdNum}>
-                    {cartonText(entry.pieces, sizes.get(entry.productId) ?? "1")}
+                    <CartonQty
+                      pieces={entry.pieces}
+                      piecesPerCarton={sizes.get(entry.productId) ?? "1"}
+                    />
                   </td>
-                  <td className={tdClass}>{entry.reference || "—"}</td>
                   <td className={tdClass}>
                     <StatusChip status={entry.status} />
                   </td>
@@ -374,7 +298,7 @@ function PostedEntries({
               ))}
             </tbody>
           </table>
-        </div>
+        </TableScroller>
       )}
     </>
   );

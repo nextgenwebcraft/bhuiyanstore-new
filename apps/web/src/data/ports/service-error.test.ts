@@ -17,10 +17,10 @@ describe("error codes", () => {
 describe("describeError", () => {
   it("puts known codes under the fields the form shows", () => {
     const error = new ServiceError("VALIDATION_FAILED", false, [
-      { path: "name", code: "validation.supplier.duplicateName" },
+      { path: "sku", code: "validation.product.duplicateSku" },
     ]);
-    expect(describeError(error, ["name"])).toEqual({
-      fields: { name: t("validation.supplier.duplicateName") },
+    expect(describeError(error, ["sku"])).toEqual({
+      fields: { sku: t("validation.product.duplicateSku") },
     });
   });
 

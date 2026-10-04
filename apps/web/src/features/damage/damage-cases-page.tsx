@@ -25,14 +25,18 @@ import {
   useStaffRecords,
 } from "@/data/queries";
 import {
+  CartonQty,
   CellInput,
+  ColumnHead,
   DateBar,
   StatusChip,
   cartonText,
   clean,
   money,
+  stickyCell,
+  stickyHead,
   tableClass,
-  tableShell,
+  TableScroller,
   tdClass,
   tdNum,
   thClass,
@@ -405,37 +409,35 @@ function CaseCard({ item, date }: { item: DamageCase; date: string }) {
         ) : null}
       </div>
       {item.note ? <p className="text-sm text-text-muted">{item.note}</p> : null}
-      <div className={tableShell}>
+      <TableScroller>
         <table className={tableClass}>
           <thead className={theadClass}>
             <tr>
-              <th scope="col" className={thClass}>
+              <th scope="col" className={`${thClass} ${stickyHead}`}>
                 {t("report.column.product")}
               </th>
               {PROGRESS_KEYS.map((k) => (
-                <th key={k} scope="col" className={`${thNum} whitespace-nowrap`}>
-                  {t(`damage.progress.${k}`)}
-                </th>
+                <ColumnHead key={k} label={t(`damage.progress.${k}`)} quantity />
               ))}
             </tr>
           </thead>
           <tbody>
             {item.lines.map((line) => (
               <tr key={line.id} className="border-t border-border">
-                <td className={tdClass}>{line.productName}</td>
+                <td className={`${tdClass} ${stickyCell}`}>{line.productName}</td>
                 {PROGRESS_KEYS.map((k) => (
                   <td key={k} className={tdNum}>
-                    {cartonText(line.progress[k], line.piecesPerCarton)}
+                    <CartonQty pieces={line.progress[k]} piecesPerCarton={line.piecesPerCarton} />
                   </td>
                 ))}
               </tr>
             ))}
           </tbody>
         </table>
-      </div>
+      </TableScroller>
       {item.status === "open" ? <EventForm item={item} date={date} /> : null}
       {item.events.length ? (
-        <div className={tableShell}>
+        <TableScroller>
           <table className={tableClass}>
             <thead className={theadClass}>
               <tr>
@@ -503,7 +505,7 @@ function CaseCard({ item, date }: { item: DamageCase; date: string }) {
               ))}
             </tbody>
           </table>
-        </div>
+        </TableScroller>
       ) : null}
       {error ? <StatePanel tone="error" title={error} /> : null}
     </section>
@@ -542,7 +544,7 @@ export function DamageCasesPage({ path }: { path: string }) {
           ))}
         </div>
         {cases.isPending ? (
-          <ListSkeleton />
+          <ListSkeleton rows={3} action />
         ) : cases.isError ? (
           <QueryError error={cases.error} onRetry={() => void cases.refetch()} />
         ) : cases.data.length === 0 ? (

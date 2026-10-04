@@ -147,23 +147,6 @@
       "status": "active"
     }
   ],
-  "suppliers": [
-    {
-      "id": "sup-drinko",
-      "companyId": "drinko",
-      "name": "Drinko Beverages Ltd. (ডেমো)"
-    },
-    {
-      "id": "sup-demo-foods",
-      "companyId": "demo-foods",
-      "name": "Demo Foods Ltd. (ডেমো)"
-    },
-    {
-      "id": "sup-demo-snacks",
-      "companyId": "demo-snacks",
-      "name": "Demo Snacks Ltd. (ডেমো)"
-    }
-  ],
   "staff": [
     {
       "id": "dsr-rahim",

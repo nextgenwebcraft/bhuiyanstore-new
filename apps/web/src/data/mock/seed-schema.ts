@@ -4,7 +4,6 @@ import {
   permissionIds,
   productSchema,
   staffMemberSchema,
-  supplierSchema,
 } from "@bsd/contracts";
 import { z } from "zod";
 
@@ -26,7 +25,6 @@ export const demoSeedSchema = z.object({
   ),
   companies: z.array(companySchema),
   products: z.array(productSchema),
-  suppliers: z.array(supplierSchema),
   staff: z.array(staffMemberSchema),
   roles: z.array(
     z.object({

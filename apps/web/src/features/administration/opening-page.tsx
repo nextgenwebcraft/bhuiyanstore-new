@@ -19,13 +19,15 @@ import {
 } from "@bsd/i18n";
 import { useId, useMemo, useState } from "react";
 import { Button } from "@/components/button";
+import { DatePicker } from "@/components/date-picker";
 import { Field, inputClass } from "@/components/field";
 import { FormDialog } from "@/components/form-dialog";
 import { PageHeader } from "@/components/page-header";
 import { QueryError } from "@/components/query-error";
-import { ListSkeleton } from "@/components/skeleton";
+import { PageSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
 import { StatTile } from "@/components/stat-tile";
+import { TableScroller } from "@/components/table-scroller";
 import { describeError } from "@/data/ports/service-error";
 import {
   useActivateOpening,
@@ -39,6 +41,7 @@ import {
 } from "@/data/queries";
 import { useService } from "@/data/service-context";
 import { downloadBlob } from "@/lib/download";
+import { stickyCell, stickyHead } from "@/features/daily/daily-kit";
 import { NavGate } from "@/features/shell/nav-gate";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 
@@ -312,11 +315,11 @@ function StockTab({
   return (
     <div className="flex flex-col gap-3">
       <p className="text-sm text-text-muted">{t("opening.unknownHint")}</p>
-      <div className="overflow-x-auto rounded-xl border border-border bg-surface shadow-card">
+      <TableScroller>
         <table className="w-full border-collapse text-sm">
           <thead className="bg-surface-muted text-left text-xs text-text-muted">
             <tr>
-              <th scope="col" className="px-3 py-3 font-medium">
+              <th scope="col" className={`px-3 py-3 font-medium ${stickyHead}`}>
                 {t("product.name")}
               </th>
               <th scope="col" className="px-3 py-3 text-right font-medium">
@@ -338,7 +341,7 @@ function StockTab({
                 line.source?.pieces != null && (d?.pieces ?? "") !== line.source.pieces;
               return (
                 <tr key={line.productId} className="border-t border-border align-top">
-                  <th scope="row" className="px-3 py-2 text-left font-medium">
+                  <th scope="row" className={`px-3 py-2 text-left font-medium ${stickyCell}`}>
                     <div>{line.productName}</div>
                     <div className="text-xs font-normal text-text-subtle">
                       {line.sku}
@@ -395,7 +398,7 @@ function StockTab({
             })}
           </tbody>
         </table>
-      </div>
+      </TableScroller>
     </div>
   );
 }
@@ -429,7 +432,7 @@ function BalanceTable({
         (i.cashAccountId ?? null) === row.party.cashAccountId,
     );
   return (
-    <div className="overflow-x-auto rounded-xl border border-border bg-surface shadow-card">
+    <TableScroller>
       <table className="w-full border-collapse text-sm">
         <thead className="bg-surface-muted text-left text-xs text-text-muted">
           <tr>
@@ -506,7 +509,7 @@ function BalanceTable({
           })}
         </tbody>
       </table>
-    </div>
+    </TableScroller>
   );
 }
 
@@ -810,13 +813,14 @@ function OpeningScreen({
 
         <div className="grid gap-4 md:grid-cols-[minmax(0,18rem)_1fr]">
           <Field id={`${id}-cutoff`} label={t("opening.cutoffDate")} hint={t("opening.cutoffHint")}>
-            <input
+            <DatePicker
               id={`${id}-cutoff`}
-              type="date"
               value={draft.cutoffDate}
               disabled={locked}
-              onChange={(event) => setDraft((d) => ({ ...d, cutoffDate: event.target.value }))}
-              className={inputClass}
+              clearable
+              label={t("opening.cutoffDate")}
+              onChange={(cutoffDate) => setDraft((d) => ({ ...d, cutoffDate }))}
+              className="w-full"
             />
           </Field>
           <section className="rounded-xl border border-border bg-surface p-4 text-sm shadow-card">
@@ -977,7 +981,7 @@ function OpeningLoader() {
   const { company } = useCurrentWorkspace();
   const opening = useOpening(company.id);
   const [tab, setTab] = useState<Tab>("stock");
-  if (opening.isPending) return <ListSkeleton />;
+  if (opening.isPending) return <PageSkeleton tabs={4} />;
   if (opening.isError) {
     return (
       <>

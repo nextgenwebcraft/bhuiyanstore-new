@@ -5,10 +5,10 @@ import { businessDateOf } from "@bsd/domain";
 import { formatBusinessDate, labelOf, t, type TranslationKey } from "@bsd/i18n";
 import { useState } from "react";
 import { Button } from "@/components/button";
-import { inputClass } from "@/components/field";
+import { MonthPicker } from "@/components/date-picker";
 import { PageHeader } from "@/components/page-header";
 import { QueryError } from "@/components/query-error";
-import { ListSkeleton } from "@/components/skeleton";
+import { SummarySkeleton } from "@/components/skeleton";
 import { StatTile } from "@/components/stat-tile";
 import { StatePanel } from "@/components/state-panel";
 import { describeError } from "@/data/ports/service-error";
@@ -225,7 +225,7 @@ function MonthBody({ view }: { view: MonthView }) {
           {t("report.coversFrom")} {formatBusinessDate(view.from)} – {formatBusinessDate(view.to)}
         </p>
       ) : null}
-      <Warnings view={{ warnings: view.warnings, products: view.products }} />
+      <Warnings warnings={view.warnings} />
       <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <StatTile
           label={t("report.column.salesTotal")}
@@ -284,15 +284,11 @@ export function MonthPage({ path, title }: { path: string; title: TranslationKey
         description={t("month.description")}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <label className="sr-only" htmlFor="month-picker">
-              {t("month.picker")}
-            </label>
-            <input
+            <MonthPicker
               id="month-picker"
-              type="month"
               value={month}
-              onChange={(event) => event.target.value && setMonth(event.target.value)}
-              className={`${inputClass} w-auto text-sm`}
+              label={t("month.picker")}
+              onChange={setMonth}
             />
             {view ? <StatusBadge status={view.status} /> : null}
             {view?.canClose ? (
@@ -328,13 +324,11 @@ export function MonthPage({ path, title }: { path: string; title: TranslationKey
         ) : null}
         {error ? <StatePanel tone="error" title={error} /> : null}
         {query.isPending ? (
-          <ListSkeleton />
+          <SummarySkeleton stats={6} rows={8} />
         ) : query.isError ? (
           <QueryError error={query.error} onRetry={() => void query.refetch()} />
         ) : (
-          <div className={query.isPlaceholderData ? "opacity-60" : ""}>
-            <MonthBody view={query.data} />
-          </div>
+          <MonthBody view={query.data} />
         )}
       </div>
     </NavGate>

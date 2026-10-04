@@ -24,7 +24,7 @@ export function CompanyPickerPage() {
 
   let body: React.ReactNode;
   if (workspaces.isPending) {
-    body = <ListSkeleton rows={3} />;
+    body = <ListSkeleton rows={3} detail />;
   } else if (workspaces.isError) {
     body = (
       <StatePanel

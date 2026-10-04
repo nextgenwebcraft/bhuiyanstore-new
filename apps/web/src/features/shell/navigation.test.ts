@@ -6,8 +6,9 @@ import {
   equivalentPath,
   findNavEntry,
   findSectionById,
-  navGroups,
+  flowGroups,
   navigation,
+  visibleFlow,
   visibleNavigation,
 } from "./navigation";
 
@@ -55,15 +56,35 @@ describe("navigation", () => {
     expect(findNavEntry("")?.section.id).toBe("dashboard");
   });
 
-  it("assigns every non-dashboard section to one of the fixed groups", () => {
-    const groupIds = new Set(navGroups.map((g) => g.id));
-    for (const section of navigation) {
-      if (section.id === "dashboard") {
-        expect(section.groupId).toBeUndefined();
-      } else {
-        expect(Boolean(section.groupId && groupIds.has(section.groupId))).toBe(true);
-      }
+  it("lists every built screen exactly once in the work order, with Bangla labels", () => {
+    const flowPaths = flowGroups.flatMap((g) => g.entries.map((e) => e.path));
+    const built = navigation
+      .flatMap((s) => s.items)
+      .filter((i) => i.implemented && i.path !== "")
+      .map((i) => i.path);
+    expect([...flowPaths].sort()).toEqual([...built].sort());
+    for (const group of flowGroups) {
+      expect(bn[group.labelKey]).toBeTruthy();
+      group.entries.forEach((e) => e.labelKey && expect(bn[e.labelKey]).toBeTruthy());
     }
+  });
+
+  it("gives Alt+1…9 to distinct screens, starting with the day's entries", () => {
+    const shortcuts = flowGroups.flatMap((g) => g.entries.flatMap((e) => e.shortcut ?? []));
+    expect([...shortcuts].sort()).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    expect(flowGroups[0]?.id).toBe("daily");
+    expect(flowGroups[0]?.entries[0]?.path).toBe("sales/daily-summaries");
+  });
+
+  it("shows only the screens the role and modules allow", async () => {
+    const operator = await workspace("user-operator", "drinko");
+    const operatorPaths = visibleFlow(operator).flatMap((g) => g.links.map((l) => l.path));
+    expect(operatorPaths).toContain("sales/daily-summaries");
+    expect(operatorPaths).not.toContain("admin/users");
+    const snacks = await workspace("user-owner", "demo-snacks");
+    const paths = visibleFlow(snacks).flatMap((g) => g.links.map((l) => l.path));
+    expect(paths).toContain("sales/daily-summaries");
+    expect(paths).not.toContain("purchases/receipts");
   });
 
   it("resolves a module landing path but not the dashboard or a leaf path", () => {

@@ -5,7 +5,7 @@ import { matchesSearch, t, toBengaliDigits } from "@bsd/i18n";
 import { useDeferredValue, useId, useRef, useState } from "react";
 import { Button } from "@/components/button";
 import { PageHeader } from "@/components/page-header";
-import { ListSkeleton } from "@/components/skeleton";
+import { TableSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
 import { errorCodeOf } from "@/data/ports/service-error";
 import { useProducts } from "@/data/queries";
@@ -132,7 +132,7 @@ function ProductList() {
 
   let body: React.ReactNode;
   if (products.isPending) {
-    body = <ListSkeleton />;
+    body = <TableSkeleton rows={8} columns={6} />;
   } else if (products.isError) {
     body = (
       <StatePanel

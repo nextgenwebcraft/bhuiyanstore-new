@@ -29,7 +29,6 @@ import {
   staffRoleSchema,
   staffStatementSchema,
   stockEntrySchema,
-  supplierSchema,
   userSchema,
   type Me,
   type PasswordChangeRequest,
@@ -154,8 +153,6 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
         idempotent: true,
       }),
 
-    listSuppliers: (companyId, options) =>
-      request(z.array(supplierSchema), `${company(companyId)}/suppliers`, options),
     listStaff: (companyId, options) =>
       request(z.array(staffMemberSchema), `${company(companyId)}/staff-members`, options),
     getDashboardSummary: (companyId, date, options) =>
@@ -227,14 +224,6 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
       request(productPackSchema, `${product(companyId, productId)}/packs`, write("POST", input)),
     setProductPrice: (companyId, productId, input) =>
       request(priceChangeSchema, `${product(companyId, productId)}/prices`, write("POST", input)),
-    createSupplier: (companyId, input) =>
-      request(supplierSchema, `${company(companyId)}/suppliers`, write("POST", input)),
-    updateSupplier: (companyId, supplierId, input) =>
-      request(
-        supplierSchema,
-        `${company(companyId)}/suppliers/${id(supplierId)}`,
-        write("PUT", input),
-      ),
     listStaffRecords: (companyId, options) =>
       request(z.array(staffRecordSchema), `${company(companyId)}/staff`, options),
     listAllStaff: (options) => request(z.array(staffRecordSchema), "/staff", options),

@@ -6,7 +6,6 @@ import {
   productSchema,
   staffMemberSchema,
   staffRecordSchema,
-  supplierSchema,
   type CompanyWorkspace,
   type PermissionId,
   type Product,
@@ -33,7 +32,6 @@ export type MockDistributionService = DistributionService & {
 type MockState = {
   companies: DemoSeed["companies"];
   products: Product[];
-  suppliers: DemoSeed["suppliers"];
   staff: DemoSeed["staff"];
   roles: DemoSeed["roles"];
   memberships: DemoSeed["memberships"];
@@ -44,7 +42,6 @@ function initialState(seed: DemoSeed): MockState {
   return {
     companies: s.companies,
     products: s.products,
-    suppliers: s.suppliers,
     staff: s.staff,
     roles: s.roles,
     memberships: s.memberships,
@@ -183,12 +180,6 @@ export function createMockService(
       return product;
     },
 
-    async listSuppliers(companyId, options) {
-      await delay(latencyMs, options?.signal);
-      requirePermission(companyId, "company.view");
-      return supplierSchema.array().parse(state.suppliers.filter((s) => s.companyId === companyId));
-    },
-
     async listStaff(companyId, options) {
       await delay(latencyMs, options?.signal);
       requirePermission(companyId, "company.view");
@@ -253,9 +244,6 @@ export function createMockService(
     addProductPack: demoReadOnly,
     setProductPrice: demoReadOnly,
     createCompany: demoReadOnly,
-    createSupplier: demoReadOnly,
-    updateSupplier: demoReadOnly,
-
     async listStaffRecords(companyId, options) {
       await delay(latencyMs, options?.signal);
       requirePermission(companyId, "company.view");

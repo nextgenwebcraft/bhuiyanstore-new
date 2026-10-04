@@ -16,7 +16,7 @@ import { Button } from "@/components/button";
 import { Field, inputClass } from "@/components/field";
 import { PageHeader } from "@/components/page-header";
 import { QueryError } from "@/components/query-error";
-import { ListSkeleton } from "@/components/skeleton";
+import { FormSkeleton, TableSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
 import { describeError } from "@/data/ports/service-error";
 import {
@@ -38,7 +38,7 @@ import {
   clean,
   money,
   tableClass,
-  tableShell,
+  TableScroller,
   tdClass,
   tdNum,
   thClass,
@@ -83,8 +83,6 @@ function EntryForm({
   const [amount, setAmount] = useState("");
   const [staffId, setStaffId] = useState("");
   const [categoryId, setCategoryId] = useState("");
-  const [reference, setReference] = useState("");
-  const [note, setNote] = useState("");
   const [split, setSplit] = useState(false);
   const [allocation, setAllocation] = useState(EMPTY_ALLOCATION);
   const [error, setError] = useState<string | undefined>();
@@ -128,13 +126,9 @@ function EntryForm({
         amount: value,
         staffId: needsPerson && staffId ? staffId : null,
         expenseCategoryId: needsCategory ? categoryId : null,
-        reference: reference.trim(),
-        note: note.trim(),
         allocation: canSplit && split ? parts : null,
       });
       setAmount("");
-      setReference("");
-      setNote("");
       setAllocation(EMPTY_ALLOCATION);
       setDone(true);
     } catch (e) {
@@ -214,24 +208,6 @@ function EntryForm({
             </select>
           </Field>
         ) : null}
-        <Field id={`${id}-reference`} label={t("common.reference")} hint={t("common.optional")}>
-          <input
-            id={`${id}-reference`}
-            value={reference}
-            maxLength={100}
-            onChange={(event) => setReference(event.target.value)}
-            className={inputClass}
-          />
-        </Field>
-        <Field id={`${id}-note`} label={t("dsr.sheet.note")} hint={t("common.optional")}>
-          <input
-            id={`${id}-note`}
-            value={note}
-            maxLength={500}
-            onChange={(event) => setNote(event.target.value)}
-            className={inputClass}
-          />
-        </Field>
       </div>
       {canSplit ? (
         <div className="flex flex-col gap-2">
@@ -302,7 +278,7 @@ function EntryList({
     }
   }
 
-  if (entries.isPending) return <ListSkeleton rows={3} />;
+  if (entries.isPending) return <TableSkeleton rows={3} columns={5} />;
   if (entries.isError)
     return <QueryError error={entries.error} onRetry={() => void entries.refetch()} />;
   const rows = entries.data.filter((e) => kinds.includes(e.kind));
@@ -314,7 +290,7 @@ function EntryList({
           {t("money.empty")}
         </p>
       ) : (
-        <div className={tableShell}>
+        <TableScroller>
           <table className={tableClass}>
             <thead className={theadClass}>
               <tr>
@@ -326,9 +302,6 @@ function EntryList({
                 </th>
                 <th scope="col" className={thNum}>
                   {t("common.amount")}
-                </th>
-                <th scope="col" className={thClass}>
-                  {t("common.reference")}
                 </th>
                 <th scope="col" className={thClass}>
                   {t("common.status")}
@@ -345,12 +318,6 @@ function EntryList({
                   <td className={tdClass}>{entry.staffName ?? entry.categoryName ?? "—"}</td>
                   <td className={tdNum}>{money(entry.amount)}</td>
                   <td className={tdClass}>
-                    {entry.reference || "—"}
-                    {entry.note ? (
-                      <div className="text-xs text-text-muted">{entry.note}</div>
-                    ) : null}
-                  </td>
-                  <td className={tdClass}>
                     <StatusChip status={entry.status} />
                   </td>
                   <td className={`${tdClass} text-right`}>
@@ -364,7 +331,7 @@ function EntryList({
               ))}
             </tbody>
           </table>
-        </div>
+        </TableScroller>
       )}
     </>
   );
@@ -395,7 +362,16 @@ export function MoneyEntriesPage({
         actions={<DateBar date={date} onChange={setDate} />}
       />
       <DateHeading date={date} />
-      <DayGate companyId={company.id} date={date}>
+      <DayGate
+        companyId={company.id}
+        date={date}
+        skeleton={
+          <div className="flex flex-col gap-6">
+            <FormSkeleton fields={4} />
+            <TableSkeleton rows={3} columns={5} title />
+          </div>
+        }
+      >
         {(view) => (
           <>
             {aside?.(view)}
@@ -426,7 +402,7 @@ export function MarketDuePage() {
             <span className="font-semibold tabular-nums">{money(view.marketDueOutstanding)}</span>
           </p>
           {view.marketDueByDsr.length ? (
-            <div className={tableShell}>
+            <TableScroller>
               <table className={tableClass}>
                 <thead className={theadClass}>
                   <tr>
@@ -447,7 +423,7 @@ export function MarketDuePage() {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </TableScroller>
           ) : null}
         </div>
       )}

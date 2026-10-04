@@ -99,7 +99,7 @@ export async function getStaffStatement(
   const rows = refs.length
     ? await ctx.db.moneyEntry.findMany({
         where: { id: { in: refs }, companyId },
-        select: { id: true, reference: true, note: true, payrollRunId: true },
+        select: { id: true, payrollRunId: true },
       })
     : [];
   const byId = new Map(rows.map((r) => [r.id, r]));
@@ -121,8 +121,6 @@ export async function getStaffStatement(
         date: e.date,
         kind: e.kind,
         amount: e.amount,
-        reference: row?.reference ?? "",
-        note: row?.note ?? "",
         payrollRunId: row?.payrollRunId ?? null,
         change: e.change,
         balances: e.balances,
@@ -176,7 +174,6 @@ export async function exportStaffStatement(
             { key: "kind", label: "report.column.kind", kind: "label" },
             money("amount"),
             ...keys.map(money),
-            { key: "reference", label: "report.column.reference", kind: "text" },
           ],
           rows: s.lines.map((l) => ({
             cells: {
@@ -184,7 +181,6 @@ export async function exportStaffStatement(
               kind: `money.kind.${l.kind}`,
               amount: l.amount,
               ...pick(l.balances, keys),
-              reference: l.reference,
             },
           })),
           totals: null,

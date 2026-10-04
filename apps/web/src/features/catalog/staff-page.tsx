@@ -5,13 +5,14 @@ import {
   type StaffAssignment,
   type StaffEmployer,
   type StaffRecord,
+  type RecordStatus,
   type StaffRole,
-  type Supplier,
 } from "@bsd/contracts";
 import { businessDateOf } from "@bsd/domain";
 import { t, toBengaliDigits } from "@bsd/i18n";
 import { useId, useState } from "react";
 import { Button } from "@/components/button";
+import { DatePicker } from "@/components/date-picker";
 import { Field, inputClass } from "@/components/field";
 import { FormDialog } from "@/components/form-dialog";
 import { PageHeader } from "@/components/page-header";
@@ -95,12 +96,12 @@ function PeriodFields({
           label={t("common.from")}
           error={errors.fields[`${pathPrefix}from`]}
         >
-          <input
+          <DatePicker
             id={`${id}-from`}
-            type="date"
             value={period.from}
-            onChange={(event) => onChange({ ...period, from: event.target.value })}
-            className={inputClass}
+            label={t("common.from")}
+            onChange={(from) => onChange({ ...period, from })}
+            className="w-full"
           />
         </Field>
         <Field
@@ -109,12 +110,14 @@ function PeriodFields({
           hint={t("staff.assignment.endHint")}
           error={errors.fields[`${pathPrefix}to`]}
         >
-          <input
+          <DatePicker
             id={`${id}-to`}
-            type="date"
             value={period.to}
-            onChange={(event) => onChange({ ...period, to: event.target.value })}
-            className={inputClass}
+            clearable
+            min={period.from || undefined}
+            label={t("common.to")}
+            onChange={(to) => onChange({ ...period, to })}
+            className="w-full"
           />
         </Field>
       </div>
@@ -142,8 +145,7 @@ type PersonDraft = {
   id?: string;
   name: string;
   employer: StaffEmployer;
-  phone: string;
-  status: Supplier["status"];
+  status: RecordStatus;
 };
 
 function PersonDialog({
@@ -177,7 +179,6 @@ function PersonDialog({
     const person = {
       name: values.name.trim(),
       employer: values.employer,
-      ...(values.phone.trim() ? { phone: values.phone.trim() } : {}),
       status: values.status,
     };
     try {
@@ -189,7 +190,6 @@ function PersonDialog({
         describeError(error, [
           "name",
           "employer",
-          "phone",
           "assignment.roleId",
           "assignment.from",
           "assignment.to",
@@ -231,15 +231,6 @@ function PersonDialog({
             </option>
           ))}
         </select>
-      </Field>
-      <Field id={`${id}-phone`} label={t("common.phone")} hint={t("common.optional")}>
-        <input
-          id={`${id}-phone`}
-          type="tel"
-          value={values.phone}
-          onChange={(event) => setValues({ ...values, phone: event.target.value })}
-          className={inputClass}
-        />
       </Field>
       <StatusField
         id={`${id}-status`}
@@ -417,7 +408,7 @@ function Staff() {
   const candidates = (allStaff.data ?? []).filter((r) => !here.has(r.id) && r.status === "active");
 
   let body: React.ReactNode;
-  if (records.isPending) body = <ListSkeleton />;
+  if (records.isPending) body = <ListSkeleton rows={5} detail action />;
   else if (records.isError) {
     body = <QueryError error={records.error} onRetry={() => void records.refetch()} />;
   } else if (records.data.length === 0) body = <StatePanel title={t("staff.empty")} />;
@@ -431,7 +422,6 @@ function Staff() {
                 <div className="font-medium">{record.name}</div>
                 <div className="text-sm text-text-muted">
                   {t(`staff.employer.${record.employer}`)}
-                  {record.phone ? ` · ${record.phone}` : ""}
                   {" · "}
                   <span className={record.status === "active" ? "text-success" : undefined}>
                     {t(`common.status.${record.status}`)}
@@ -449,7 +439,6 @@ function Staff() {
                         id: record.id,
                         name: record.name,
                         employer: record.employer,
-                        phone: record.phone ?? "",
                         status: record.status,
                       })
                     }
@@ -483,9 +472,7 @@ function Staff() {
               ) : null}
               <Button
                 variant="primary"
-                onClick={() =>
-                  setPerson({ name: "", employer: "distributor", phone: "", status: "active" })
-                }
+                onClick={() => setPerson({ name: "", employer: "distributor", status: "active" })}
               >
                 {t("staff.new")}
               </Button>

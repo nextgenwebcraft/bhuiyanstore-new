@@ -306,7 +306,7 @@ function Users() {
   const roleName = (id: string) => roleList.find((r) => r.id === id)?.name ?? "";
 
   let body: React.ReactNode;
-  if (users.isPending || roles.isPending) body = <ListSkeleton />;
+  if (users.isPending || roles.isPending) body = <ListSkeleton rows={4} detail action />;
   else if (users.isError) {
     body = <QueryError error={users.error} onRetry={() => void users.refetch()} />;
   } else if (roles.isError) {

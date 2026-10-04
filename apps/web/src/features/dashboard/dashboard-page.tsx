@@ -1,74 +1,33 @@
 "use client";
 
-import type { DashboardSummary } from "@bsd/contracts";
-import { businessDateOf, shiftBusinessDate } from "@bsd/domain";
+import type { DashboardSummary, DayView } from "@bsd/contracts";
+import { businessDateOf, Decimal } from "@bsd/domain";
 import { formatAmount, formatBusinessDate, t, toBengaliDigits } from "@bsd/i18n";
 import Link from "next/link";
-import { useState } from "react";
-import { Button } from "@/components/button";
-import { inputClass } from "@/components/field";
 import { Icon, type IconName } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { QueryError } from "@/components/query-error";
-import { Skeleton } from "@/components/skeleton";
+import { CardGridSkeleton, StatsSkeleton, TableSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
 import { StatTile } from "@/components/stat-tile";
+import { TableScroller } from "@/components/table-scroller";
 import { errorCodeOf } from "@/data/ports/service-error";
 import { useDashboardSummary } from "@/data/queries";
-import { companyHref, findNavEntry, navAccess } from "@/features/shell/navigation";
+import { DateBar, DayGate, money, useWorkingDate } from "@/features/daily/daily-kit";
+import { Warnings } from "@/features/daily/day-report-page";
+import {
+  companyHref,
+  findNavEntry,
+  navAccess,
+  visibleFlow,
+  type FlowLink,
+} from "@/features/shell/navigation";
 import { NavGate } from "@/features/shell/nav-gate";
+import { ShortcutHint } from "@/features/shell/side-nav";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 
 const amount = formatAmount;
 const count = (value: number) => toBengaliDigits(String(value));
-
-function DateBar({
-  date,
-  today,
-  onChange,
-}: {
-  date: string;
-  today: string;
-  onChange: (date: string) => void;
-}) {
-  return (
-    <div className="flex items-center gap-2">
-      <Button
-        aria-label={t("dashboard.previousDay")}
-        title={t("dashboard.previousDay")}
-        className="px-2.5"
-        onClick={() => onChange(shiftBusinessDate(date, -1))}
-      >
-        <Icon name="chevronLeft" className="size-4" />
-      </Button>
-      <label className="sr-only" htmlFor="dashboard-date">
-        {t("dashboard.date")}
-      </label>
-      <input
-        id="dashboard-date"
-        type="date"
-        value={date}
-        max={today}
-        onChange={(event) => {
-          if (event.target.value) onChange(event.target.value);
-        }}
-        className={`${inputClass} w-auto text-sm tabular-nums`}
-      />
-      <Button
-        aria-label={t("dashboard.nextDay")}
-        title={t("dashboard.nextDay")}
-        className="px-2.5"
-        disabled={date >= today}
-        onClick={() => onChange(shiftBusinessDate(date, 1))}
-      >
-        <Icon name="chevronRight" className="size-4" />
-      </Button>
-      <Button disabled={date === today} onClick={() => onChange(today)}>
-        {t("dashboard.today")}
-      </Button>
-    </div>
-  );
-}
 
 function ReportSection({
   title,
@@ -119,7 +78,7 @@ function DsrTable({ rows }: { rows: DashboardSummary["byDsr"] }) {
           {t("dashboard.noDsrActivity")}
         </p>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-border bg-surface shadow-card">
+        <TableScroller>
           <table className="w-full border-collapse text-sm">
             <thead className="bg-surface-muted text-left text-xs text-text-muted">
               <tr>
@@ -154,7 +113,7 @@ function DsrTable({ rows }: { rows: DashboardSummary["byDsr"] }) {
               ))}
             </tbody>
           </table>
-        </div>
+        </TableScroller>
       )}
     </section>
   );
@@ -178,10 +137,11 @@ function DailyReport({ companyId, date }: { companyId: string; date: string }) {
 
   if (summary.isPending) {
     return (
-      <div className="flex flex-col gap-6">
-        <Skeleton className="h-28" />
-        <Skeleton className="h-28" />
-        <Skeleton className="h-28" />
+      <div className="flex flex-col gap-8">
+        <StatsSkeleton count={3} title />
+        <StatsSkeleton count={3} title />
+        <StatsSkeleton count={3} title />
+        <TableSkeleton rows={4} title />
       </div>
     );
   }
@@ -197,9 +157,7 @@ function DailyReport({ companyId, date }: { companyId: string; date: string }) {
     d.postedSummaryCount === 0 && d.postedReceiptCount === 0 && d.oldDuesCollected === "0.00";
 
   return (
-    <div
-      className={`flex flex-col gap-8 transition-opacity ${summary.isPlaceholderData ? "opacity-60" : ""}`}
-    >
+    <div className="flex flex-col gap-8">
       {quiet ? (
         <StatePanel title={t("dashboard.noActivity")} hint={t("dashboard.noActivityHint")} />
       ) : null}
@@ -259,17 +217,140 @@ function DailyReport({ companyId, date }: { companyId: string; date: string }) {
   );
 }
 
-export function DashboardPage() {
+type Status = { done: boolean; detail: string } | null;
+
+const nonZero = (value: string) => !new Decimal(value).isZero();
+const sum = (values: string[]) =>
+  values.reduce((total, v) => total.plus(v), new Decimal(0)).toString();
+
+/** What the day view already holds for each daily entry screen; null = nothing to show. */
+function entryStatus(path: string, view: DayView): Status {
+  const products = (field: "received" | "ordered" | "damaged") =>
+    view.products.filter((p) => nonZero(p[field]));
+  switch (path) {
+    case "sales/daily-summaries": {
+      const dsrs = new Set(view.persons.filter((p) => nonZero(p.issued)).map((p) => p.staffId));
+      return {
+        done: dsrs.size > 0,
+        detail: `${count(dsrs.size)} ${t("dashboard.work.dsrCount")} · ${money(view.money.sales)}`,
+      };
+    }
+    case "purchases/receipts": {
+      const rows = products("received");
+      return {
+        done: rows.length > 0,
+        detail: `${count(rows.length)} ${t("dashboard.work.productCount")} · ${money(sum(rows.map((r) => r.receiptBill)))}`,
+      };
+    }
+    case "purchases/orders": {
+      const rows = products("ordered");
+      return {
+        done: rows.length > 0,
+        detail: `${count(rows.length)} ${t("dashboard.work.productCount")} · ${money(sum(rows.map((r) => r.orderValue)))}`,
+      };
+    }
+    case "inventory/damage": {
+      const rows = products("damaged");
+      return {
+        done: rows.length > 0,
+        detail: `${count(rows.length)} ${t("dashboard.work.productCount")}`,
+      };
+    }
+    case "sales/old-dues-collection":
+      return {
+        done: nonZero(view.money.marketDueNew) || nonZero(view.money.marketDueCollected),
+        detail: `${t("day.money.marketDueCollected")} ${money(view.money.marketDueCollected)}`,
+      };
+    case "finance/expenses":
+      return { done: nonZero(view.money.expenses), detail: money(view.money.expenses) };
+    case "finance/supplier-deposits":
+      return { done: nonZero(view.money.banked), detail: money(view.money.banked) };
+    default:
+      return null;
+  }
+}
+
+/**
+ * The day's entry screens in work order, each with what is already entered for the working
+ * date, so the day can be finished top to bottom like a day block in the workbook.
+ */
+function WorkChecklist({ view, links }: { view: DayView; links: FlowLink[] }) {
   const { company } = useCurrentWorkspace();
-  const [today] = useState(() => businessDateOf(new Date()));
-  const [date, setDate] = useState(today);
+  const rows = links.map((link) => ({ link, status: entryStatus(link.path, view) }));
+  const tracked = rows.filter((r) => r.status);
+  const done = tracked.filter((r) => r.status?.done).length;
+
+  return (
+    <section>
+      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-base font-semibold">{t("dashboard.work.title")}</h2>
+        <p className="text-xs text-text-muted">
+          {count(done)}/{count(tracked.length)} {t("dashboard.work.progress")}
+        </p>
+      </div>
+      <Warnings warnings={view.warnings} />
+      <ol className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        {rows.map(({ link, status }) => (
+          <li key={link.path}>
+            <Link
+              href={companyHref(company.id, link.path)}
+              className={`group flex h-full flex-col gap-2 rounded-xl border bg-surface p-3.5 shadow-card transition-colors hover:border-brand/40 ${
+                status?.done ? "border-success/30" : "border-border"
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <span
+                  aria-hidden
+                  className={`grid size-7 shrink-0 place-items-center rounded-full text-xs font-semibold ${
+                    status?.done ? "bg-success text-surface" : "bg-surface-muted text-text-muted"
+                  }`}
+                >
+                  {status?.done ? (
+                    <Icon name="check" className="size-4" />
+                  ) : (
+                    count(link.shortcut ?? 0)
+                  )}
+                </span>
+                <span className="min-w-0 flex-1 text-sm leading-snug font-medium">
+                  {t(link.labelKey)}
+                </span>
+                <Icon
+                  name="arrowRight"
+                  className="size-4 text-text-subtle transition-colors group-hover:text-brand"
+                />
+              </div>
+              <div className="flex flex-wrap items-center gap-2 pl-9.5 text-xs">
+                {status ? (
+                  <span className={status.done ? "text-success" : "text-text-muted"}>
+                    {status.done ? t("dashboard.work.done") : t("dashboard.work.pending")}
+                  </span>
+                ) : null}
+                {status?.done ? (
+                  <span className="text-text-muted tabular-nums">{status.detail}</span>
+                ) : null}
+                {link.shortcut ? <ShortcutHint n={link.shortcut} /> : null}
+              </div>
+            </Link>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+export function DashboardPage() {
+  const workspace = useCurrentWorkspace();
+  const { company } = workspace;
+  const [date, setDate] = useWorkingDate();
+  const today = businessDateOf(new Date());
+  const daily = visibleFlow(workspace).find((g) => g.id === "daily")?.links ?? [];
 
   return (
     <NavGate path="">
       <PageHeader
         title={t("nav.dashboard")}
         description={t("dashboard.description")}
-        actions={<DateBar date={date} today={today} onChange={setDate} />}
+        actions={<DateBar date={date} onChange={setDate} id="dashboard-date" />}
       />
       <div className="mb-6 flex flex-wrap items-center gap-3">
         <p className="flex items-center gap-2 text-base font-semibold">
@@ -285,7 +366,21 @@ export function DashboardPage() {
       {date > today ? (
         <StatePanel title={t("dashboard.futureDate")} />
       ) : (
-        <DailyReport companyId={company.id} date={date} />
+        <div className="flex flex-col gap-10">
+          {daily.length > 0 ? (
+            <DayGate
+              companyId={company.id}
+              date={date}
+              skeleton={<CardGridSkeleton count={daily.length} />}
+            >
+              {(view) => <WorkChecklist view={view} links={daily} />}
+            </DayGate>
+          ) : null}
+          <section>
+            <h2 className="mb-4 text-base font-semibold">{t("dashboard.figures")}</h2>
+            <DailyReport companyId={company.id} date={date} />
+          </section>
+        </div>
       )}
     </NavGate>
   );

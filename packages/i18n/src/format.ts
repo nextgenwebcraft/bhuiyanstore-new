@@ -27,6 +27,45 @@ export function formatBusinessDate(date: string): string {
   return longDate.format(new Date(`${date}T00:00:00Z`));
 }
 
+const utc = (date: string) => new Date(`${date}T00:00:00Z`);
+const shortDate = new Intl.DateTimeFormat("bn-BD", {
+  timeZone: "UTC",
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+});
+const monthYear = new Intl.DateTimeFormat("bn-BD", {
+  timeZone: "UTC",
+  month: "long",
+  year: "numeric",
+});
+const monthLong = new Intl.DateTimeFormat("bn-BD", { timeZone: "UTC", month: "long" });
+const monthShort = new Intl.DateTimeFormat("bn-BD", { timeZone: "UTC", month: "short" });
+const weekdayShort = new Intl.DateTimeFormat("bn-BD", { timeZone: "UTC", weekday: "short" });
+
+/** An ISO business date in short Bangla form, e.g. ৩ অক্টো, ২০২৬. */
+export function formatShortDate(date: string): string {
+  return shortDate.format(utc(date));
+}
+
+/** A month (YYYY-MM) in Bangla, e.g. সেপ্টেম্বর ২০২৬. */
+export function formatMonth(month: string): string {
+  return monthYear.format(utc(`${month}-01`));
+}
+
+/** Bangla month names, January first. */
+export const monthNames = (style: "long" | "short" = "long"): string[] =>
+  Array.from({ length: 12 }, (_, i) =>
+    (style === "long" ? monthLong : monthShort).format(
+      utc(`2026-${String(i + 1).padStart(2, "0")}-01`),
+    ),
+  );
+
+/** Short Bangla weekday names starting on Saturday, the first day of the Bangladesh week. */
+export const weekdayNames = (): string[] =>
+  // 2026-10-03 is a Saturday.
+  Array.from({ length: 7 }, (_, i) => weekdayShort.format(utc(`2026-10-0${3 + i}`)));
+
 /**
  * A unit cost/price stored at 6-place precision (D08), shown with trailing zeros trimmed to a
  * minimum of 2 places: 25.000000 → ২৫.০০, 21.645400 → ২১.৬৪৫৪. Trimming zeros never rounds.

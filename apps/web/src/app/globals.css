@@ -22,6 +22,41 @@
   --font-sans: var(--font-bengali), system-ui, sans-serif;
 }
 
+@theme {
+  --animate-calendar-next: calendar-next 180ms ease-out;
+  --animate-calendar-prev: calendar-prev 180ms ease-out;
+  --animate-pop-in: pop-in 140ms ease-out;
+  --animate-shimmer: shimmer 1.6s ease-in-out infinite;
+
+  @keyframes shimmer {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(100%);
+    }
+  }
+
+  @keyframes calendar-next {
+    from {
+      opacity: 0;
+      transform: translateX(12px);
+    }
+  }
+  @keyframes calendar-prev {
+    from {
+      opacity: 0;
+      transform: translateX(-12px);
+    }
+  }
+  @keyframes pop-in {
+    from {
+      opacity: 0;
+      transform: translateY(-4px) scale(0.98);
+    }
+  }
+}
+
 /* Scrolls by wheel, touch and keyboard without a visible scrollbar. */
 @utility scrollbar-none {
   scrollbar-width: none;

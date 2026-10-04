@@ -64,7 +64,7 @@ type StockFact = { kind: "order" | "receipt" | "damage"; product: string; pieces
 type PriceFact = { product: string; kind: "order" | "cost" | "sale"; price: string };
 type DsrFact = {
   staff: string;
-  lines: { product: string; issued: string; returned: string; damaged: string; split?: string }[];
+  lines: { product: string; issued: string; returned: string; damaged: string }[];
   dueNew: string;
   dueCollected: string;
 };
@@ -93,7 +93,7 @@ function facts(): DayFacts[] {
         {
           staff: id.mamun,
           lines: [
-            { product: id.alpha, issued: "60", returned: "12", damaged: "0", split: "6@10" },
+            { product: id.alpha, issued: "60", returned: "12", damaged: "0" },
             { product: id.beta, issued: "12", returned: "0", damaged: "1" },
           ],
           dueNew: "100",
@@ -167,11 +167,6 @@ function facts(): DayFacts[] {
 
 const ENGINE_FIELD = { order: "ordered", receipt: "received", damage: "damaged" } as const;
 const ENGINE_PRICE = { order: "orderPrice", cost: "costPrice", sale: "salePrice" } as const;
-const splitOf = (split: string) => {
-  const [quantity, unitPrice] = split.split("@") as [string, string];
-  return { quantity, unitPrice };
-};
-
 /** The same facts as engine input, written independently of the ledger. */
 function toEngineDay(day: DayFacts): DayInput {
   const products: Record<string, Record<string, string>> = {};
@@ -193,7 +188,7 @@ function toEngineDay(day: DayFacts): DayInput {
         issued: l.issued,
         returned: l.returned,
         damaged: l.damaged,
-        priceSplits: l.split ? [splitOf(l.split)] : [],
+        priceSplits: [],
       })),
     ),
     money: [
@@ -250,7 +245,6 @@ async function enterDay(day: DayFacts): Promise<void> {
         issued: l.issued,
         returned: l.returned,
         damaged: l.damaged,
-        splits: l.split ? [splitOf(l.split)] : [],
       })),
     });
     await postDsrDay(ctx, company, draft.id, { version: draft.version });
@@ -438,26 +432,6 @@ describe("Phase E: daily entry", () => {
       "staffId",
       "validation.daily.staffRequired",
     );
-    await expectField(
-      saveDsrDay(ctx, company, {
-        date: "2026-08-30",
-        staffId: id.mamun,
-        version: 0,
-        marketDueNew: "0",
-        marketDueCollected: "0",
-        lines: [
-          {
-            productId: id.alpha,
-            issued: "10",
-            returned: "5",
-            damaged: "0",
-            splits: [{ quantity: "6", unitPrice: "10" }],
-          },
-        ],
-      }),
-      "lines.0.splits",
-      "validation.daily.splitExceedsSold",
-    );
   });
 
   it("reproduces the engine's daily cash and closing from facts entered through the services", async () => {
@@ -588,7 +562,7 @@ describe("Phase E: daily entry", () => {
       version: 0,
       marketDueNew: "0",
       marketDueCollected: "0",
-      lines: [{ productId: id.alpha, issued: "48", returned: "6", damaged: "0", splits: [] }],
+      lines: [{ productId: id.alpha, issued: "48", returned: "6", damaged: "0" }],
     });
     await postDsrDay(ctx, company, redo.id, { version: redo.version });
     expect((await getDayView(ctx, company, "2026-09-02")).money).toEqual(before.money);

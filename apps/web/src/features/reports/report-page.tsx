@@ -12,20 +12,24 @@ import {
 } from "@bsd/i18n";
 import { useState } from "react";
 import { Button } from "@/components/button";
-import { inputClass } from "@/components/field";
+import { DateRangePicker } from "@/components/date-picker";
 import { PageHeader } from "@/components/page-header";
 import { QueryError } from "@/components/query-error";
-import { ListSkeleton } from "@/components/skeleton";
+import { TableSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
 import { describeError } from "@/data/ports/service-error";
 import { useReport } from "@/data/queries";
 import { useService } from "@/data/service-context";
 import { Warnings } from "@/features/daily/day-report-page";
+import { Icon } from "@/components/icons";
 import {
-  cartonText,
+  CartonQty,
+  ColumnHead,
+  TableScroller,
   money,
+  stickyCell,
+  stickyHead,
   tableClass,
-  tableShell,
   tdClass,
   tdNum,
   thClass,
@@ -41,7 +45,7 @@ function cellText(
   key: string,
   value: string | null,
   piecesPerCarton: string | undefined,
-): string {
+): React.ReactNode {
   if (value === null) return "—";
   switch (kind) {
     case "money":
@@ -49,7 +53,7 @@ function cellText(
     case "rate":
       return formatRate(value);
     case "quantity":
-      return cartonText(value, piecesPerCarton ?? "1");
+      return <CartonQty pieces={value} piecesPerCarton={piecesPerCarton ?? "1"} />;
     case "cartons":
       return toBengaliDigits(value);
     case "label":
@@ -59,38 +63,52 @@ function cellText(
   }
 }
 
-export function ReportTableView({ table }: { table: ReportTable }) {
+export function ReportTableView({
+  table,
+  heading = true,
+}: {
+  table: ReportTable;
+  heading?: boolean;
+}) {
   const numeric = (kind: string) => kind !== "text" && kind !== "label";
   return (
     <section className="flex flex-col gap-2">
-      <h2 className="text-sm font-semibold">{labelOf(table.title)}</h2>
+      {heading ? <h2 className="text-sm font-semibold">{labelOf(table.title)}</h2> : null}
       {table.rows.length === 0 ? (
         <p className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-sm text-text-muted">
           {t("report.empty")}
         </p>
       ) : (
-        <div className={tableShell}>
+        <TableScroller>
           <table className={tableClass}>
             <thead className={theadClass}>
               <tr>
-                {table.columns.map((c) => (
-                  <th
-                    key={c.key}
-                    scope="col"
-                    className={`${numeric(c.kind) ? thNum : thClass} whitespace-nowrap`}
-                  >
-                    {labelOf(c.label)}
-                  </th>
-                ))}
+                {table.columns.map((c, i) =>
+                  numeric(c.kind) && i > 0 ? (
+                    <ColumnHead
+                      key={c.key}
+                      label={labelOf(c.label)}
+                      quantity={c.kind === "quantity"}
+                    />
+                  ) : (
+                    <th
+                      key={c.key}
+                      scope="col"
+                      className={`${numeric(c.kind) ? thNum : thClass} whitespace-nowrap ${i === 0 ? stickyHead : ""}`}
+                    >
+                      {labelOf(c.label)}
+                    </th>
+                  ),
+                )}
               </tr>
             </thead>
             <tbody>
               {table.rows.map((row, index) => (
                 <tr key={index} className="border-t border-border">
-                  {table.columns.map((c) => (
+                  {table.columns.map((c, i) => (
                     <td
                       key={c.key}
-                      className={`${numeric(c.kind) ? tdNum : tdClass} whitespace-nowrap`}
+                      className={`${numeric(c.kind) ? tdNum : tdClass} whitespace-nowrap ${i === 0 ? stickyCell : ""}`}
                     >
                       {cellText(c.kind, c.key, row.cells[c.key] ?? null, row.piecesPerCarton)}
                     </td>
@@ -104,7 +122,10 @@ export function ReportTableView({ table }: { table: ReportTable }) {
                   {table.columns.map((c, i) => {
                     const value = table.totals?.[c.key] ?? null;
                     return (
-                      <td key={c.key} className={numeric(c.kind) ? tdNum : tdClass}>
+                      <td
+                        key={c.key}
+                        className={`${numeric(c.kind) ? tdNum : tdClass} ${i === 0 ? stickyCell : ""}`}
+                      >
                         {i === 0
                           ? t("common.total")
                           : value === null
@@ -117,7 +138,84 @@ export function ReportTableView({ table }: { table: ReportTable }) {
               </tfoot>
             ) : null}
           </table>
+        </TableScroller>
+      )}
+    </section>
+  );
+}
+
+/**
+ * The DSR × product sales list as one folding block per DSR: its total from the engine's person
+ * totals in the header, its products inside, so a long list reads one person at a time.
+ */
+function PersonSales({ totals, products }: { totals: ReportTable; products: ReportTable }) {
+  const people = totals.rows.map((r) => r.cells.staff ?? "");
+  const [open, setOpen] = useState<ReadonlySet<string>>(
+    () => new Set(people.length === 1 ? people : []),
+  );
+  const columns = products.columns.filter((c) => c.key !== "staff");
+  const toggle = (name: string) =>
+    setOpen((current) => {
+      const next = new Set(current);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+
+  return (
+    <section className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold">{labelOf(products.title)}</h2>
+        <div className="flex gap-2">
+          <Button onClick={() => setOpen(new Set(people))}>{t("report.person.openAll")}</Button>
+          <Button onClick={() => setOpen(new Set())}>{t("report.person.closeAll")}</Button>
         </div>
+      </div>
+      {totals.rows.length === 0 ? (
+        <p className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-sm text-text-muted">
+          {t("report.empty")}
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-2">
+          {totals.rows.map((person) => {
+            const name = person.cells.staff ?? "";
+            const rows = products.rows.filter((r) => r.cells.staff === name);
+            const expanded = open.has(name);
+            return (
+              <li
+                key={name}
+                className="overflow-hidden rounded-xl border border-border bg-surface shadow-card"
+              >
+                <button
+                  type="button"
+                  aria-expanded={expanded}
+                  onClick={() => toggle(name)}
+                  className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-surface-hover"
+                >
+                  <Icon
+                    name="chevronDown"
+                    className={`size-4 text-text-muted transition-transform ${expanded ? "" : "-rotate-90"}`}
+                  />
+                  <span className="font-medium">{name}</span>
+                  <span className="text-xs text-text-muted">
+                    {toBengaliDigits(String(rows.length))} {t("report.person.products")}
+                  </span>
+                  <span className="ml-auto font-semibold tabular-nums">
+                    {money(person.cells.amount ?? null)}
+                  </span>
+                </button>
+                {expanded ? (
+                  <div className="border-t border-border p-3">
+                    <ReportTableView
+                      heading={false}
+                      table={{ ...products, columns, rows, totals: null }}
+                    />
+                  </div>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
       )}
     </section>
   );
@@ -142,9 +240,11 @@ function Report({
   const query = useReport(companyId, report, range);
   if (range.from > range.to)
     return <StatePanel tone="error" title={t("validation.period.endBeforeStart")} />;
-  if (query.isPending) return <ListSkeleton />;
+  if (query.isPending) return <TableSkeleton rows={8} columns={7} title />;
   if (query.isError) return <QueryError error={query.error} onRetry={() => void query.refetch()} />;
   const data = query.data;
+  const personTotals = data.tables.find((x) => x.title === "report.table.personTotals");
+  const personProducts = data.tables.find((x) => x.title === "report.table.personProducts");
   if (!data.cutoffDate) {
     return (
       <StatePanel
@@ -164,16 +264,21 @@ function Report({
     );
   }
   return (
-    <div className={`flex flex-col gap-6 ${query.isPlaceholderData ? "opacity-60" : ""}`}>
+    <div className="flex flex-col gap-6">
       {data.from !== range.from || data.to !== range.to ? (
         <p className="text-xs text-text-muted">
           {t("report.coversFrom")} {formatBusinessDate(data.from)} – {formatBusinessDate(data.to)}
         </p>
       ) : null}
-      <Warnings view={{ warnings: data.warnings, products: [] }} />
-      {data.tables.map((table) => (
-        <ReportTableView key={table.title} table={table} />
-      ))}
+      <Warnings warnings={data.warnings} />
+      {personTotals && personProducts ? (
+        <PersonSales totals={personTotals} products={personProducts} />
+      ) : null}
+      {data.tables
+        .filter((table) => table !== personTotals && table !== personProducts)
+        .map((table) => (
+          <ReportTableView key={table.title} table={table} />
+        ))}
     </div>
   );
 }
@@ -227,31 +332,7 @@ export function ReportPage({
         description={t(description)}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <label className="sr-only" htmlFor="report-from">
-              {t("common.from")}
-            </label>
-            <input
-              id="report-from"
-              type="date"
-              value={range.from}
-              onChange={(event) =>
-                event.target.value && setRange({ ...range, from: event.target.value })
-              }
-              className={`${inputClass} w-auto text-sm`}
-            />
-            <span aria-hidden>–</span>
-            <label className="sr-only" htmlFor="report-to">
-              {t("common.to")}
-            </label>
-            <input
-              id="report-to"
-              type="date"
-              value={range.to}
-              onChange={(event) =>
-                event.target.value && setRange({ ...range, to: event.target.value })
-              }
-              className={`${inputClass} w-auto text-sm`}
-            />
+            <DateRangePicker value={range} onChange={setRange} max={businessDateOf(new Date())} />
             {canExport ? (
               <>
                 <Button disabled={busy} onClick={() => void exportAs("csv")}>

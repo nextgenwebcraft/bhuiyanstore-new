@@ -47,12 +47,6 @@ export const stockEntrySchema = z.object({
   sku: z.string(),
   productName: z.string(),
   pieces: positivePiecesSchema,
-  supplierId: idSchema.nullable(),
-  reference: z.string(),
-  /** Optional lot and expiry for received stock (D29). */
-  lot: z.string().nullable(),
-  expiry: businessDateSchema.nullable(),
-  note: z.string(),
   status: z.enum(documentStatuses),
   createdAt: z.string(),
   reversedAt: z.string().nullable(),
@@ -64,14 +58,12 @@ export const stockEntryLineRequestSchema = z.object({
   kind: z.enum(stockEntryKinds),
   productId: idSchema,
   pieces: positivePiecesSchema,
-  supplierId: idSchema.nullable().default(null),
-  reference: z.string().trim().max(100).default(""),
-  lot: z.string().trim().max(60).nullable().default(null),
-  expiry: businessDateSchema.nullable().default(null),
-  note: z.string().trim().max(500).default(""),
 });
 
-/** A price present here applies from `date` on (Excel's carry-forward, PLAN §2.2). */
+/**
+ * A price present here applies from `date` on (Excel's carry-forward, PLAN §2.2). Prices posted
+ * with a receipt are that batch's purchase and sale price.
+ */
 export const dayPriceRequestSchema = z.object({
   productId: idSchema,
   kind: z.enum(priceKinds),
@@ -96,12 +88,6 @@ export type StockEntryPostRequest = z.input<typeof stockEntryPostRequestSchema>;
 export const dsrDayStatuses = ["draft", "posted", "reversed"] as const;
 export type DsrDayStatus = (typeof dsrDayStatuses)[number];
 
-/** Pieces sold at a price other than the day's sale price (D06). */
-export const priceSplitSchema = z.object({
-  quantity: positivePiecesSchema,
-  unitPrice: unitPriceSchema,
-});
-
 export const dsrLineRequestSchema = z.object({
   productId: idSchema,
   /** Samari: pieces issued (cartons × carton size + loose pieces). */
@@ -109,7 +95,6 @@ export const dsrLineRequestSchema = z.object({
   /** Firot: unsold pieces returned. */
   returned: wholePiecesSchema,
   damaged: wholePiecesSchema,
-  splits: z.array(priceSplitSchema).max(5).default([]),
 });
 
 export const dsrDaySaveRequestSchema = z.object({
@@ -121,7 +106,6 @@ export const dsrDaySaveRequestSchema = z.object({
   marketDueNew: amountSchema,
   /** Old dues this DSR collected today. */
   marketDueCollected: amountSchema,
-  note: z.string().trim().max(500).default(""),
   lines: z.array(dsrLineRequestSchema).max(500),
 });
 
@@ -131,7 +115,6 @@ export const dsrLineSchema = dsrLineRequestSchema.extend({
   sku: z.string(),
   productName: z.string(),
   piecesPerCarton: z.string(),
-  splits: z.array(priceSplitSchema),
 });
 
 export const dsrDaySchema = z.object({
@@ -143,7 +126,6 @@ export const dsrDaySchema = z.object({
   version: z.number().int().positive(),
   marketDueNew: decimalStringSchema,
   marketDueCollected: decimalStringSchema,
-  note: z.string(),
   lines: z.array(dsrLineSchema),
   postedAt: z.string().nullable(),
   reversedAt: z.string().nullable(),
@@ -267,8 +249,6 @@ export const moneyEntryPostRequestSchema = z.object({
   staffId: idSchema.nullable().default(null),
   expenseCategoryId: idSchema.nullable().default(null),
   allocation: owedAllocationSchema.nullable().default(null),
-  reference: z.string().trim().max(100).default(""),
-  note: z.string().trim().max(500).default(""),
 });
 
 export type MoneyEntryPostRequest = z.input<typeof moneyEntryPostRequestSchema>;
@@ -285,8 +265,6 @@ export const moneyEntrySchema = z.object({
   allocation: owedAllocationSchema.nullable(),
   /** Set when a payroll run posted the entry; it is then reversed only with the run. */
   payrollRunId: idSchema.nullable(),
-  reference: z.string(),
-  note: z.string(),
   status: z.enum(documentStatuses),
   createdAt: z.string(),
   reversedAt: z.string().nullable(),
