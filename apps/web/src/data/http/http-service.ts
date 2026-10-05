@@ -60,25 +60,69 @@ export type HttpDistributionService = DistributionService & {
   signOut(): Promise<void>;
 };
 
-async function send(url: string, call: Call): Promise<Response> {
+/**
+ * Reads give up after this long and become a retryable failure. Writes never time out on the
+ * client: their outcome would be unknown, and the server bounds its own transactions.
+ */
+export const READ_TIMEOUT_MS = 60_000;
+
+/**
+ * Idempotency keys of writes whose outcome is unknown (network failure or 5xx). Resubmitting the
+ * identical request reuses the key, so the server replays a commit it already made instead of
+ * posting twice. A definite answer (2xx or 4xx) forgets the key; the next submission is new.
+ */
+export class PendingWriteKeys {
+  private readonly keys = new Map<string, string>();
+
+  keyFor(fingerprint: string): string {
+    let key = this.keys.get(fingerprint);
+    if (!key) {
+      key = crypto.randomUUID();
+      this.keys.set(fingerprint, key);
+    }
+    return key;
+  }
+
+  settle(fingerprint: string, response: Response | null): void {
+    if (response && response.status < 500) this.keys.delete(fingerprint);
+  }
+}
+
+function fingerprintOf(url: string, call: Call): string {
+  const file = call.file;
+  const body = file
+    ? `file:${file.size}:${file instanceof File ? `${file.name}:${file.lastModified}` : ""}`
+    : JSON.stringify(call.body ?? null);
+  return `${call.method ?? "GET"} ${url} ${body}`;
+}
+
+async function send(url: string, call: Call, pending: PendingWriteKeys): Promise<Response> {
   const headers: Record<string, string> = { accept: "application/json" };
   if (call.body !== undefined) headers["content-type"] = "application/json";
   if (call.file) headers["content-type"] = XLSX;
-  // One key per user action; a network retry of the same request replays the stored result.
-  if (call.idempotent) headers["idempotency-key"] = crypto.randomUUID();
+  const fingerprint = call.idempotent ? fingerprintOf(url, call) : null;
+  if (fingerprint) headers["idempotency-key"] = pending.keyFor(fingerprint);
+  const isRead = (call.method ?? "GET") === "GET";
+  const timeout = isRead ? AbortSignal.timeout(READ_TIMEOUT_MS) : undefined;
+  const signal =
+    timeout && call.signal ? AbortSignal.any([call.signal, timeout]) : (timeout ?? call.signal);
+  let response: Response | null = null;
   try {
-    return await fetch(url, {
+    response = await fetch(url, {
       method: call.method ?? "GET",
       headers,
       credentials: "same-origin",
       cache: "no-store",
       ...(call.body !== undefined ? { body: JSON.stringify(call.body) } : {}),
       ...(call.file ? { body: call.file } : {}),
-      ...(call.signal ? { signal: call.signal } : {}),
+      ...(signal ? { signal } : {}),
     });
+    return response;
   } catch (error) {
     if (call.signal?.aborted) throw new ServiceError("REQUEST_ABORTED");
     throw Object.assign(new ServiceError("INTERNAL", true), { cause: error });
+  } finally {
+    if (fingerprint) pending.settle(fingerprint, response);
   }
 }
 
@@ -94,8 +138,10 @@ async function failure(response: Response): Promise<ServiceError> {
  * contracts.
  */
 export function createHttpService(onUnauthenticated: () => void): HttpDistributionService {
+  const pending = new PendingWriteKeys();
+
   async function request<T>(schema: z.ZodType<T>, path: string, call: Call = {}): Promise<T> {
-    const response = await send(`/api/v1${path}`, call);
+    const response = await send(`/api/v1${path}`, call, pending);
     if (!response.ok) {
       const error = await failure(response);
       if (error.code === "UNAUTHENTICATED") onUnauthenticated();
@@ -119,17 +165,18 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
     changePassword: (input) =>
       request(z.undefined(), "/me/password", { method: "POST", body: input }),
     async signIn(email, password) {
-      const response = await send("/api/auth/sign-in/email", {
-        method: "POST",
-        body: { email, password },
-      });
+      const response = await send(
+        "/api/auth/sign-in/email",
+        { method: "POST", body: { email, password } },
+        pending,
+      );
       if (response.status === 401 || response.status === 403 || response.status === 400) {
         throw new ServiceError("UNAUTHENTICATED");
       }
       if (!response.ok) throw new ServiceError("INTERNAL", response.status >= 500);
     },
     async signOut() {
-      await send("/api/auth/sign-out", { method: "POST", body: {} });
+      await send("/api/auth/sign-out", { method: "POST", body: {} }, pending);
     },
 
     listWorkspaces: (options) => request(z.array(companyWorkspaceSchema), "/companies", options),
@@ -415,7 +462,7 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
   };
 
   async function download(path: string, fallbackName: string) {
-    const response = await send(`/api/v1${path}`, {});
+    const response = await send(`/api/v1${path}`, {}, pending);
     if (!response.ok) {
       const error = await failure(response);
       if (error.code === "UNAUTHENTICATED") onUnauthenticated();

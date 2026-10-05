@@ -782,11 +782,11 @@ export async function getDayView(
   const date = businessDate(dateInput);
   const canSeeCost = access.permissions.includes("inventory.cost_view");
   const canSeeProfit = canSeeCost && access.permissions.includes("report.profit_view");
-  const active = await activeOpening(ctx.db, companyId);
-  const [run, names] = await Promise.all([
-    runLedger(ctx.db, access, date, active),
+  const [active, names] = await Promise.all([
+    activeOpening(ctx.db, companyId),
     namesFor(ctx.db, access, date),
   ]);
+  const run = await runLedger(ctx.db, access, date, active);
   const day = run?.output.days.find((d) => d.date === date);
   const byId = new Map(day?.products.map((p) => [p.productId, p]));
   const cost = (value: string) => (canSeeCost ? value : null);

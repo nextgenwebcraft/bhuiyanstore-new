@@ -5,6 +5,7 @@ import { businessDateOf } from "@bsd/domain";
 import { formatBusinessDate, t } from "@bsd/i18n";
 import { useState } from "react";
 import { Button } from "@/components/button";
+import { lastOfMonth } from "@/components/calendar-math";
 import { DatePicker, MonthPicker } from "@/components/date-picker";
 import { Field } from "@/components/field";
 import { PageHeader } from "@/components/page-header";
@@ -12,6 +13,7 @@ import { QueryError } from "@/components/query-error";
 import { FormSkeleton, TableSkeleton } from "@/components/skeleton";
 import { StatTile } from "@/components/stat-tile";
 import { StatePanel } from "@/components/state-panel";
+import { StatusBadge } from "@/components/status-badge";
 import { describeError } from "@/data/ports/service-error";
 import { usePayrollCommand, usePayrollRun, useSavePayrollRun } from "@/data/queries";
 import {
@@ -41,12 +43,6 @@ type Draft = {
 
 const AMOUNT = /^\d+(\.\d{1,2})?$/;
 
-function lastOfMonth(month: string): string {
-  const [year, monthNumber] = month.split("-").map(Number) as [number, number];
-  const day = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
-  return `${month}-${String(day).padStart(2, "0")}`;
-}
-
 function draftOf(line: PayrollLine): Draft {
   const changed = BUCKETS.some((b) => line.recovery[b] !== line.proposed[b]);
   return {
@@ -57,18 +53,10 @@ function draftOf(line: PayrollLine): Draft {
   };
 }
 
-function StatusBadge({ status }: { status: PayrollStatus }) {
+function RunStatus({ status }: { status: PayrollStatus }) {
   const tone =
-    status === "paid"
-      ? "border-success/30 bg-success/10 text-success"
-      : status === "approved" || status === "draft"
-        ? "border-brand/30 bg-brand/10 text-brand"
-        : "border-border bg-surface-muted text-text-muted";
-  return (
-    <span className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${tone}`}>
-      {t(`payroll.status.${status}`)}
-    </span>
-  );
+    status === "paid" ? "success" : status === "approved" || status === "draft" ? "brand" : "muted";
+  return <StatusBadge tone={tone}>{t(`payroll.status.${status}`)}</StatusBadge>;
 }
 
 function RunEditor({ run, month }: { run: PayrollRun; month: string }) {
@@ -350,7 +338,7 @@ export function PayrollPage({ path }: { path: string }) {
               label={t("month.picker")}
               onChange={setMonth}
             />
-            {run ? <StatusBadge status={run.status} /> : null}
+            {run ? <RunStatus status={run.status} /> : null}
           </div>
         }
       />

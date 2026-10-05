@@ -19,6 +19,7 @@ import { QueryError } from "@/components/query-error";
 import { ListSkeleton, SummarySkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
 import { StatTile } from "@/components/stat-tile";
+import { StatusBadge } from "@/components/status-badge";
 import { TableScroller } from "@/components/table-scroller";
 import { describeError } from "@/data/ports/service-error";
 import {
@@ -70,18 +71,9 @@ const dayOf = (instant: string) => formatBusinessDate(businessDateOf(new Date(in
 
 const headClass = "bg-surface-muted text-left text-xs text-text-muted";
 
-function StatusBadge({ status }: { status: ImportJobSummary["status"] }) {
-  const tone =
-    status === "committed"
-      ? "border-success/30 bg-success/10 text-success"
-      : status === "ready"
-        ? "border-brand/30 bg-brand/10 text-brand"
-        : "border-border bg-surface-muted text-text-muted";
-  return (
-    <span className={`rounded-full border px-3 py-1 text-xs font-medium ${tone}`}>
-      {t(`import.status.${status}`)}
-    </span>
-  );
+function JobStatus({ status }: { status: ImportJobSummary["status"] }) {
+  const tone = status === "committed" ? "success" : status === "ready" ? "brand" : "muted";
+  return <StatusBadge tone={tone}>{t(`import.status.${status}`)}</StatusBadge>;
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -214,7 +206,7 @@ function JobsList({
           >
             <span className="flex items-center justify-between gap-2">
               <span className="font-medium">{job.sheet}</span>
-              <StatusBadge status={job.status} />
+              <JobStatus status={job.status} />
             </span>
             <span className="truncate text-xs text-text-muted">{job.fileName}</span>
             <span className="flex justify-between text-xs text-text-subtle">
@@ -515,7 +507,7 @@ function JobView({ job }: { job: ImportJob }) {
             {dayOf(job.createdAt)}
           </p>
         </div>
-        <StatusBadge status={job.status} />
+        <JobStatus status={job.status} />
       </header>
 
       {error && confirming === null ? <StatePanel tone="error" title={error} /> : null}

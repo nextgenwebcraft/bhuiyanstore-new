@@ -17,6 +17,7 @@
     "test:domain": "vitest run packages/domain",
     "verify:workbook": "vitest run --config vitest.workbook.config.ts",
     "test:integration": "node scripts/test-integration.mjs",
+    "benchmark:sql": "node scripts/test-integration.mjs --benchmark",
     "db:migrate": "pnpm --filter @bsd/database migrate:deploy",
     "db:bootstrap-admin": "pnpm --filter @bsd/auth bootstrap-admin",
     "check": "pnpm format:check && pnpm lint && pnpm check:types && pnpm test"

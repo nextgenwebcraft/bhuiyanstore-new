@@ -12,6 +12,7 @@ import {
 } from "@bsd/i18n";
 import { useState } from "react";
 import { Button } from "@/components/button";
+import { presetRange } from "@/components/calendar-math";
 import { DateRangePicker } from "@/components/date-picker";
 import { PageHeader } from "@/components/page-header";
 import { QueryError } from "@/components/query-error";
@@ -223,11 +224,6 @@ function PersonSales({ totals, products }: { totals: ReportTable; products: Repo
 
 const reportLabel = (id: ReportId) => t(`report.name.${id}` as TranslationKey);
 
-function defaultRange(): ReportRange {
-  const today = businessDateOf(new Date());
-  return { from: `${today.slice(0, 7)}-01`, to: today };
-}
-
 function Report({
   companyId,
   report,
@@ -307,7 +303,7 @@ export function ReportPage({
   });
   const [selected, setReport] = useState<ReportId>(reports[0]);
   const report = allowed.includes(selected) ? selected : (allowed[0] ?? selected);
-  const [range, setRange] = useState(defaultRange);
+  const [range, setRange] = useState(() => presetRange("thisMonth", businessDateOf(new Date())));
   const [error, setError] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
   const canExport = permissions.includes("report.export");

@@ -1,5 +1,6 @@
 "use client";
 
+import { MIN_PASSWORD_LENGTH } from "@bsd/contracts";
 import { t } from "@bsd/i18n";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
@@ -8,8 +9,6 @@ import { Button, ButtonLink } from "@/components/button";
 import { Field, inputClass } from "@/components/field";
 import { useSession } from "@/data/http/http-provider";
 import { errorCodeOf, ServiceError } from "@/data/ports/service-error";
-
-const MIN_LENGTH = 12;
 
 type Errors = { currentPassword?: string; newPassword?: string; form?: string };
 
@@ -39,7 +38,7 @@ export function ChangePasswordPage() {
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!session || busy) return;
-    if (newPassword.length < MIN_LENGTH) {
+    if (newPassword.length < MIN_PASSWORD_LENGTH) {
       setErrors({ newPassword: t("auth.passwordTooShort") });
       return;
     }
@@ -83,7 +82,7 @@ export function ChangePasswordPage() {
               type="password"
               autoComplete="new-password"
               required
-              minLength={MIN_LENGTH}
+              minLength={MIN_PASSWORD_LENGTH}
               value={newPassword}
               onChange={(event) => setNewPassword(event.target.value)}
               className={inputClass}

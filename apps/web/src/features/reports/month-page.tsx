@@ -11,6 +11,7 @@ import { QueryError } from "@/components/query-error";
 import { SummarySkeleton } from "@/components/skeleton";
 import { StatTile } from "@/components/stat-tile";
 import { StatePanel } from "@/components/state-panel";
+import { StatusBadge } from "@/components/status-badge";
 import { describeError } from "@/data/ports/service-error";
 import { useMonthCommand, useMonthView } from "@/data/queries";
 import { Warnings } from "@/features/daily/day-report-page";
@@ -183,18 +184,9 @@ function payableTable(view: MonthView): ReportTable {
   );
 }
 
-function StatusBadge({ status }: { status: MonthView["status"] }) {
-  const tone =
-    status === "closed"
-      ? "border-success/30 bg-success/10 text-success"
-      : status === "open"
-        ? "border-brand/30 bg-brand/10 text-brand"
-        : "border-border bg-surface-muted text-text-muted";
-  return (
-    <span className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${tone}`}>
-      {t(`month.status.${status}` as TranslationKey)}
-    </span>
-  );
+function MonthStatus({ status }: { status: MonthView["status"] }) {
+  const tone = status === "closed" ? "success" : status === "open" ? "brand" : "muted";
+  return <StatusBadge tone={tone}>{t(`month.status.${status}` as TranslationKey)}</StatusBadge>;
 }
 
 function MonthBody({ view }: { view: MonthView }) {
@@ -290,7 +282,7 @@ export function MonthPage({ path, title }: { path: string; title: TranslationKey
               label={t("month.picker")}
               onChange={setMonth}
             />
-            {view ? <StatusBadge status={view.status} /> : null}
+            {view ? <MonthStatus status={view.status} /> : null}
             {view?.canClose ? (
               <Button
                 variant="primary"

@@ -229,6 +229,7 @@ export {
   companyUpsertRequestSchema,
   companyWorkspaceSchema,
   meSchema,
+  MIN_PASSWORD_LENGTH,
   passwordChangeRequestSchema,
   type Company,
   type CompanyTheme,

@@ -36,6 +36,11 @@ const root = new URL("..", import.meta.url);
 run(["exec", "prisma", "migrate", "deploy"], new URL("packages/database/", root), {
   PRISMA_MIGRATE_URL: url,
 });
-// Extra arguments are Vitest file filters, e.g. `pnpm test:integration phase-e`.
-const filters = process.argv.slice(2).filter((a) => /^[\w.-]+$/.test(a));
-run(["exec", "vitest", "run", "--config", "vitest.integration.config.ts", ...filters], root);
+// `--benchmark` runs the SQL baseline instead (`pnpm benchmark:sql`). Other extra arguments are
+// Vitest file filters, e.g. `pnpm test:integration phase-e`.
+const args = process.argv.slice(2);
+const config = args.includes("--benchmark")
+  ? "vitest.benchmark.config.ts"
+  : "vitest.integration.config.ts";
+const filters = args.filter((a) => a !== "--benchmark" && /^[\w.-]+$/.test(a));
+run(["exec", "vitest", "run", "--config", config, ...filters], root);

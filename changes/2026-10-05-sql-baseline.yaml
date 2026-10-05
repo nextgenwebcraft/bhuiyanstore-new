@@ -1,0 +1,27 @@
+id: 2026-10-05-sql-baseline
+reason: The owner asked whether Redis is needed. D14 requires a measured SQL baseline first, so the heaviest reads were benchmarked against the real database and the outcome recorded as T19.
+owners: [application, docs]
+changedDefinitionIds:
+  - docs/decisions.md (T19 - Redis stays out; host the app in Neon's region, close months promptly, re-measure from production)
+  - docs/benchmarks/2026-10-05-sql-baseline.md (results and analysis)
+  - packages/application/src/sql-baseline.benchmark.ts (workbook-sized seed, timings with query count, round trips and SQL wait, optional trace)
+  - vitest.benchmark.config.ts, scripts/test-integration.mjs (--benchmark), package.json (benchmark:sql)
+affectedActionIds: [none]
+affectedResources: [none]
+affectedMetrics:
+  - none; no production code changed
+affectedUi: [none]
+schemaMigration: none
+backfill: not-applicable
+historicalPolicy: unchanged
+contractCompatibility: unchanged
+cacheAndProjectionPlan: no cache. Re-run benchmark:sql from the production host before go-live; consider Redis or a persisted open-month projection only for operations still over guide 15.5 there.
+securityReview: benchmark runs only against the TEST_DATABASE_URL schema (refuses public) and wipes it, like the integration tests
+knownGaps:
+  - measured from a developer PC (about 120 ms to Neon), not from the production host
+  - the benchmark is not part of pnpm check (it needs the database and takes about 10 minutes)
+tests:
+  - pnpm benchmark:sql (scale 1, 3 and 7 runs)
+  - pnpm check
+rollout: none (tooling and docs)
+recovery: revert the commit

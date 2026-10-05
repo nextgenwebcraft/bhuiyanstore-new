@@ -10,6 +10,7 @@ import { Icon } from "@/components/icons";
 import { QueryError } from "@/components/query-error";
 import { TableSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
+import { StatusBadge } from "@/components/status-badge";
 import { useDayView } from "@/data/queries";
 import { companyHref } from "@/features/shell/navigation";
 
@@ -252,17 +253,13 @@ export function ColumnHead({
 export function StatusChip({ status }: { status: "draft" | "posted" | "reversed" | "none" }) {
   const tone =
     status === "posted"
-      ? "border-success/30 bg-success/10 text-success"
+      ? "success"
       : status === "draft"
-        ? "border-brand/30 bg-brand/10 text-brand"
+        ? "brand"
         : status === "reversed"
-          ? "border-error/30 bg-error/5 text-error"
-          : "border-border bg-surface-muted text-text-muted";
-  return (
-    <span className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${tone}`}>
-      {t(`daily.status.${status}`)}
-    </span>
-  );
+          ? "error"
+          : "muted";
+  return <StatusBadge tone={tone}>{t(`daily.status.${status}`)}</StatusBadge>;
 }
 
 export function SectionTitle({ children }: { children: React.ReactNode }) {

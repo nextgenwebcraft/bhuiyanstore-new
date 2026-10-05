@@ -53,10 +53,12 @@ export const meSchema = z.object({
 
 export type Me = z.infer<typeof meSchema>;
 
-/** Minimum length is enforced again by the auth server; 12 matches guide §12.1. */
+/** Guide §12.1; the auth server enforces the same minimum again (`@bsd/auth`). */
+export const MIN_PASSWORD_LENGTH = 12;
+
 export const passwordChangeRequestSchema = z.object({
   currentPassword: z.string().min(1).max(256),
-  newPassword: z.string().min(12).max(128),
+  newPassword: z.string().min(MIN_PASSWORD_LENGTH).max(128),
 });
 
 export type PasswordChangeRequest = z.infer<typeof passwordChangeRequestSchema>;

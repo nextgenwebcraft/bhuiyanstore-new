@@ -27,6 +27,7 @@ import { QueryError } from "@/components/query-error";
 import { PageSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
 import { StatTile } from "@/components/stat-tile";
+import { StatusBadge } from "@/components/status-badge";
 import { TableScroller } from "@/components/table-scroller";
 import { describeError } from "@/data/ports/service-error";
 import {
@@ -129,18 +130,9 @@ const isDirty = (view: Opening, draft: Draft) =>
 
 // ---------------------------------------------------------------- small pieces
 
-function StatusBadge({ status }: { status: Opening["status"] }) {
-  const tone =
-    status === "active"
-      ? "border-success/30 bg-success/10 text-success"
-      : status === "approved"
-        ? "border-brand/30 bg-brand/10 text-brand"
-        : "border-border bg-surface-muted text-text-muted";
-  return (
-    <span className={`rounded-full border px-3 py-1 text-xs font-medium ${tone}`}>
-      {t(`opening.status.${status}`)}
-    </span>
-  );
+function OpeningStatus({ status }: { status: Opening["status"] }) {
+  const tone = status === "active" ? "success" : status === "approved" ? "brand" : "muted";
+  return <StatusBadge tone={tone}>{t(`opening.status.${status}`)}</StatusBadge>;
 }
 
 function CellInput({
@@ -743,7 +735,7 @@ function OpeningScreen({
         description={t("opening.description")}
         actions={
           <>
-            <StatusBadge status={view.status} />
+            <OpeningStatus status={view.status} />
             {!locked ? (
               <Button
                 disabled={dirty}

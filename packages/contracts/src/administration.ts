@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { permissionIds } from "./definitions/permissions";
+import { MIN_PASSWORD_LENGTH } from "./organization";
 import { idSchema } from "./primitives";
 
 /** A role is a named set of fixed permission IDs (guide §12.2). */
@@ -37,7 +38,7 @@ export const userSchema = z.object({
 
 export type User = z.infer<typeof userSchema>;
 
-const temporaryPassword = z.string().min(12).max(128);
+const temporaryPassword = z.string().min(MIN_PASSWORD_LENGTH).max(128);
 
 /** The administrator sets a one-time password; the user must change it at first sign-in. */
 export const userCreateRequestSchema = z.object({

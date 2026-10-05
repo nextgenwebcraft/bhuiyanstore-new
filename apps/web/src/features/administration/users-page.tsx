@@ -1,6 +1,6 @@
 "use client";
 
-import type { MembershipInput, Role, User } from "@bsd/contracts";
+import { MIN_PASSWORD_LENGTH, type MembershipInput, type Role, type User } from "@bsd/contracts";
 import { t } from "@bsd/i18n";
 import { useId, useState } from "react";
 import { Button } from "@/components/button";
@@ -22,7 +22,6 @@ import {
 import { NavGate } from "@/features/shell/nav-gate";
 
 const PATH = "admin/users";
-const MIN_PASSWORD = 12;
 const noErrors: DescribedError = { fields: {} };
 
 type Company = { id: string; name: string };
@@ -128,7 +127,7 @@ function UserDialog({
     if (!name.trim()) fields.name = t("validation.required");
     if (!editing) {
       if (!/^\S+@\S+\.\S+$/.test(email.trim())) fields.email = t("validation.email");
-      if (password.length < MIN_PASSWORD) fields.password = t("auth.passwordTooShort");
+      if (password.length < MIN_PASSWORD_LENGTH) fields.password = t("auth.passwordTooShort");
     }
     if (missingRole(memberships)) fields.memberships = t("validation.membership.roleRequired");
     if (Object.keys(fields).length > 0) {
@@ -198,7 +197,7 @@ function UserDialog({
               id={`${id}-password`}
               type="password"
               autoComplete="new-password"
-              minLength={MIN_PASSWORD}
+              minLength={MIN_PASSWORD_LENGTH}
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               className={inputClass}
@@ -242,7 +241,7 @@ function ResetPasswordDialog({ user, onClose }: { user: User; onClose: () => voi
   const [errors, setErrors] = useState(noErrors);
 
   async function submit() {
-    if (password.length < MIN_PASSWORD) {
+    if (password.length < MIN_PASSWORD_LENGTH) {
       setErrors({ fields: { password: t("auth.passwordTooShort") } });
       return;
     }
@@ -279,7 +278,7 @@ function ResetPasswordDialog({ user, onClose }: { user: User; onClose: () => voi
           id={`${id}-password`}
           type="password"
           autoComplete="new-password"
-          minLength={MIN_PASSWORD}
+          minLength={MIN_PASSWORD_LENGTH}
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           className={inputClass}

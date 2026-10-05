@@ -5,8 +5,14 @@ import { database } from "@bsd/database";
 
 const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
+/** Every answer is per-user business data: never stored by a browser or shared cache. */
+const NO_STORE = { "cache-control": "private, no-store" };
+
 function errorResponse(error: AppError, requestId: string): Response {
-  return Response.json(error.toApiError(requestId), { status: HTTP_STATUS[error.code] });
+  return Response.json(error.toApiError(requestId), {
+    status: HTTP_STATUS[error.code],
+    headers: NO_STORE,
+  });
 }
 
 const XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -54,8 +60,8 @@ export async function handle(
     const result = await run({ db, actor, requestId });
     if (result instanceof Response) return result;
     return result === undefined
-      ? new Response(null, { status: 204 })
-      : Response.json(result, { status: successStatus });
+      ? new Response(null, { status: 204, headers: NO_STORE })
+      : Response.json(result, { status: successStatus, headers: NO_STORE });
   } catch (error) {
     if (error instanceof AppError) return errorResponse(error, requestId);
     console.error(`[api] ${request.method} ${new URL(request.url).pathname} ${requestId}`, error);

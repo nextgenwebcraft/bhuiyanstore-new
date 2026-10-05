@@ -11,6 +11,7 @@ import { formatBusinessDate, t, type TranslationKey } from "@bsd/i18n";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { Button, ButtonLink } from "@/components/button";
+import { presetRange } from "@/components/calendar-math";
 import { DateRangePicker } from "@/components/date-picker";
 import { Field, inputClass } from "@/components/field";
 import { PageHeader } from "@/components/page-header";
@@ -150,11 +151,6 @@ export function StaffAccountsPage({
   );
 }
 
-function defaultRange(): ReportRange {
-  const today = businessDateOf(new Date());
-  return { from: `${today.slice(0, 7)}-01`, to: today };
-}
-
 function StatementBody({ statement }: { statement: StaffStatement }) {
   const keys = KIND_KEYS[statement.kind];
   return (
@@ -290,7 +286,7 @@ function StatementContent({
   const initial = useSearchParams().get("staff") ?? "";
   const people = useStaffAccounts(company.id, kind, businessDateOf(new Date()));
   const [staffId, setStaffId] = useState(initial);
-  const [range, setRange] = useState(defaultRange);
+  const [range, setRange] = useState(() => presetRange("thisMonth", businessDateOf(new Date())));
   const [error, setError] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
   const canExport = permissions.includes("report.export");

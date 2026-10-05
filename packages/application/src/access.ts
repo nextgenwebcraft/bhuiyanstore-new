@@ -31,17 +31,20 @@ export async function loadCompanyAccess(
   ctx: AppContext,
   companyId: string,
 ): Promise<CompanyAccess> {
-  const company = await ctx.db.company.findFirst({
-    where: { id: companyId, tenantId: ctx.actor.tenantId },
-    include: companyInclude,
-  });
+  const [company, membership] = await Promise.all([
+    ctx.db.company.findFirst({
+      where: { id: companyId, tenantId: ctx.actor.tenantId },
+      include: companyInclude,
+    }),
+    ctx.actor.isSuperAdmin
+      ? null
+      : ctx.db.membership.findUnique({
+          where: { userId_companyId: { userId: ctx.actor.userId, companyId } },
+          include: { roles: { include: { role: { include: { permissions: true } } } } },
+        }),
+  ]);
   if (!company) throw new AppError("COMPANY_NOT_FOUND");
   if (ctx.actor.isSuperAdmin) return { company, permissions: [...permissionIds] };
-
-  const membership = await ctx.db.membership.findUnique({
-    where: { userId_companyId: { userId: ctx.actor.userId, companyId } },
-    include: { roles: { include: { role: { include: { permissions: true } } } } },
-  });
   if (!membership) throw new AppError("COMPANY_NOT_FOUND");
   const granted = new Set<PermissionId>();
   for (const { role } of membership.roles) {
