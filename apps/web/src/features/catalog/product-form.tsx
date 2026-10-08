@@ -126,7 +126,7 @@ export const ProductForm = forwardRef<ProductFormHandle, { companyId: string }>(
         ref={dialogRef}
         onClose={() => setIsOpen(false)}
         aria-label={t(mode === "create" ? "product.form.createTitle" : "product.form.editTitle")}
-        className="m-auto w-full max-w-md rounded-lg border border-border bg-surface p-0 text-text backdrop:bg-black/40"
+        className="m-auto w-full max-w-md rounded-2xl border border-border bg-surface p-0 text-text shadow-raised"
       >
         <form onSubmit={handleSubmit} className="flex flex-col gap-4 p-4">
           <h2 className="text-lg font-semibold">

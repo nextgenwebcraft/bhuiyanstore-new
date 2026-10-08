@@ -75,6 +75,7 @@ export {
   setProductPrice,
   updateProduct,
 } from "./products";
+export { createShop, getShopStatement, listShops, updateShop } from "./shops";
 export {
   addStaffAssignment,
   createStaff,

@@ -18,6 +18,7 @@ const companyInput = (name: string): CompanyUpsertRequest => ({
   name,
   theme: { primary: "#0F766E", primaryForeground: "#FFFFFF" },
   modules: ["sales", "inventory"],
+  blockNegativeStock: false,
 });
 const productInput = (sku: string, name = `Product ${sku}`): ProductCreateRequest => ({
   sku,

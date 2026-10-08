@@ -12,6 +12,7 @@ export const permissionIds = [
   "product.archive",
   "supplier.manage",
   "staff.manage",
+  "shop.manage",
   "purchase.view",
   "purchase.create",
   "purchase.approve",

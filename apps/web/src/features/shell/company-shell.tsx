@@ -16,6 +16,7 @@ import { CompanySwitcher } from "./company-switcher";
 import { ConnectionBanner } from "./connection-banner";
 import { DraftGuardProvider } from "./draft-guard";
 import { MobileNav } from "./mobile-nav";
+import { NavProgress } from "./nav-progress";
 import { NotificationBell, NotificationsProvider } from "./notifications";
 import { QuickJump, type QuickJumpHandle } from "./quick-jump";
 import { SideNav } from "./side-nav";
@@ -47,7 +48,7 @@ export function CompanyShell({
   if (workspace.isPending) {
     return (
       <div className="min-h-dvh">
-        <aside className="fixed inset-y-0 left-0 hidden w-64 flex-col gap-4 border-r border-border bg-surface p-4 md:flex">
+        <aside className="fixed inset-y-0 left-0 hidden w-64 flex-col gap-4 border-r border-border bg-surface/85 p-4 md:flex">
           <div className="flex items-center gap-3">
             <Skeleton className="size-9 rounded-lg" />
             <Skeleton className="h-5 w-32" />
@@ -57,7 +58,7 @@ export function CompanyShell({
         </aside>
         <div className="md:pl-64">
           <div className="h-16 border-b border-border" />
-          <div className="mx-auto max-w-6xl p-4 sm:p-8">
+          <div className="mx-auto max-w-400 p-4 sm:p-6">
             <PageSkeleton />
           </div>
         </div>
@@ -94,13 +95,14 @@ export function CompanyShell({
       <DraftGuardProvider>
         <NotificationsProvider>
           <div style={themeToCssVars(company.theme) as React.CSSProperties} className="min-h-dvh">
+            <NavProgress />
             <a
               href="#main"
               className="sr-only focus:not-sr-only focus:absolute focus:z-10 focus:bg-surface focus:p-2"
             >
               {t("app.skipToContent")}
             </a>
-            <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-border bg-surface md:flex">
+            <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-border bg-surface/85 backdrop-blur-xl md:flex">
               <span
                 aria-hidden
                 className="h-0.5 bg-linear-to-r from-brand via-brand/50 to-transparent"
@@ -140,8 +142,10 @@ export function CompanyShell({
                 <TopBar />
               </header>
               <ConnectionBanner />
-              <main id="main" className="mx-auto w-full max-w-6xl p-4 pb-24 sm:p-8 md:pb-8">
-                {children}
+              <main id="main" className="mx-auto w-full max-w-400 p-4 pb-24 sm:p-6 md:pb-6">
+                <div key={currentPath} className="animate-page-in">
+                  {children}
+                </div>
               </main>
               <QuickJump ref={jumpRef} workspace={workspace.data} />
             </div>

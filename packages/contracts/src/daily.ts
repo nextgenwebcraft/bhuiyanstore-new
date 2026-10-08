@@ -102,10 +102,12 @@ export const dsrDaySaveRequestSchema = z.object({
   staffId: idSchema,
   /** 0 creates the sheet; otherwise the version the user edited. */
   version: z.number().int().nonnegative(),
-  /** বাকি: new market due left by this DSR today. */
-  marketDueNew: amountSchema,
-  /** Old dues this DSR collected today. */
-  marketDueCollected: amountSchema,
+  /**
+   * DSR-level বাকি from before shop entries (D35). Omitted = keep the stored value; new due is
+   * entered per shop as money entries instead.
+   */
+  marketDueNew: amountSchema.optional(),
+  marketDueCollected: amountSchema.optional(),
   lines: z.array(dsrLineRequestSchema).max(500),
 });
 
@@ -249,6 +251,8 @@ export const moneyEntryPostRequestSchema = z.object({
   kind: z.enum(moneyEntryKinds),
   amount: positiveAmountSchema,
   staffId: idSchema.nullable().default(null),
+  /** Required for market due kinds (D35): the shop the due is given to or collected from. */
+  shopId: idSchema.nullable().default(null),
   expenseCategoryId: idSchema.nullable().default(null),
   allocation: owedAllocationSchema.nullable().default(null),
 });
@@ -262,6 +266,8 @@ export const moneyEntrySchema = z.object({
   amount: decimalStringSchema,
   staffId: idSchema.nullable(),
   staffName: z.string().nullable(),
+  shopId: idSchema.nullable(),
+  shopName: z.string().nullable(),
   expenseCategoryId: idSchema.nullable(),
   categoryName: z.string().nullable(),
   allocation: owedAllocationSchema.nullable(),

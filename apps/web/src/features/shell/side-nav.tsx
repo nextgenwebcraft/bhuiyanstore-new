@@ -4,6 +4,7 @@ import type { CompanyWorkspace } from "@bsd/contracts";
 import { t, toBengaliDigits } from "@bsd/i18n";
 import Link from "next/link";
 import { Icon, sectionIcon } from "@/components/icons";
+import { useOverflowTooltip } from "@/components/overflow-tooltip";
 import { companyHref, visibleFlow, type FlowLink, type FlowLinkGroup } from "./navigation";
 
 export function ShortcutHint({ n }: { n: number }) {
@@ -25,15 +26,21 @@ function FlowNavLink({
   active: boolean;
   onNavigate: (() => void) | undefined;
 }) {
+  const label = t(link.labelKey);
+  const { textRef, rowProps, tooltip } = useOverflowTooltip<HTMLAnchorElement>(label);
   return (
     <Link
       href={companyHref(companyId, link.path)}
       aria-current={active ? "page" : undefined}
       aria-keyshortcuts={link.shortcut ? `Alt+${link.shortcut}` : undefined}
-      {...(onNavigate ? { onClick: onNavigate } : {})}
+      {...rowProps}
+      onClick={() => {
+        rowProps.onPointerLeave();
+        onNavigate?.();
+      }}
       className={`group relative flex min-h-9 items-center gap-2.5 rounded-lg px-3 text-[13.5px] transition-colors ${
         active
-          ? "bg-brand/10 font-medium text-text"
+          ? "bg-brand/12 font-medium text-text"
           : "text-text-muted hover:bg-surface-hover hover:text-text"
       }`}
     >
@@ -44,8 +51,11 @@ function FlowNavLink({
         name={sectionIcon(link.sectionId)}
         className={`size-4 ${active ? "text-brand" : "text-text-subtle group-hover:text-text-muted"}`}
       />
-      <span className="truncate">{t(link.labelKey)}</span>
+      <span ref={textRef} className="min-w-0 truncate">
+        {label}
+      </span>
       {link.shortcut ? <ShortcutHint n={link.shortcut} /> : null}
+      {tooltip}
     </Link>
   );
 }

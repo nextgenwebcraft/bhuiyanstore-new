@@ -59,11 +59,7 @@ type LineDraft = {
   returnedPieces: string;
   damaged: string;
 };
-type SheetDraft = {
-  lines: Record<string, LineDraft>;
-  marketDueNew: string;
-  marketDueCollected: string;
-};
+type SheetDraft = { lines: Record<string, LineDraft> };
 
 const blankLine: LineDraft = {
   issuedCartons: "",
@@ -106,13 +102,7 @@ function draftOf(sheet: DsrDay | undefined): SheetDraft {
       damaged: line.damaged === "0" ? "" : line.damaged,
     };
   }
-  const amount = (value: string | undefined) =>
-    value === undefined || /^0(\.0+)?$/.test(value) ? "" : value;
-  return {
-    lines,
-    marketDueNew: amount(sheet?.marketDueNew),
-    marketDueCollected: amount(sheet?.marketDueCollected),
-  };
+  return { lines };
 }
 
 const whole = (value: string) => clean(value) || "0";
@@ -141,12 +131,7 @@ function requestOf(
     if (issued === "0" && returned === "0" && damaged === "0") continue;
     lines.push({ productId: product.productId, issued, returned, damaged });
   }
-  return {
-    ...base,
-    marketDueNew: clean(draft.marketDueNew) || "0",
-    marketDueCollected: clean(draft.marketDueCollected) || "0",
-    lines,
-  };
+  return { ...base, lines };
 }
 
 function SheetEditor({

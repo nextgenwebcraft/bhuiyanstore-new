@@ -12,6 +12,8 @@ import type {
   PriceKind,
   ProductDayResult,
   ProductId,
+  ShopEntryResult,
+  ShopId,
   StaffBalanceValues,
   StaffBalances,
   StaffEntryResult,
@@ -168,6 +170,15 @@ export function computeMonth(input: MonthInput): MonthOutput {
   const marketDue = new Map(marketDueOpening);
   const marketDueAdded = new Map<StaffId, Decimal>();
   const marketDueCollected = new Map<StaffId, Decimal>();
+
+  const shopDueOpening = new Map<ShopId, Decimal>();
+  for (const [shopId, amount] of Object.entries(input.opening.shopDue ?? {})) {
+    shopDueOpening.set(shopId, toDecimal(amount));
+  }
+  const shopDue = new Map(shopDueOpening);
+  const shopDueAdded = new Map<ShopId, Decimal>();
+  const shopDueCollected = new Map<ShopId, Decimal>();
+  const shopEntries: ShopEntryResult[] = [];
 
   const staffOpening = new Map<StaffId, Balances>();
   for (const [staffId, b] of Object.entries(input.opening.staff ?? {})) {
@@ -452,6 +463,22 @@ export function computeMonth(input: MonthInput): MonthOutput {
         bucket.set(key, (bucket.get(key) ?? ZERO).add(amount));
         if (effect.marketDue === 1) dayDueNew = dayDueNew.add(amount);
         else dayDueCollected = dayDueCollected.add(amount);
+        if (entry.shopId) {
+          const shopId = entry.shopId;
+          const balance = (shopDue.get(shopId) ?? ZERO).add(signed);
+          shopDue.set(shopId, balance);
+          const shopBucket = effect.marketDue === 1 ? shopDueAdded : shopDueCollected;
+          shopBucket.set(shopId, (shopBucket.get(shopId) ?? ZERO).add(amount));
+          shopEntries.push({
+            date: day.date,
+            ...(entry.ref === undefined ? {} : { ref: entry.ref }),
+            shopId,
+            ...(entry.staffId ? { staffId: entry.staffId } : {}),
+            kind: effect.marketDue === 1 ? "marketDueNew" : "marketDueCollected",
+            amount: str(amount),
+            balance: str(balance),
+          });
+        }
       }
 
       if (effect.expense === "category" || effect.expense === "salary") {
@@ -607,6 +634,14 @@ export function computeMonth(input: MonthInput): MonthOutput {
     collected: str(marketDueCollected.get(staffId) ?? ZERO),
     closing: str(marketDue.get(staffId) ?? ZERO),
   }));
+  const shopKeys = new Set([...shopDueOpening.keys(), ...shopDue.keys()]);
+  const byShop = [...shopKeys].map((shopId) => ({
+    shopId,
+    opening: str(shopDueOpening.get(shopId) ?? ZERO),
+    added: str(shopDueAdded.get(shopId) ?? ZERO),
+    collected: str(shopDueCollected.get(shopId) ?? ZERO),
+    closing: str(shopDue.get(shopId) ?? ZERO),
+  }));
 
   const staffMonth: StaffMonthResult[] = [...staff].map(([staffId, b]) => ({
     staffId,
@@ -632,6 +667,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
       }),
     ),
     marketDue: Object.fromEntries([...marketDue].map(([k, v]) => [k, str(v)])),
+    shopDue: Object.fromEntries([...shopDue].map(([k, v]) => [k, str(v)])),
     staff: Object.fromEntries([...staff].map(([k, b]) => [k, balanceStrings(b)])),
     companyPayable: str(companyPayable),
   };
@@ -657,6 +693,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
         collected: str(sum(marketDueCollected.values())),
         closing: str(sum(marketDue.values())),
         byDsr,
+        byShop,
       },
       staff: staffMonth,
       companyPayable: {
@@ -683,6 +720,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
     closing,
     staffEntries,
     companyEntries,
+    shopEntries,
     warnings,
   };
 }

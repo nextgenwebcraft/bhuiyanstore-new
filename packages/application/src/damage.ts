@@ -27,6 +27,7 @@ import { AppError, parseInput } from "./errors";
 import { runIdempotent } from "./idempotency";
 import { plain } from "./numeric";
 import { packOn } from "./products";
+import { ensureStockCovers } from "./stock-guard";
 
 /**
  * Damage cases (D17, guide §9.7): damaged pieces received with independent buyer and company
@@ -375,6 +376,9 @@ export async function postDamageEvent(
           createdById: ctx.actor.userId,
         },
       });
+      if (request.kind === "buyerReplacement") {
+        await ensureStockCovers(tx, access, request.date, [line.productId]);
+      }
       await recordAudit(tx, ctx, {
         companyId,
         action: "damage.event",
@@ -428,6 +432,9 @@ export async function reverseDamageEvent(
         data: { status: "reversed", reversedAt: new Date(), reversedById: ctx.actor.userId },
       });
       if (updated.count !== 1) throw invalid("", "validation.daily.alreadyReversed");
+      if (live.kind === "companyReplacement" && line) {
+        await ensureStockCovers(tx, access, fromDbDate(live.date), [line.productId]);
+      }
       await recordAudit(tx, ctx, {
         companyId,
         action: "damage.reverse",

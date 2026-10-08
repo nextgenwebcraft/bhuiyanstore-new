@@ -112,7 +112,7 @@ export const QuickJump = forwardRef<QuickJumpHandle, { workspace: CompanyWorkspa
         onClick={(event) => {
           if (event.target === dialogRef.current) dialogRef.current?.close();
         }}
-        className="mx-auto mt-[12vh] w-[min(36rem,92vw)] rounded-xl border border-border bg-surface p-0 text-text shadow-raised backdrop:bg-black/30 backdrop:backdrop-blur-sm"
+        className="mx-auto mt-[12vh] w-[min(36rem,92vw)] rounded-2xl border border-border bg-surface p-0 text-text shadow-raised"
       >
         <div className="flex items-center gap-2 border-b border-border px-4">
           <Icon name="search" className="size-4 text-text-muted" />

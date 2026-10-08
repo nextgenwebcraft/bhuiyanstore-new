@@ -86,7 +86,7 @@ export function TableScroller({
   return (
     <div
       ref={ref}
-      className={`max-h-[75vh] overflow-auto overscroll-x-contain rounded-xl border border-border bg-surface shadow-card data-[dragging]:cursor-grabbing data-[dragging]:select-none data-[scrollable]:cursor-grab [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-20 ${className}`}
+      className={`scrollbar-thin max-h-[75vh] overflow-auto overscroll-x-contain rounded-xl border border-border bg-surface shadow-card data-[dragging]:cursor-grabbing data-[dragging]:select-none data-[scrollable]:cursor-grab [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-20 ${className}`}
     >
       {children}
     </div>

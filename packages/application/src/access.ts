@@ -14,6 +14,7 @@ export type CompanyAccess = {
     themePrimaryForeground: string;
     themeAccent: string | null;
     logoRef: string | null;
+    blockNegativeStock: boolean;
     status: string;
     modules: { module: string }[];
   };

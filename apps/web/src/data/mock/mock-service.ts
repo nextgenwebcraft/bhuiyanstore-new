@@ -244,6 +244,7 @@ export function createMockService(
     addProductPack: demoReadOnly,
     setProductPrice: demoReadOnly,
     createCompany: demoReadOnly,
+    updateCompany: demoReadOnly,
     async listStaffRecords(companyId, options) {
       await delay(latencyMs, options?.signal);
       requirePermission(companyId, "company.view");
@@ -273,6 +274,14 @@ export function createMockService(
     updateStaff: demoReadOnly,
     addStaffAssignment: demoReadOnly,
     updateStaffAssignment: demoReadOnly,
+    async listShops(companyId, options) {
+      await delay(latencyMs, options?.signal);
+      requirePermission(companyId, "company.view");
+      return [];
+    },
+    createShop: demoReadOnly,
+    updateShop: demoReadOnly,
+    getShopStatement: demoReadOnly,
 
     async listConfig(list, options) {
       await delay(latencyMs, options?.signal);

@@ -178,6 +178,40 @@ describe("computeMonth golden month", () => {
     expect(out.warnings).toEqual([]);
   });
 
+  it("tracks shop due alongside the DSR's market due and the day's cash (D35)", () => {
+    const out = computeMonth({
+      products: [],
+      opening: { products: {}, marketDue: { d1: "100" }, shopDue: { s1: "100" } },
+      days: [
+        {
+          date: "2026-11-01",
+          money: [
+            { kind: "marketDueNew", amount: "80", staffId: "d1", shopId: "s1", ref: "e1" },
+            { kind: "marketDueNew", amount: "20", staffId: "d1", shopId: "s2", ref: "e2" },
+          ],
+        },
+        {
+          date: "2026-11-02",
+          money: [
+            { kind: "marketDueCollected", amount: "150", staffId: "d1", shopId: "s1", ref: "e3" },
+          ],
+        },
+      ],
+    });
+    expect(out.days.map((d) => d.money.cashLeft)).toEqual(["-100", "150"]);
+    expect(out.month.marketDue.closing).toBe("50");
+    expect(out.month.marketDue.byShop).toEqual([
+      { shopId: "s1", opening: "100", added: "80", collected: "150", closing: "30" },
+      { shopId: "s2", opening: "0", added: "20", collected: "0", closing: "20" },
+    ]);
+    expect(out.closing.shopDue).toEqual({ s1: "30", s2: "20" });
+    expect(out.shopEntries.map((e) => [e.ref, e.shopId, e.balance])).toEqual([
+      ["e1", "s1", "180"],
+      ["e2", "s2", "20"],
+      ["e3", "s1", "30"],
+    ]);
+  });
+
   it("produces a closing that is the next month's opening", () => {
     expect(out.closing.products.A).toEqual({
       stock: "56",

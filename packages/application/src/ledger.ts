@@ -243,6 +243,7 @@ async function rangeInput(
       amount: plain(entry.amount),
       ref: entry.id,
       ...(entry.staffId ? { staffId: entry.staffId } : {}),
+      ...(entry.shopId ? { shopId: entry.shopId } : {}),
       ...(entry.expenseCategoryId ? { category: entry.expenseCategoryId } : {}),
       ...(allocation ? { allocation } : {}),
     });

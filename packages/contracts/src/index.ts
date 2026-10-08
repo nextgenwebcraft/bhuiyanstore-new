@@ -223,7 +223,7 @@ export {
   type ImportOpeningDifference,
   type ImportWorkbookSheets,
 } from "./imports";
-export { apiErrorSchema, type ApiError } from "./errors";
+export { apiErrorSchema, stockShortageSchema, type ApiError, type StockShortage } from "./errors";
 export {
   companySchema,
   companyThemeSchema,
@@ -259,6 +259,16 @@ export {
   type StaffRoleKind,
   type StaffUpsertRequest,
 } from "./parties";
+export {
+  shopSchema,
+  shopStatementLineSchema,
+  shopStatementSchema,
+  shopUpsertRequestSchema,
+  type Shop,
+  type ShopStatement,
+  type ShopStatementLine,
+  type ShopUpsertRequest,
+} from "./shops";
 export {
   dashboardSummarySchema,
   dsrDayRowSchema,

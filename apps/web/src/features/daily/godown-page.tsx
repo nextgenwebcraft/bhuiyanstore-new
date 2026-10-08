@@ -10,7 +10,12 @@ import { TableSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
 import { TableSummary, type SummaryItem } from "@/components/table-summary";
 import { describeError } from "@/data/ports/service-error";
-import { usePostStockEntries, useReverseStockEntry, useStockEntries } from "@/data/queries";
+import {
+  usePostStockEntries,
+  useReverseStockEntry,
+  useStockEntries,
+  useUpdateCompany,
+} from "@/data/queries";
 import { NavGate } from "@/features/shell/nav-gate";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 import {
@@ -349,6 +354,52 @@ const TITLES: Record<StockEntryKind, { title: TranslationKey; description: Trans
   damage: { title: "nav.inventory.damage", description: "godown.description.damage" },
 };
 
+/** D34 switch: refuse postings that would take stock below zero. */
+function StockBlockSwitch() {
+  const { company, permissions } = useCurrentWorkspace();
+  const update = useUpdateCompany(company.id);
+  const [error, setError] = useState<string | undefined>();
+  if (!permissions.includes("company.manage")) return null;
+  const on = company.blockNegativeStock;
+
+  async function toggle() {
+    setError(undefined);
+    try {
+      await update.mutateAsync({
+        name: company.name,
+        theme: company.theme,
+        modules: company.modules,
+        blockNegativeStock: !on,
+      });
+    } catch (e) {
+      setError(describeError(e, []).form);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-2 rounded-xl border border-border bg-surface p-4 shadow-card">
+      <label className="flex items-start gap-3 text-sm">
+        <input
+          type="checkbox"
+          checked={on}
+          disabled={update.isPending}
+          onChange={() => void toggle()}
+          className="mt-1"
+        />
+        <span>
+          <span className="font-medium">{t("godown.block.label")}</span>
+          <span className="block text-text-muted">{t("godown.block.hint")}</span>
+        </span>
+      </label>
+      {error ? (
+        <p role="alert" className="text-sm text-error">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 export function GodownPage({ path, kind }: { path: string; kind: StockEntryKind }) {
   const { company } = useCurrentWorkspace();
   const [date, setDate] = useWorkingDate();
@@ -359,6 +410,7 @@ export function GodownPage({ path, kind }: { path: string; kind: StockEntryKind 
         description={t(TITLES[kind].description)}
         actions={<DateBar date={date} onChange={setDate} />}
       />
+      {kind === "receipt" ? <StockBlockSwitch /> : null}
       <DateHeading date={date} />
       <DayGate companyId={company.id} date={date}>
         {(view) => (

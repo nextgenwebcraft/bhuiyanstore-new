@@ -1,0 +1,42 @@
+id: 2026-10-09-shop-due
+reason: The owner wants a list of the shops the company distributes to, and daily বাকি দেওয়া / বাকি আদায় entered by shop (with the DSR), adjusting the daily sales balance (D35). DSR-wise due entry is removed.
+owners: [domain, database, contracts, application, web, i18n, docs]
+changedDefinitionIds:
+  - docs/decisions.md (D35)
+  - packages/domain/src/month (MoneyEntryInput.shopId, MonthOpening.shopDue, MonthResult.marketDue.byShop, MonthClosing.shopDue, MonthOutput.shopEntries)
+  - packages/database/prisma/migrations/20261009010000_shops (shop table, money_entry.shop_id)
+  - packages/contracts/src/shops.ts (Shop, ShopUpsertRequest, ShopStatement; new)
+  - packages/contracts/src/daily.ts (money entry shopId/shopName; DSR sheet due fields optional = keep stored)
+  - packages/contracts/src/definitions/permissions.ts (shop.manage)
+  - packages/architecture/src/resources.ts (shop)
+  - packages/application/src/shops.ts (list with today's due, create, update, statement; new)
+  - packages/application/src/daily.ts (market due kinds need a shop and a DSR; other kinds refuse a shop; DSR sheet keeps stored due when omitted)
+  - packages/application/src/ledger.ts (shopId passed to the engine)
+  - apps/web/src/app/api/v1/companies/[companyId]/shops (GET/POST, PUT, statement)
+  - apps/web/src/features/shops (shop list page, shop-based daily due page; new)
+  - apps/web/src/features/daily/dsr-days-page.tsx (no longer sends DSR-level due)
+affectedActionIds: [sale.post, collection.post, payment.reverse, shop.manage]
+affectedResources: [shop, money_entry, ledger]
+affectedMetrics:
+  - day cash left and market due outstanding: unchanged rule; shop entries count exactly like the old market due entries
+  - new per-shop due (opening, added, collected, closing) and per-shop running balance
+affectedUi:
+  - new sidebar entry "দোকানের তালিকা" (sales/shops) with search, totals, add/edit and per-shop history with dates
+  - the "দোকানের বাকি দেওয়া ও আদায়" page (sales/old-dues-collection) now picks shop + DSR; the DSR-wise table is gone
+  - money kind labels are now "বাকি দেওয়া" and "বাকি আদায়"
+schemaMigration: 20261009010000_shops (applied to the test schema and to DIRECT_URL on 2026-10-09)
+backfill: none; existing market due entries keep no shop and still count under their DSR
+historicalPolicy: imported and earlier DSR-level due is unchanged; closed-month snapshots without shopDue open shops at zero
+contractCompatibility: additive (shopId nullable; DSR sheet due fields became optional); posting market due without a shop is now refused
+cacheAndProjectionPlan: money postings invalidate the shop list; shop statements live under the ledger key
+securityReview: shop writes need shop.manage; dues need sale.view; a shop must belong to the company and be active to take entries
+knownGaps:
+  - shop opening dues are deferred (owner choice); collecting old due against a shop can show it below zero
+  - the demo mock has no shops
+  - the role editor lists shop.manage, but existing non-admin roles must be granted it
+tests:
+  - pnpm check
+  - packages/domain compute-month.test.ts (shop due beside DSR due and cash)
+  - pnpm test:integration phase-e (8 tests incl. D35 validation and statement)
+rollout: migration applied; deploy the app
+recovery: revert the app; the shop table and nullable column can stay unused

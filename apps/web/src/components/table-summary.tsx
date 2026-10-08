@@ -9,8 +9,8 @@ export function TableSummary({ items, label }: { items: SummaryItem[]; label?: s
       {items.map((item) => (
         <div
           key={item.label}
-          className={`rounded-lg border px-3 py-2 ${
-            item.emphasis ? "border-brand/25 bg-brand/5" : "border-border bg-surface"
+          className={`rounded-xl border px-3 py-2 shadow-card ${
+            item.emphasis ? "border-brand/30 bg-brand/8" : "border-border bg-surface"
           }`}
         >
           <dt className="truncate text-[11px] text-text-muted" title={item.label}>

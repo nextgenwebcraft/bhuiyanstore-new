@@ -46,6 +46,7 @@ export const navigation: readonly NavSection[] = [
       item("sales/samari", "sales.samari", "sale.view", true),
       item("sales/firot", "sales.firot", "sale.view", true),
       item("sales/old-dues-collection", "sales.oldDuesCollection", "sale.view", true),
+      item("sales/shops", "nav.sales.shops", "company.view", true),
     ],
   },
   {
@@ -160,6 +161,7 @@ export const flowGroups: readonly {
       { path: "sales/daily-summaries", labelKey: "nav.flow.dsrSheet", shortcut: 1 },
       { path: "purchases/receipts", labelKey: "nav.flow.receipts", shortcut: 2 },
       { path: "sales/old-dues-collection", labelKey: "nav.flow.marketDue", shortcut: 3 },
+      { path: "sales/shops" },
       { path: "finance/expenses", shortcut: 4 },
       { path: "dsr/settlements", labelKey: "nav.flow.staffCash", shortcut: 5 },
       { path: "finance/supplier-deposits", shortcut: 6 },
