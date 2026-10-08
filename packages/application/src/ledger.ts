@@ -142,13 +142,16 @@ async function rangeInput(
       where: { companyId, status: "posted", date: range },
       orderBy: { createdAt: "asc" },
     }),
-    // Only these damage legs move saleable stock (D17); the rest move damaged custody.
+    // Only these damage legs reach the engine: stock (D17) or money back from the company (D33).
     db.damageEvent.findMany({
       where: {
         companyId,
         status: "posted",
         date: range,
-        OR: [{ kind: "buyerReplacement", fromStock: true }, { kind: "companyReplacement" }],
+        OR: [
+          { kind: "buyerReplacement", fromStock: true },
+          { kind: { in: ["companyReplacement", "companyRefund"] } },
+        ],
       },
       include: { line: { select: { productId: true } } },
       orderBy: { createdAt: "asc" },
@@ -219,6 +222,11 @@ async function rangeInput(
     const quantity = plain(event.quantity);
     if (event.kind === "buyerReplacement") {
       target.replacedFromStock = sumQuantities([target.replacedFromStock ?? "0", quantity]);
+    } else if (event.kind === "companyRefund") {
+      target.companyRefunds = [
+        ...(target.companyRefunds ?? []),
+        { quantity, unitCost: event.unitCost ? plain(event.unitCost) : "0", ref: event.id },
+      ];
     } else {
       target.replacements = [
         ...(target.replacements ?? []),

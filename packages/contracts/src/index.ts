@@ -132,6 +132,7 @@ export {
   damageEventSchema,
   damageOrigins,
   damageProgressSchema,
+  damageUnitCostKinds,
   type DamageCase,
   type DamageCaseCreateRequest,
   type DamageEvent,

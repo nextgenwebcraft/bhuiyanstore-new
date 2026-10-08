@@ -30,6 +30,8 @@ export type Expectation = {
   engine: (out: MonthOutput) => string | null | undefined;
   /** Set when the workbook cell itself is known to be wrong (PLAN §2.6). */
   knownMistake?: string;
+  /** Day of the month (1-based) for a day cell; absent for month-level cells. */
+  day?: number;
 };
 
 export type SheetProduct = {
@@ -92,6 +94,13 @@ export function monthOfSheetName(name: string): string | null {
   return m && index >= 0 ? `${m[2]}-${String(index + 1).padStart(2, "0")}` : null;
 }
 
+/** 1–31 from a YYYY-MM-DD date, or 0 when it is not one. */
+function dayOfMonth(date: string): number {
+  const m = /^\d{4}-\d{2}-(\d{2})$/.exec(date);
+  const day = m ? Number(m[1]) : 0;
+  return day >= 1 && day <= 31 ? day : 0;
+}
+
 export function withinTolerance(a: Decimal, b: Decimal): boolean {
   return a.sub(b).abs().lte(TOLERANCE);
 }
@@ -107,6 +116,11 @@ export type ReadMonthOptions = {
    * day's quantities when the owner confirms that is where they belong. Prices stay the last day's.
    */
   extraBlocks?: "ignore" | "lastDay";
+  /**
+   * Last date to read (YYYY-MM-DD inside the month): later days, blocks after the month and
+   * month-level checks are left out, for a month still in progress.
+   */
+  through?: string;
 };
 
 export function readMonthSheet(
@@ -120,6 +134,14 @@ export function readMonthSheet(
   if (!month) throw new RangeError(`sheet name is not a month: ${sheetName}`);
   const [year, monthNumber] = month.split("-").map(Number) as [number, number];
   const daysInMonth = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+  const throughDay = options.through === undefined ? daysInMonth : dayOfMonth(options.through);
+  if (
+    options.through !== undefined &&
+    (!options.through.startsWith(`${month}-`) || !throughDay || throughDay > daysInMonth)
+  ) {
+    throw new RangeError(`through ${options.through} is not a date in ${month}`);
+  }
+  const partial = throughDay < daysInMonth;
   const notes: string[] = [];
   const expectations: Expectation[] = [];
 
@@ -328,6 +350,7 @@ export function readMonthSheet(
             where: where(`${p.name} (${ws.getCell(p.row, col).address})`),
             excel: saved,
             engine: pick,
+            day: index + 1,
           });
       };
       const dayOf = (out: MonthOutput) =>
@@ -362,6 +385,7 @@ export function readMonthSheet(
             `${person} ${products.find((p) => p.id === productId)?.name ?? productId} (${netCell.address})`,
           ),
           excel: saved,
+          day: index + 1,
           engine: (o) =>
             o.days[index]?.persons.find((x) => x.staffId === staffId && x.productId === productId)
               ?.net ?? "0",
@@ -405,9 +429,9 @@ export function readMonthSheet(
       }
     }
   }
-  const mergeExtra = extraInputs > 0 && options.extraBlocks === "lastDay";
+  const mergeExtra = extraInputs > 0 && options.extraBlocks === "lastDay" && !partial;
   const beyondMonthEnd =
-    extraInputs > 0 && !mergeExtra
+    extraInputs > 0 && !mergeExtra && !partial
       ? `month totals include ${blocks.length - daysInMonth} block(s) after day ${daysInMonth}`
       : undefined;
   if (beyondMonthEnd) {
@@ -643,6 +667,7 @@ export function readMonthSheet(
           check: "Daily sales",
           where: `${sheetName} day ${d + 1} (${cell.address})`,
           excel: saved,
+          day: d + 1,
           engine: (o) => o.days[d]?.money.sales,
           ...(ref && refHeader !== BLOCK_FIELDS.salesTotal
             ? { knownMistake: `reads "${refHeader}": =${f}` }
@@ -669,6 +694,7 @@ export function readMonthSheet(
           check: "Daily cash left (Total Amount)",
           where: `${sheetName} day ${d + 1} (${cell.address})`,
           excel: saved,
+          day: d + 1,
           engine: (o) => o.days[d]?.money.cashLeft,
           ...(reasons.length ? { knownMistake: reasons.join("; ") } : {}),
         });
@@ -735,7 +761,7 @@ export function readMonthSheet(
       marketDue: { "": marketDueOpening.toString() },
       staff: staffOpening,
     },
-    days,
+    days: partial ? days.slice(0, throughDay) : days,
   };
   for (const p of products) {
     const size = cartonSize.get(p.id);
@@ -769,11 +795,15 @@ export function readMonthSheet(
     }
   }
 
+  if (partial) notes.push(`only days 1–${throughDay} are read; month totals are not compared`);
+
   return {
     sheet: sheetName,
     month,
     input,
-    expectations,
+    expectations: partial
+      ? expectations.filter((e) => e.day !== undefined && e.day <= throughDay)
+      : expectations,
     products,
     persons: [...persons],
     moneyColumns,

@@ -33,7 +33,7 @@ import type {
   UserUpdateRequest,
 } from "@bsd/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ConfigListId, ConfigLists } from "./ports/distribution-service";
+import type { ConfigListId, ConfigLists, DistributionService } from "./ports/distribution-service";
 import { postingEffects, queryKeys, resourceKey } from "./query-keys";
 import { useActorId, useService } from "./service-context";
 
@@ -322,13 +322,15 @@ export function usePayrollCommand(companyId: string, month: string) {
   );
 }
 
-export function useDamageCases(companyId: string, status: "open" | "all") {
+export function useDamageCases(
+  companyId: string,
+  filter: { status?: "open"; from?: string; to?: string } = {},
+) {
   const service = useService();
   const actorId = useActorId();
   return useQuery({
-    queryKey: queryKeys.damageCases(actorId, companyId, status),
-    queryFn: ({ signal }) =>
-      service.listDamageCases(companyId, status === "open" ? { status } : {}, { signal }),
+    queryKey: queryKeys.damageCases(actorId, companyId, filter),
+    queryFn: ({ signal }) => service.listDamageCases(companyId, filter, { signal }),
   });
 }
 
@@ -659,8 +661,10 @@ function useImportJobCommand<TInput>(
 
 export function useCreateImportJob(companyId: string) {
   const service = useService();
-  return useImportJobCommand(companyId, (input: { file: Blob; fileName: string; sheet: string }) =>
-    service.createImportJob(companyId, input),
+  return useImportJobCommand(
+    companyId,
+    (input: Parameters<DistributionService["createImportJob"]>[1]) =>
+      service.createImportJob(companyId, input),
   );
 }
 

@@ -167,6 +167,8 @@ describe("computeMonth golden month", () => {
       opening: "1000",
       receipts: "960",
       deposits: "500",
+      incentives: "0",
+      damageRefunds: "0",
       closing: "1460",
     });
     const staff = Object.fromEntries(out.month.staff.map((s) => [s.staffId, s]));
@@ -192,6 +194,59 @@ describe("computeMonth golden month", () => {
       days: [second],
     });
     expect(split.closing).toEqual(out.closing);
+  });
+});
+
+describe("computeMonth company account (D33)", () => {
+  const out = computeMonth({
+    products: [{ id: "A", piecesPerCarton: "24" }],
+    opening: {
+      products: { A: { stock: "10", dueFromCompany: "48", orderPrice: "10", costPrice: "9" } },
+      companyPayable: "1000",
+    },
+    days: [
+      {
+        date: "2026-11-01",
+        products: { A: { received: "48", companyRefunds: [{ quantity: "5", unitCost: "9.5" }] } },
+        money: [
+          { kind: "supplierDeposit", amount: "300", ref: "dep" },
+          { kind: "companyIncentive", amount: "120", ref: "inc" },
+        ],
+      },
+    ],
+  });
+
+  it("lowers what we owe by deposits, cash incentives and damage money returns", () => {
+    expect(out.month.companyPayable).toEqual({
+      opening: "1000",
+      receipts: "480",
+      deposits: "300",
+      incentives: "120",
+      damageRefunds: "47.5",
+      closing: "1012.5",
+    });
+    expect(out.closing.companyPayable).toBe("1012.5");
+  });
+
+  it("keeps cash, banked, stock and profit out of incentives and refunds", () => {
+    expect(out.days[0]?.money).toMatchObject({ cashIn: "0", cashOut: "0", banked: "300" });
+    expect(out.days[0]?.products[0]).toMatchObject({ stock: "58", grossProfit: "0" });
+    expect(out.month.profit.gross).toBe("0");
+  });
+
+  it("lists every movement with the balance after it", () => {
+    expect(out.companyEntries).toEqual([
+      { date: "2026-11-01", kind: "receipt", amount: "480", balance: "1480" },
+      {
+        date: "2026-11-01",
+        kind: "damageRefund",
+        amount: "47.5",
+        productId: "A",
+        balance: "1432.5",
+      },
+      { date: "2026-11-01", kind: "deposit", amount: "300", ref: "dep", balance: "1132.5" },
+      { date: "2026-11-01", kind: "incentive", amount: "120", ref: "inc", balance: "1012.5" },
+    ]);
   });
 });
 

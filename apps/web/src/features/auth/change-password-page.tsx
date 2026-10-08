@@ -6,7 +6,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
 import { Button, ButtonLink } from "@/components/button";
-import { Field, inputClass } from "@/components/field";
+import { Field } from "@/components/field";
+import { PasswordInput } from "@/components/password-input";
 import { useSession } from "@/data/http/http-provider";
 import { errorCodeOf, ServiceError } from "@/data/ports/service-error";
 
@@ -66,26 +67,22 @@ export function ChangePasswordPage() {
       {session ? (
         <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
           <Field id={currentId} label={t("auth.currentPassword")} error={errors.currentPassword}>
-            <input
+            <PasswordInput
               id={currentId}
-              type="password"
               autoComplete="current-password"
               required
               value={currentPassword}
               onChange={(event) => setCurrentPassword(event.target.value)}
-              className={inputClass}
             />
           </Field>
           <Field id={nextId} label={t("auth.newPassword")} error={errors.newPassword}>
-            <input
+            <PasswordInput
               id={nextId}
-              type="password"
               autoComplete="new-password"
               required
               minLength={MIN_PASSWORD_LENGTH}
               value={newPassword}
               onChange={(event) => setNewPassword(event.target.value)}
-              className={inputClass}
             />
           </Field>
           {errors.form ? (

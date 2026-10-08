@@ -202,7 +202,7 @@ export interface DistributionService {
   /** Any of `damage.report`, `damage.claim_settle`, `damage.approve`. */
   listDamageCases(
     companyId: string,
-    query: { status?: "open" },
+    query: { status?: "open"; from?: string; to?: string },
     options?: RequestOptions,
   ): Promise<DamageCase[]>;
   /** Requires `damage.report`. */
@@ -307,7 +307,15 @@ export interface DistributionService {
   /** Reads one month sheet into a new job: comparison with Excel and a proposed mapping. */
   createImportJob(
     companyId: string,
-    input: { file: Blob; fileName: string; sheet: string },
+    input: {
+      file: Blob;
+      fileName: string;
+      sheet: string;
+      /** Adds blocks after the month's last day to that day. */
+      extraBlocksToLastDay?: boolean;
+      /** Imports up to this date and leaves the month open. */
+      through?: string;
+    },
   ): Promise<ImportJob>;
   /** The latest jobs, newest first. */
   listImportJobs(companyId: string, options?: RequestOptions): Promise<ImportJobSummary[]>;

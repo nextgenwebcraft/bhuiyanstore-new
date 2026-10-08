@@ -58,8 +58,17 @@ export const queryKeys = {
     ] as const,
   payrollRun: (actorId: string, companyId: string, month: string) =>
     [...companyResource(actorId, companyId, resourceIds.payrollRun), month] as const,
-  damageCases: (actorId: string, companyId: string, status: string) =>
-    [...companyResource(actorId, companyId, resourceIds.damageCase), status] as const,
+  damageCases: (
+    actorId: string,
+    companyId: string,
+    filter: { status?: string; from?: string; to?: string },
+  ) =>
+    [
+      ...companyResource(actorId, companyId, resourceIds.damageCase),
+      filter.status ?? "all",
+      filter.from ?? "",
+      filter.to ?? "",
+    ] as const,
   importJobs: (actorId: string, companyId: string) =>
     [...companyResource(actorId, companyId, resourceIds.importJob), "list"] as const,
   importJob: (actorId: string, companyId: string, jobId: string) =>

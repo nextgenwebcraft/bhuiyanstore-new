@@ -1,6 +1,7 @@
 import { Decimal, toDecimal, type DecimalInput } from "../decimal";
 import { MONEY_KIND_EFFECTS } from "./money-kinds";
 import type {
+  CompanyEntryResult,
   DayResult,
   EngineWarning,
   MonthClosing,
@@ -191,6 +192,9 @@ export function computeMonth(input: MonthInput): MonthOutput {
   let companyPayable = companyPayableOpening;
   let companyReceipts = ZERO;
   let companyDeposits = ZERO;
+  let companyIncentives = ZERO;
+  let companyRefunds = ZERO;
+  const companyEntries: CompanyEntryResult[] = [];
 
   const totals = new Map<ProductId, ProductTotals>(
     input.products.map((p) => [p.id, emptyProductTotals()]),
@@ -277,6 +281,8 @@ export function computeMonth(input: MonthInput): MonthOutput {
 
     const productResults: ProductDayResult[] = [];
     let daySales = ZERO;
+    let dayReceipts = ZERO;
+    const dayRefunds: CompanyEntryResult[] = [];
     for (const [id, state] of products) {
       const p = dayProducts[id];
       const agg = lineAggregates.get(id);
@@ -293,6 +299,23 @@ export function computeMonth(input: MonthInput): MonthOutput {
       }
       const replacementReceived = sum(replacements.map((r) => r.quantity));
       const replacementValue = sum(replacements.map((r) => r.quantity.mul(r.unitCost)));
+      for (const refund of p?.companyRefunds ?? []) {
+        const quantity = toDecimal(refund.quantity);
+        const unitCost = toDecimal(refund.unitCost);
+        if (quantity.lte(0) || unitCost.isNegative()) {
+          throw new RangeError(`invalid company refund: ${id}`);
+        }
+        const amount = quantity.mul(unitCost);
+        companyRefunds = companyRefunds.add(amount);
+        dayRefunds.push({
+          date: day.date,
+          kind: "damageRefund",
+          amount: str(amount),
+          ...(refund.ref === undefined ? {} : { ref: refund.ref }),
+          productId: id,
+          balance: "",
+        });
+      }
       const issued = agg?.issued ?? ZERO;
       const returned = agg?.returned ?? ZERO;
       const delivered = issued.sub(returned);
@@ -355,6 +378,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
       t.replacementValue = t.replacementValue.add(replacementValue);
       companyReceipts = companyReceipts.add(receiptBill);
       companyPayable = companyPayable.add(receiptBill);
+      dayReceipts = dayReceipts.add(receiptBill);
       daySales = daySales.add(sales);
 
       const priceString = (kind: PriceKind): string | null => {
@@ -387,6 +411,19 @@ export function computeMonth(input: MonthInput): MonthOutput {
         stock: str(state.stock),
         stockValue: str(stockValue),
       });
+    }
+
+    if (!dayReceipts.isZero()) {
+      companyEntries.push({
+        date: day.date,
+        kind: "receipt",
+        amount: str(dayReceipts),
+        balance: str(companyPayable),
+      });
+    }
+    for (const refund of dayRefunds) {
+      companyPayable = companyPayable.sub(toDecimal(refund.amount));
+      companyEntries.push({ ...refund, balance: str(companyPayable) });
     }
 
     let cashIn = ZERO;
@@ -430,10 +467,21 @@ export function computeMonth(input: MonthInput): MonthOutput {
         dayIncentive = dayIncentive.add(amount);
       }
 
-      if (effect.companyPayable === -1) {
+      if (effect.company) {
         companyPayable = companyPayable.sub(amount);
-        companyDeposits = companyDeposits.add(amount);
-        banked = banked.add(amount);
+        if (effect.company === "deposit") {
+          companyDeposits = companyDeposits.add(amount);
+          banked = banked.add(amount);
+        } else {
+          companyIncentives = companyIncentives.add(amount);
+        }
+        companyEntries.push({
+          date: day.date,
+          kind: effect.company,
+          amount: str(amount),
+          ...(entry.ref === undefined ? {} : { ref: entry.ref }),
+          balance: str(companyPayable),
+        });
       }
 
       if (effect.staff && entry.staffId) {
@@ -615,6 +663,8 @@ export function computeMonth(input: MonthInput): MonthOutput {
         opening: str(companyPayableOpening),
         receipts: str(companyReceipts),
         deposits: str(companyDeposits),
+        incentives: str(companyIncentives),
+        damageRefunds: str(companyRefunds),
         closing: str(companyPayable),
       },
       profit: {
@@ -632,6 +682,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
     },
     closing,
     staffEntries,
+    companyEntries,
     warnings,
   };
 }

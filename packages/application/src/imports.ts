@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  businessDateSchema,
   importCommitRequestSchema,
   importDiscardRequestSchema,
   importJobSchema,
@@ -32,6 +33,7 @@ import {
   type MoneyEntryInput,
   type MonthInput,
   type MonthOpening,
+  type MonthOutput,
   type PriceKind,
   type ProductDayInput,
   type StaffBalances,
@@ -48,7 +50,7 @@ import { requirePermission, type CompanyAccess } from "./access";
 import { recordAudit } from "./audit";
 import type { AppContext, Tx } from "./context";
 import { requireAll } from "./daily";
-import { fromDbDate, toDbDate } from "./dates";
+import { fromDbDate, toDbDate, todayInDhaka } from "./dates";
 import { AppError, parseInput } from "./errors";
 import { runIdempotent } from "./idempotency";
 import {
@@ -60,7 +62,7 @@ import {
   runLedger,
   type ActiveOpening,
 } from "./ledger";
-import { closeBlocker } from "./month";
+import { closeBlocker, previousMonth } from "./month";
 import { plain } from "./numeric";
 import { importOpeningFromClosing, matchPerson, nameKey } from "./opening";
 import { packOn } from "./products";
@@ -107,7 +109,17 @@ type StoredLabels = {
   people: SheetLabel[];
   categories: SheetLabel[];
 };
-type StoredReport = { checks: ImportCheck[]; notes: string[]; unexplained: number };
+type StoredReport = {
+  checks: ImportCheck[];
+  notes: string[];
+  unexplained: number;
+  /** Last imported date of a month still in progress; the commit then leaves the month open. */
+  through?: string;
+};
+
+/** The job's last date: its `through` date, else the month's last day. */
+const lastDateOf = (row: JobRow) =>
+  (row.report as unknown as StoredReport).through ?? lastOfMonth(row.month);
 
 const isZero = (value: DecimalInput | undefined) =>
   value === undefined || toDecimal(value).isZero();
@@ -471,6 +483,7 @@ async function withExistingPrices(
   db: Db,
   companyId: string,
   month: string,
+  last: string,
   opening: MonthOpening,
   days: MappedDay[],
 ): Promise<{ opening: MonthOpening; days: MappedDay[] }> {
@@ -478,14 +491,14 @@ async function withExistingPrices(
   const existing = await db.priceChange.findMany({
     where: {
       product: { companyId },
-      effectiveFrom: { gte: toDbDate(first), lte: toDbDate(lastOfMonth(month)) },
+      effectiveFrom: { gte: toDbDate(first), lte: toDbDate(last) },
     },
     orderBy: { effectiveFrom: "asc" },
   });
   const products = { ...opening.products };
   const byDate = new Map(days.map((d) => [d.date, d]));
   const all: MappedDay[] = [];
-  for (let date = first; date <= lastOfMonth(month); date = shiftBusinessDate(date, 1)) {
+  for (let date = first; date <= last; date = shiftBusinessDate(date, 1)) {
     const day = byDate.get(date);
     all.push({
       date,
@@ -656,7 +669,19 @@ async function buildPreview(
       select: { id: true },
     });
     if (closed) issue({ code: "validation.month.alreadyClosed", severity: "error" });
-    else {
+    else if (report.through) {
+      if (report.through > todayInDhaka()) {
+        issue({ code: "import.issue.throughFuture", severity: "error" });
+      }
+      const previous = previousMonth(month);
+      const previousClosed =
+        previous < monthOf(active.cutoffDate) ||
+        (await db.monthClose.findUnique({
+          where: { companyId_month: { companyId, month: previous } },
+          select: { id: true },
+        }));
+      if (!previousClosed) issue({ code: "validation.month.previousOpen", severity: "error" });
+    } else {
       const blocker = await closeBlocker(db, companyId, month, active);
       if (blocker) issue({ code: blocker, severity: "error" });
     }
@@ -714,7 +739,14 @@ async function buildPreview(
         detail: String(openingDifferences.length),
       });
     }
-    const withPrices = await withExistingPrices(db, companyId, month, system, days);
+    const withPrices = await withExistingPrices(
+      db,
+      companyId,
+      month,
+      lastDateOf(row),
+      system,
+      days,
+    );
     expected = {
       products: engineProducts(catalog),
       opening: withPrices.opening,
@@ -728,6 +760,8 @@ async function buildPreview(
           : "import.issue.openingActive",
       severity: "error",
     });
+  } else if (report.through) {
+    issue({ code: "import.issue.partialOpening", severity: "error" });
   } else {
     mode = "opening";
     const session = await db.openingSession.findUnique({
@@ -754,6 +788,7 @@ function toSummary(row: JobRow): ImportJobSummary {
     fileName: row.fileName,
     sheet: row.sheet,
     month: row.month,
+    through: report.through ?? null,
     unexplained: report.unexplained,
     createdAt: row.createdAt.toISOString(),
     committedAt: row.committedAt?.toISOString() ?? null,
@@ -875,6 +910,8 @@ export async function createImportJob(
     sheet: string;
     /** "lastDay" adds blocks after the month's last day to that day (owner's confirmation). */
     extraBlocks?: "ignore" | "lastDay";
+    /** Imports days up to this date only and leaves the month open. */
+    through?: string;
   },
   requestKey?: string,
 ): Promise<ImportJob> {
@@ -885,12 +922,21 @@ export async function createImportJob(
   if (!monthSheetNames(workbook).includes(input.sheet)) {
     throw invalid("sheet", "validation.import.sheet");
   }
+  const through = input.through || undefined;
+  if (through !== undefined && !businessDateSchema.safeParse(through).success) {
+    throw invalid("through", "validation.date.invalid");
+  }
   let read;
   try {
-    read = readMonthSheet(workbook, input.sheet, { extraBlocks: input.extraBlocks ?? "ignore" });
-  } catch {
+    read = readMonthSheet(workbook, input.sheet, {
+      extraBlocks: input.extraBlocks ?? "ignore",
+      ...(through ? { through } : {}),
+    });
+  } catch (error) {
+    if (error instanceof RangeError) throw invalid("through", "validation.import.through");
     throw invalid("sheet", "validation.import.sheetLayout");
   }
+  const partial = through !== undefined && through < lastOfMonth(read.month);
   const checks: ImportCheck[] = compareWithSaved(computeMonth(read.input), read.expectations).map(
     (c) => ({
       check: c.check,
@@ -915,6 +961,7 @@ export async function createImportJob(
     checks,
     notes: read.notes,
     unexplained: checks.reduce((n, c) => n + c.unexplainedCount, 0),
+    ...(partial ? { through } : {}),
   };
   const catalog = await loadCatalog(ctx.db, access, read.month);
   const mapping = proposeMapping(labels, catalog);
@@ -922,7 +969,12 @@ export async function createImportJob(
   return runIdempotent(
     ctx,
     { scope: companyId, action: "import.create", requestKey },
-    { fileHash, sheet: input.sheet },
+    {
+      fileHash,
+      sheet: input.sheet,
+      extraBlocks: input.extraBlocks ?? "ignore",
+      through: partial ? through : null,
+    },
     async (tx) => {
       const row = await tx.importJob.create({
         data: {
@@ -950,6 +1002,7 @@ export async function createImportJob(
           sheet: input.sheet,
           month: read.month,
           unexplained: report.unexplained,
+          through: report.through ?? null,
         },
       });
       return toView(tx, access, row);
@@ -1184,10 +1237,42 @@ async function postDocuments(
   };
 }
 
+async function closeImportedMonth(
+  tx: Tx,
+  ctx: AppContext,
+  access: CompanyAccess,
+  row: JobRow,
+  output: MonthOutput,
+) {
+  const close = await tx.monthClose.create({
+    data: {
+      tenantId: access.company.tenantId,
+      companyId: access.company.id,
+      month: row.month,
+      closing: output.closing as unknown as Prisma.InputJsonValue,
+      closedById: ctx.actor.userId,
+    },
+  });
+  await recordAudit(tx, ctx, {
+    companyId: access.company.id,
+    action: "month.close",
+    resourceType: "month_close",
+    resourceId: close.id,
+    after: {
+      month: row.month,
+      importJobId: row.id,
+      salesTotal: output.month.totals.salesTotal,
+      profitTotal: output.month.totals.profitTotal,
+      marketDue: output.month.marketDue.closing,
+      cashLeftTotal: output.month.cashLeftTotal,
+    },
+  });
+}
+
 /**
  * Commits a ready job (PLAN §8 step 5). Documents mode posts the month's documents with
  * reference `import:{id}`, checks that the ledger reproduces the previewed engine run exactly,
- * then closes the month. Opening mode writes the month's closing into the draft opening (the
+ * then closes the month (a job with a `through` date leaves it open). Opening mode writes the month's closing into the draft opening (the
  * next month's first day becomes the go-live date).
  */
 export async function commitImportJob(
@@ -1228,8 +1313,8 @@ export async function commitImportJob(
         if (!active || !expectedInput) throw invalid("mode", "validation.import.mode");
         summary = await postDocuments(tx, ctx, access, row, catalog, preview.docs);
         const expected = computeMonth(expectedInput);
-        const last = lastOfMonth(row.month);
-        const after = await runLedger(tx, access, last, active);
+        const through = (row.report as unknown as StoredReport).through;
+        const after = await runLedger(tx, access, lastDateOf(row), active);
         if (
           !after ||
           !sameNumbers(after.output.closing, expected.closing) ||
@@ -1237,29 +1322,8 @@ export async function commitImportJob(
         ) {
           throw invalid("", "validation.import.roundTrip");
         }
-        const close = await tx.monthClose.create({
-          data: {
-            tenantId: access.company.tenantId,
-            companyId,
-            month: row.month,
-            closing: after.output.closing as unknown as Prisma.InputJsonValue,
-            closedById: ctx.actor.userId,
-          },
-        });
-        await recordAudit(tx, ctx, {
-          companyId,
-          action: "month.close",
-          resourceType: "month_close",
-          resourceId: close.id,
-          after: {
-            month: row.month,
-            importJobId: row.id,
-            salesTotal: after.output.month.totals.salesTotal,
-            profitTotal: after.output.month.totals.profitTotal,
-            marketDue: after.output.month.marketDue.closing,
-            cashLeftTotal: after.output.month.cashLeftTotal,
-          },
-        });
+        if (through) summary = { ...summary, through };
+        else await closeImportedMonth(tx, ctx, access, row, after.output);
       } else {
         if (request.openingVersion === null) {
           throw invalid("openingVersion", "validation.required");

@@ -79,6 +79,8 @@ export const importJobSummarySchema = z.object({
   fileName: z.string(),
   sheet: z.string(),
   month: z.string(),
+  /** Last imported date when only part of the month was read; that commit leaves it open. */
+  through: z.string().nullable(),
   unexplained: z.number().int().nonnegative(),
   createdAt: z.string(),
   committedAt: z.string().nullable(),

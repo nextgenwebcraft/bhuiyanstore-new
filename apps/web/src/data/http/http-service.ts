@@ -344,6 +344,8 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
       }),
     createImportJob: (companyId, input) => {
       const query = new URLSearchParams({ sheet: input.sheet, fileName: input.fileName });
+      if (input.extraBlocksToLastDay) query.set("extraBlocks", "lastDay");
+      if (input.through) query.set("through", input.through);
       return request(importJobSchema, `${company(companyId)}/imports?${query.toString()}`, {
         method: "POST",
         file: input.file,
@@ -433,12 +435,18 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
         `${company(companyId)}/payroll-runs/${id(month)}/${id(action)}`,
         write("POST", input),
       ),
-    listDamageCases: (companyId, query, options) =>
-      request(
+    listDamageCases: (companyId, query, options) => {
+      const params = new URLSearchParams();
+      if (query.status) params.set("status", query.status);
+      if (query.from) params.set("from", query.from);
+      if (query.to) params.set("to", query.to);
+      const search = params.toString();
+      return request(
         z.array(damageCaseSchema),
-        `${company(companyId)}/damage-cases${query.status ? `?status=${query.status}` : ""}`,
+        `${company(companyId)}/damage-cases${search ? `?${search}` : ""}`,
         options,
-      ),
+      );
+    },
     createDamageCase: (companyId, input) =>
       request(damageCaseSchema, `${company(companyId)}/damage-cases`, write("POST", input)),
     postDamageEvent: (companyId, caseId, input) =>

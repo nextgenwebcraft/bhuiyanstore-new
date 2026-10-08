@@ -60,6 +60,11 @@ export type ProductDayInput = {
    * from company and no payable; quantity × reviewed unit cost is the replacement recovery.
    */
   replacements?: readonly { quantity: DecimalInput; unitCost: DecimalInput }[];
+  /**
+   * Money the company returned for damaged goods sent to it (D33). Quantity × price per piece
+   * lowers what we owe the company; stock and profit are unchanged.
+   */
+  companyRefunds?: readonly { quantity: DecimalInput; unitCost: DecimalInput; ref?: string }[];
   /** A price present here changes it from this day on (carry-forward). */
   orderPrice?: DecimalInput;
   costPrice?: DecimalInput;
@@ -101,7 +106,8 @@ export type MoneyKind =
   | "srPayment"
   | "staffOffset"
   | "srOffset"
-  | "supplierDeposit";
+  | "supplierDeposit"
+  | "companyIncentive";
 
 export type OwedBucket = "advance" | "loan" | "shortage";
 
@@ -276,7 +282,14 @@ export type MonthResult = {
     }[];
   };
   staff: StaffMonthResult[];
-  companyPayable: { opening: string; receipts: string; deposits: string; closing: string };
+  companyPayable: {
+    opening: string;
+    receipts: string;
+    deposits: string;
+    incentives: string;
+    damageRefunds: string;
+    closing: string;
+  };
   profit: {
     gross: string;
     salaries: string;
@@ -317,10 +330,28 @@ export type StaffEntryResult = {
   balances: StaffBalanceValues;
 };
 
+export type CompanyEntryKind = "receipt" | "deposit" | "incentive" | "damageRefund";
+
+/**
+ * One movement of what we owe the company, in posting order: a day's receipt bills (raises it),
+ * a deposit, a cash incentive or a damage money return (lower it).
+ */
+export type CompanyEntryResult = {
+  date: string;
+  kind: CompanyEntryKind;
+  amount: string;
+  ref?: string;
+  /** The product of a damage money return. */
+  productId?: ProductId;
+  /** What we owe the company after this entry (negative = our advance with it). */
+  balance: string;
+};
+
 export type MonthOutput = {
   days: DayResult[];
   month: MonthResult;
   closing: MonthClosing;
   staffEntries: StaffEntryResult[];
+  companyEntries: CompanyEntryResult[];
   warnings: EngineWarning[];
 };

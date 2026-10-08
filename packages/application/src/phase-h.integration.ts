@@ -33,6 +33,7 @@ let ctx: AppContext;
 let workbook: Uint8Array;
 const live = { company: "", alpha: "", beta: "", mamun: "", rohim: "", office: "" };
 const fresh = { company: "", alpha: "", beta: "", mamun: "", rohim: "", karim: "" };
+const partial = { company: "", alpha: "", beta: "", mamun: "", rohim: "" };
 
 function must<T>(value: T | undefined | null): T {
   if (value === undefined || value === null) throw new Error("expected a value");
@@ -135,7 +136,6 @@ beforeAll(async () => {
   live.mamun = a.mamun;
   live.rohim = a.rohim;
   live.office = (await expenseCategories.create(ctx, { name: "Office", active: true })).id;
-  const empty = await getOpening(ctx, live.company);
   const stock = (
     productId: string,
     pieces: string,
@@ -150,17 +150,29 @@ beforeAll(async () => {
     dueFromCompany: due,
     note: "",
   });
-  const saved = await saveOpening(ctx, live.company, {
-    version: empty.version,
-    cutoffDate: "2026-09-01",
-    stock: [
-      stock(live.alpha, "100", ["10", "9.5", "11"], "5"),
-      stock(live.beta, "0", ["20", "19", "22.5"], "0"),
-    ],
-    balances: [{ kind: "market_due", staffId: null, cashAccountId: null, amount: "20", note: "" }],
-  });
-  const approved = await approveOpening(ctx, live.company, { version: saved.version });
-  await activateOpening(ctx, live.company, { version: approved.version });
+  const goLive = async (c: { company: string; alpha: string; beta: string }) => {
+    const empty = await getOpening(ctx, c.company);
+    const saved = await saveOpening(ctx, c.company, {
+      version: empty.version,
+      cutoffDate: "2026-09-01",
+      stock: [
+        stock(c.alpha, "100", ["10", "9.5", "11"], "5"),
+        stock(c.beta, "0", ["20", "19", "22.5"], "0"),
+      ],
+      balances: [
+        { kind: "market_due", staffId: null, cashAccountId: null, amount: "20", note: "" },
+      ],
+    });
+    const approved = await approveOpening(ctx, c.company, { version: saved.version });
+    await activateOpening(ctx, c.company, { version: approved.version });
+  };
+  await goLive(live);
+
+  const p = await setup("Partial");
+  Object.assign(partial, { company: p.company, alpha: p.alpha, beta: p.beta });
+  partial.mamun = p.mamun;
+  partial.rohim = p.rohim;
+  await goLive(partial);
 
   const b = await setup("Fresh");
   Object.assign(fresh, { company: b.company, alpha: b.alpha, beta: b.beta });
@@ -389,5 +401,53 @@ describe("Phase H: a month before go-live becomes the draft opening", () => {
     expect(balance("market_due", null)).toBe("75.00");
     expect(balance("shortage", fresh.rohim)).toBe("30.00");
     expect(balance("company_payable", null)).toBe("480.00");
+  });
+});
+
+describe("Phase H: a month in progress is imported up to a date and stays open", () => {
+  const uploadThrough = (company: string, through: string) =>
+    createImportJob(ctx, company, {
+      data: workbook,
+      fileName: "book.xlsx",
+      sheet: "Sep 2026",
+      through,
+    });
+
+  it("refuses a date outside the sheet's month and a partial opening", async () => {
+    await expectField(
+      uploadThrough(partial.company, "2026-10-01"),
+      "through",
+      "validation.import.through",
+    );
+    const opening = await uploadThrough(fresh.company, "2026-09-01");
+    expect(opening.mode).toBeNull();
+    expect(codes(opening)).toContain("import.issue.partialOpening");
+  });
+
+  it("posts only the days up to the date and leaves the month open", async () => {
+    let job = await uploadThrough(partial.company, "2026-09-01");
+    expect(job).toMatchObject({ mode: "documents", through: "2026-09-01", unexplained: 0 });
+    expect(job.checks.map((c) => c.check)).not.toContain("Market due closing");
+    job = await saveImportMapping(ctx, partial.company, job.id, {
+      version: job.version,
+      mapping: {
+        products: { p7: partial.alpha, p9: partial.beta },
+        staff: { mamun: partial.mamun, "sr rohim": partial.rohim },
+        categories: { operating: live.office },
+      },
+    });
+    expect(job.documents.dsrDays).toBe(1);
+    job = await commitImportJob(ctx, partial.company, job.id, {
+      version: job.version,
+      mode: "documents",
+      acceptDifferences: true,
+    });
+    expect(job).toMatchObject({ status: "committed", through: "2026-09-01" });
+
+    const day1 = await getDayView(ctx, partial.company, "2026-09-01");
+    expect(day1.money).toMatchObject({ sales: "528", cashLeft: "438" });
+    const day2 = await getDayView(ctx, partial.company, "2026-09-02");
+    expect(day2.money.sales).toBe("0");
+    expect((await getMonthView(ctx, partial.company, "2026-09")).status).not.toBe("closed");
   });
 });

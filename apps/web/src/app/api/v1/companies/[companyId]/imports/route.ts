@@ -34,6 +34,7 @@ export async function POST(request: Request, { params }: Params) {
           fileName: query.get("fileName") ?? "",
           sheet,
           extraBlocks: query.get("extraBlocks") === "lastDay" ? "lastDay" : "ignore",
+          through: query.get("through") ?? "",
         },
         idempotencyKey(request),
       );

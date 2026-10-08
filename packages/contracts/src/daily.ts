@@ -164,6 +164,7 @@ export const moneyEntryKinds = [
   "staffOffset",
   "srOffset",
   "supplierDeposit",
+  "companyIncentive",
 ] as const;
 
 export type MoneyEntryKind = (typeof moneyEntryKinds)[number];
@@ -217,6 +218,7 @@ export const moneyKindPermission: Record<MoneyEntryKind, PermissionId> = {
   staffOffset: "payment.post",
   srOffset: "sr_payable.settle",
   supplierDeposit: "payment.post",
+  companyIncentive: "payment.post",
 };
 
 /** Kinds that need an expense category. */

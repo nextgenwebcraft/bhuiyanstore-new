@@ -691,7 +691,7 @@ model DamageEvent {
   quantity     Decimal        @db.Decimal(20, 6)
   /// Buyer replacement given from godown stock (not already on a DSR sheet's damage column).
   fromStock    Boolean        @default(false) @map("from_stock")
-  /// Reviewed carrying cost per piece of a company replacement.
+  /// Price per piece of a company replacement (carrying cost) or money return (D33).
   unitCost     Decimal?       @map("unit_cost") @db.Decimal(20, 6)
   reference    String         @default("")
   note         String         @default("")

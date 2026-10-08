@@ -14,7 +14,6 @@ import { TableScroller } from "@/components/table-scroller";
 import { errorCodeOf } from "@/data/ports/service-error";
 import { useDashboardSummary } from "@/data/queries";
 import { DateBar, DayGate, money, useWorkingDate } from "@/features/daily/daily-kit";
-import { Warnings } from "@/features/daily/day-report-page";
 import {
   companyHref,
   findNavEntry,
@@ -23,6 +22,7 @@ import {
   type FlowLink,
 } from "@/features/shell/navigation";
 import { NavGate } from "@/features/shell/nav-gate";
+import { PageWarnings } from "@/features/shell/notifications";
 import { ShortcutHint } from "@/features/shell/side-nav";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 
@@ -288,8 +288,8 @@ function WorkChecklist({ view, links }: { view: DayView; links: FlowLink[] }) {
           {count(done)}/{count(tracked.length)} {t("dashboard.work.progress")}
         </p>
       </div>
-      <Warnings warnings={view.warnings} />
-      <ol className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+      <PageWarnings warnings={view.warnings} />
+      <ol className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
         {rows.map(({ link, status }) => (
           <li key={link.path}>
             <Link

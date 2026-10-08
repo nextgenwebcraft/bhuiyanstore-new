@@ -94,6 +94,7 @@ export const navigation: readonly NavSection[] = [
     labelKey: "nav.finance",
     module: "finance",
     items: [
+      item("finance/company-account", "nav.finance.companyAccount", "finance.view", true),
       item("finance/supplier-deposits", "finance.supplierDeposit", "finance.view", true),
       item("finance/expenses", "nav.finance.expenses", "finance.view", true),
       item("finance/receivables", "nav.finance.receivables", "finance.view", true),
@@ -193,6 +194,7 @@ export const flowGroups: readonly {
     labelKey: "nav.flow.accounts",
     collapsed: true,
     entries: [
+      { path: "finance/company-account" },
       { path: "dsr/accounts" },
       { path: "dsr/statement" },
       { path: "finance/receivables" },
