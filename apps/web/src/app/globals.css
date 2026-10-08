@@ -2,8 +2,10 @@
 @import "@bsd/design-system/tokens.css";
 
 @theme inline {
-  --color-brand: var(--brand-primary);
-  --color-brand-foreground: var(--brand-primary-foreground);
+  /* `brand` utilities are the action color: one deep orange for every interactive accent. */
+  --color-brand: var(--action);
+  --color-brand-foreground: var(--action-foreground);
+  --color-brand-hover: var(--action-hover);
   --color-canvas: var(--canvas);
   --color-surface: var(--surface);
   --color-surface-muted: var(--surface-muted);
@@ -27,6 +29,20 @@
   --animate-calendar-prev: calendar-prev 180ms ease-out;
   --animate-pop-in: pop-in 140ms ease-out;
   --animate-shimmer: shimmer 1.6s ease-in-out infinite;
+  --animate-page-in: page-in 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-fade-in: fade-in 160ms ease-out both;
+
+  @keyframes page-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+  }
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+  }
 
   @keyframes shimmer {
     from {
@@ -65,10 +81,69 @@
   }
 }
 
+/*
+ * A 4px scrollbar. Chromium ignores ::-webkit-scrollbar once scrollbar-width is set, so the
+ * standard properties are only applied where the pseudo-elements are unsupported (Firefox).
+ */
+@utility scrollbar-thin {
+  &::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: color-mix(in oklab, var(--action) 65%, transparent);
+    border-radius: 9999px;
+  }
+  &::-webkit-scrollbar-thumb:hover {
+    background: var(--action);
+  }
+  &::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  @supports not selector(::-webkit-scrollbar) {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--action) 65%, transparent) transparent;
+  }
+}
+
+/* Page-level scrollbars match the tables: thin and in the action color. */
+html {
+  @apply scrollbar-thin;
+}
+
 body {
-  background: var(--canvas);
+  background-color: var(--canvas);
+  background-image: var(--canvas-gradient);
+  background-attachment: fixed;
   color: var(--text);
   font-variant-numeric: tabular-nums;
+}
+
+/* Theme switches and hovers ease instead of snapping; component transition utilities still win. */
+@layer base {
+  body,
+  a,
+  button,
+  input,
+  select,
+  textarea,
+  summary,
+  [role="button"] {
+    transition-property: color, background-color, border-color, box-shadow, opacity;
+    transition-duration: 150ms;
+    transition-timing-function: var(--ease-out);
+  }
+
+  dialog[open] {
+    animation: pop-in 180ms var(--ease-out);
+  }
+  dialog::backdrop {
+    background: var(--backdrop);
+    backdrop-filter: blur(4px);
+  }
 }
 
 :focus-visible {
@@ -77,7 +152,12 @@ body {
 }
 
 ::selection {
-  background: color-mix(in oklab, var(--brand-primary) 18%, transparent);
+  background: color-mix(in oklab, var(--action) 30%, transparent);
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--action);
 }
 
 @media (prefers-reduced-motion: reduce) {

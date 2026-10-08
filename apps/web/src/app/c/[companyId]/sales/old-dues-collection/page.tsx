@@ -1,5 +1,5 @@
-import { MarketDuePage } from "@/features/daily/money-page";
+import { ShopDuePage } from "@/features/shops/shop-due-page";
 
 export default function MarketDueRoute() {
-  return <MarketDuePage />;
+  return <ShopDuePage />;
 }

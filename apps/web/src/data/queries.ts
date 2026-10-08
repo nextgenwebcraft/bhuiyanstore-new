@@ -27,13 +27,14 @@ import type {
   StaffAssignmentRequest,
   StaffCreateRequest,
   StaffUpsertRequest,
+  ShopUpsertRequest,
   StockEntryPostRequest,
   UserCreateRequest,
   UserPasswordResetRequest,
   UserUpdateRequest,
 } from "@bsd/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ConfigListId, ConfigLists } from "./ports/distribution-service";
+import type { ConfigListId, ConfigLists, DistributionService } from "./ports/distribution-service";
 import { postingEffects, queryKeys, resourceKey } from "./query-keys";
 import { useActorId, useService } from "./service-context";
 
@@ -53,6 +54,21 @@ export function useCreateCompany() {
   return useMutation({
     mutationFn: (input: CompanyUpsertRequest) => service.createCompany(input),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.workspaces(actorId) }),
+  });
+}
+
+export function useUpdateCompany(companyId: string) {
+  const service = useService();
+  const actorId = useActorId();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CompanyUpsertRequest) => service.updateCompany(companyId, input),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.workspaces(actorId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.workspace(actorId, companyId) }),
+      ]);
+    },
   });
 }
 
@@ -210,7 +226,7 @@ export function useDsrDayCommand(companyId: string) {
 
 export function useMoneyEntries(
   companyId: string,
-  query: { from: string; to?: string; staffId?: string },
+  query: { from: string; to?: string; staffId?: string; shopId?: string },
   enabled = true,
 ) {
   const service = useService();
@@ -222,6 +238,7 @@ export function useMoneyEntries(
       query.from,
       query.to ?? query.from,
       query.staffId ?? "",
+      query.shopId ?? "",
     ),
     queryFn: ({ signal }) => service.listMoneyEntries(companyId, query, { signal }),
     enabled,
@@ -322,13 +339,15 @@ export function usePayrollCommand(companyId: string, month: string) {
   );
 }
 
-export function useDamageCases(companyId: string, status: "open" | "all") {
+export function useDamageCases(
+  companyId: string,
+  filter: { status?: "open"; from?: string; to?: string } = {},
+) {
   const service = useService();
   const actorId = useActorId();
   return useQuery({
-    queryKey: queryKeys.damageCases(actorId, companyId, status),
-    queryFn: ({ signal }) =>
-      service.listDamageCases(companyId, status === "open" ? { status } : {}, { signal }),
+    queryKey: queryKeys.damageCases(actorId, companyId, filter),
+    queryFn: ({ signal }) => service.listDamageCases(companyId, filter, { signal }),
   });
 }
 
@@ -411,6 +430,38 @@ export function useStaffRecords(companyId: string) {
   return useQuery({
     queryKey: queryKeys.staffRecords(actorId, companyId),
     queryFn: ({ signal }) => service.listStaffRecords(companyId, { signal }),
+  });
+}
+
+export function useShops(companyId: string) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.shops(actorId, companyId),
+    queryFn: ({ signal }) => service.listShops(companyId, { signal }),
+  });
+}
+
+export function useSaveShop(companyId: string) {
+  const service = useService();
+  return useMasterMutation(
+    [resourceIds.shop],
+    ({ shopId, input }: { shopId?: string; input: ShopUpsertRequest }) =>
+      shopId ? service.updateShop(companyId, shopId, input) : service.createShop(companyId, input),
+  );
+}
+
+export function useShopStatement(
+  companyId: string,
+  shopId: string,
+  range: { from: string; to: string },
+) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.shopStatement(actorId, companyId, shopId, range.from, range.to),
+    queryFn: ({ signal }) => service.getShopStatement(companyId, shopId, range, { signal }),
+    enabled: shopId !== "" && range.from <= range.to,
   });
 }
 
@@ -659,8 +710,10 @@ function useImportJobCommand<TInput>(
 
 export function useCreateImportJob(companyId: string) {
   const service = useService();
-  return useImportJobCommand(companyId, (input: { file: Blob; fileName: string; sheet: string }) =>
-    service.createImportJob(companyId, input),
+  return useImportJobCommand(
+    companyId,
+    (input: Parameters<DistributionService["createImportJob"]>[1]) =>
+      service.createImportJob(companyId, input),
   );
 }
 

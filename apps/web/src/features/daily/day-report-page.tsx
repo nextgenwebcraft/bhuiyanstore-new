@@ -1,11 +1,13 @@
 "use client";
 
-import type { DayProductRow, DayView, EngineWarningDto } from "@bsd/contracts";
-import { formatAmount, formatRate, formatShortDate, t, type TranslationKey } from "@bsd/i18n";
+import type { DayProductRow, DayView } from "@bsd/contracts";
+import { sumAmounts, sumQuantities } from "@bsd/domain";
+import { formatRate, t, type TranslationKey } from "@bsd/i18n";
 import { PageHeader } from "@/components/page-header";
 import { StatePanel } from "@/components/state-panel";
-import { useProducts, useStaff } from "@/data/queries";
+import { TableSummary, type SummaryItem } from "@/components/table-summary";
 import { NavGate } from "@/features/shell/nav-gate";
+import { PageWarnings } from "@/features/shell/notifications";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 import {
   DateBar,
@@ -16,6 +18,7 @@ import {
   SectionTitle,
   TableScroller,
   money,
+  quantity,
   stickyCell,
   stickyHead,
   tableClass,
@@ -26,7 +29,6 @@ import {
   theadClass,
   useWorkingDate,
 } from "./daily-kit";
-import { groupWarnings } from "./warning-groups";
 
 type Column = {
   key: TranslationKey;
@@ -35,6 +37,8 @@ type Column = {
   quantity?: true;
   /** Hidden when the actor can't see cost (or profit). */
   needs?: "cost" | "profit";
+  /** A money field whose day total is shown above the table. */
+  total?: keyof DayProductRow;
 };
 
 const qty = (key: TranslationKey, field: keyof DayProductRow): Column => ({
@@ -59,14 +63,19 @@ const DAY_COLUMNS: Column[] = [
   qty("day.column.damaged", "damaged"),
   qty("day.column.sold", "sold"),
   { key: "day.column.salePrice", cell: rate("salePrice") },
-  { key: "day.column.sales", cell: amount("sales") },
+  { key: "day.column.sales", cell: amount("sales"), total: "sales" },
   { key: "day.column.costPrice", cell: rate("costPrice"), needs: "cost" },
-  { key: "day.column.cost", cell: amount("cost"), needs: "cost" },
-  { key: "day.column.grossProfit", cell: amount("grossProfit"), needs: "profit" },
-  { key: "day.column.receiptBill", cell: amount("receiptBill") },
+  { key: "day.column.cost", cell: amount("cost"), needs: "cost", total: "cost" },
+  {
+    key: "day.column.grossProfit",
+    cell: amount("grossProfit"),
+    needs: "profit",
+    total: "grossProfit",
+  },
+  { key: "day.column.receiptBill", cell: amount("receiptBill"), total: "receiptBill" },
   qty("day.column.dueFromCompany", "dueFromCompany"),
   qty("day.column.stock", "stock"),
-  { key: "day.column.stockValue", cell: amount("stockValue"), needs: "cost" },
+  { key: "day.column.stockValue", cell: amount("stockValue"), needs: "cost", total: "stockValue" },
 ];
 
 function visible(columns: Column[], view: DayView) {
@@ -78,6 +87,25 @@ function visible(columns: Column[], view: DayView) {
 function ProductTable({ view, columns }: { view: DayView; columns: Column[] }) {
   const shown = visible(columns, view);
   if (view.products.length === 0) return <StatePanel title={t("product.empty")} />;
+  const summary: SummaryItem[] = [
+    { label: t("table.summary.products"), value: quantity(String(view.products.length)) },
+    ...shown.flatMap((c) => {
+      const field = c.total;
+      if (!field) return [];
+      const values = view.products.map((p) => p[field] as string | null);
+      if (values.some((v) => v === null)) return [];
+      return [{ label: t(c.key), value: money(sumAmounts(values as string[])) }];
+    }),
+  ];
+  return (
+    <>
+      <TableSummary label={t("table.summary")} items={summary} />
+      <ProductGrid view={view} shown={shown} />
+    </>
+  );
+}
+
+function ProductGrid({ view, shown }: { view: DayView; shown: Column[] }) {
   return (
     <TableScroller>
       <table className={tableClass}>
@@ -140,65 +168,6 @@ function MoneyBlock({ view }: { view: DayView }) {
   );
 }
 
-const NAMES_SHOWN = 8;
-
-/** Product or people names, the first few in full and the rest as a count. */
-function nameList(ids: string[], names: Map<string, string>, unit: TranslationKey): string {
-  const known = ids.map((id) => names.get(id)).filter((n): n is string => Boolean(n));
-  if (known.length === 0) return `${formatAmount(String(ids.length))} ${t(unit)}`;
-  const shown = known.slice(0, NAMES_SHOWN).join(", ");
-  const rest = ids.length - Math.min(known.length, NAMES_SHOWN);
-  return rest > 0 ? `${shown} ${t("warning.andMore")} ${formatAmount(String(rest))}` : shown;
-}
-
-/** The engine's warnings, one line per kind with the days and the products or people affected. */
-export function Warnings({ warnings }: { warnings: readonly EngineWarningDto[] }) {
-  const { company } = useCurrentWorkspace();
-  const products = useProducts(company.id);
-  const staff = useStaff(company.id);
-  if (warnings.length === 0) return null;
-  const productNames = new Map((products.data ?? []).map((p) => [p.id, p.name]));
-  const staffNames = new Map((staff.data ?? []).map((s) => [s.id, s.name]));
-  const groups = groupWarnings(warnings);
-
-  return (
-    <section
-      role="status"
-      className="flex flex-col gap-3 rounded-xl border border-warning/30 bg-warning/5 p-5 shadow-card"
-    >
-      <h2 className="flex items-center gap-2.5 text-base font-semibold">
-        <span aria-hidden className="size-2 shrink-0 rounded-full bg-warning" />
-        {t("day.warnings")}
-      </h2>
-      <ul className="flex flex-col gap-2.5 pl-4.5">
-        {groups.map((g) => (
-          <li key={g.code} className="text-sm">
-            <div className="flex flex-wrap items-baseline gap-x-2">
-              <span className="font-medium">{t(`warning.${g.code}` as TranslationKey)}</span>
-              <span className="text-xs text-text-muted tabular-nums">
-                {formatAmount(String(g.days))} {t("warning.days")}
-                {g.days > 1
-                  ? ` · ${formatShortDate(g.firstDate)} – ${formatShortDate(g.lastDate)}`
-                  : ` · ${formatShortDate(g.firstDate)}`}
-              </span>
-            </div>
-            {g.productIds.length > 0 ? (
-              <p className="mt-0.5 text-text-muted">
-                {nameList(g.productIds, productNames, "warning.products")}
-              </p>
-            ) : null}
-            {g.staffIds.length > 0 ? (
-              <p className="mt-0.5 text-text-muted">
-                {nameList(g.staffIds, staffNames, "warning.people")}
-              </p>
-            ) : null}
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
 function DayPage({
   path,
   title,
@@ -232,7 +201,7 @@ export function DayReportPage() {
     <DayPage path="reports/operations" title="nav.reports.operations" description="day.description">
       {(view) => (
         <div className="flex flex-col gap-4">
-          <Warnings warnings={view.warnings} />
+          <PageWarnings warnings={view.warnings} />
           <ProductTable view={view} columns={DAY_COLUMNS} />
           <SectionTitle>{t("day.money.title")}</SectionTitle>
           <MoneyBlock view={view} />
@@ -247,7 +216,7 @@ const STOCK_COLUMNS: Column[] = [
   qty("day.column.dueFromCompany", "dueFromCompany"),
   { key: "day.column.costPrice", cell: rate("costPrice"), needs: "cost" },
   { key: "day.column.salePrice", cell: rate("salePrice") },
-  { key: "day.column.stockValue", cell: amount("stockValue"), needs: "cost" },
+  { key: "day.column.stockValue", cell: amount("stockValue"), needs: "cost", total: "stockValue" },
 ];
 
 export function StockPage() {
@@ -255,7 +224,7 @@ export function StockPage() {
     <DayPage path="inventory/stock" title="nav.inventory.stock" description="stock.description">
       {(view) => (
         <div className="flex flex-col gap-4">
-          <Warnings warnings={view.warnings} />
+          <PageWarnings warnings={view.warnings} />
           <ProductTable view={view} columns={STOCK_COLUMNS} />
         </div>
       )}
@@ -285,8 +254,27 @@ export function PersonsPage({ kind }: { kind: "issued" | "returned" }) {
               const own = rows.filter((r) => r.staffId === staffId);
               if (own.length === 0) return null;
               return (
-                <section key={staffId}>
-                  <h2 className="mb-2 text-sm font-semibold">{staffName}</h2>
+                <section key={staffId} className="flex flex-col gap-2">
+                  <h2 className="text-sm font-semibold">{staffName}</h2>
+                  <TableSummary
+                    label={t("table.summary")}
+                    items={[
+                      { label: t("table.summary.products"), value: quantity(String(own.length)) },
+                      {
+                        label: `${t(`day.column.${kind}`)} (${t("godown.column.pieces")})`,
+                        value: quantity(sumQuantities(own.map((r) => r[kind]))),
+                      },
+                      {
+                        label: `${t("day.column.damaged")} (${t("godown.column.pieces")})`,
+                        value: quantity(sumQuantities(own.map((r) => r.damaged))),
+                      },
+                      {
+                        label: t("day.column.sales"),
+                        value: money(sumAmounts(own.map((r) => r.amount))),
+                        emphasis: true,
+                      },
+                    ]}
+                  />
                   <TableScroller>
                     <table className={tableClass}>
                       <thead className={theadClass}>

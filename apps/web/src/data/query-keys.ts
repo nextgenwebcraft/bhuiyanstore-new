@@ -26,6 +26,16 @@ export const queryKeys = {
     [...companyResource(actorId, companyId, resourceIds.productHistory), productId] as const,
   staffRecords: (actorId: string, companyId: string) =>
     companyResource(actorId, companyId, resourceIds.staffRecord),
+  shops: (actorId: string, companyId: string) =>
+    companyResource(actorId, companyId, resourceIds.shop),
+  shopStatement: (actorId: string, companyId: string, shopId: string, from: string, to: string) =>
+    [
+      ...companyResource(actorId, companyId, resourceIds.ledger),
+      "shopStatement",
+      shopId,
+      from,
+      to,
+    ] as const,
   opening: (actorId: string, companyId: string) =>
     companyResource(actorId, companyId, resourceIds.opening),
   dayView: (actorId: string, companyId: string, date: string) =>
@@ -34,8 +44,21 @@ export const queryKeys = {
     [...companyResource(actorId, companyId, resourceIds.stockEntry), date] as const,
   dsrDays: (actorId: string, companyId: string, date: string) =>
     [...companyResource(actorId, companyId, resourceIds.dsrDay), date] as const,
-  moneyEntries: (actorId: string, companyId: string, from: string, to: string, staffId: string) =>
-    [...companyResource(actorId, companyId, resourceIds.moneyEntry), from, to, staffId] as const,
+  moneyEntries: (
+    actorId: string,
+    companyId: string,
+    from: string,
+    to: string,
+    staffId: string,
+    shopId = "",
+  ) =>
+    [
+      ...companyResource(actorId, companyId, resourceIds.moneyEntry),
+      from,
+      to,
+      staffId,
+      shopId,
+    ] as const,
   monthView: (actorId: string, companyId: string, month: string) =>
     [...companyResource(actorId, companyId, resourceIds.ledger), "month", month] as const,
   report: (actorId: string, companyId: string, report: string, from: string, to: string) =>
@@ -58,8 +81,17 @@ export const queryKeys = {
     ] as const,
   payrollRun: (actorId: string, companyId: string, month: string) =>
     [...companyResource(actorId, companyId, resourceIds.payrollRun), month] as const,
-  damageCases: (actorId: string, companyId: string, status: string) =>
-    [...companyResource(actorId, companyId, resourceIds.damageCase), status] as const,
+  damageCases: (
+    actorId: string,
+    companyId: string,
+    filter: { status?: string; from?: string; to?: string },
+  ) =>
+    [
+      ...companyResource(actorId, companyId, resourceIds.damageCase),
+      filter.status ?? "all",
+      filter.from ?? "",
+      filter.to ?? "",
+    ] as const,
   importJobs: (actorId: string, companyId: string) =>
     [...companyResource(actorId, companyId, resourceIds.importJob), "list"] as const,
   importJob: (actorId: string, companyId: string, jobId: string) =>
@@ -84,6 +116,7 @@ export const postingEffects = {
   dsrDay: [resourceIds.dsrDay, resourceIds.ledger, resourceIds.dashboardSummary],
   money: [
     resourceIds.moneyEntry,
+    resourceIds.shop,
     resourceIds.payrollRun,
     resourceIds.ledger,
     resourceIds.dashboardSummary,

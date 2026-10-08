@@ -11,6 +11,7 @@ export async function GET(request: Request, { params }: Params) {
       from: query.get("from") ?? query.get("date"),
       to: query.get("to"),
       staffId: query.get("staffId"),
+      shopId: query.get("shopId"),
     }),
   );
 }

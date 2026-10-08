@@ -634,6 +634,7 @@ describe("Phase G: damage replacement legs (D17)", () => {
       awaitingAcceptance: "0",
       rejected: "1",
       companyReplaced: "2",
+      companyRefunded: "0",
       companyPending: "0",
     });
 

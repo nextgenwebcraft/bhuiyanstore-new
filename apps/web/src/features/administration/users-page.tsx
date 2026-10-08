@@ -6,6 +6,7 @@ import { useId, useState } from "react";
 import { Button } from "@/components/button";
 import { Field, inputClass } from "@/components/field";
 import { FormDialog } from "@/components/form-dialog";
+import { PasswordInput } from "@/components/password-input";
 import { PageHeader } from "@/components/page-header";
 import { QueryError } from "@/components/query-error";
 import { ListSkeleton } from "@/components/skeleton";
@@ -193,14 +194,12 @@ function UserDialog({
             hint={t("user.temporaryPasswordHint")}
             error={errors.fields.password}
           >
-            <input
+            <PasswordInput
               id={`${id}-password`}
-              type="password"
               autoComplete="new-password"
               minLength={MIN_PASSWORD_LENGTH}
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              className={inputClass}
             />
           </Field>
         </>
@@ -274,14 +273,12 @@ function ResetPasswordDialog({ user, onClose }: { user: User; onClose: () => voi
         hint={t("user.temporaryPasswordHint")}
         error={errors.fields.password}
       >
-        <input
+        <PasswordInput
           id={`${id}-password`}
-          type="password"
           autoComplete="new-password"
           minLength={MIN_PASSWORD_LENGTH}
           value={password}
           onChange={(event) => setPassword(event.target.value)}
-          className={inputClass}
         />
       </Field>
     </FormDialog>

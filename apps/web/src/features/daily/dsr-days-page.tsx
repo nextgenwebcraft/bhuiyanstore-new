@@ -1,15 +1,16 @@
 "use client";
 
 import type { DayView, DsrDay, DsrDaySaveRequest, StaffRecord } from "@bsd/contracts";
-import { toBaseQuantity, toCartonDisplay } from "@bsd/domain";
+import { sumAmounts, sumQuantities, toBaseQuantity, toCartonDisplay } from "@bsd/domain";
 import { formatRate, t } from "@bsd/i18n";
-import { useId, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/button";
-import { Field, inputClass } from "@/components/field";
 import { PageHeader } from "@/components/page-header";
 import { QueryError } from "@/components/query-error";
 import { ListSkeleton } from "@/components/skeleton";
+import { StatTile } from "@/components/stat-tile";
 import { StatePanel } from "@/components/state-panel";
+import { TableSummary, type SummaryItem } from "@/components/table-summary";
 import { describeError } from "@/data/ports/service-error";
 import { useDsrDayCommand, useDsrDays, useSaveDsrDay, useStaffRecords } from "@/data/queries";
 import { NavGate } from "@/features/shell/nav-gate";
@@ -25,6 +26,7 @@ import {
   TableScroller,
   clean,
   money,
+  quantity,
   stickyCell,
   stickyHead,
   tableClass,
@@ -57,11 +59,7 @@ type LineDraft = {
   returnedPieces: string;
   damaged: string;
 };
-type SheetDraft = {
-  lines: Record<string, LineDraft>;
-  marketDueNew: string;
-  marketDueCollected: string;
-};
+type SheetDraft = { lines: Record<string, LineDraft> };
 
 const blankLine: LineDraft = {
   issuedCartons: "",
@@ -104,13 +102,7 @@ function draftOf(sheet: DsrDay | undefined): SheetDraft {
       damaged: line.damaged === "0" ? "" : line.damaged,
     };
   }
-  const amount = (value: string | undefined) =>
-    value === undefined || /^0(\.0+)?$/.test(value) ? "" : value;
-  return {
-    lines,
-    marketDueNew: amount(sheet?.marketDueNew),
-    marketDueCollected: amount(sheet?.marketDueCollected),
-  };
+  return { lines };
 }
 
 const whole = (value: string) => clean(value) || "0";
@@ -139,12 +131,7 @@ function requestOf(
     if (issued === "0" && returned === "0" && damaged === "0") continue;
     lines.push({ productId: product.productId, issued, returned, damaged });
   }
-  return {
-    ...base,
-    marketDueNew: clean(draft.marketDueNew) || "0",
-    marketDueCollected: clean(draft.marketDueCollected) || "0",
-    lines,
-  };
+  return { ...base, lines };
 }
 
 function SheetEditor({
@@ -164,7 +151,6 @@ function SheetEditor({
   view: DayView;
   onBack: () => void;
 }) {
-  const id = useId();
   const { permissions } = useCurrentWorkspace();
   const save = useSaveDsrDay(companyId);
   const command = useDsrDayCommand(companyId);
@@ -181,6 +167,31 @@ function SheetEditor({
   const amounts = new Map(
     view.persons.filter((p) => p.staffId === staff.id).map((p) => [p.productId, p.amount]),
   );
+  const entered = typeof built === "string" ? [] : built.lines;
+  const sheetSummary: SummaryItem[] = [
+    { label: t("table.summary.products"), value: quantity(String(entered.length)) },
+    {
+      label: `${t("dsr.sheet.issued")} (${t("godown.column.pieces")})`,
+      value: quantity(sumQuantities(entered.map((l) => l.issued))),
+    },
+    {
+      label: `${t("dsr.sheet.returned")} (${t("godown.column.pieces")})`,
+      value: quantity(sumQuantities(entered.map((l) => l.returned))),
+    },
+    {
+      label: `${t("dsr.sheet.damaged")} (${t("godown.column.pieces")})`,
+      value: quantity(sumQuantities(entered.map((l) => l.damaged))),
+    },
+    ...(posted
+      ? [
+          {
+            label: t("dsr.sheet.engineAmount"),
+            value: money(sumAmounts([...amounts.values()])),
+            emphasis: true,
+          },
+        ]
+      : []),
+  ];
 
   const setLine = (productId: string, patch: Partial<LineDraft>) =>
     setDraft((d) => ({
@@ -240,6 +251,7 @@ function SheetEditor({
         <StatusChip status={sheet?.status ?? "none"} />
       </div>
       {posted ? <StatePanel title={t("dsr.sheet.postedHint")} /> : null}
+      <TableSummary label={t("table.summary")} items={sheetSummary} />
       <TableScroller>
         <table className={tableClass}>
           <thead className={theadClass}>
@@ -339,28 +351,6 @@ function SheetEditor({
           </tbody>
         </table>
       </TableScroller>
-      <div className="grid gap-4 sm:grid-cols-2 lg:max-w-2xl">
-        <Field id={`${id}-due`} label={t("dsr.sheet.marketDueNew")}>
-          <input
-            id={`${id}-due`}
-            inputMode="decimal"
-            value={draft.marketDueNew}
-            disabled={locked}
-            onChange={(event) => setDraft({ ...draft, marketDueNew: event.target.value })}
-            className={inputClass}
-          />
-        </Field>
-        <Field id={`${id}-collected`} label={t("dsr.sheet.marketDueCollected")}>
-          <input
-            id={`${id}-collected`}
-            inputMode="decimal"
-            value={draft.marketDueCollected}
-            disabled={locked}
-            onChange={(event) => setDraft({ ...draft, marketDueCollected: event.target.value })}
-            className={inputClass}
-          />
-        </Field>
-      </div>
       <p className="text-xs text-text-muted">{t("dsr.sheet.hint")}</p>
       {error ? <StatePanel tone="error" title={error} /> : null}
       <div className="flex flex-wrap gap-2">
@@ -432,9 +422,71 @@ function Sheets({ companyId, date, view }: { companyId: string; date: string; vi
       />
     );
   }
-  if (dsrs.length === 0) {
-    return <StatePanel title={t("dsr.sheet.noDsr")} hint={t("dsr.sheet.noDsrHint")} />;
-  }
+  const statuses = dsrs.map((d) => live(d.id)?.status ?? "none");
+  const count = (status: string) => quantity(String(statuses.filter((s) => s === status).length));
+  const dayPieces = (field: "issued" | "returned" | "damaged") =>
+    quantity(sumQuantities(view.products.map((p) => p[field])));
+  return (
+    <div className="flex flex-col gap-4">
+      <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <StatTile label={t("dsr.summary.dsrs")} value={quantity(String(dsrs.length))} />
+        <StatTile label={t("dsr.summary.posted")} value={count("posted")} />
+        <StatTile label={t("dsr.summary.draft")} value={count("draft")} />
+        <StatTile label={t("dsr.summary.notStarted")} value={count("none")} />
+        <StatTile label={pieceLabel("dsr.sheet.issued")} value={dayPieces("issued")} />
+        <StatTile label={pieceLabel("dsr.sheet.returned")} value={dayPieces("returned")} />
+        <StatTile label={pieceLabel("dsr.sheet.damaged")} value={dayPieces("damaged")} />
+        <StatTile label={t("dsr.summary.sales")} value={money(view.money.sales)} emphasis />
+      </dl>
+      {dsrs.length === 0 ? (
+        <StatePanel title={t("dsr.sheet.noDsr")} hint={t("dsr.sheet.noDsrHint")} />
+      ) : (
+        <DsrList dsrs={dsrs} live={live} view={view} onOpen={setOpen} />
+      )}
+    </div>
+  );
+}
+
+const pieceLabel = (key: "dsr.sheet.issued" | "dsr.sheet.returned" | "dsr.sheet.damaged") =>
+  `${t(key)} (${t("godown.column.pieces")})`;
+
+/** One DSR's day: quantities from the sheet (draft or posted), sales from the engine (posted). */
+function dsrSummary(sheet: DsrDay | undefined, view: DayView, staffId: string): SummaryItem[] {
+  const lines = sheet?.lines ?? [];
+  const sales = view.persons.filter((p) => p.staffId === staffId).map((p) => p.amount);
+  return [
+    { label: t("table.summary.products"), value: quantity(String(lines.length)) },
+    {
+      label: pieceLabel("dsr.sheet.issued"),
+      value: quantity(sumQuantities(lines.map((l) => l.issued))),
+    },
+    {
+      label: pieceLabel("dsr.sheet.returned"),
+      value: quantity(sumQuantities(lines.map((l) => l.returned))),
+    },
+    {
+      label: pieceLabel("dsr.sheet.damaged"),
+      value: quantity(sumQuantities(lines.map((l) => l.damaged))),
+    },
+    {
+      label: t("dsr.summary.dsrSales"),
+      value: sheet?.status === "posted" ? money(sumAmounts(sales)) : "—",
+      emphasis: true,
+    },
+  ];
+}
+
+function DsrList({
+  dsrs,
+  live,
+  view,
+  onOpen: setOpen,
+}: {
+  dsrs: StaffRecord[];
+  live: (staffId: string) => DsrDay | undefined;
+  view: DayView;
+  onOpen: (staffId: string) => void;
+}) {
   return (
     <ul className="flex flex-col gap-2">
       {dsrs.map((dsr) => {
@@ -442,15 +494,23 @@ function Sheets({ companyId, date, view }: { companyId: string; date: string; vi
         return (
           <li
             key={dsr.id}
-            className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface p-4"
+            className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-4"
           >
-            <div className="flex items-center gap-3">
-              <span className="font-medium">{dsr.name}</span>
-              <StatusChip status={sheet?.status ?? "none"} />
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <span className="font-medium">{dsr.name}</span>
+                <StatusChip status={sheet?.status ?? "none"} />
+              </div>
+              <Button variant={sheet ? "secondary" : "primary"} onClick={() => setOpen(dsr.id)}>
+                {t(sheet ? "dsr.sheet.open" : "dsr.sheet.start")}
+              </Button>
             </div>
-            <Button variant={sheet ? "secondary" : "primary"} onClick={() => setOpen(dsr.id)}>
-              {t(sheet ? "dsr.sheet.open" : "dsr.sheet.start")}
-            </Button>
+            {sheet ? (
+              <TableSummary
+                label={`${dsr.name} ${t("table.summary")}`}
+                items={dsrSummary(sheet, view, dsr.id)}
+              />
+            ) : null}
           </li>
         );
       })}

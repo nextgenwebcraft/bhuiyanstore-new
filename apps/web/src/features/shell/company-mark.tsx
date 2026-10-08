@@ -18,7 +18,7 @@ export function CompanyMark({
     <span
       aria-hidden
       style={{ background: company.theme.primary, color: company.theme.primaryForeground }}
-      className={`inline-flex shrink-0 items-center justify-center font-semibold shadow-card ring-1 ring-black/5 ${dimensions[size]}`}
+      className={`inline-flex shrink-0 items-center justify-center font-semibold shadow-card ring-1 ring-border ${dimensions[size]}`}
     >
       {company.name.slice(0, 1).toUpperCase()}
     </span>

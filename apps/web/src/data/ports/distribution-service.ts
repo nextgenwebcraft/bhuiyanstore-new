@@ -43,6 +43,9 @@ import type {
   ReportRange,
   Role,
   RoleUpsertRequest,
+  Shop,
+  ShopStatement,
+  ShopUpsertRequest,
   StaffAccountKind,
   StaffAccounts,
   StaffAssignmentRequest,
@@ -75,6 +78,8 @@ export interface DistributionService {
   listWorkspaces(options?: RequestOptions): Promise<CompanyWorkspace[]>;
   /** Super-admin only; company names are unique within the tenant. */
   createCompany(input: CompanyUpsertRequest): Promise<CompanyWorkspace>;
+  /** Full replace; requires `company.manage`. Turning the stock block on needs no negative stock. */
+  updateCompany(companyId: string, input: CompanyUpsertRequest): Promise<CompanyWorkspace>;
   /** Fails with COMPANY_NOT_FOUND for unknown and inaccessible companies alike. */
   getWorkspace(companyId: string, options?: RequestOptions): Promise<CompanyWorkspace>;
   /** Requires `product.view` in the company. */
@@ -135,7 +140,7 @@ export interface DistributionService {
   /** Market due kinds need `sale.view`, the others `finance.view`; only visible kinds return. */
   listMoneyEntries(
     companyId: string,
-    query: { from: string; to?: string; staffId?: string },
+    query: { from: string; to?: string; staffId?: string; shopId?: string },
     options?: RequestOptions,
   ): Promise<MoneyEntry[]>;
   /** The permission depends on the entry type (D27). */
@@ -202,7 +207,7 @@ export interface DistributionService {
   /** Any of `damage.report`, `damage.claim_settle`, `damage.approve`. */
   listDamageCases(
     companyId: string,
-    query: { status?: "open" },
+    query: { status?: "open"; from?: string; to?: string },
     options?: RequestOptions,
   ): Promise<DamageCase[]>;
   /** Requires `damage.report`. */
@@ -256,6 +261,18 @@ export interface DistributionService {
     assignmentId: string,
     input: StaffAssignmentRequest,
   ): Promise<StaffRecord>;
+  /** Requires `company.view`; `due` (today's open বাকি) needs `sale.view`. */
+  listShops(companyId: string, options?: RequestOptions): Promise<Shop[]>;
+  /** Requires `shop.manage`; shop names are unique in the company. */
+  createShop(companyId: string, input: ShopUpsertRequest): Promise<Shop>;
+  updateShop(companyId: string, shopId: string, input: ShopUpsertRequest): Promise<Shop>;
+  /** Requires `sale.view`: one shop's due entries with a running balance. */
+  getShopStatement(
+    companyId: string,
+    shopId: string,
+    range: { from?: string; to?: string },
+    options?: RequestOptions,
+  ): Promise<ShopStatement>;
   /** Tenant lists: every signed-in user reads them; only the super-admin changes them. */
   listConfig<K extends ConfigListId>(
     list: K,
@@ -307,7 +324,15 @@ export interface DistributionService {
   /** Reads one month sheet into a new job: comparison with Excel and a proposed mapping. */
   createImportJob(
     companyId: string,
-    input: { file: Blob; fileName: string; sheet: string },
+    input: {
+      file: Blob;
+      fileName: string;
+      sheet: string;
+      /** Adds blocks after the month's last day to that day. */
+      extraBlocksToLastDay?: boolean;
+      /** Imports up to this date and leaves the month open. */
+      through?: string;
+    },
   ): Promise<ImportJob>;
   /** The latest jobs, newest first. */
   listImportJobs(companyId: string, options?: RequestOptions): Promise<ImportJobSummary[]>;

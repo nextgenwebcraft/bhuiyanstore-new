@@ -14,9 +14,9 @@ import { StatePanel } from "@/components/state-panel";
 import { StatusBadge } from "@/components/status-badge";
 import { describeError } from "@/data/ports/service-error";
 import { useMonthCommand, useMonthView } from "@/data/queries";
-import { Warnings } from "@/features/daily/day-report-page";
 import { money } from "@/features/daily/daily-kit";
 import { NavGate } from "@/features/shell/nav-gate";
+import { PageWarnings } from "@/features/shell/notifications";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 import { ReportTableView } from "./report-page";
 
@@ -217,7 +217,7 @@ function MonthBody({ view }: { view: MonthView }) {
           {t("report.coversFrom")} {formatBusinessDate(view.from)} – {formatBusinessDate(view.to)}
         </p>
       ) : null}
-      <Warnings warnings={view.warnings} />
+      <PageWarnings warnings={view.warnings} />
       <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <StatTile
           label={t("report.column.salesTotal")}

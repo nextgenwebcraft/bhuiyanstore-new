@@ -1,18 +1,23 @@
 import {
+  businessDateSchema,
   damageCaseCreateRequestSchema,
   damageCaseSchema,
   damageEventRequestSchema,
+  damageUnitCostKinds,
   type DamageCase,
   type PermissionId,
 } from "@bsd/contracts";
 import type { Prisma } from "@bsd/database";
 import {
+  companyReturnKinds,
   damageCaseSettled,
   damageEventError,
   damageLineProgress,
+  toDecimal,
   type DamageEventKind,
   type DamageOrigin,
 } from "@bsd/domain";
+import { z } from "zod";
 import { loadCompanyAccess, requirePermission, type CompanyAccess } from "./access";
 import { recordAudit } from "./audit";
 import type { AppContext, Tx } from "./context";
@@ -22,12 +27,13 @@ import { AppError, parseInput } from "./errors";
 import { runIdempotent } from "./idempotency";
 import { plain } from "./numeric";
 import { packOn } from "./products";
+import { ensureStockCovers } from "./stock-guard";
 
 /**
  * Damage cases (D17, guide §9.7): damaged pieces received with independent buyer and company
  * legs. Quantities only; the over-allocation rules live in `@bsd/domain`. A buyer replacement
- * from godown stock and an accepted company replacement reach the month engine through the
- * ledger; the other legs move damaged custody only.
+ * from godown stock, an accepted company replacement and a company money return (D33) reach the
+ * month engine through the ledger; the other legs move damaged custody only.
  */
 
 type Db = AppContext["db"] | Tx;
@@ -53,7 +59,11 @@ const EVENT_PERMISSIONS: Record<DamageEventKind, [PermissionId, ...PermissionId[
   companyReject: ["damage.claim_settle"],
   companyReplacement: ["damage.claim_settle", "inventory.cost_view"],
   writeOff: ["damage.approve"],
+  companyRefund: ["damage.claim_settle", "inventory.cost_view"],
 };
+
+const isReturn = (kind: DamageEventKind) =>
+  (companyReturnKinds as readonly DamageEventKind[]).includes(kind);
 
 async function writeAccess(ctx: AppContext, companyId: string, kind: DamageEventKind) {
   const [first, ...rest] = EVENT_PERMISSIONS[kind];
@@ -137,16 +147,35 @@ async function loadCase(db: Db, companyId: string, caseId: string): Promise<Case
   return row;
 }
 
-/** Cases newest first; `open` hides settled and cancelled ones. */
+const listQuerySchema = z.object({
+  from: businessDateSchema.optional(),
+  to: businessDateSchema.optional(),
+});
+
+/** Cases newest first; `open` hides settled and cancelled ones; `from`/`to` bound the case date. */
 export async function listDamageCases(
   ctx: AppContext,
   companyId: string,
-  query: { status?: unknown },
+  query: { status?: unknown; from?: unknown; to?: unknown },
 ): Promise<DamageCase[]> {
   const access = await loadCompanyAccess(ctx, companyId);
   if (!canView(access)) throw new AppError("FORBIDDEN");
+  const { from, to } = parseInput(listQuerySchema, {
+    from: query.from || undefined,
+    to: query.to || undefined,
+  });
   const rows = await ctx.db.damageCase.findMany({
-    where: { companyId },
+    where: {
+      companyId,
+      ...(from || to
+        ? {
+            date: {
+              ...(from ? { gte: toDbDate(from) } : {}),
+              ...(to ? { lte: toDbDate(to) } : {}),
+            },
+          }
+        : {}),
+    },
     include: caseInclude,
     orderBy: [{ date: "desc" }, { createdAt: "desc" }],
     take: 500,
@@ -165,7 +194,26 @@ export async function getDamageCase(
   return toCase(await loadCase(ctx.db, companyId, caseId), access);
 }
 
-/** Records damaged pieces received; no stock moves until a leg is posted. */
+/** The next free `D-YYYYMMDD-n` number for the date. */
+async function nextCaseNumber(db: Db, companyId: string, date: string): Promise<string> {
+  const prefix = `D-${date.replaceAll("-", "")}-`;
+  const taken = new Set(
+    (
+      await db.damageCase.findMany({
+        where: { companyId, caseNumber: { startsWith: prefix } },
+        select: { caseNumber: true },
+      })
+    ).map((c) => c.caseNumber),
+  );
+  let n = taken.size + 1;
+  while (taken.has(`${prefix}${n}`)) n += 1;
+  return `${prefix}${n}`;
+}
+
+/**
+ * Records damaged pieces received; no stock moves until a leg is posted. With `sentToCompany`
+ * the pieces were handed to the company the same day, so each line's dispatch is posted too.
+ */
 export async function createDamageCase(
   ctx: AppContext,
   companyId: string,
@@ -174,6 +222,7 @@ export async function createDamageCase(
 ): Promise<DamageCase> {
   const request = parseInput(damageCaseCreateRequestSchema, input);
   const access = await requirePermission(ctx, companyId, "damage.report", { write: true });
+  if (request.sentToCompany) requireAll(access, EVENT_PERMISSIONS.companyDispatch);
   const products = new Set<string>();
   request.lines.forEach((l, index) => {
     if (products.has(l.productId))
@@ -193,8 +242,9 @@ export async function createDamageCase(
         const role = await roleOn(tx, companyId, request.staffId, request.date);
         if (role !== "dsr") throw invalid("staffId", "validation.daily.dsrOnly");
       }
+      const caseNumber = request.caseNumber || (await nextCaseNumber(tx, companyId, request.date));
       const exists = await tx.damageCase.findUnique({
-        where: { companyId_caseNumber: { companyId, caseNumber: request.caseNumber } },
+        where: { companyId_caseNumber: { companyId, caseNumber } },
         select: { id: true },
       });
       if (exists) throw invalid("caseNumber", "validation.damage.duplicateCase");
@@ -202,7 +252,7 @@ export async function createDamageCase(
         data: {
           tenantId: access.company.tenantId,
           companyId,
-          caseNumber: request.caseNumber,
+          caseNumber,
           date: toDbDate(request.date),
           origin: request.origin,
           staffId: request.staffId,
@@ -212,7 +262,22 @@ export async function createDamageCase(
             create: request.lines.map((l) => ({ productId: l.productId, quantity: l.quantity })),
           },
         },
+        include: { lines: true },
       });
+      if (request.sentToCompany) {
+        await tx.damageEvent.createMany({
+          data: row.lines.map((line) => ({
+            tenantId: access.company.tenantId,
+            companyId,
+            caseId: row.id,
+            lineId: line.id,
+            date: toDbDate(request.date),
+            kind: "companyDispatch",
+            quantity: line.quantity,
+            createdById: ctx.actor.userId,
+          })),
+        });
+      }
       await recordAudit(tx, ctx, {
         companyId,
         action: "damage.case",
@@ -238,13 +303,16 @@ export async function postDamageEvent(
   if (request.fromStock && request.kind !== "buyerReplacement") {
     throw invalid("fromStock", "validation.damage.fromStockBuyerOnly");
   }
-  if ((request.kind === "companyReplacement") !== (request.unitCost !== null)) {
+  const needsCost = damageUnitCostKinds.includes(request.kind);
+  if (needsCost !== (request.unitCost !== null)) {
     throw invalid(
       "unitCost",
-      request.kind === "companyReplacement"
-        ? "validation.damage.unitCostRequired"
-        : "validation.damage.noUnitCost",
+      needsCost ? "validation.damage.unitCostRequired" : "validation.damage.noUnitCost",
     );
+  }
+  if (request.autoAccept) {
+    if (!isReturn(request.kind)) throw invalid("autoAccept", "validation.damage.autoAcceptReturn");
+    requireAll(access, EVENT_PERMISSIONS.companyAccept);
   }
 
   return runIdempotent(
@@ -261,13 +329,35 @@ export async function postDamageEvent(
       const line = row.lines.find((l) => l.id === request.lineId);
       if (!line) throw invalid("lineId", "validation.daily.notFound");
       const origin = row.origin as DamageOrigin;
-      const progress = damageLineProgress(
-        origin,
-        plain(line.quantity),
-        row.events
-          .filter((e) => e.status === "posted" && e.lineId === line.id)
-          .map((e) => ({ kind: e.kind as DamageEventKind, quantity: plain(e.quantity) })),
-      );
+      const legs = row.events
+        .filter((e) => e.status === "posted" && e.lineId === line.id)
+        .map((e) => ({ kind: e.kind as DamageEventKind, quantity: plain(e.quantity) }));
+      let progress = damageLineProgress(origin, plain(line.quantity), legs);
+      if (request.autoAccept) {
+        const pending = toDecimal(progress.companyPending);
+        const missing = toDecimal(request.quantity).sub(pending);
+        if (missing.gt(0)) {
+          const accept = missing.toString();
+          const acceptError = damageEventError(origin, progress, "companyAccept", accept);
+          if (acceptError) throw invalid("quantity", `validation.damage.${acceptError}`);
+          await tx.damageEvent.create({
+            data: {
+              tenantId: access.company.tenantId,
+              companyId,
+              caseId,
+              lineId: line.id,
+              date: toDbDate(request.date),
+              kind: "companyAccept",
+              quantity: accept,
+              createdById: ctx.actor.userId,
+            },
+          });
+          progress = damageLineProgress(origin, plain(line.quantity), [
+            ...legs,
+            { kind: "companyAccept", quantity: accept },
+          ]);
+        }
+      }
       const error = damageEventError(origin, progress, request.kind, request.quantity);
       if (error) throw invalid("quantity", `validation.damage.${error}`);
       const event = await tx.damageEvent.create({
@@ -286,6 +376,9 @@ export async function postDamageEvent(
           createdById: ctx.actor.userId,
         },
       });
+      if (request.kind === "buyerReplacement") {
+        await ensureStockCovers(tx, access, request.date, [line.productId]);
+      }
       await recordAudit(tx, ctx, {
         companyId,
         action: "damage.event",
@@ -339,6 +432,9 @@ export async function reverseDamageEvent(
         data: { status: "reversed", reversedAt: new Date(), reversedById: ctx.actor.userId },
       });
       if (updated.count !== 1) throw invalid("", "validation.daily.alreadyReversed");
+      if (live.kind === "companyReplacement" && line) {
+        await ensureStockCovers(tx, access, fromDbDate(live.date), [line.productId]);
+      }
       await recordAudit(tx, ctx, {
         companyId,
         action: "damage.reverse",

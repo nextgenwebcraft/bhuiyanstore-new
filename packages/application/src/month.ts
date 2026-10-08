@@ -42,7 +42,7 @@ type Db = AppContext["db"] | Tx;
 const invalid = (path: string, code: string) => new AppError("VALIDATION_FAILED", [{ path, code }]);
 const MAX_REPORT_DAYS = 366;
 
-function previousMonth(month: string): string {
+export function previousMonth(month: string): string {
   return monthOf(shiftBusinessDate(firstOfMonth(month), -1));
 }
 
@@ -209,6 +209,8 @@ export async function getMonthView(
       opening: "0",
       receipts: "0",
       deposits: "0",
+      incentives: "0",
+      damageRefunds: "0",
       closing: "0",
     },
     profit:
@@ -535,8 +537,56 @@ function buildTables(
             { cells: { line: "report.line.payableOpening", amount: c.opening } },
             { cells: { line: "report.line.payableReceipts", amount: c.receipts } },
             { cells: { line: "report.line.payableDeposits", amount: c.deposits } },
+            { cells: { line: "report.line.payableIncentives", amount: c.incentives } },
+            { cells: { line: "report.line.payableDamageRefunds", amount: c.damageRefunds } },
             { cells: { line: "report.line.payableClosing", amount: c.closing } },
           ],
+          null,
+          seen,
+        ),
+      ];
+    }
+    case "company-account": {
+      const c = m.companyPayable;
+      const productNames = new Map(names.products.map((p) => [p.id, p.name]));
+      return [
+        table(
+          "companyAccountSummary",
+          [
+            col("opening", "money"),
+            col("receipts", "money"),
+            col("deposits", "money"),
+            col("incentives", "money"),
+            col("damageRefunds", "money"),
+            col("closing", "money"),
+          ],
+          [{ cells: { ...c } }],
+          null,
+          seen,
+        ),
+        table(
+          "companyAccountStatement",
+          [
+            col("date", "text"),
+            col("line", "label"),
+            col("product", "text"),
+            col("increase", "money"),
+            col("decrease", "money"),
+            col("balance", "money"),
+          ],
+          output.companyEntries.map((e) => {
+            const increase = e.kind === "receipt";
+            return {
+              cells: {
+                date: e.date,
+                line: `report.line.company.${e.kind}`,
+                product: e.productId ? (productNames.get(e.productId) ?? "") : "",
+                increase: increase ? e.amount : null,
+                decrease: increase ? null : e.amount,
+                balance: e.balance,
+              },
+            };
+          }),
           null,
           seen,
         ),

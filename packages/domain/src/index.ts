@@ -47,6 +47,7 @@ export {
   type RecoveryIssue,
 } from "./month/payroll";
 export {
+  companyReturnKinds,
   damageCaseSettled,
   damageEventError,
   damageEventKinds,

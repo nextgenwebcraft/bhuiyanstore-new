@@ -21,6 +21,8 @@ export const companySchema = z.object({
   name: z.string().min(1),
   theme: companyThemeSchema,
   modules: z.array(z.enum(workspaceModuleIds)),
+  /** D34: postings that would take a product's stock below zero are refused. */
+  blockNegativeStock: z.boolean().default(false),
 });
 
 export type Company = z.infer<typeof companySchema>;
@@ -38,6 +40,7 @@ export const companyUpsertRequestSchema = z.object({
   name: z.string().trim().min(1).max(120),
   theme: companyThemeSchema,
   modules: z.array(z.enum(workspaceModuleIds)),
+  blockNegativeStock: z.boolean().default(false),
 });
 
 export type CompanyUpsertRequest = z.infer<typeof companyUpsertRequestSchema>;

@@ -18,10 +18,11 @@ import { PageHeader } from "@/components/page-header";
 import { QueryError } from "@/components/query-error";
 import { TableSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
+import { TableSummary, type SummaryItem } from "@/components/table-summary";
 import { describeError } from "@/data/ports/service-error";
 import { useReport } from "@/data/queries";
 import { useService } from "@/data/service-context";
-import { Warnings } from "@/features/daily/day-report-page";
+import { PageWarnings } from "@/features/shell/notifications";
 import { Icon } from "@/components/icons";
 import {
   CartonQty,
@@ -72,9 +73,23 @@ export function ReportTableView({
   heading?: boolean;
 }) {
   const numeric = (kind: string) => kind !== "text" && kind !== "label";
+  const listing =
+    heading && table.rows.length > 0 && !table.columns.some((c) => c.kind === "label");
+  const summary: SummaryItem[] = listing
+    ? [
+        { label: t("table.summary.rows"), value: toBengaliDigits(String(table.rows.length)) },
+        ...table.columns.flatMap((c) => {
+          const value = table.totals?.[c.key];
+          return value === undefined || value === null
+            ? []
+            : [{ label: labelOf(c.label), value: cellText(c.kind, c.key, value, undefined) }];
+        }),
+      ]
+    : [];
   return (
     <section className="flex flex-col gap-2">
       {heading ? <h2 className="text-sm font-semibold">{labelOf(table.title)}</h2> : null}
+      <TableSummary label={t("table.summary")} items={summary} />
       {table.rows.length === 0 ? (
         <p className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-sm text-text-muted">
           {t("report.empty")}
@@ -266,7 +281,7 @@ function Report({
           {t("report.coversFrom")} {formatBusinessDate(data.from)} – {formatBusinessDate(data.to)}
         </p>
       ) : null}
-      <Warnings warnings={data.warnings} />
+      <PageWarnings warnings={data.warnings} />
       {personTotals && personProducts ? (
         <PersonSales totals={personTotals} products={personProducts} />
       ) : null}

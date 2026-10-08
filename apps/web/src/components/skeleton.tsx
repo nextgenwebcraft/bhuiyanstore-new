@@ -5,7 +5,7 @@ export function Skeleton({ className = "" }: { className?: string }) {
   return (
     <div
       aria-hidden
-      className={`relative overflow-hidden rounded-lg bg-surface-hover before:absolute before:inset-0 before:animate-shimmer before:bg-linear-to-r before:from-transparent before:via-surface/70 before:to-transparent ${className}`}
+      className={`relative overflow-hidden rounded-lg bg-surface-hover before:absolute before:inset-0 before:animate-shimmer before:bg-linear-to-r before:from-transparent before:via-text/6 before:to-transparent ${className}`}
     />
   );
 }

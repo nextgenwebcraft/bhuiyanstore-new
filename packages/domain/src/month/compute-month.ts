@@ -1,6 +1,7 @@
 import { Decimal, toDecimal, type DecimalInput } from "../decimal";
 import { MONEY_KIND_EFFECTS } from "./money-kinds";
 import type {
+  CompanyEntryResult,
   DayResult,
   EngineWarning,
   MonthClosing,
@@ -11,6 +12,8 @@ import type {
   PriceKind,
   ProductDayResult,
   ProductId,
+  ShopEntryResult,
+  ShopId,
   StaffBalanceValues,
   StaffBalances,
   StaffEntryResult,
@@ -168,6 +171,15 @@ export function computeMonth(input: MonthInput): MonthOutput {
   const marketDueAdded = new Map<StaffId, Decimal>();
   const marketDueCollected = new Map<StaffId, Decimal>();
 
+  const shopDueOpening = new Map<ShopId, Decimal>();
+  for (const [shopId, amount] of Object.entries(input.opening.shopDue ?? {})) {
+    shopDueOpening.set(shopId, toDecimal(amount));
+  }
+  const shopDue = new Map(shopDueOpening);
+  const shopDueAdded = new Map<ShopId, Decimal>();
+  const shopDueCollected = new Map<ShopId, Decimal>();
+  const shopEntries: ShopEntryResult[] = [];
+
   const staffOpening = new Map<StaffId, Balances>();
   for (const [staffId, b] of Object.entries(input.opening.staff ?? {})) {
     const balances = emptyBalances();
@@ -191,6 +203,9 @@ export function computeMonth(input: MonthInput): MonthOutput {
   let companyPayable = companyPayableOpening;
   let companyReceipts = ZERO;
   let companyDeposits = ZERO;
+  let companyIncentives = ZERO;
+  let companyRefunds = ZERO;
+  const companyEntries: CompanyEntryResult[] = [];
 
   const totals = new Map<ProductId, ProductTotals>(
     input.products.map((p) => [p.id, emptyProductTotals()]),
@@ -277,6 +292,8 @@ export function computeMonth(input: MonthInput): MonthOutput {
 
     const productResults: ProductDayResult[] = [];
     let daySales = ZERO;
+    let dayReceipts = ZERO;
+    const dayRefunds: CompanyEntryResult[] = [];
     for (const [id, state] of products) {
       const p = dayProducts[id];
       const agg = lineAggregates.get(id);
@@ -293,6 +310,23 @@ export function computeMonth(input: MonthInput): MonthOutput {
       }
       const replacementReceived = sum(replacements.map((r) => r.quantity));
       const replacementValue = sum(replacements.map((r) => r.quantity.mul(r.unitCost)));
+      for (const refund of p?.companyRefunds ?? []) {
+        const quantity = toDecimal(refund.quantity);
+        const unitCost = toDecimal(refund.unitCost);
+        if (quantity.lte(0) || unitCost.isNegative()) {
+          throw new RangeError(`invalid company refund: ${id}`);
+        }
+        const amount = quantity.mul(unitCost);
+        companyRefunds = companyRefunds.add(amount);
+        dayRefunds.push({
+          date: day.date,
+          kind: "damageRefund",
+          amount: str(amount),
+          ...(refund.ref === undefined ? {} : { ref: refund.ref }),
+          productId: id,
+          balance: "",
+        });
+      }
       const issued = agg?.issued ?? ZERO;
       const returned = agg?.returned ?? ZERO;
       const delivered = issued.sub(returned);
@@ -355,6 +389,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
       t.replacementValue = t.replacementValue.add(replacementValue);
       companyReceipts = companyReceipts.add(receiptBill);
       companyPayable = companyPayable.add(receiptBill);
+      dayReceipts = dayReceipts.add(receiptBill);
       daySales = daySales.add(sales);
 
       const priceString = (kind: PriceKind): string | null => {
@@ -389,6 +424,19 @@ export function computeMonth(input: MonthInput): MonthOutput {
       });
     }
 
+    if (!dayReceipts.isZero()) {
+      companyEntries.push({
+        date: day.date,
+        kind: "receipt",
+        amount: str(dayReceipts),
+        balance: str(companyPayable),
+      });
+    }
+    for (const refund of dayRefunds) {
+      companyPayable = companyPayable.sub(toDecimal(refund.amount));
+      companyEntries.push({ ...refund, balance: str(companyPayable) });
+    }
+
     let cashIn = ZERO;
     let cashOut = ZERO;
     let banked = ZERO;
@@ -415,6 +463,22 @@ export function computeMonth(input: MonthInput): MonthOutput {
         bucket.set(key, (bucket.get(key) ?? ZERO).add(amount));
         if (effect.marketDue === 1) dayDueNew = dayDueNew.add(amount);
         else dayDueCollected = dayDueCollected.add(amount);
+        if (entry.shopId) {
+          const shopId = entry.shopId;
+          const balance = (shopDue.get(shopId) ?? ZERO).add(signed);
+          shopDue.set(shopId, balance);
+          const shopBucket = effect.marketDue === 1 ? shopDueAdded : shopDueCollected;
+          shopBucket.set(shopId, (shopBucket.get(shopId) ?? ZERO).add(amount));
+          shopEntries.push({
+            date: day.date,
+            ...(entry.ref === undefined ? {} : { ref: entry.ref }),
+            shopId,
+            ...(entry.staffId ? { staffId: entry.staffId } : {}),
+            kind: effect.marketDue === 1 ? "marketDueNew" : "marketDueCollected",
+            amount: str(amount),
+            balance: str(balance),
+          });
+        }
       }
 
       if (effect.expense === "category" || effect.expense === "salary") {
@@ -430,10 +494,21 @@ export function computeMonth(input: MonthInput): MonthOutput {
         dayIncentive = dayIncentive.add(amount);
       }
 
-      if (effect.companyPayable === -1) {
+      if (effect.company) {
         companyPayable = companyPayable.sub(amount);
-        companyDeposits = companyDeposits.add(amount);
-        banked = banked.add(amount);
+        if (effect.company === "deposit") {
+          companyDeposits = companyDeposits.add(amount);
+          banked = banked.add(amount);
+        } else {
+          companyIncentives = companyIncentives.add(amount);
+        }
+        companyEntries.push({
+          date: day.date,
+          kind: effect.company,
+          amount: str(amount),
+          ...(entry.ref === undefined ? {} : { ref: entry.ref }),
+          balance: str(companyPayable),
+        });
       }
 
       if (effect.staff && entry.staffId) {
@@ -559,6 +634,14 @@ export function computeMonth(input: MonthInput): MonthOutput {
     collected: str(marketDueCollected.get(staffId) ?? ZERO),
     closing: str(marketDue.get(staffId) ?? ZERO),
   }));
+  const shopKeys = new Set([...shopDueOpening.keys(), ...shopDue.keys()]);
+  const byShop = [...shopKeys].map((shopId) => ({
+    shopId,
+    opening: str(shopDueOpening.get(shopId) ?? ZERO),
+    added: str(shopDueAdded.get(shopId) ?? ZERO),
+    collected: str(shopDueCollected.get(shopId) ?? ZERO),
+    closing: str(shopDue.get(shopId) ?? ZERO),
+  }));
 
   const staffMonth: StaffMonthResult[] = [...staff].map(([staffId, b]) => ({
     staffId,
@@ -584,6 +667,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
       }),
     ),
     marketDue: Object.fromEntries([...marketDue].map(([k, v]) => [k, str(v)])),
+    shopDue: Object.fromEntries([...shopDue].map(([k, v]) => [k, str(v)])),
     staff: Object.fromEntries([...staff].map(([k, b]) => [k, balanceStrings(b)])),
     companyPayable: str(companyPayable),
   };
@@ -609,12 +693,15 @@ export function computeMonth(input: MonthInput): MonthOutput {
         collected: str(sum(marketDueCollected.values())),
         closing: str(sum(marketDue.values())),
         byDsr,
+        byShop,
       },
       staff: staffMonth,
       companyPayable: {
         opening: str(companyPayableOpening),
         receipts: str(companyReceipts),
         deposits: str(companyDeposits),
+        incentives: str(companyIncentives),
+        damageRefunds: str(companyRefunds),
         closing: str(companyPayable),
       },
       profit: {
@@ -632,6 +719,8 @@ export function computeMonth(input: MonthInput): MonthOutput {
     },
     closing,
     staffEntries,
+    companyEntries,
+    shopEntries,
     warnings,
   };
 }

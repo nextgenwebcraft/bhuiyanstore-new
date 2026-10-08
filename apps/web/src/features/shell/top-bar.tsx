@@ -8,6 +8,7 @@ import { Icon } from "@/components/icons";
 import { SIGN_IN_PATH, useSession } from "@/data/http/http-provider";
 import { DemoBar } from "@/demo/demo-bar";
 import { useOptionalDemoControls } from "@/demo/demo-provider";
+import { ThemeToggle } from "./theme";
 
 function SessionBar() {
   const session = useSession();
@@ -52,5 +53,11 @@ function SessionBar() {
 
 /** Demo user switcher in demo mode, the signed-in user and sign-out with the real backend. */
 export function TopBar() {
-  return useOptionalDemoControls() ? <DemoBar /> : <SessionBar />;
+  const demo = useOptionalDemoControls();
+  return (
+    <div className="flex items-center gap-1.5">
+      <ThemeToggle />
+      {demo ? <DemoBar /> : <SessionBar />}
+    </div>
+  );
 }

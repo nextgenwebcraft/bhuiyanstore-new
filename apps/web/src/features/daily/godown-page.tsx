@@ -1,15 +1,21 @@
 "use client";
 
 import type { DayView, PriceKind, StockEntryKind, StockEntryPostRequest } from "@bsd/contracts";
-import { toBaseQuantity } from "@bsd/domain";
+import { sumQuantities, toBaseQuantity } from "@bsd/domain";
 import { formatRate, t, type TranslationKey } from "@bsd/i18n";
 import { useState } from "react";
 import { Button } from "@/components/button";
 import { PageHeader } from "@/components/page-header";
 import { TableSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
+import { TableSummary, type SummaryItem } from "@/components/table-summary";
 import { describeError } from "@/data/ports/service-error";
-import { usePostStockEntries, useReverseStockEntry, useStockEntries } from "@/data/queries";
+import {
+  usePostStockEntries,
+  useReverseStockEntry,
+  useStockEntries,
+  useUpdateCompany,
+} from "@/data/queries";
 import { NavGate } from "@/features/shell/nav-gate";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 import {
@@ -48,6 +54,14 @@ const PRICE_LABEL: Record<StockEntryKind, Partial<Record<PriceKind, TranslationK
   order: { order: "godown.column.orderPrice" },
   receipt: { cost: "godown.column.batchCostPrice", sale: "godown.column.batchSalePrice" },
   damage: {},
+};
+
+/** The day's posted quantity of each screen's kind, from the engine's product rows. */
+const POSTED_FIELD = { order: "ordered", receipt: "received", damage: "damaged" } as const;
+const POSTED_LABEL: Record<StockEntryKind, TranslationKey> = {
+  order: "day.column.ordered",
+  receipt: "day.column.received",
+  damage: "day.column.damaged",
 };
 
 type Row = { cartons: string; pieces: string } & Partial<Record<PriceKind, string>>;
@@ -119,8 +133,24 @@ function GodownForm({
   }
 
   if (view.products.length === 0) return <StatePanel title={t("product.empty")} />;
+  const draft = request();
+  const entering = typeof draft === "string" ? [] : (draft.lines ?? []);
+  const summary: SummaryItem[] = [
+    { label: t("table.summary.products"), value: quantity(String(view.products.length)) },
+    { label: t("godown.summary.entering"), value: quantity(String(entering.length)) },
+    {
+      label: `${t("godown.summary.enteringPieces")} (${t("godown.column.pieces")})`,
+      value: quantity(sumQuantities(entering.map((l) => l.pieces))),
+    },
+    {
+      label: `${t(POSTED_LABEL[kind])} (${t("godown.column.pieces")})`,
+      value: quantity(sumQuantities(view.products.map((p) => p[POSTED_FIELD[kind]]))),
+      emphasis: true,
+    },
+  ];
   return (
     <div className="flex flex-col gap-4">
+      <TableSummary label={t("table.summary")} items={summary} />
       {kind === "receipt" && prices.length ? (
         <p className="rounded-lg border border-info/30 bg-info/5 px-4 py-3 text-sm">
           {t("godown.batchHint")}
@@ -258,47 +288,61 @@ function PostedEntries({
           {t("godown.posted.empty")}
         </p>
       ) : (
-        <TableScroller>
-          <table className={tableClass}>
-            <thead className={theadClass}>
-              <tr>
-                <th scope="col" className={`${thClass} ${stickyHead}`}>
-                  {t("godown.column.product")}
-                </th>
-                <ColumnHead label={t("godown.column.quantity")} quantity />
-                <th scope="col" className={thClass}>
-                  {t("common.status")}
-                </th>
-                <th scope="col" className={thClass}>
-                  <span className="sr-only">{t("godown.reverse")}</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((entry) => (
-                <tr key={entry.id} className="border-t border-border">
-                  <td className={`${tdClass} ${stickyCell}`}>{entry.productName}</td>
-                  <td className={tdNum}>
-                    <CartonQty
-                      pieces={entry.pieces}
-                      piecesPerCarton={sizes.get(entry.productId) ?? "1"}
-                    />
-                  </td>
-                  <td className={tdClass}>
-                    <StatusChip status={entry.status} />
-                  </td>
-                  <td className={`${tdClass} text-right`}>
-                    {canReverse && entry.status === "posted" ? (
-                      <Button disabled={reverse.isPending} onClick={() => void undo(entry.id)}>
-                        {t("godown.reverse")}
-                      </Button>
-                    ) : null}
-                  </td>
+        <>
+          <TableSummary
+            label={t("table.summary")}
+            items={[
+              { label: t("table.summary.rows"), value: quantity(String(rows.length)) },
+              {
+                label: `${t("godown.summary.postedPieces")} (${t("godown.column.pieces")})`,
+                value: quantity(
+                  sumQuantities(rows.filter((e) => e.status === "posted").map((e) => e.pieces)),
+                ),
+              },
+            ]}
+          />
+          <TableScroller>
+            <table className={tableClass}>
+              <thead className={theadClass}>
+                <tr>
+                  <th scope="col" className={`${thClass} ${stickyHead}`}>
+                    {t("godown.column.product")}
+                  </th>
+                  <ColumnHead label={t("godown.column.quantity")} quantity />
+                  <th scope="col" className={thClass}>
+                    {t("common.status")}
+                  </th>
+                  <th scope="col" className={thClass}>
+                    <span className="sr-only">{t("godown.reverse")}</span>
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </TableScroller>
+              </thead>
+              <tbody>
+                {rows.map((entry) => (
+                  <tr key={entry.id} className="border-t border-border">
+                    <td className={`${tdClass} ${stickyCell}`}>{entry.productName}</td>
+                    <td className={tdNum}>
+                      <CartonQty
+                        pieces={entry.pieces}
+                        piecesPerCarton={sizes.get(entry.productId) ?? "1"}
+                      />
+                    </td>
+                    <td className={tdClass}>
+                      <StatusChip status={entry.status} />
+                    </td>
+                    <td className={`${tdClass} text-right`}>
+                      {canReverse && entry.status === "posted" ? (
+                        <Button disabled={reverse.isPending} onClick={() => void undo(entry.id)}>
+                          {t("godown.reverse")}
+                        </Button>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </TableScroller>
+        </>
       )}
     </>
   );
@@ -310,6 +354,52 @@ const TITLES: Record<StockEntryKind, { title: TranslationKey; description: Trans
   damage: { title: "nav.inventory.damage", description: "godown.description.damage" },
 };
 
+/** D34 switch: refuse postings that would take stock below zero. */
+function StockBlockSwitch() {
+  const { company, permissions } = useCurrentWorkspace();
+  const update = useUpdateCompany(company.id);
+  const [error, setError] = useState<string | undefined>();
+  if (!permissions.includes("company.manage")) return null;
+  const on = company.blockNegativeStock;
+
+  async function toggle() {
+    setError(undefined);
+    try {
+      await update.mutateAsync({
+        name: company.name,
+        theme: company.theme,
+        modules: company.modules,
+        blockNegativeStock: !on,
+      });
+    } catch (e) {
+      setError(describeError(e, []).form);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-2 rounded-xl border border-border bg-surface p-4 shadow-card">
+      <label className="flex items-start gap-3 text-sm">
+        <input
+          type="checkbox"
+          checked={on}
+          disabled={update.isPending}
+          onChange={() => void toggle()}
+          className="mt-1"
+        />
+        <span>
+          <span className="font-medium">{t("godown.block.label")}</span>
+          <span className="block text-text-muted">{t("godown.block.hint")}</span>
+        </span>
+      </label>
+      {error ? (
+        <p role="alert" className="text-sm text-error">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 export function GodownPage({ path, kind }: { path: string; kind: StockEntryKind }) {
   const { company } = useCurrentWorkspace();
   const [date, setDate] = useWorkingDate();
@@ -320,6 +410,7 @@ export function GodownPage({ path, kind }: { path: string; kind: StockEntryKind 
         description={t(TITLES[kind].description)}
         actions={<DateBar date={date} onChange={setDate} />}
       />
+      {kind === "receipt" ? <StockBlockSwitch /> : null}
       <DateHeading date={date} />
       <DayGate companyId={company.id} date={date}>
         {(view) => (

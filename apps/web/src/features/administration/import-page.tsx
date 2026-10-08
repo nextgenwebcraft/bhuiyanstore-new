@@ -12,6 +12,7 @@ import { businessDateOf } from "@bsd/domain";
 import { formatAmount, formatBusinessDate, labelOf, t, type TranslationKey } from "@bsd/i18n";
 import { useId, useState } from "react";
 import { Button, ButtonLink } from "@/components/button";
+import { DatePicker } from "@/components/date-picker";
 import { Field, inputClass } from "@/components/field";
 import { FormDialog } from "@/components/form-dialog";
 import { PageHeader } from "@/components/page-header";
@@ -102,6 +103,8 @@ function UploadDialog({
   const [file, setFile] = useState<File | null>(null);
   const [found, setFound] = useState<ImportWorkbookSheets | null>(null);
   const [sheet, setSheet] = useState("");
+  const [extraToLastDay, setExtraToLastDay] = useState(false);
+  const [through, setThrough] = useState("");
   const [error, setError] = useState<string | undefined>();
 
   async function choose(next: File | null) {
@@ -128,7 +131,13 @@ function UploadDialog({
       return;
     }
     try {
-      const job = await create.mutateAsync({ file, fileName: file.name, sheet });
+      const job = await create.mutateAsync({
+        file,
+        fileName: file.name,
+        sheet,
+        extraBlocksToLastDay: extraToLastDay,
+        ...(through ? { through } : {}),
+      });
       onCreated(job.id);
     } catch (e) {
       setError(describeError(e, []).form);
@@ -176,6 +185,33 @@ function UploadDialog({
           </select>
         </Field>
       ) : null}
+      {found && found.sheets.length > 0 ? (
+        <>
+          <Field
+            id={`${id}-through`}
+            label={t("import.upload.through")}
+            hint={t("import.upload.throughHint")}
+          >
+            <DatePicker
+              id={`${id}-through`}
+              value={through}
+              onChange={setThrough}
+              clearable
+              placeholder={t("import.upload.wholeMonth")}
+            />
+          </Field>
+          <label htmlFor={`${id}-extra`} className="flex items-start gap-2 text-sm">
+            <input
+              id={`${id}-extra`}
+              type="checkbox"
+              checked={extraToLastDay}
+              onChange={(event) => setExtraToLastDay(event.target.checked)}
+              className="mt-1"
+            />
+            <span>{t("import.upload.extraToLastDay")}</span>
+          </label>
+        </>
+      ) : null}
     </FormDialog>
   );
 }
@@ -209,6 +245,11 @@ function JobsList({
               <JobStatus status={job.status} />
             </span>
             <span className="truncate text-xs text-text-muted">{job.fileName}</span>
+            {job.through ? (
+              <span className="text-xs text-text-muted">
+                {t("import.job.through")}: {formatBusinessDate(job.through)}
+              </span>
+            ) : null}
             <span className="flex justify-between text-xs text-text-subtle">
               <span>{dayOf(job.createdAt)}</span>
               {job.unexplained > 0 ? (
@@ -502,6 +543,11 @@ function JobView({ job }: { job: ImportJob }) {
           <h2 className="text-lg font-semibold">
             {job.sheet} <span className="text-sm font-normal text-text-muted">({job.month})</span>
           </h2>
+          {job.through ? (
+            <p className="text-sm font-medium text-warning">
+              {t("import.job.through")}: {formatBusinessDate(job.through)}
+            </p>
+          ) : null}
           <p className="text-sm text-text-muted">
             {t("import.job.file")}: {job.fileName} · {t("import.job.created")}:{" "}
             {dayOf(job.createdAt)}

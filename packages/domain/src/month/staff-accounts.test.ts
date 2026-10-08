@@ -145,6 +145,25 @@ describe("damage case legs (D17, guide §9.7)", () => {
     expect(damageCaseSettled([progress()])).toBe(true);
   });
 
+  it("a company money return settles accepted pieces like a replacement (D33)", () => {
+    const sent = [
+      { kind: "companyDispatch" as const, quantity: "4" },
+      { kind: "companyAccept" as const, quantity: "4" },
+    ];
+    const p = damageLineProgress("ownedStock", "4", [
+      ...sent,
+      { kind: "companyRefund", quantity: "3" },
+      { kind: "companyReplacement", quantity: "1" },
+    ]);
+    expect(p).toMatchObject({ companyRefunded: "3", companyReplaced: "1", companyPending: "0" });
+    expect(damageCaseSettled([p])).toBe(true);
+    const open = damageLineProgress("ownedStock", "4", sent);
+    expect(damageEventError("ownedStock", open, "companyRefund", "5")).toBe(
+      "overCompanyReplacement",
+    );
+    expect(damageEventError("ownedStock", open, "companyRefund", "4")).toBeNull();
+  });
+
   it("refuses over-dispatch, over-replacement and a buyer leg on owned-stock damage", () => {
     const p = damageLineProgress("buyerExchange", "3", [
       { kind: "companyDispatch", quantity: "2" },

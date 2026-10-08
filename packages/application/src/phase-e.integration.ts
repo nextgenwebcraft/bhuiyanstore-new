@@ -30,6 +30,7 @@ import { AppError } from "./errors";
 import { runLedger } from "./ledger";
 import { activateOpening, approveOpening, getOpening, saveOpening } from "./opening";
 import { createProduct } from "./products";
+import { createShop, getShopStatement, listShops } from "./shops";
 import { createStaff } from "./staff";
 import { contextFor, resetTestSchema, testDatabase } from "./test-support";
 
@@ -41,7 +42,16 @@ const { db, schema } = testDatabase();
 let admin: Actor;
 let ctx: AppContext;
 let company = "";
-const id = { alpha: "", beta: "", mamun: "", rohim: "", karim: "", jamal: "", transport: "" };
+const id = {
+  alpha: "",
+  beta: "",
+  mamun: "",
+  rohim: "",
+  karim: "",
+  jamal: "",
+  transport: "",
+  shop: "",
+};
 
 function must<T>(value: T | undefined): T {
   if (value === undefined) throw new Error("expected a value");
@@ -68,7 +78,13 @@ type DsrFact = {
   dueNew: string;
   dueCollected: string;
 };
-type MoneyFact = { kind: MoneyEntryKind; amount: string; staff?: string; category?: string };
+type MoneyFact = {
+  kind: MoneyEntryKind;
+  amount: string;
+  staff?: string;
+  category?: string;
+  shop?: string;
+};
 type DayFacts = {
   date: string;
   stock?: StockFact[];
@@ -113,7 +129,7 @@ function facts(): DayFacts[] {
         { kind: "srIncentive", amount: "15" },
         { kind: "supplierDeposit", amount: "500" },
         { kind: "staffAdvance", amount: "100", staff: id.jamal },
-        { kind: "marketDueCollected", amount: "25" },
+        { kind: "marketDueCollected", amount: "25", staff: id.mamun, shop: id.shop },
       ],
     },
     {
@@ -210,6 +226,7 @@ function toEngineDay(day: DayFacts): DayInput {
         kind: m.kind,
         amount: m.amount,
         ...(m.staff ? { staffId: m.staff } : {}),
+        ...(m.shop ? { shopId: m.shop } : {}),
         ...(m.category ? { category: m.category } : {}),
       })),
     ],
@@ -255,6 +272,7 @@ async function enterDay(day: DayFacts): Promise<void> {
       kind: m.kind,
       amount: m.amount,
       staffId: m.staff ?? null,
+      shopId: m.shop ?? null,
       expenseCategoryId: m.category ?? null,
     });
   }
@@ -343,6 +361,7 @@ beforeAll(async () => {
   id.karim = await person("Karim", "sr", "supplier");
   id.jamal = await person("Jamal", "general", "distributor");
   id.transport = (await expenseCategories.create(ctx, { name: "Transport", active: true })).id;
+  id.shop = (await createShop(ctx, company, { name: "Hasan Store" })).id;
 
   const empty = await getOpening(ctx, company);
   const opening: OpeningSaveRequest = {
@@ -589,5 +608,84 @@ describe("Phase E: daily entry", () => {
     const september = must((await runLedger(db, access, "2026-09-02")) ?? undefined);
     expect(september.output.month.marketDue.opening).toBe(run.output.month.marketDue.closing);
     await db.monthClose.deleteMany({ where: { companyId: company } });
+  });
+});
+
+describe("D35: shop due", () => {
+  const date = "2026-09-02";
+
+  it("requires a shop and a DSR on market due, and only there", async () => {
+    await expectField(
+      postMoneyEntry(ctx, company, { date, kind: "marketDueNew", amount: "5", staffId: id.mamun }),
+      "shopId",
+      "validation.shop.required",
+    );
+    await expectField(
+      postMoneyEntry(ctx, company, { date, kind: "marketDueNew", amount: "5", shopId: id.shop }),
+      "staffId",
+      "validation.daily.staffRequired",
+    );
+    await expectField(
+      postMoneyEntry(ctx, company, {
+        date,
+        kind: "expense",
+        amount: "5",
+        expenseCategoryId: id.transport,
+        shopId: id.shop,
+      }),
+      "shopId",
+      "validation.shop.notForKind",
+    );
+    const closed = await createShop(ctx, company, { name: "Closed Store", status: "inactive" });
+    await expectField(
+      postMoneyEntry(ctx, company, {
+        date,
+        kind: "marketDueNew",
+        amount: "5",
+        staffId: id.mamun,
+        shopId: closed.id,
+      }),
+      "shopId",
+      "validation.shop.unknown",
+    );
+    await expectField(
+      createShop(ctx, company, { name: "Hasan Store" }),
+      "name",
+      "validation.shop.duplicate",
+    );
+  });
+
+  it("counts shop due in the day's cash and market due, with a running shop balance", async () => {
+    const before = await getDayView(ctx, company, date);
+    await postMoneyEntry(ctx, company, {
+      date,
+      kind: "marketDueNew",
+      amount: "300",
+      staffId: id.mamun,
+      shopId: id.shop,
+    });
+    await postMoneyEntry(ctx, company, {
+      date,
+      kind: "marketDueCollected",
+      amount: "100",
+      staffId: id.rohim,
+      shopId: id.shop,
+    });
+    const after = await getDayView(ctx, company, date);
+    expect(Number(after.money.cashLeft)).toBe(Number(before.money.cashLeft) - 200);
+    expect(Number(after.marketDueOutstanding)).toBe(Number(before.marketDueOutstanding) + 200);
+
+    // The 25 collected on Aug 30 (no shop opening yet) leaves the shop at −25 before today.
+    const statement = await getShopStatement(ctx, company, id.shop, { from: date, to: date });
+    expect(statement.opening).toBe("-25");
+    expect(Number(statement.added)).toBe(300);
+    expect(Number(statement.collected)).toBe(100);
+    expect(statement.closing).toBe("175");
+    expect(statement.lines.map((l) => [l.kind, l.staffName, l.balance])).toEqual([
+      ["marketDueNew", "Mamun", "275"],
+      ["marketDueCollected", "Rohim", "175"],
+    ]);
+    const shop = must((await listShops(ctx, company)).find((s) => s.id === id.shop));
+    expect(shop.due).toBe("175");
   });
 });

@@ -3,7 +3,7 @@ export type BadgeTone = "success" | "brand" | "error" | "muted";
 const TONE_CLASS: Record<BadgeTone, string> = {
   success: "border-success/30 bg-success/10 text-success",
   brand: "border-brand/30 bg-brand/10 text-brand",
-  error: "border-error/30 bg-error/5 text-error",
+  error: "border-error/30 bg-error/10 text-error",
   muted: "border-border bg-surface-muted text-text-muted",
 };
 

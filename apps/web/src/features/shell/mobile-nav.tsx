@@ -59,7 +59,7 @@ export function MobileNav({
         onClick={(event) => {
           if (event.target === dialogRef.current) close();
         }}
-        className="m-0 scrollbar-none h-dvh max-h-none w-72 max-w-[85vw] bg-surface text-text shadow-raised backdrop:bg-black/30 backdrop:backdrop-blur-sm"
+        className="m-0 scrollbar-none h-dvh max-h-none w-72 max-w-[85vw] bg-surface text-text shadow-raised"
       >
         <div className="flex h-16 items-center gap-1 px-2.5">
           <CompanySwitcher company={workspace.company} currentPath={currentPath} />

@@ -39,6 +39,7 @@ export function CompanyForm({ onClose }: { onClose: () => void }) {
         name: name.trim(),
         theme: { primary, primaryForeground: foreground },
         modules,
+        blockNegativeStock: false,
       });
       onClose();
     } catch (error) {

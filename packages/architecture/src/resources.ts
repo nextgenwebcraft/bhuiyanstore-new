@@ -10,6 +10,7 @@ export const resourceIds = {
   staffMember: "staff-member",
   staffRecord: "staff-record",
   staffRole: "staff-role",
+  shop: "shop",
   expenseCategory: "expense-category",
   cashAccount: "cash-account",
   role: "role",

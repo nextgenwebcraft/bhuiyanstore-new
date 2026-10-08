@@ -71,4 +71,25 @@ describe("readMonthSheet", () => {
       "Market due closing": 1,
     });
   });
+
+  it("reads a month in progress up to a date, without month-level checks", () => {
+    const partial = readMonthSheet(syntheticWorkbook(), "Nov 2026", { through: "2026-11-01" });
+    expect(partial.input.days.map((d) => d.date)).toEqual(["2026-11-01"]);
+    expect(partial.input.opening).toEqual(read.input.opening);
+    expect(partial.expectations.every((e) => e.day === 1)).toBe(true);
+    const results = compareWithSaved(computeMonth(partial.input), partial.expectations);
+    expect(results.flatMap((r) => r.unexplained)).toEqual([]);
+    const checks = results.map((r) => r.check);
+    expect(checks).toContain("Daily cash left (Total Amount)");
+    expect(checks).not.toContain("Staff net (owes us − we owe)");
+    expect(checks).not.toContain("Market due closing");
+  });
+
+  it("rejects a through date outside the sheet's month", () => {
+    for (const through of ["2026-12-01", "2026-11-31", "2026-11"]) {
+      expect(() => readMonthSheet(syntheticWorkbook(), "Nov 2026", { through })).toThrow(
+        RangeError,
+      );
+    }
+  });
 });

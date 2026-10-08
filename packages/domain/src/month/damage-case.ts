@@ -19,6 +19,8 @@ export const damageEventKinds = [
   "companyReplacement",
   /** Approved disposal of damaged goods still here (unrecoverable). */
   "writeOff",
+  /** Money returned by the company for accepted damage (D33); lowers what we owe it. */
+  "companyRefund",
 ] as const;
 export type DamageEventKind = (typeof damageEventKinds)[number];
 
@@ -31,6 +33,7 @@ export type DamageLineProgress = {
   rejected: string;
   awaitingAcceptance: string;
   companyReplaced: string;
+  companyRefunded: string;
   companyPending: string;
   writtenOff: string;
   /** Damaged pieces still held by the distributor. */
@@ -44,6 +47,9 @@ export type DamageEventError =
   | "overAcceptance"
   | "overCompanyReplacement"
   | "overWriteOff";
+
+/** Kinds that settle accepted pieces: goods or money from the company. */
+export const companyReturnKinds = ["companyReplacement", "companyRefund"] as const;
 
 const ZERO = new Decimal(0);
 
@@ -61,6 +67,7 @@ export function damageLineProgress(
   const accepted = total("companyAccept");
   const rejected = total("companyReject");
   const companyReplaced = total("companyReplacement");
+  const companyRefunded = total("companyRefund");
   const writtenOff = total("writeOff");
   const buyerPending = origin === "buyerExchange" ? r.sub(buyerReplaced) : ZERO;
   return {
@@ -72,7 +79,8 @@ export function damageLineProgress(
     rejected: rejected.toString(),
     awaitingAcceptance: sent.sub(accepted).sub(rejected).toString(),
     companyReplaced: companyReplaced.toString(),
-    companyPending: accepted.sub(companyReplaced).toString(),
+    companyRefunded: companyRefunded.toString(),
+    companyPending: accepted.sub(companyReplaced).sub(companyRefunded).toString(),
     writtenOff: writtenOff.toString(),
     stillHere: r.sub(sent).sub(writtenOff).toString(),
   };
@@ -97,6 +105,7 @@ export function damageEventError(
     case "companyReject":
       return within(progress.awaitingAcceptance) ? null : "overAcceptance";
     case "companyReplacement":
+    case "companyRefund":
       return within(progress.companyPending) ? null : "overCompanyReplacement";
     case "writeOff":
       return within(progress.stillHere) ? null : "overWriteOff";

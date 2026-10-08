@@ -36,6 +36,7 @@ import { runIdempotent } from "./idempotency";
 import { activeOpening, allocationOf, monthOf, runLedger } from "./ledger";
 import { plain } from "./numeric";
 import { packOn } from "./products";
+import { ensureStockCovers } from "./stock-guard";
 
 /**
  * Daily entry (PLAN §9 Phase E): posted raw facts only. Every figure shown back comes from the
@@ -222,7 +223,7 @@ export async function reverseStockEntry(
   entryId: string,
   requestKey?: string,
 ): Promise<StockEntry> {
-  await requirePermission(ctx, companyId, "purchase.reverse", { write: true });
+  const access = await requirePermission(ctx, companyId, "purchase.reverse", { write: true });
   return runIdempotent(
     ctx,
     { scope: companyId, action: "stock.reverse", requestKey },
@@ -237,6 +238,9 @@ export async function reverseStockEntry(
         data: { status: "reversed", reversedAt: new Date(), reversedById: ctx.actor.userId },
       });
       if (updated.count !== 1) throw invalid("", "validation.daily.alreadyReversed");
+      if (row.kind === "receipt") {
+        await ensureStockCovers(tx, access, fromDbDate(row.date), [row.productId]);
+      }
       await recordAudit(tx, ctx, {
         companyId,
         action: "stock.reverse",
@@ -358,8 +362,10 @@ export async function saveDsrDay(
         throw invalid("version", "validation.daily.stale");
       }
       const data = {
-        marketDueNew: request.marketDueNew,
-        marketDueCollected: request.marketDueCollected,
+        ...(request.marketDueNew === undefined ? {} : { marketDueNew: request.marketDueNew }),
+        ...(request.marketDueCollected === undefined
+          ? {}
+          : { marketDueCollected: request.marketDueCollected }),
       };
       let id: string;
       if (live) {
@@ -423,7 +429,7 @@ async function transitionDsrDay(
   requestKey: string | undefined,
   move: { action: string; permission: PermissionId; from: string; to: string },
 ): Promise<DsrDay> {
-  await requirePermission(ctx, companyId, move.permission, { write: true });
+  const access = await requirePermission(ctx, companyId, move.permission, { write: true });
   const { version } = parseInput(documentTransitionRequestSchema, input);
   return runIdempotent(
     ctx,
@@ -445,6 +451,17 @@ async function transitionDsrDay(
         data: { status: move.to, version: { increment: 1 }, ...stamp },
       });
       if (updated.count !== 1) throw invalid("version", "validation.daily.stale");
+      // Posting takes out issued − returned; reversing gives it back.
+      const takesOut = row.lines.filter((line) => {
+        const net = toDecimal(line.issued).sub(toDecimal(line.returned));
+        return move.to === "posted" ? net.gt(0) : net.lt(0);
+      });
+      await ensureStockCovers(
+        tx,
+        access,
+        fromDbDate(row.date),
+        takesOut.map((line) => line.productId),
+      );
       await recordAudit(tx, ctx, {
         companyId,
         action: move.action,
@@ -523,6 +540,7 @@ const MARKET_KINDS = new Set<MoneyEntryKind>(["marketDueNew", "marketDueCollecte
 
 const moneyInclude = {
   staff: { select: { name: true } },
+  shop: { select: { name: true } },
   expenseCategory: { select: { name: true } },
 } as const;
 type MoneyRow = Prisma.MoneyEntryGetPayload<{ include: typeof moneyInclude }>;
@@ -535,6 +553,8 @@ function toMoneyEntry(row: MoneyRow): MoneyEntry {
     amount: plain(row.amount),
     staffId: row.staffId,
     staffName: row.staff?.name ?? null,
+    shopId: row.shopId,
+    shopName: row.shop?.name ?? null,
     expenseCategoryId: row.expenseCategoryId,
     categoryName: row.expenseCategory?.name ?? null,
     allocation: allocationOf(row),
@@ -587,7 +607,7 @@ async function checkOwedLimits(
 export async function listMoneyEntries(
   ctx: AppContext,
   companyId: string,
-  query: { from: unknown; to?: unknown; staffId?: string | null },
+  query: { from: unknown; to?: unknown; staffId?: string | null; shopId?: string | null },
 ): Promise<MoneyEntry[]> {
   const access = await loadCompanyAccess(ctx, companyId);
   const from = businessDate(query.from, "from");
@@ -604,6 +624,7 @@ export async function listMoneyEntries(
       kind: { in: kinds },
       date: { gte: toDbDate(from), lte: toDbDate(to) },
       ...(query.staffId ? { staffId: query.staffId } : {}),
+      ...(query.shopId ? { shopId: query.shopId } : {}),
     },
     include: moneyInclude,
     orderBy: [{ date: "asc" }, { createdAt: "asc" }],
@@ -627,6 +648,11 @@ export async function postMoneyEntry(
     throw invalid("staffId", "validation.daily.staffRequired");
   }
   if (!person && request.staffId) throw invalid("staffId", "validation.daily.noStaffForKind");
+  const market = MARKET_KINDS.has(request.kind);
+  if (market && !request.staffId) throw invalid("staffId", "validation.daily.staffRequired");
+  if (market !== Boolean(request.shopId)) {
+    throw invalid("shopId", market ? "validation.shop.required" : "validation.shop.notForKind");
+  }
   if (CATEGORY_KINDS.has(request.kind) !== Boolean(request.expenseCategoryId)) {
     throw invalid(
       "expenseCategoryId",
@@ -668,6 +694,12 @@ export async function postMoneyEntry(
         });
         if (!category) throw invalid("expenseCategoryId", "validation.daily.unknownCategory");
       }
+      if (request.shopId) {
+        const shop = await tx.shop.findFirst({
+          where: { id: request.shopId, companyId, status: "active" },
+        });
+        if (!shop) throw invalid("shopId", "validation.shop.unknown");
+      }
       await checkOwedLimits(tx, access, request, allocation);
       const row = await tx.moneyEntry.create({
         data: {
@@ -677,6 +709,7 @@ export async function postMoneyEntry(
           kind: request.kind,
           amount: request.amount,
           staffId: request.staffId,
+          shopId: request.shopId,
           expenseCategoryId: request.expenseCategoryId,
           allocAdvance: allocation?.advance ?? null,
           allocLoan: allocation?.loan ?? null,

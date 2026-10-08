@@ -51,6 +51,8 @@ model Company {
   themePrimaryForeground String            @map("theme_primary_foreground")
   themeAccent            String?           @map("theme_accent")
   logoRef                String?           @map("logo_ref")
+  /// D34: refuse postings that take a product's stock below zero.
+  blockNegativeStock     Boolean           @default(false) @map("block_negative_stock")
   status                 String            @default("active")
   createdAt              DateTime          @default(now()) @map("created_at")
   updatedAt              DateTime          @updatedAt @map("updated_at")
@@ -60,6 +62,7 @@ model Company {
   memberships            Membership[]
   products               Product[]
   suppliers              Supplier[]
+  shops                  Shop[]
   staffAssignments       StaffAssignment[]
   opening                OpeningSession?
   stockEntries           StockEntry[]
@@ -307,6 +310,28 @@ model Supplier {
 
   @@unique([companyId, name])
   @@map("supplier")
+}
+
+/// A shop the company distributes to (D35); market due is given to and collected from shops.
+model Shop {
+  id           String       @id @default(cuid())
+  tenantId     String       @map("tenant_id")
+  companyId    String       @map("company_id")
+  name         String
+  ownerName    String       @default("") @map("owner_name")
+  phone        String       @default("")
+  area         String       @default("")
+  address      String       @default("")
+  /// Warn above this due; NULL = no limit.
+  dueLimit     Decimal?     @map("due_limit") @db.Decimal(20, 2)
+  status       String       @default("active")
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+  company      Company      @relation(fields: [companyId], references: [id])
+  moneyEntries MoneyEntry[]
+
+  @@unique([companyId, name])
+  @@map("shop")
 }
 
 /// A person, independent of user accounts (guide §11.1). Names never become columns.
@@ -560,6 +585,8 @@ model MoneyEntry {
   kind              String
   amount            Decimal          @db.Decimal(20, 2)
   staffId           String?          @map("staff_id")
+  /// D35: the shop of a market due entry.
+  shopId            String?          @map("shop_id")
   expenseCategoryId String?          @map("expense_category_id")
   /// Named parts of a repayment, offset or salary recovery (NULL = advance → loan → shortage).
   allocAdvance      Decimal?         @map("alloc_advance") @db.Decimal(20, 2)
@@ -575,11 +602,13 @@ model MoneyEntry {
   reversedAt        DateTime?        @map("reversed_at")
   company           Company          @relation(fields: [companyId], references: [id])
   staff             Staff?           @relation(fields: [staffId], references: [id], onDelete: Restrict)
+  shop              Shop?            @relation(fields: [shopId], references: [id], onDelete: Restrict)
   expenseCategory   ExpenseCategory? @relation(fields: [expenseCategoryId], references: [id], onDelete: Restrict)
   payrollRun        PayrollRun?      @relation(fields: [payrollRunId], references: [id], onDelete: Restrict)
 
   @@index([companyId, date])
   @@index([staffId])
+  @@index([shopId])
   @@index([payrollRunId])
   @@map("money_entry")
 }
@@ -691,7 +720,7 @@ model DamageEvent {
   quantity     Decimal        @db.Decimal(20, 6)
   /// Buyer replacement given from godown stock (not already on a DSR sheet's damage column).
   fromStock    Boolean        @default(false) @map("from_stock")
-  /// Reviewed carrying cost per piece of a company replacement.
+  /// Price per piece of a company replacement (carrying cost) or money return (D33).
   unitCost     Decimal?       @map("unit_cost") @db.Decimal(20, 6)
   reference    String         @default("")
   note         String         @default("")

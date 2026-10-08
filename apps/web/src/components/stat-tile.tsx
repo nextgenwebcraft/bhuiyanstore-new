@@ -13,7 +13,7 @@ export function StatTile({
   return (
     <div
       className={`rounded-xl border p-4 shadow-card ${
-        emphasis ? "border-brand/25 bg-brand/5" : "border-border bg-surface"
+        emphasis ? "border-brand/30 bg-brand/8" : "border-border bg-surface"
       }`}
     >
       <dt className="text-xs text-text-muted">{label}</dt>

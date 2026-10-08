@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
 import { Button, ButtonLink } from "@/components/button";
 import { Field, inputClass } from "@/components/field";
+import { PasswordInput } from "@/components/password-input";
 import { useAuthService } from "@/data/http/http-provider";
 import { errorCodeOf } from "@/data/ports/service-error";
 
@@ -56,14 +57,12 @@ export function SignInPage() {
             />
           </Field>
           <Field id={passwordId} label={t("auth.password")} error={error}>
-            <input
+            <PasswordInput
               id={passwordId}
-              type="password"
               autoComplete="current-password"
               required
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              className={inputClass}
             />
           </Field>
           <Button type="submit" variant="primary" disabled={busy || !email || !password}>

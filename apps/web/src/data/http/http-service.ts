@@ -25,6 +25,8 @@ import {
   roleSchema,
   staffAccountsSchema,
   staffMemberSchema,
+  shopSchema,
+  shopStatementSchema,
   staffRecordSchema,
   staffRoleSchema,
   staffStatementSchema,
@@ -130,7 +132,12 @@ async function failure(response: Response): Promise<ServiceError> {
   const body: unknown = await response.json().catch(() => null);
   const parsed = apiErrorSchema.safeParse(body);
   if (!parsed.success) return new ServiceError("INTERNAL", response.status >= 500);
-  return new ServiceError(parsed.data.code, parsed.data.retryable, parsed.data.fieldErrors ?? []);
+  return new ServiceError(
+    parsed.data.code,
+    parsed.data.retryable,
+    parsed.data.fieldErrors ?? [],
+    parsed.data.stockShortages ?? [],
+  );
 }
 
 /**
@@ -181,6 +188,8 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
 
     listWorkspaces: (options) => request(z.array(companyWorkspaceSchema), "/companies", options),
     createCompany: (input) => request(companyWorkspaceSchema, "/companies", write("POST", input)),
+    updateCompany: (companyId, input) =>
+      request(companyWorkspaceSchema, company(companyId), write("PUT", input)),
     getWorkspace: (companyId, options) =>
       request(companyWorkspaceSchema, company(companyId), options),
     listProducts: (companyId, options) =>
@@ -250,6 +259,7 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
       const params = new URLSearchParams({ from: query.from });
       if (query.to) params.set("to", query.to);
       if (query.staffId) params.set("staffId", query.staffId);
+      if (query.shopId) params.set("shopId", query.shopId);
       return request(
         z.array(moneyEntrySchema),
         `${company(companyId)}/money-entries?${params.toString()}`,
@@ -290,6 +300,22 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
         `${company(companyId)}/staff/${id(staffId)}/assignments/${id(assignmentId)}`,
         write("PUT", input),
       ),
+    listShops: (companyId, options) =>
+      request(z.array(shopSchema), `${company(companyId)}/shops`, options),
+    createShop: (companyId, input) =>
+      request(shopSchema, `${company(companyId)}/shops`, write("POST", input)),
+    updateShop: (companyId, shopId, input) =>
+      request(shopSchema, `${company(companyId)}/shops/${id(shopId)}`, write("PUT", input)),
+    getShopStatement: (companyId, shopId, range, options) => {
+      const params = new URLSearchParams();
+      if (range.from) params.set("from", range.from);
+      if (range.to) params.set("to", range.to);
+      return request(
+        shopStatementSchema,
+        `${company(companyId)}/shops/${id(shopId)}/statement?${params.toString()}`,
+        options,
+      );
+    },
     listConfig: (list, options) =>
       request(z.array(configLists[list].schema), configLists[list].path, options) as never,
     createConfig: (list, input) =>
@@ -344,6 +370,8 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
       }),
     createImportJob: (companyId, input) => {
       const query = new URLSearchParams({ sheet: input.sheet, fileName: input.fileName });
+      if (input.extraBlocksToLastDay) query.set("extraBlocks", "lastDay");
+      if (input.through) query.set("through", input.through);
       return request(importJobSchema, `${company(companyId)}/imports?${query.toString()}`, {
         method: "POST",
         file: input.file,
@@ -433,12 +461,18 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
         `${company(companyId)}/payroll-runs/${id(month)}/${id(action)}`,
         write("POST", input),
       ),
-    listDamageCases: (companyId, query, options) =>
-      request(
+    listDamageCases: (companyId, query, options) => {
+      const params = new URLSearchParams();
+      if (query.status) params.set("status", query.status);
+      if (query.from) params.set("from", query.from);
+      if (query.to) params.set("to", query.to);
+      const search = params.toString();
+      return request(
         z.array(damageCaseSchema),
-        `${company(companyId)}/damage-cases${query.status ? `?status=${query.status}` : ""}`,
+        `${company(companyId)}/damage-cases${search ? `?${search}` : ""}`,
         options,
-      ),
+      );
+    },
     createDamageCase: (companyId, input) =>
       request(damageCaseSchema, `${company(companyId)}/damage-cases`, write("POST", input)),
     postDamageEvent: (companyId, caseId, input) =>

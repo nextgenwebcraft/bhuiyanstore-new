@@ -49,7 +49,7 @@ export function FormDialog({
       ref={dialogRef}
       onClose={onClose}
       aria-label={title}
-      className={`m-auto w-full ${wide ? "max-w-2xl" : "max-w-md"} rounded-2xl border border-border bg-surface p-0 text-text shadow-raised backdrop:bg-black/30 backdrop:backdrop-blur-sm`}
+      className={`m-auto w-full ${wide ? "max-w-2xl" : "max-w-md"} rounded-2xl border border-border bg-surface p-0 text-text shadow-raised`}
     >
       {open ? (
         <form onSubmit={handleSubmit} className="flex flex-col gap-4 p-5 sm:p-6" noValidate>

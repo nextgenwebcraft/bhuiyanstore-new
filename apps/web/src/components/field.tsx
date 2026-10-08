@@ -1,5 +1,5 @@
 export const inputClass =
-  "min-h-(--touch-target) w-full rounded-lg border border-border bg-surface px-3 transition-colors hover:border-border-strong";
+  "min-h-(--touch-target) w-full rounded-lg border border-border bg-surface px-3 text-text transition-colors placeholder:text-text-subtle hover:border-border-strong focus:border-brand";
 
 /** Label + control + field error, so every form renders validation the same way (guide 5.5). */
 export function Field({

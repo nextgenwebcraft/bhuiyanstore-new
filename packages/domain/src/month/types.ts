@@ -4,6 +4,7 @@ import type { DecimalInput } from "../decimal";
 
 export type ProductId = string;
 export type StaffId = string;
+export type ShopId = string;
 
 export type PriceKind = "orderPrice" | "costPrice" | "salePrice";
 
@@ -39,6 +40,8 @@ export type MonthOpening = {
   products: Readonly<Record<ProductId, OpeningProduct>>;
   /** Market due (বাজারের বকেয়া) by DSR; the key `""` holds due not attributed to a DSR. */
   marketDue?: Readonly<Record<StaffId, DecimalInput>>;
+  /** The same market due by shop, for due entered against a shop (D35); a subset of `marketDue`. */
+  shopDue?: Readonly<Record<ShopId, DecimalInput>>;
   staff?: Readonly<Record<StaffId, StaffBalances>>;
   /** Positive = we owe the company for goods; negative = advance with the company. */
   companyPayable?: DecimalInput;
@@ -60,6 +63,11 @@ export type ProductDayInput = {
    * from company and no payable; quantity × reviewed unit cost is the replacement recovery.
    */
   replacements?: readonly { quantity: DecimalInput; unitCost: DecimalInput }[];
+  /**
+   * Money the company returned for damaged goods sent to it (D33). Quantity × price per piece
+   * lowers what we owe the company; stock and profit are unchanged.
+   */
+  companyRefunds?: readonly { quantity: DecimalInput; unitCost: DecimalInput; ref?: string }[];
   /** A price present here changes it from this day on (carry-forward). */
   orderPrice?: DecimalInput;
   costPrice?: DecimalInput;
@@ -101,7 +109,8 @@ export type MoneyKind =
   | "srPayment"
   | "staffOffset"
   | "srOffset"
-  | "supplierDeposit";
+  | "supplierDeposit"
+  | "companyIncentive";
 
 export type OwedBucket = "advance" | "loan" | "shortage";
 
@@ -110,6 +119,8 @@ export type MoneyEntryInput = {
   /** Always positive; the kind decides the direction (D27). */
   amount: DecimalInput;
   staffId?: StaffId;
+  /** The shop of a market due entry (D35); it still counts under its DSR as well. */
+  shopId?: ShopId;
   /** Expense category for `expense` and `staffCostPaid`. */
   category?: string;
   /** Explicit allocation for repayments and salary recovery; default advance → loan → shortage. */
@@ -274,9 +285,23 @@ export type MonthResult = {
       collected: string;
       closing: string;
     }[];
+    byShop: {
+      shopId: ShopId;
+      opening: string;
+      added: string;
+      collected: string;
+      closing: string;
+    }[];
   };
   staff: StaffMonthResult[];
-  companyPayable: { opening: string; receipts: string; deposits: string; closing: string };
+  companyPayable: {
+    opening: string;
+    receipts: string;
+    deposits: string;
+    incentives: string;
+    damageRefunds: string;
+    closing: string;
+  };
   profit: {
     gross: string;
     salaries: string;
@@ -300,8 +325,20 @@ export type MonthClosing = {
     { stock: string; dueFromCompany: string } & Partial<Record<PriceKind, string>>
   >;
   marketDue: Record<StaffId, string>;
+  shopDue: Record<ShopId, string>;
   staff: Record<StaffId, StaffBalanceValues>;
   companyPayable: string;
+};
+
+/** One market due entry against a shop, in posting order, with the shop's due after it. */
+export type ShopEntryResult = {
+  date: string;
+  ref?: string;
+  shopId: ShopId;
+  staffId?: StaffId;
+  kind: "marketDueNew" | "marketDueCollected";
+  amount: string;
+  balance: string;
 };
 
 /** One money entry's effect on a person's account (D27 statement line), in posting order. */
@@ -317,10 +354,29 @@ export type StaffEntryResult = {
   balances: StaffBalanceValues;
 };
 
+export type CompanyEntryKind = "receipt" | "deposit" | "incentive" | "damageRefund";
+
+/**
+ * One movement of what we owe the company, in posting order: a day's receipt bills (raises it),
+ * a deposit, a cash incentive or a damage money return (lower it).
+ */
+export type CompanyEntryResult = {
+  date: string;
+  kind: CompanyEntryKind;
+  amount: string;
+  ref?: string;
+  /** The product of a damage money return. */
+  productId?: ProductId;
+  /** What we owe the company after this entry (negative = our advance with it). */
+  balance: string;
+};
+
 export type MonthOutput = {
   days: DayResult[];
   month: MonthResult;
   closing: MonthClosing;
   staffEntries: StaffEntryResult[];
+  companyEntries: CompanyEntryResult[];
+  shopEntries: ShopEntryResult[];
   warnings: EngineWarning[];
 };

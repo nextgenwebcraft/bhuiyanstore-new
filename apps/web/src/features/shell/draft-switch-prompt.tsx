@@ -36,7 +36,7 @@ export const DraftSwitchPrompt = forwardRef<DraftSwitchPromptHandle>(
       <dialog
         ref={dialogRef}
         aria-label={t("draftGuard.title")}
-        className="m-auto w-full max-w-sm rounded-lg border border-border bg-surface p-0 text-text backdrop:bg-black/40"
+        className="m-auto w-full max-w-sm rounded-2xl border border-border bg-surface p-0 text-text shadow-raised"
       >
         <div className="flex flex-col gap-4 p-4">
           <h2 className="text-lg font-semibold">{t("draftGuard.title")}</h2>

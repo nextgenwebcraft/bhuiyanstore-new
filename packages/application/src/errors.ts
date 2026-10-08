@@ -1,7 +1,8 @@
-import type { ApiError, ErrorCode } from "@bsd/contracts";
+import type { ApiError, ErrorCode, StockShortage } from "@bsd/contracts";
 import type { z } from "zod";
 
 export type FieldError = { path: string; code: string };
+export type { StockShortage };
 
 /** A typed, expected failure. Route handlers turn it into an `ApiError` response. */
 export class AppError extends Error {
@@ -9,6 +10,7 @@ export class AppError extends Error {
     readonly code: ErrorCode,
     readonly fieldErrors?: FieldError[],
     readonly retryable = false,
+    readonly stockShortages?: StockShortage[],
   ) {
     super(code);
     this.name = "AppError";
@@ -20,6 +22,7 @@ export class AppError extends Error {
       retryable: this.retryable,
       ...(requestId ? { requestId } : {}),
       ...(this.fieldErrors?.length ? { fieldErrors: this.fieldErrors } : {}),
+      ...(this.stockShortages?.length ? { stockShortages: this.stockShortages } : {}),
     };
   }
 }

@@ -136,7 +136,14 @@ export const monthViewSchema = z.object({
     ),
   }),
   staff: z.array(monthStaffRowSchema),
-  companyPayable: z.object({ opening: money, receipts: money, deposits: money, closing: money }),
+  companyPayable: z.object({
+    opening: money,
+    receipts: money,
+    deposits: money,
+    incentives: money,
+    damageRefunds: money,
+    closing: money,
+  }),
   /** Requires `report.profit_view` (and cost view). */
   profit: z
     .object({
@@ -175,6 +182,7 @@ export const reportIds = [
   "profit",
   "market-due",
   "company-due",
+  "company-account",
   "damage",
   "cartons",
   "person-sales",
