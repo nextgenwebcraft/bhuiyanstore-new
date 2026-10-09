@@ -7,6 +7,9 @@ import {
   dayViewSchema,
   dsrDaySchema,
   expenseCategorySchema,
+  fieldDaySchema,
+  fieldShopSchema,
+  fieldVisitSchema,
   meSchema,
   moneyEntrySchema,
   monthCloseResultSchema,
@@ -19,6 +22,7 @@ import {
   productSchema,
   reportSchema,
   roleSchema,
+  setupStatusSchema,
   staffAccountsSchema,
   staffMemberSchema,
   shopSchema,
@@ -42,7 +46,7 @@ import { ServiceError } from "../ports/service-error";
 type Json = Record<string, unknown> | unknown[];
 
 type Call = RequestOptions & {
-  method?: "GET" | "POST" | "PUT";
+  method?: "GET" | "POST" | "PUT" | "DELETE";
   body?: unknown;
   idempotent?: boolean;
 };
@@ -329,6 +333,38 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
       request(openingSchema, `${company(companyId)}/opening/approve`, write("POST", input)),
     activateOpening: (companyId, input) =>
       request(openingSchema, `${company(companyId)}/opening/activate`, write("POST", input)),
+    getSetupStatus: (companyId, options) =>
+      request(setupStatusSchema, `${company(companyId)}/setup`, options),
+
+    getFieldDay: (companyId, date, options) =>
+      request(fieldDaySchema, `${company(companyId)}/field/day?date=${id(date)}`, options),
+    getDsrFieldDay: (companyId, staffId, date, options) =>
+      request(
+        fieldDaySchema,
+        `${company(companyId)}/field/day?date=${id(date)}&staffId=${id(staffId)}`,
+        options,
+      ),
+    saveFieldVisit: (companyId, visitId, input) =>
+      visitId
+        ? request(
+            fieldVisitSchema,
+            `${company(companyId)}/field/visits/${id(visitId)}`,
+            write("PUT", input),
+          )
+        : request(fieldVisitSchema, `${company(companyId)}/field/visits`, write("POST", input)),
+    deleteFieldVisit: (companyId, visitId, input) =>
+      request(z.undefined(), `${company(companyId)}/field/visits/${id(visitId)}`, {
+        method: "DELETE",
+        body: input,
+      }),
+    createFieldShop: (companyId, input) =>
+      request(fieldShopSchema, `${company(companyId)}/field/shops`, write("POST", input)),
+    createStaffLogin: (companyId, staffId, input) =>
+      request(
+        staffRecordSchema,
+        `${company(companyId)}/staff/${id(staffId)}/login`,
+        write("POST", input),
+      ),
 
     getMonthView: (companyId, month, options) =>
       request(monthViewSchema, `${company(companyId)}/months/${id(month)}`, options),

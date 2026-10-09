@@ -8,7 +8,8 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit -p ."
+    "typecheck": "tsc --noEmit -p .",
+    "load-cartons": "tsx src/scripts/load-cartons.ts"
   },
   "dependencies": {
     "@bsd/auth": "workspace:*",
@@ -17,5 +18,9 @@
     "@bsd/domain": "workspace:*",
     "@bsd/importer": "workspace:*",
     "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "dotenv": "18.0.5",
+    "tsx": "4.23.15"
   }
 }

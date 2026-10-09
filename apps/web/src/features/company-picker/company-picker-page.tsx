@@ -1,8 +1,10 @@
 "use client";
 
+import { isFieldOnly } from "@bsd/contracts";
 import { t } from "@bsd/i18n";
 import Link from "next/link";
-import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/button";
 import { Icon } from "@/components/icons";
 import { ListSkeleton } from "@/components/skeleton";
@@ -13,7 +15,7 @@ import { useWorkspaces } from "@/data/queries";
 import { TopBar } from "@/features/shell/top-bar";
 import { CompanyMark } from "@/features/shell/company-mark";
 import { ConnectionBanner } from "@/features/shell/connection-banner";
-import { companyHref } from "@/features/shell/navigation";
+import { companyHref, FIELD_PATH } from "@/features/shell/navigation";
 import { CompanyForm } from "./company-form";
 
 export function CompanyPickerPage() {
@@ -21,9 +23,16 @@ export function CompanyPickerPage() {
   const session = useSession();
   const canCreate = session?.me.isSuperAdmin === true;
   const [creating, setCreating] = useState(false);
+  const router = useRouter();
+  const only = workspaces.data?.length === 1 ? workspaces.data[0] : undefined;
+  const fieldTarget =
+    only && isFieldOnly(only.permissions) ? companyHref(only.company.id, FIELD_PATH) : null;
+  useEffect(() => {
+    if (fieldTarget) router.replace(fieldTarget);
+  }, [fieldTarget, router]);
 
   let body: React.ReactNode;
-  if (workspaces.isPending) {
+  if (workspaces.isPending || fieldTarget) {
     body = <ListSkeleton rows={3} detail />;
   } else if (workspaces.isError) {
     body = (
@@ -38,10 +47,10 @@ export function CompanyPickerPage() {
   } else {
     body = (
       <ul className="grid gap-3 sm:grid-cols-2">
-        {workspaces.data.map(({ company }) => (
+        {workspaces.data.map(({ company, permissions }) => (
           <li key={company.id}>
             <Link
-              href={companyHref(company.id)}
+              href={companyHref(company.id, isFieldOnly(permissions) ? FIELD_PATH : "")}
               className="group flex min-h-20 items-center gap-4 rounded-xl border border-border bg-surface p-4 shadow-card transition-all hover:-translate-y-0.5 hover:border-border-strong hover:shadow-raised"
             >
               <CompanyMark company={company} size="lg" />

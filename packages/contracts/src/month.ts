@@ -42,6 +42,8 @@ export const monthProductRowSchema = z.object({
   /** Company replacement pieces received for damage claims (D17); no bill, no payable. */
   replacementReceived: money,
   replacementValue: costMoney,
+  /** Free goods from the company (D16); no bill, no payable. */
+  incentiveReceived: money,
   salesCartons: money,
   closingStock: money,
   closingValue: costMoney,
@@ -188,6 +190,7 @@ export const reportIds = [
   "person-sales",
   "staff-balances",
   "daily-cash",
+  "dsr-daily",
 ] as const;
 export type ReportId = (typeof reportIds)[number];
 

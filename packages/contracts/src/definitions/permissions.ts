@@ -63,6 +63,19 @@ export const permissionIds = [
   "role.manage",
   "membership.manage",
   "audit.view",
+  /** D40: a DSR's own shop visits on the field panel (only their own staff record). */
+  "field.entry",
+  /** D40: a DSR may add a shop from the field panel. */
+  "field.shop_create",
 ] as const;
+
+/** Permissions of the field panel; a member holding only these is sent to it. */
+export const fieldPermissionIds = ["field.entry", "field.shop_create"] as const;
+
+/** True when every permission held in a company is a field-panel permission. */
+export function isFieldOnly(permissions: readonly string[]): boolean {
+  const field = new Set<string>(fieldPermissionIds);
+  return permissions.length > 0 && permissions.every((p) => field.has(p));
+}
 
 export type PermissionId = (typeof permissionIds)[number];

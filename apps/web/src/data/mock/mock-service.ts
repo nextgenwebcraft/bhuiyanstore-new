@@ -257,6 +257,7 @@ export function createMockService(
             name: p.name,
             employer: p.kind === "sr" ? "supplier" : "distributor",
             status: "active",
+            loginEmail: null,
             assignments: p.companyIds.filter(visible).map((id) => ({
               id: `${p.id}-${id}`,
               companyId: id,
@@ -265,6 +266,7 @@ export function createMockService(
               roleKind: p.kind,
               from: "2026-01-01",
               to: null,
+              monthlySalary: null,
             })),
           })),
       );
@@ -301,6 +303,13 @@ export function createMockService(
     saveOpening: demoReadOnly,
     approveOpening: demoReadOnly,
     activateOpening: demoReadOnly,
+    getSetupStatus: demoReadOnly,
+    getFieldDay: demoReadOnly,
+    getDsrFieldDay: demoReadOnly,
+    saveFieldVisit: demoReadOnly,
+    deleteFieldVisit: demoReadOnly,
+    createFieldShop: demoReadOnly,
+    createStaffLogin: demoReadOnly,
   };
 }
 

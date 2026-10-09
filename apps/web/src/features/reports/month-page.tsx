@@ -16,6 +16,7 @@ import { describeError } from "@/data/ports/service-error";
 import { useMonthCommand, useMonthView } from "@/data/queries";
 import { money } from "@/features/daily/daily-kit";
 import { NavGate } from "@/features/shell/nav-gate";
+import { PrintButton, PrintHeader } from "@/features/shell/print";
 import { PageWarnings } from "@/features/shell/notifications";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 import { ReportTableView } from "./report-page";
@@ -297,9 +298,11 @@ export function MonthPage({ path, title }: { path: string; title: TranslationKey
                 {t("month.reopen")}
               </Button>
             ) : null}
+            <PrintButton />
           </div>
         }
       />
+      <PrintHeader title={t(title)} from={view?.from ?? undefined} to={view?.to ?? undefined} />
       <div className="flex flex-col gap-4">
         {view?.status === "closed" && view.closedAt ? (
           <p className="text-sm text-text-muted">

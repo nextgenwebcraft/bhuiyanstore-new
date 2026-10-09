@@ -9,7 +9,7 @@ import {
   type StaffRole,
 } from "@bsd/contracts";
 import { businessDateOf } from "@bsd/domain";
-import { t, toBengaliDigits } from "@bsd/i18n";
+import { formatAmount, normalizeDigits, t, toBengaliDigits } from "@bsd/i18n";
 import { useId, useState } from "react";
 import { Button } from "@/components/button";
 import { DatePicker } from "@/components/date-picker";
@@ -26,6 +26,7 @@ import {
   useAllStaff,
   useConfigList,
   useCreateStaff,
+  useCreateStaffLogin,
   useSaveStaffAssignment,
   useStaffRecords,
   useUpdateStaff,
@@ -45,9 +46,14 @@ function fitsEmployer(role: StaffRole, employer: StaffEmployer): boolean {
   return true;
 }
 
-type Period = { roleId: string; from: string; to: string };
+type Period = { roleId: string; from: string; to: string; monthlySalary: string };
 
-const newPeriod = (): Period => ({ roleId: "", from: businessDateOf(new Date()), to: "" });
+const newPeriod = (): Period => ({
+  roleId: "",
+  from: businessDateOf(new Date()),
+  to: "",
+  monthlySalary: "",
+});
 
 /** Role + from/to, shared by "new person" and the assignment dialog. */
 function PeriodFields({
@@ -70,6 +76,7 @@ function PeriodFields({
   const options = roles.filter(
     (role) => (role.active && fitsEmployer(role, employer)) || role.id === period.roleId,
   );
+  const isSr = roles.find((role) => role.id === period.roleId)?.kind === "sr";
   return (
     <>
       <Field id={`${id}-role`} label={t("staff.role")} error={errors.fields[`${pathPrefix}roleId`]}>
@@ -121,6 +128,22 @@ function PeriodFields({
           />
         </Field>
       </div>
+      {isSr ? null : (
+        <Field
+          id={`${id}-salary`}
+          label={t("staff.monthlySalary")}
+          hint={t("staff.monthlySalaryHint")}
+          error={errors.fields[`${pathPrefix}monthlySalary`]}
+        >
+          <input
+            id={`${id}-salary`}
+            inputMode="decimal"
+            value={period.monthlySalary}
+            onChange={(event) => onChange({ ...period, monthlySalary: event.target.value })}
+            className={inputClass}
+          />
+        </Field>
+      )}
     </>
   );
 }
@@ -132,14 +155,23 @@ function checkPeriod(period: Period, pathPrefix: string): DescribedError | null 
   if (period.to && period.from && period.to < period.from) {
     fields[`${pathPrefix}to`] = t("validation.period.endBeforeStart");
   }
+  const salary = normalizeDigits(period.monthlySalary).trim();
+  if (salary && !/^\d+(\.\d{1,2})?$/.test(salary)) {
+    fields[`${pathPrefix}monthlySalary`] = t("validation.opening.amount");
+  }
   return Object.keys(fields).length > 0 ? { fields } : null;
 }
 
-const periodInput = (period: Period) => ({
-  roleId: period.roleId,
-  from: period.from,
-  to: period.to || null,
-});
+const periodInput = (period: Period, roles: StaffRole[]) => {
+  const salary = normalizeDigits(period.monthlySalary).trim();
+  const isSr = roles.find((role) => role.id === period.roleId)?.kind === "sr";
+  return {
+    roleId: period.roleId,
+    from: period.from,
+    to: period.to || null,
+    monthlySalary: salary && !isSr ? salary : null,
+  };
+};
 
 type PersonDraft = {
   id?: string;
@@ -183,7 +215,7 @@ function PersonDialog({
     };
     try {
       if (values.id) await updateStaff.mutateAsync({ staffId: values.id, input: person });
-      else await createStaff.mutateAsync({ ...person, assignment: periodInput(period) });
+      else await createStaff.mutateAsync({ ...person, assignment: periodInput(period, roles) });
       onClose();
     } catch (error) {
       setErrors(
@@ -193,6 +225,7 @@ function PersonDialog({
           "assignment.roleId",
           "assignment.from",
           "assignment.to",
+          "assignment.monthlySalary",
         ]),
       );
     }
@@ -280,6 +313,7 @@ function AssignmentDialog({
           roleId: draft.assignment.roleId,
           from: draft.assignment.from,
           to: draft.assignment.to ?? "",
+          monthlySalary: draft.assignment.monthlySalary ?? "",
         }
       : newPeriod(),
   );
@@ -299,11 +333,11 @@ function AssignmentDialog({
       await save.mutateAsync({
         staffId: person.id,
         ...(draft.assignment ? { assignmentId: draft.assignment.id } : {}),
-        input: periodInput(period),
+        input: periodInput(period, roles),
       });
       onClose();
     } catch (error) {
-      setErrors(describeError(error, ["roleId", "from", "to"]));
+      setErrors(describeError(error, ["roleId", "from", "to", "monthlySalary"]));
     }
   }
 
@@ -353,6 +387,78 @@ function AssignmentDialog({
   );
 }
 
+/** Super-admin: a field-panel sign-in for a DSR (D40). */
+function LoginDialog({
+  companyId,
+  person,
+  onClose,
+}: {
+  companyId: string;
+  person: StaffRecord;
+  onClose: () => void;
+}) {
+  const id = useId();
+  const create = useCreateStaffLogin(companyId);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [errors, setErrors] = useState(noErrors);
+
+  async function submit() {
+    const fields: Partial<Record<string, string>> = {};
+    if (!email.trim()) fields.email = t("validation.required");
+    if (password.length < 12) fields.password = t("auth.passwordTooShort");
+    if (Object.keys(fields).length > 0) {
+      setErrors({ fields });
+      return;
+    }
+    setErrors(noErrors);
+    try {
+      await create.mutateAsync({ staffId: person.id, input: { email: email.trim(), password } });
+      onClose();
+    } catch (error) {
+      setErrors(describeError(error, ["email", "password"]));
+    }
+  }
+
+  return (
+    <FormDialog
+      open
+      title={t("staff.login.title")}
+      error={errors.form}
+      pending={create.isPending}
+      onSubmit={() => void submit()}
+      onClose={onClose}
+    >
+      <p className="font-medium">{person.name}</p>
+      <p className="text-sm text-text-muted">{t("staff.login.hint")}</p>
+      <Field id={`${id}-email`} label={t("auth.email")} error={errors.fields.email}>
+        <input
+          id={`${id}-email`}
+          type="email"
+          autoComplete="off"
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+          className={inputClass}
+        />
+      </Field>
+      <Field
+        id={`${id}-password`}
+        label={t("user.temporaryPassword")}
+        error={errors.fields.password}
+      >
+        <input
+          id={`${id}-password`}
+          type="text"
+          autoComplete="new-password"
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          className={inputClass}
+        />
+      </Field>
+    </FormDialog>
+  );
+}
+
 function AssignmentList({
   record,
   companyId,
@@ -381,6 +487,9 @@ function AssignmentList({
             {" · "}
             {toBengaliDigits(assignment.from)} –{" "}
             {assignment.to ? toBengaliDigits(assignment.to) : t("common.openEnded")}
+            {assignment.monthlySalary !== null
+              ? ` · ${t("staff.monthlySalary")}: ${formatAmount(assignment.monthlySalary)}`
+              : ""}
           </span>
           {canManage && assignment.companyId === companyId ? (
             <Button onClick={() => onEdit(assignment)}>{t("common.edit")}</Button>
@@ -402,8 +511,12 @@ function Staff() {
   const canManage = permissions.includes("staff.manage");
   const [person, setPerson] = useState<PersonDraft | null>(null);
   const [assignment, setAssignment] = useState<AssignmentDraft | null>(null);
+  const [login, setLogin] = useState<StaffRecord | null>(null);
 
   const roleList = roles.data ?? [];
+  const dsrRoles = new Set(roleList.filter((role) => role.kind === "dsr").map((role) => role.id));
+  const isDsrHere = (record: StaffRecord) =>
+    record.assignments.some((a) => a.companyId === company.id && dsrRoles.has(a.roleId));
   const here = new Set(records.data?.map((r) => r.id));
   const candidates = (allStaff.data ?? []).filter((r) => !here.has(r.id) && r.status === "active");
 
@@ -426,10 +539,19 @@ function Staff() {
                   <span className={record.status === "active" ? "text-success" : undefined}>
                     {t(`common.status.${record.status}`)}
                   </span>
+                  {record.loginEmail ? (
+                    <>
+                      {" · "}
+                      {t("staff.login.linked")}: {record.loginEmail}
+                    </>
+                  ) : null}
                 </div>
               </div>
               {canManage ? (
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
+                  {isSuperAdmin && record.loginEmail === null && isDsrHere(record) ? (
+                    <Button onClick={() => setLogin(record)}>{t("staff.login.create")}</Button>
+                  ) : null}
                   <Button onClick={() => setAssignment({ person: record })}>
                     {t("staff.assign")}
                   </Button>
@@ -496,6 +618,9 @@ function Staff() {
           candidates={candidates}
           onClose={() => setAssignment(null)}
         />
+      ) : null}
+      {login ? (
+        <LoginDialog companyId={company.id} person={login} onClose={() => setLogin(null)} />
       ) : null}
       {body}
     </>

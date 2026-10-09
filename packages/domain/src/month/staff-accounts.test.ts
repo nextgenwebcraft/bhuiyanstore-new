@@ -164,6 +164,27 @@ describe("damage case legs (D17, guide §9.7)", () => {
     expect(damageEventError("ownedStock", open, "companyRefund", "4")).toBeNull();
   });
 
+  it("refund plus replacement never exceeds the accepted pieces, so a repeat cannot credit twice", () => {
+    const legs = [
+      { kind: "companyDispatch" as const, quantity: "4" },
+      { kind: "companyAccept" as const, quantity: "4" },
+      { kind: "companyRefund" as const, quantity: "3" },
+    ];
+    const p = damageLineProgress("ownedStock", "4", legs);
+    expect(damageEventError("ownedStock", p, "companyRefund", "3")).toBe("overCompanyReplacement");
+    expect(damageEventError("ownedStock", p, "companyReplacement", "2")).toBe(
+      "overCompanyReplacement",
+    );
+    expect(damageEventError("ownedStock", p, "companyReplacement", "1")).toBeNull();
+    const done = damageLineProgress("ownedStock", "4", [
+      ...legs,
+      { kind: "companyReplacement", quantity: "1" },
+    ]);
+    expect(damageEventError("ownedStock", done, "companyRefund", "0.5")).toBe(
+      "overCompanyReplacement",
+    );
+  });
+
   it("refuses over-dispatch, over-replacement and a buyer leg on owned-stock damage", () => {
     const p = damageLineProgress("buyerExchange", "3", [
       { kind: "companyDispatch", quantity: "2" },

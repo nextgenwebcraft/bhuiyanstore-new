@@ -7,6 +7,8 @@ import type {
   DamageEventRequest,
   DsrDay,
   DsrDaySaveRequest,
+  FieldShopCreateRequest,
+  FieldVisitSaveRequest,
   MoneyEntryPostRequest,
   Opening,
   OpeningSaveRequest,
@@ -22,6 +24,7 @@ import type {
   StaffAccountKind,
   StaffAssignmentRequest,
   StaffCreateRequest,
+  StaffLoginCreateRequest,
   StaffUpsertRequest,
   ShopUpsertRequest,
   StockEntryPostRequest,
@@ -628,6 +631,83 @@ export function useApproveOpening(companyId: string) {
   return useOpeningCommand(companyId, (version: number) =>
     service.approveOpening(companyId, { version }),
   );
+}
+
+/** Always refetched on mount: every master and opening change can move a step. */
+export function useSetupStatus(companyId: string, enabled = true) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.setupStatus(actorId, companyId),
+    queryFn: ({ signal }) => service.getSetupStatus(companyId, { signal }),
+    staleTime: 0,
+    enabled,
+  });
+}
+
+// ------------------------------------------------------------- DSR field panel (D40)
+
+export function useFieldDay(companyId: string, date: string) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.fieldDay(actorId, companyId, date),
+    queryFn: ({ signal }) => service.getFieldDay(companyId, date, { signal }),
+  });
+}
+
+export function useDsrFieldDay(companyId: string, staffId: string, date: string, enabled = true) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: [...queryKeys.fieldDay(actorId, companyId, date), staffId] as const,
+    queryFn: ({ signal }) => service.getDsrFieldDay(companyId, staffId, date, { signal }),
+    enabled: enabled && staffId !== "",
+  });
+}
+
+export function useSaveFieldVisit(companyId: string) {
+  const service = useService();
+  return usePostingMutation(
+    companyId,
+    "field",
+    ({ visitId, input }: { visitId?: string; input: FieldVisitSaveRequest }) =>
+      service.saveFieldVisit(companyId, visitId, input),
+  );
+}
+
+export function useDeleteFieldVisit(companyId: string) {
+  const service = useService();
+  return usePostingMutation(
+    companyId,
+    "field",
+    ({ visitId, version }: { visitId: string; version: number }) =>
+      service.deleteFieldVisit(companyId, visitId, { version }),
+  );
+}
+
+export function useCreateFieldShop(companyId: string) {
+  const service = useService();
+  return usePostingMutation(companyId, "field", (input: FieldShopCreateRequest) =>
+    service.createFieldShop(companyId, input),
+  );
+}
+
+export function useCreateStaffLogin(companyId: string) {
+  const service = useService();
+  const actorId = useActorId();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ staffId, input }: { staffId: string; input: StaffLoginCreateRequest }) =>
+      service.createStaffLogin(companyId, staffId, input),
+    onSuccess: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.staffRecords(actorId, companyId) }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.tenant(actorId, resourceIds.role),
+        }),
+      ]),
+  });
 }
 
 export function useActivateOpening(companyId: string) {

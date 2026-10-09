@@ -57,6 +57,7 @@ function toSave(view: Opening, change: Partial<OpeningSaveRequest> = {}): Openin
       kind: b.kind,
       staffId: b.staffId,
       cashAccountId: b.cashAccountId,
+      shopId: b.shopId,
       amount: b.amount,
       note: b.note,
     })),
@@ -147,9 +148,30 @@ describe("Phase D: opening balances", () => {
         cutoffDate: "2026-11-30",
         stock,
         balances: [
-          { kind: "market_due", staffId: null, cashAccountId: null, amount: "75", note: "" },
-          { kind: "advance", staffId: rohim, cashAccountId: null, amount: "200", note: "" },
-          { kind: "cash", staffId: null, cashAccountId: cashBox, amount: "1000", note: "" },
+          {
+            kind: "market_due",
+            staffId: null,
+            cashAccountId: null,
+            shopId: null,
+            amount: "75",
+            note: "",
+          },
+          {
+            kind: "advance",
+            staffId: rohim,
+            cashAccountId: null,
+            shopId: null,
+            amount: "200",
+            note: "",
+          },
+          {
+            kind: "cash",
+            staffId: null,
+            cashAccountId: cashBox,
+            shopId: null,
+            amount: "1000",
+            note: "",
+          },
         ],
       }),
       "key-d-save-0001",
@@ -174,7 +196,14 @@ describe("Phase D: opening balances", () => {
         drinko,
         toSave(saved, {
           balances: [
-            { kind: "shortage", staffId: null, cashAccountId: null, amount: "1", note: "" },
+            {
+              kind: "shortage",
+              staffId: null,
+              cashAccountId: null,
+              shopId: null,
+              amount: "1",
+              note: "",
+            },
           ],
         }),
       ),
@@ -278,7 +307,14 @@ describe("Phase D: opening balances", () => {
       toSave(draft, {
         cutoffDate: "2026-11-30",
         balances: [
-          { kind: "cash", staffId: null, cashAccountId: cashBox, amount: "500", note: "" },
+          {
+            kind: "cash",
+            staffId: null,
+            cashAccountId: cashBox,
+            shopId: null,
+            amount: "500",
+            note: "",
+          },
         ],
       }),
     );

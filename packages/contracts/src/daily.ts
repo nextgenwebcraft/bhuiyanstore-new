@@ -36,7 +36,8 @@ export type DocumentStatus = (typeof documentStatuses)[number];
 // ---------------------------------------------------------------- godown (stock entries)
 
 /** Excel `C` Due Quantity (order), `G` Receive (receipt) and `N` DAMAGE PRODUCT (damage). */
-export const stockEntryKinds = ["order", "receipt", "damage"] as const;
+/** `incentive`: free goods from the company (D16), stock without a bill or payable. */
+export const stockEntryKinds = ["order", "receipt", "damage", "incentive"] as const;
 export type StockEntryKind = (typeof stockEntryKinds)[number];
 
 export const stockEntrySchema = z.object({
@@ -108,6 +109,8 @@ export const dsrDaySaveRequestSchema = z.object({
    */
   marketDueNew: amountSchema.optional(),
   marketDueCollected: amountSchema.optional(),
+  /** Cash the DSR handed over at day end (D39; display only, no ledger effect). */
+  cashHandedOver: amountSchema.nullable().optional(),
   lines: z.array(dsrLineRequestSchema).max(500),
 });
 
@@ -128,6 +131,7 @@ export const dsrDaySchema = z.object({
   version: z.number().int().positive(),
   marketDueNew: decimalStringSchema,
   marketDueCollected: decimalStringSchema,
+  cashHandedOver: decimalStringSchema.nullable(),
   lines: z.array(dsrLineSchema),
   postedAt: z.string().nullable(),
   reversedAt: z.string().nullable(),
@@ -293,6 +297,8 @@ export const dayProductRowSchema = z.object({
   piecesPerCarton: z.string(),
   ordered: money,
   received: money,
+  /** Free goods from the company (D16): stock without a bill. */
+  incentiveReceived: money,
   issued: money,
   returned: money,
   delivered: money,

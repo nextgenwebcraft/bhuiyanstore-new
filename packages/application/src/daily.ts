@@ -19,6 +19,7 @@ import {
   type MoneyEntryKind,
   type PermissionId,
   type StockEntry,
+  type StockEntryKind,
 } from "@bsd/contracts";
 import type { Prisma } from "@bsd/database";
 import { MONEY_KIND_EFFECTS, sumAmounts, summarizeDay, toDecimal } from "@bsd/domain";
@@ -32,6 +33,7 @@ import { recordAudit } from "./audit";
 import type { AppContext, Tx } from "./context";
 import { fromDbDate, toDbDate, todayInDhaka } from "./dates";
 import { AppError, parseInput } from "./errors";
+import { hasFieldVisits, postFieldVisits, reverseFieldVisits } from "./field-posting";
 import { runIdempotent } from "./idempotency";
 import { activeOpening, allocationOf, monthOf, runLedger } from "./ledger";
 import { plain } from "./numeric";
@@ -101,10 +103,11 @@ export async function roleOn(
 
 // ---------------------------------------------------------------- stock entries
 
-const STOCK_PERMISSION: Record<string, PermissionId> = {
+const STOCK_PERMISSION: Record<StockEntryKind, PermissionId> = {
   order: "purchase.create",
   receipt: "purchase.post",
   damage: "damage.report",
+  incentive: "purchase.post",
 };
 
 const stockInclude = { product: { select: { sku: true, name: true } } } as const;
@@ -238,7 +241,7 @@ export async function reverseStockEntry(
         data: { status: "reversed", reversedAt: new Date(), reversedById: ctx.actor.userId },
       });
       if (updated.count !== 1) throw invalid("", "validation.daily.alreadyReversed");
-      if (row.kind === "receipt") {
+      if (row.kind === "receipt" || row.kind === "incentive") {
         await ensureStockCovers(tx, access, fromDbDate(row.date), [row.productId]);
       }
       await recordAudit(tx, ctx, {
@@ -277,6 +280,7 @@ function toDsrDay(row: DsrRow): DsrDay {
     version: row.version,
     marketDueNew: plain(row.marketDueNew),
     marketDueCollected: plain(row.marketDueCollected),
+    cashHandedOver: plain(row.cashHandedOver),
     lines: row.lines.map((line) => ({
       productId: line.productId,
       sku: line.product.sku,
@@ -366,6 +370,7 @@ export async function saveDsrDay(
         ...(request.marketDueCollected === undefined
           ? {}
           : { marketDueCollected: request.marketDueCollected }),
+        ...(request.cashHandedOver === undefined ? {} : { cashHandedOver: request.cashHandedOver }),
       };
       let id: string;
       if (live) {
@@ -451,6 +456,12 @@ async function transitionDsrDay(
         data: { status: move.to, version: { increment: 1 }, ...stamp },
       });
       if (updated.count !== 1) throw invalid("version", "validation.daily.stale");
+      const day = { id, staffId: row.staffId, date: fromDbDate(row.date) };
+      if (move.to === "posted") {
+        await postFieldVisits(tx, ctx, access, { ...row, ...day });
+      } else {
+        await reverseFieldVisits(tx, ctx, companyId, day);
+      }
       // Posting takes out issued − returned; reversing gives it back.
       const takesOut = row.lines.filter((line) => {
         const net = toDecimal(line.issued).sub(toDecimal(line.returned));
@@ -700,6 +711,13 @@ export async function postMoneyEntry(
         });
         if (!shop) throw invalid("shopId", "validation.shop.unknown");
       }
+      if (
+        market &&
+        request.staffId &&
+        (await hasFieldVisits(tx, companyId, request.staffId, request.date))
+      ) {
+        throw invalid("shopId", "validation.field.manualDueBlocked");
+      }
       await checkOwedLimits(tx, access, request, allocation);
       const row = await tx.moneyEntry.create({
         data: {
@@ -746,6 +764,7 @@ export async function reverseMoneyEntry(
       if (!row) throw invalid("", "validation.daily.notFound");
       if (row.status !== "posted") throw invalid("", "validation.daily.alreadyReversed");
       if (row.payrollRunId) throw invalid("", "validation.money.payrollOwned");
+      if (row.dsrDayId) throw invalid("", "validation.money.fieldOwned");
       await postingGuard(tx, companyId, fromDbDate(row.date));
       const updated = await tx.moneyEntry.updateMany({
         where: { id: entryId, status: "posted" },

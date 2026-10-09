@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/page-header";
 import { StatePanel } from "@/components/state-panel";
 import { TableSummary, type SummaryItem } from "@/components/table-summary";
 import { NavGate } from "@/features/shell/nav-gate";
+import { PrintButton, PrintHeader } from "@/features/shell/print";
 import { PageWarnings } from "@/features/shell/notifications";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 import {
@@ -186,8 +187,14 @@ function DayPage({
       <PageHeader
         title={t(title)}
         description={t(description)}
-        actions={<DateBar date={date} onChange={setDate} />}
+        actions={
+          <>
+            <DateBar date={date} onChange={setDate} />
+            <PrintButton />
+          </>
+        }
       />
+      <PrintHeader title={t(title)} from={date} />
       <DateHeading date={date} />
       <DayGate companyId={company.id} date={date}>
         {children}

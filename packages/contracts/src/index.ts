@@ -1,5 +1,10 @@
 export { errorCodes, type ErrorCode } from "./definitions/error-codes";
-export { permissionIds, type PermissionId } from "./definitions/permissions";
+export {
+  fieldPermissionIds,
+  isFieldOnly,
+  permissionIds,
+  type PermissionId,
+} from "./definitions/permissions";
 export { workspaceModuleIds, type WorkspaceModuleId } from "./definitions/workspace-modules";
 export {
   priceChangeRequestSchema,
@@ -175,6 +180,7 @@ export {
   openingIssueSchema,
   openingSaveRequestSchema,
   openingSchema,
+  openingSections,
   openingStaffKinds,
   openingStatuses,
   openingStockLineSchema,
@@ -184,6 +190,7 @@ export {
   type OpeningBalanceKind,
   type OpeningBalanceLine,
   type OpeningIssue,
+  type OpeningSectionId,
   type OpeningSaveRequest,
   type OpeningStatus,
   type OpeningStockLine,
@@ -226,6 +233,38 @@ export {
   type StaffRoleKind,
   type StaffUpsertRequest,
 } from "./parties";
+export {
+  fieldDaySchema,
+  fieldProductSchema,
+  fieldShopCreateRequestSchema,
+  fieldShopSchema,
+  fieldTotalsSchema,
+  fieldVisitDeleteRequestSchema,
+  fieldVisitLineRequestSchema,
+  fieldVisitLineSchema,
+  fieldVisitSaveRequestSchema,
+  fieldVisitSchema,
+  fieldVisitStatuses,
+  staffLoginCreateRequestSchema,
+  type FieldDay,
+  type FieldProduct,
+  type FieldShopCreateRequest,
+  type FieldTotals,
+  type FieldVisit,
+  type FieldVisitDeleteRequest,
+  type FieldVisitSaveRequest,
+  type FieldVisitStatus,
+  type StaffLoginCreateRequest,
+} from "./field";
+export {
+  setupMissingSchema,
+  setupStatusSchema,
+  setupStepIds,
+  setupStepSchema,
+  type SetupStatus,
+  type SetupStep,
+  type SetupStepId,
+} from "./setup";
 export {
   shopSchema,
   shopStatementLineSchema,

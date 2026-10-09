@@ -35,6 +35,7 @@ import {
   useWorkingDate,
 } from "@/features/daily/daily-kit";
 import { NavGate } from "@/features/shell/nav-gate";
+import { PrintButton, PrintHeader } from "@/features/shell/print";
 import { companyHref } from "@/features/shell/navigation";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 import { downloadBlob } from "@/lib/download";
@@ -77,8 +78,14 @@ export function StaffAccountsPage({
       <PageHeader
         title={t(title)}
         description={t(`accounts.description.${kind}`)}
-        actions={<DateBar date={date} onChange={setDate} />}
+        actions={
+          <>
+            <DateBar date={date} onChange={setDate} />
+            <PrintButton />
+          </>
+        }
       />
+      <PrintHeader title={t(title)} from={date} />
       {query.isPending ? (
         <TableSkeleton rows={6} columns={8} />
       ) : query.isError ? (
@@ -327,10 +334,15 @@ function StatementContent({
                 </Button>
               </>
             ) : null}
+            {staffId ? <PrintButton /> : null}
           </div>
         }
       />
-      <div className="mb-6 max-w-sm">
+      <PrintHeader
+        title={`${t(title)} — ${people.data?.rows.find((p) => p.staffId === staffId)?.staffName ?? ""}`}
+        {...range}
+      />
+      <div className="mb-6 max-w-sm print:hidden">
         <Field id="statement-person" label={t(`money.person.${kind}`)}>
           <select
             id="statement-person"

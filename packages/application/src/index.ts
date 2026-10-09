@@ -56,10 +56,21 @@ export {
   setProductPrice,
   updateProduct,
 } from "./products";
+export {
+  FIELD_ROLE_NAME,
+  createFieldShop,
+  createStaffLogin,
+  deleteFieldVisit,
+  getDsrFieldDay,
+  getFieldDay,
+  saveFieldVisit,
+} from "./field";
+export { getSetupStatus } from "./setup";
 export { createShop, getShopStatement, listShops, updateShop } from "./shops";
 export {
   addStaffAssignment,
   createStaff,
+  getStaffRecord,
   listAllStaff,
   listStaffMembers,
   listStaffRecords,

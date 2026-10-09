@@ -23,10 +23,10 @@ type Db = AppContext["db"] | Tx;
 
 const invalid = (path: string, code: string) => new AppError("VALIDATION_FAILED", [{ path, code }]);
 
-const partyKey = (line: { staffId: string | null; cashAccountId: string | null }) =>
-  line.staffId ?? line.cashAccountId ?? "";
-const lineKey = (line: { kind: string; staffId: string | null; cashAccountId: string | null }) =>
-  `${line.kind}|${partyKey(line)}`;
+type PartyRef = { staffId: string | null; cashAccountId: string | null; shopId?: string | null };
+
+const partyKey = (line: PartyRef) => line.shopId ?? line.staffId ?? line.cashAccountId ?? "";
+const lineKey = (line: PartyRef & { kind: string }) => `${line.kind}|${partyKey(line)}`;
 
 // ---------------------------------------------------------------- reading
 
@@ -41,6 +41,7 @@ type Catalog = {
   }[];
   staff: { id: string; name: string; roleKind: "dsr" | "sr" | "general" }[];
   cashAccounts: { id: string; name: string }[];
+  shops: { id: string }[];
 };
 
 async function loadCatalog(
@@ -50,7 +51,7 @@ async function loadCatalog(
 ): Promise<Catalog> {
   const companyId = access.company.id;
   const onDate = cutoffDate ?? todayInDhaka();
-  const [products, staff, cashAccounts] = await Promise.all([
+  const [products, staff, cashAccounts, shops] = await Promise.all([
     db.product.findMany({
       where: { companyId },
       include: { packs: true },
@@ -65,6 +66,7 @@ async function loadCatalog(
       where: { legalEntityId: access.company.legalEntityId, active: true },
       orderBy: { name: "asc" },
     }),
+    db.shop.findMany({ where: { companyId }, select: { id: true } }),
   ]);
   return {
     products: products.map((p) => ({
@@ -87,6 +89,7 @@ async function loadCatalog(
       };
     }),
     cashAccounts: cashAccounts.map((a) => ({ id: a.id, name: a.name })),
+    shops,
   };
 }
 
@@ -122,6 +125,7 @@ function toView(companyId: string, session: SessionRow | null, catalog: Catalog)
       kind: b.kind as OpeningBalanceKind,
       staffId: b.staffId,
       cashAccountId: b.cashAccountId,
+      shopId: b.shopId,
       amount: b.amount === null ? null : b.amount.toFixed(2),
       note: b.note,
     }))
@@ -154,7 +158,7 @@ function toView(companyId: string, session: SessionRow | null, catalog: Catalog)
   });
 }
 
-async function viewOf(db: Db, access: CompanyAccess): Promise<Opening> {
+export async function openingView(db: Db, access: CompanyAccess): Promise<Opening> {
   const session = await findSession(db, access.company.id);
   const cutoff = session?.cutoffDate ? fromDbDate(session.cutoffDate) : null;
   return toView(access.company.id, session, await loadCatalog(db, access, cutoff));
@@ -162,7 +166,7 @@ async function viewOf(db: Db, access: CompanyAccess): Promise<Opening> {
 
 export async function getOpening(ctx: AppContext, companyId: string): Promise<Opening> {
   const access = await requirePermission(ctx, companyId, "opening.prepare");
-  return viewOf(ctx.db, access);
+  return openingView(ctx.db, access);
 }
 
 // ---------------------------------------------------------------- writing
@@ -201,10 +205,13 @@ async function claimVersion(
   throw invalid("version", "validation.opening.stale");
 }
 
-function checkParty(
-  effect: OpeningKindEffect,
-  line: { staffId: string | null; cashAccountId: string | null },
-): string | null {
+function checkParty(effect: OpeningKindEffect, line: PartyRef): string | null {
+  if (effect.party === "shop") {
+    return !line.shopId || line.staffId || line.cashAccountId
+      ? "validation.opening.shopRequired"
+      : null;
+  }
+  if (line.shopId) return "validation.opening.noParty";
   if (effect.party === "staff" && (!line.staffId || line.cashAccountId)) {
     return "validation.opening.personRequired";
   }
@@ -227,6 +234,7 @@ function validateRefs(
   const productIds = new Set(catalog.products.map((p) => p.id));
   const staffIds = new Set(catalog.staff.map((s) => s.id));
   const accountIds = new Set(catalog.cashAccounts.map((a) => a.id));
+  const shopIds = new Set(catalog.shops.map((s) => s.id));
   const seenProducts = new Set<string>();
   stock.forEach((line, i) => {
     if (!productIds.has(line.productId) || seenProducts.has(line.productId)) {
@@ -243,6 +251,9 @@ function validateRefs(
     }
     if (line.cashAccountId && !accountIds.has(line.cashAccountId)) {
       errors.push({ path: `balances.${i}.cashAccountId`, code: "validation.cashAccount.unknown" });
+    }
+    if (line.shopId && !shopIds.has(line.shopId)) {
+      errors.push({ path: `balances.${i}.shopId`, code: "validation.shop.unknown" });
     }
     const key = lineKey(line);
     if (seen.has(key))
@@ -261,6 +272,7 @@ async function replaceBalances(tx: Tx, session: SessionRow, balances: OpeningBal
       kind: b.kind,
       staffId: b.staffId,
       cashAccountId: b.cashAccountId,
+      shopId: b.shopId,
       partyKey: partyKey(b),
       amount: b.amount,
       note: b.note,
@@ -268,7 +280,7 @@ async function replaceBalances(tx: Tx, session: SessionRow, balances: OpeningBal
   });
 }
 
-/** Full replace of the editable values. */
+/** Full replace of the editable values; a section whose values change loses its confirmation. */
 export async function saveOpening(
   ctx: AppContext,
   companyId: string,
@@ -314,7 +326,7 @@ export async function saveOpening(
         resourceId: session.id,
         after: data,
       });
-      return viewOf(tx, access);
+      return openingView(tx, access);
     },
   );
 }
@@ -348,7 +360,7 @@ export async function approveOpening(
     { version },
     async (tx) => {
       const session = await requireSession(tx, companyId, version, "draft");
-      const view = await viewOf(tx, access);
+      const view = await openingView(tx, access);
       if (view.issues.some((i) => i.severity === "error")) {
         throw invalid("", "validation.opening.hasErrors");
       }
@@ -364,7 +376,7 @@ export async function approveOpening(
         resourceId: session.id,
         after: { version, totals: view.totals },
       });
-      return viewOf(tx, access);
+      return openingView(tx, access);
     },
   );
 }
@@ -388,7 +400,7 @@ export async function activateOpening(
     { version },
     async (tx) => {
       const session = await requireSession(tx, companyId, version, "approved");
-      const view = await viewOf(tx, access);
+      const view = await openingView(tx, access);
       if (!view.cutoffDate || view.issues.some((i) => i.severity === "error")) {
         throw invalid("", "validation.opening.hasErrors");
       }
@@ -442,7 +454,7 @@ export async function activateOpening(
         resourceId: session.id,
         after: { version, cutoffDate: view.cutoffDate, totals: view.totals, pricesSet: prices },
       });
-      return viewOf(tx, access);
+      return openingView(tx, access);
     },
   );
 }

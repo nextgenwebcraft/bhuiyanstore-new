@@ -39,6 +39,7 @@ import {
   theadClass,
 } from "@/features/daily/daily-kit";
 import { NavGate } from "@/features/shell/nav-gate";
+import { PrintButton, PrintHeader } from "@/features/shell/print";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 import { downloadBlob } from "@/lib/download";
 
@@ -354,9 +355,11 @@ export function ReportPage({
                 </Button>
               </>
             ) : null}
+            <PrintButton />
           </div>
         }
       />
+      <PrintHeader title={`${t(title)} — ${reportLabel(report)}`} from={range.from} to={range.to} />
       {allowed.length > 1 ? (
         <div role="tablist" className="mb-4 flex flex-wrap gap-2">
           {allowed.map((id) => (

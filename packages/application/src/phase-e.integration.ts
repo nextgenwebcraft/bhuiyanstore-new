@@ -388,10 +388,38 @@ beforeAll(async () => {
       },
     ],
     balances: [
-      { kind: "market_due", staffId: id.mamun, cashAccountId: null, amount: "500", note: "" },
-      { kind: "market_due", staffId: null, cashAccountId: null, amount: "75", note: "" },
-      { kind: "shortage", staffId: id.rohim, cashAccountId: null, amount: "20", note: "" },
-      { kind: "company_payable", staffId: null, cashAccountId: null, amount: "1000", note: "" },
+      {
+        kind: "market_due",
+        staffId: id.mamun,
+        cashAccountId: null,
+        shopId: null,
+        amount: "500",
+        note: "",
+      },
+      {
+        kind: "market_due",
+        staffId: null,
+        cashAccountId: null,
+        shopId: null,
+        amount: "75",
+        note: "",
+      },
+      {
+        kind: "shortage",
+        staffId: id.rohim,
+        cashAccountId: null,
+        shopId: null,
+        amount: "20",
+        note: "",
+      },
+      {
+        kind: "company_payable",
+        staffId: null,
+        cashAccountId: null,
+        shopId: null,
+        amount: "1000",
+        note: "",
+      },
     ],
   };
   const saved = await saveOpening(ctx, company, opening);

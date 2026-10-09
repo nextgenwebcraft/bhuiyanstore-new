@@ -1,9 +1,10 @@
 "use client";
 
+import { isFieldOnly, type CompanyWorkspace } from "@bsd/contracts";
 import { themeToCssVars } from "@bsd/design-system";
 import { t } from "@bsd/i18n";
-import { usePathname } from "next/navigation";
-import { useRef } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useRef } from "react";
 import { ButtonLink } from "@/components/button";
 import { Icon } from "@/components/icons";
 import { NavSkeleton, PageSkeleton, Skeleton } from "@/components/skeleton";
@@ -17,6 +18,7 @@ import { ConnectionBanner } from "./connection-banner";
 import { DraftGuardProvider } from "./draft-guard";
 import { MobileNav } from "./mobile-nav";
 import { NavProgress } from "./nav-progress";
+import { companyHref, FIELD_PATH } from "./navigation";
 import { NotificationBell, NotificationsProvider } from "./notifications";
 import { QuickJump, type QuickJumpHandle } from "./quick-jump";
 import { SideNav } from "./side-nav";
@@ -25,6 +27,48 @@ import { WorkspaceProvider } from "./workspace-context";
 function subPath(pathname: string, companyId: string): string {
   const prefix = `/c/${companyId}`;
   return pathname.startsWith(prefix) ? pathname.slice(prefix.length).replace(/^\/+|\/+$/g, "") : "";
+}
+
+/**
+ * A DSR holding only field permissions sees the phone panel alone (D40): no navigation, and any
+ * other company path is sent to it. The API refuses office routes independently.
+ */
+function FieldShell({
+  workspace,
+  currentPath,
+  children,
+}: {
+  workspace: CompanyWorkspace;
+  currentPath: string;
+  children: React.ReactNode;
+}) {
+  const router = useRouter();
+  const { company } = workspace;
+  const onField = currentPath === FIELD_PATH;
+  useEffect(() => {
+    if (!onField) router.replace(companyHref(company.id, FIELD_PATH));
+  }, [onField, router, company.id]);
+
+  return (
+    <WorkspaceProvider value={workspace}>
+      <DraftGuardProvider>
+        <NotificationsProvider>
+          <div style={themeToCssVars(company.theme) as React.CSSProperties} className="min-h-dvh">
+            <NavProgress />
+            <header className="sticky top-0 z-20 flex h-14 items-center gap-2 border-b border-border bg-canvas/80 px-3 backdrop-blur-md">
+              <CompanyMark company={company} size="sm" />
+              <span className="min-w-0 flex-1 truncate font-semibold">{company.name}</span>
+              <TopBar />
+            </header>
+            <ConnectionBanner />
+            <main id="main" className="mx-auto w-full max-w-xl p-3 pb-16">
+              {onField ? children : <PageSkeleton />}
+            </main>
+          </div>
+        </NotificationsProvider>
+      </DraftGuardProvider>
+    </WorkspaceProvider>
+  );
 }
 
 /**
@@ -89,6 +133,14 @@ export function CompanyShell({
   }
 
   const { company } = workspace.data;
+
+  if (isFieldOnly(workspace.data.permissions)) {
+    return (
+      <FieldShell workspace={workspace.data} currentPath={currentPath}>
+        {children}
+      </FieldShell>
+    );
+  }
 
   return (
     <WorkspaceProvider value={workspace.data}>

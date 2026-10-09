@@ -2,7 +2,7 @@
 
 import type { PayrollAction, PayrollLine, PayrollRun, PayrollStatus } from "@bsd/contracts";
 import { businessDateOf } from "@bsd/domain";
-import { formatBusinessDate, t } from "@bsd/i18n";
+import { formatBusinessDate, formatMonth, t } from "@bsd/i18n";
 import { useState } from "react";
 import { Button } from "@/components/button";
 import { lastOfMonth } from "@/components/calendar-math";
@@ -29,6 +29,7 @@ import {
   theadClass,
 } from "@/features/daily/daily-kit";
 import { NavGate } from "@/features/shell/nav-gate";
+import { PrintButton, PrintHeader } from "@/features/shell/print";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 
 const BUCKETS = ["advance", "loan", "shortage"] as const;
@@ -339,9 +340,11 @@ export function PayrollPage({ path }: { path: string }) {
               onChange={setMonth}
             />
             {run ? <RunStatus status={run.status} /> : null}
+            <PrintButton />
           </div>
         }
       />
+      <PrintHeader title={`${t("dsr.salaryRecovery")} — ${formatMonth(month)}`} />
       {query.isPending ? (
         <div className="flex flex-col gap-6">
           <FormSkeleton fields={2} />

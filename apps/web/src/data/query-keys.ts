@@ -38,6 +38,10 @@ export const queryKeys = {
     ] as const,
   opening: (actorId: string, companyId: string) =>
     companyResource(actorId, companyId, resourceIds.opening),
+  setupStatus: (actorId: string, companyId: string) =>
+    companyResource(actorId, companyId, resourceIds.setupStatus),
+  fieldDay: (actorId: string, companyId: string, date: string) =>
+    [...companyResource(actorId, companyId, resourceIds.fieldDay), date] as const,
   dayView: (actorId: string, companyId: string, date: string) =>
     [...companyResource(actorId, companyId, resourceIds.ledger), "day", date] as const,
   stockEntries: (actorId: string, companyId: string, date: string) =>
@@ -109,7 +113,18 @@ export const postingEffects = {
     resourceIds.ledger,
     resourceIds.dashboardSummary,
   ],
-  dsrDay: [resourceIds.dsrDay, resourceIds.ledger, resourceIds.dashboardSummary],
+  /** Posting a sheet with field visits also writes shop dues and the exchange case (D40). */
+  dsrDay: [
+    resourceIds.dsrDay,
+    resourceIds.fieldDay,
+    resourceIds.moneyEntry,
+    resourceIds.shop,
+    resourceIds.damageCase,
+    resourceIds.ledger,
+    resourceIds.dashboardSummary,
+  ],
+  /** A field visit changes only the field day until the office posts the sheet. */
+  field: [resourceIds.fieldDay],
   money: [
     resourceIds.moneyEntry,
     resourceIds.shop,

@@ -17,6 +17,8 @@ const TABLES = [
   "audit_event",
   "idempotency_record",
   "month_close",
+  "field_visit_line",
+  "field_visit",
   "damage_event",
   "damage_case_line",
   "damage_case",

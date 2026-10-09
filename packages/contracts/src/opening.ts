@@ -24,6 +24,7 @@ export type OpeningStatus = (typeof openingStatuses)[number];
  */
 export const openingBalanceKinds = [
   "market_due",
+  "shop_due",
   "advance",
   "loan",
   "shortage",
@@ -69,6 +70,8 @@ export const openingBalanceLineSchema = z.object({
   kind: z.enum(openingBalanceKinds),
   staffId: idSchema.nullable(),
   cashAccountId: idSchema.nullable(),
+  /** D38: the shop of a `shop_due` line. */
+  shopId: idSchema.nullable().default(null),
   amount: openingAmountSchema.nullable(),
   note: z.string(),
 });
@@ -83,9 +86,14 @@ export const openingIssueSchema = z.object({
   kind: z.enum(openingBalanceKinds).optional(),
   staffId: idSchema.optional(),
   cashAccountId: idSchema.optional(),
+  shopId: idSchema.optional(),
 });
 
 export type OpeningIssue = z.infer<typeof openingIssueSchema>;
+
+/** Setup checklist sections of the opening (`OPENING_SECTIONS` in @bsd/domain). */
+export const openingSections = ["company", "staff", "shops", "cash"] as const;
+export type OpeningSectionId = (typeof openingSections)[number];
 
 /** Control totals computed by `checkOpening` in @bsd/domain; never stored. */
 export const openingTotalsSchema = z.object({

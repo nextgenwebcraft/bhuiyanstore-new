@@ -30,6 +30,7 @@ import {
   theadClass,
 } from "@/features/daily/daily-kit";
 import { NavGate } from "@/features/shell/nav-gate";
+import { PrintButton, PrintHeader } from "@/features/shell/print";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 
 const PATH = "sales/shops";
@@ -251,6 +252,7 @@ function HistoryDialog({
   return (
     <dialog
       ref={ref}
+      data-print
       onClose={onClose}
       aria-label={shop.name}
       className="m-auto w-full max-w-3xl rounded-2xl border border-border bg-surface p-0 text-text shadow-raised"
@@ -265,8 +267,12 @@ function HistoryDialog({
                 .join(" · ") || t("shop.statement.title")}
             </p>
           </div>
-          <Button onClick={() => ref.current?.close()}>{t("nav.close")}</Button>
+          <div className="flex gap-2 print:hidden">
+            <PrintButton />
+            <Button onClick={() => ref.current?.close()}>{t("nav.close")}</Button>
+          </div>
         </div>
+        <PrintHeader title={`${t("shop.statement.title")} — ${shop.name}`} {...range} />
         <div className="flex flex-wrap items-end gap-3">
           <Field id={`${id}-from`} label={t("common.from")}>
             <DatePicker

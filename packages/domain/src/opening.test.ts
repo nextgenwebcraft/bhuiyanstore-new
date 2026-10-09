@@ -143,4 +143,37 @@ describe("toMonthOpening", () => {
     expect(out.closing.staff.d1?.advance).toBe("300");
     expect(out.closing.companyPayable).toBe("1000");
   });
+
+  it("opens each shop's due and counts it in the market due total (D38)", () => {
+    const opening = toMonthOpening({
+      cutoffDate: "2026-11-01",
+      stock: [],
+      balances: [
+        { kind: "market_due", amount: "100", staffId: null, cashAccountId: null },
+        { kind: "shop_due", amount: "250", staffId: null, cashAccountId: null, shopId: "s1" },
+      ],
+    });
+    const out = computeMonth({
+      products: [],
+      opening,
+      days: [
+        {
+          date: "2026-11-01",
+          money: [{ kind: "marketDueCollected", amount: "50", staffId: "d1", shopId: "s1" }],
+        },
+      ],
+    });
+    expect(out.closing.shopDue).toEqual({ s1: "200" });
+    expect(out.month.marketDue.closing).toBe("300");
+  });
+
+  it("needs a shop for a shop due", () => {
+    expect(
+      codes({
+        cutoffDate: "2026-11-01",
+        stock: [],
+        balances: [{ kind: "shop_due", amount: "1", staffId: null, cashAccountId: null }],
+      }),
+    ).toEqual([["opening.issue.shopMissing", "error", "shop_due"]]);
+  });
 });

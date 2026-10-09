@@ -13,6 +13,12 @@ import type {
   DsrDaySaveRequest,
   ExpenseCategory,
   ExpenseCategoryUpsertRequest,
+  FieldDay,
+  FieldShopCreateRequest,
+  FieldVisit,
+  FieldVisitDeleteRequest,
+  FieldVisitSaveRequest,
+  StaffLoginCreateRequest,
   MoneyEntry,
   MoneyEntryPostRequest,
   MonthCloseResult,
@@ -36,6 +42,7 @@ import type {
   ReportRange,
   Role,
   RoleUpsertRequest,
+  SetupStatus,
   Shop,
   ShopStatement,
   ShopUpsertRequest,
@@ -300,6 +307,42 @@ export interface DistributionService {
   approveOpening(companyId: string, input: OpeningTransitionRequest): Promise<Opening>;
   /** Requires `opening.activate`; locks the snapshot and sets catalog prices at the cutoff. */
   activateOpening(companyId: string, input: OpeningTransitionRequest): Promise<Opening>;
+  /** Requires `company.view`: the nine go-live steps, computed on the server. */
+  getSetupStatus(companyId: string, options?: RequestOptions): Promise<SetupStatus>;
+
+  // DSR field panel (D40). The demo mock has none.
+
+  /** Requires `field.entry`: the signed-in DSR's own day (samari in hand, visits, shops). */
+  getFieldDay(companyId: string, date: string, options?: RequestOptions): Promise<FieldDay>;
+  /** Requires `sale.view`: one DSR's field day for the office day-end. */
+  getDsrFieldDay(
+    companyId: string,
+    staffId: string,
+    date: string,
+    options?: RequestOptions,
+  ): Promise<FieldDay>;
+  /** Creates (no `visitId`) or replaces an own open visit; the price comes from the server. */
+  saveFieldVisit(
+    companyId: string,
+    visitId: string | undefined,
+    input: FieldVisitSaveRequest,
+  ): Promise<FieldVisit>;
+  deleteFieldVisit(
+    companyId: string,
+    visitId: string,
+    input: FieldVisitDeleteRequest,
+  ): Promise<void>;
+  /** Requires `field.shop_create`. */
+  createFieldShop(
+    companyId: string,
+    input: FieldShopCreateRequest,
+  ): Promise<FieldDay["shops"][number]>;
+  /** Super-admin: a field sign-in linked to the DSR. */
+  createStaffLogin(
+    companyId: string,
+    staffId: string,
+    input: StaffLoginCreateRequest,
+  ): Promise<StaffRecord>;
 }
 
 export type ConfigLists = {

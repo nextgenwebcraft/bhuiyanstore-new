@@ -246,7 +246,7 @@ All rows carry `tenant_id`, and company-owned rows carry `company_id`.
 - **Opening:** `opening_session` (company, cutoff date, status), with lines for:
   - stock (product, pieces, cost, sale price, order price, optional lot/expiry)
   - company due quantity
-  - market due (DSR or legacy)
+  - market due (DSR or legacy) and shop due per shop (D38)
   - staff balance (type)
   - SR balance (type)
   - company account
@@ -264,6 +264,7 @@ All rows carry `tenant_id`, and company-owned rows carry `company_id`.
   | `staff_money_entry` + `staff_money_allocation` | D27                                                                                                                                      |
   | `supplier_deposit`                             | Banking (D19)                                                                                                                            |
   | `damage_case` legs                             | D17                                                                                                                                      |
+  | `field_visit` / lines (DSR, shop, date; D40)   | None until the DSR day is posted; posting writes per-shop due/collection entries and exchange custody, and locks the visits              |
   | `payroll_run` / lines                          | D24, D25                                                                                                                                 |
 
 - **Derived ledgers:** append-only `stock_movement`, plus `market_due_item` and
@@ -277,17 +278,19 @@ All rows carry `tenant_id`, and company-owned rows carry `company_id`.
 All write endpoints take a `requestKey`, are idempotent, check membership, module and permission,
 and return contract DTOs. Errors use the existing `ServiceError` codes.
 
-| Area          | Endpoints                                                                                                                                                                                                            |
-| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Session       | `/api/auth/*` (Better Auth), `GET /me`, `GET /companies`, `GET /companies/{c}`                                                                                                                                       |
-| Masters       | `products` (+ `packs`, `prices`), `suppliers`, `staff`, `staff-assignments`, `roles`, `expense-categories`, `cash-accounts`, `settings` (CRUD; deactivate, never delete once used)                                   |
-| Opening       | `GET/PUT /companies/{c}/opening`, `GET …/opening/template`, `POST …/opening/import`, `POST …/opening/activate`                                                                                                       |
-| Daily entry   | `purchase-orders`, `goods-receipts`, `dsr-days` (`GET ?date=`, `PUT` draft, `POST …/post`, `POST …/reverse`), `collections`, `expenses`, `sr-entries`, `staff-money-entries`, `supplier-deposits`, `damage-cases`    |
-| Day and month | `GET /companies/{c}/days/{date}` (the workbook day block with every §2.3–2.4 value), `GET /companies/{c}/months/{yyyy-mm}` (§2.5), `POST …/months/{m}/close`, `POST …/months/{m}/reopen`                             |
-| Reports       | `stock`, `sales`, `profit` (gross and net), `market-due`, `company-due`, `staff-statement/{staffId}`, `sr-statement/{srId}`, `cash-book`, `damage`, `cartons`, `person-sales` (all with date range; export CSV/XLSX) |
-| Payroll       | `payroll-runs` (create, review recovery, approve, pay)                                                                                                                                                               |
-| Import        | `POST /companies/{c}/imports` (upload + sheet), `GET …/imports/{id}` (mapping, preview, comparison), `POST …/imports/{id}/commit`                                                                                    |
-| Admin         | `users`, `memberships`, `roles`, `audit`                                                                                                                                                                             |
+| Area          | Endpoints                                                                                                                                                                                                                                                                                                                                                                        |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Session       | `/api/auth/*` (Better Auth), `GET /me`, `GET /companies`, `GET /companies/{c}`                                                                                                                                                                                                                                                                                                   |
+| Masters       | `products` (+ `packs`, `prices`), `suppliers`, `staff`, `staff-assignments`, `roles`, `expense-categories`, `cash-accounts`, `settings` (CRUD; deactivate, never delete once used)                                                                                                                                                                                               |
+| Opening       | `GET/PUT /companies/{c}/opening`, `GET …/opening/template`, `POST …/opening/import`, `POST …/opening/activate`                                                                                                                                                                                                                                                                   |
+| Daily entry   | `purchase-orders`, `goods-receipts`, `dsr-days` (`GET ?date=`, `PUT` draft, `POST …/post`, `POST …/reverse`), `collections`, `expenses`, `sr-entries`, `staff-money-entries`, `supplier-deposits`, `damage-cases`                                                                                                                                                                |
+| Day and month | `GET /companies/{c}/days/{date}` (the workbook day block with every §2.3–2.4 value), `GET /companies/{c}/months/{yyyy-mm}` (§2.5), `POST …/months/{m}/close`, `POST …/months/{m}/reopen`                                                                                                                                                                                         |
+| Reports       | `stock`, `sales`, `profit` (gross and net), `market-due`, `company-due`, `staff-statement/{staffId}`, `sr-statement/{srId}`, `cash-book`, `damage`, `cartons`, `person-sales`, `dsr-daily` (D39), `company-account` (the supplier ledger: opening row, bills, deposits, incentives, refunds, free-goods memo, running payable) (all with date range; export CSV/XLSX; printable) |
+| Setup         | `GET /companies/{c}/setup` (the 9-step go-live checklist, computed on the server)                                                                                                                                                                                                                                                                                                |
+| Field (D40)   | `GET /companies/{c}/field/day` (own day; `?staffId=` for the office), `POST …/field/visits`, `PUT/DELETE …/field/visits/{id}`, `POST …/field/shops`, `POST …/staff/{s}/login`                                                                                                                                                                                                    |
+| Payroll       | `payroll-runs` (create, review recovery, approve, pay)                                                                                                                                                                                                                                                                                                                           |
+| Import        | `POST /companies/{c}/imports` (upload + sheet), `GET …/imports/{id}` (mapping, preview, comparison), `POST …/imports/{id}/commit`                                                                                                                                                                                                                                                |
+| Admin         | `users`, `memberships`, `roles`, `audit`                                                                                                                                                                                                                                                                                                                                         |
 
 ## 7. Opening balances
 
@@ -298,7 +301,10 @@ template). Validation:
 - blank means unknown, not zero
 - an explicit zero is allowed
 
-Opening values become the engine's first `opening`.
+Opening values become the engine's first `opening`. Stock is entered in cartons + pieces and
+stored as pieces; carton sizes come from `setup/cartons` (D37). The `setup` page shows nine steps (company, products and
+cartons, staff with monthly salary, opening stock, supplier opening, staff opening, shops and
+dues, business opening, activation), each computed on the server, ending with "আমরা শুরু করতে প্রস্তুত".
 
 ## 8. Excel month import (removed, D36)
 
@@ -321,6 +327,7 @@ Phase B onward, and an updated `implementation-status.md`.
 | **F. Month view, reports, closing** | Month page (workbook right side), all §6 reports with export, month close/reopen                                                                                                                                               | Month figures equal the engine; a closed month blocks backdating                               |
 | **G. Staff, SR, payroll, damage**   | Staff money accounts and statements (D27), SR accounts (D18), payroll with recovery (D24, D25), damage replacement legs (D17)                                                                                                  | T55–T58 and T25–T27 pass                                                                       |
 | **H. Excel import**                 | Removed 2026-10-09 (D36); only the reader behind `pnpm verify:workbook` remains                                                                                                                                                | —                                                                                              |
+| **Go-live readiness**               | Built 2026-10-09: carton setup + one-time carton load (D37), opening cartons + shop dues (D38), setup checklist, monthly salary, free goods (D16), cash handover (D39), `dsr-daily` report, print, DSR field panel (D40)       | Integration tests for each; browser walkthrough before go-live                                 |
 | **I. Go-live**                      | Production Neon + hosting, backups and a restore drill, security review, Bangla print checks, user training, Drinko opening on 1 November 2026                                                                                 | Opening approved by the owner; first live day balances                                         |
 
 The existing prototype screens (receipts, daily summaries, collections, stock, batches, suppliers,

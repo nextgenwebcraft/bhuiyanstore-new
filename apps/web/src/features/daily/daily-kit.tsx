@@ -12,7 +12,7 @@ import { TableSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
 import { StatusBadge } from "@/components/status-badge";
 import { useDayView } from "@/data/queries";
-import { companyHref } from "@/features/shell/navigation";
+import { useSetupNext } from "@/features/setup/setup-page";
 
 // ---------------------------------------------------------------- the working date
 
@@ -113,6 +113,7 @@ export function DayGate({
   children: (view: DayView) => React.ReactNode;
 }) {
   const view = useDayView(companyId, date);
+  const next = useSetupNext();
   if (view.isPending) return skeleton;
   if (view.isError) return <QueryError error={view.error} onRetry={() => void view.refetch()} />;
   const data = view.data;
@@ -122,11 +123,7 @@ export function DayGate({
         tone="warning"
         title={t("daily.noOpening.title")}
         hint={t("daily.noOpening.hint")}
-        action={
-          <ButtonLink href={companyHref(companyId, "admin/opening")}>
-            {t("daily.noOpening.link")}
-          </ButtonLink>
-        }
+        action={next ? <ButtonLink href={next.href}>{t(next.label)}</ButtonLink> : undefined}
       />
     );
   }

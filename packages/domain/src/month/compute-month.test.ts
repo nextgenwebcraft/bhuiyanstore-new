@@ -70,6 +70,22 @@ describe("computeMonth golden month", () => {
   const out = computeMonth(golden);
   const [day1, day2] = out.days;
 
+  it("gives each DSR's day money for the cash check (D39)", () => {
+    expect(day1?.dsrs).toEqual([
+      { staffId: "d1", sales: "528", marketDueNew: "100", marketDueCollected: "50", costPaid: "0" },
+      { staffId: "d2", sales: "264", marketDueNew: "0", marketDueCollected: "0", costPaid: "0" },
+    ]);
+    // Day 2: B 12 sold at 22.5 with 2 at 20 (−5); A 24 − 4 − 1 = 19 at 12.
+    expect(day2?.dsrs).toEqual([
+      { staffId: "d1", sales: "493", marketDueNew: "0", marketDueCollected: "0", costPaid: "0" },
+    ]);
+    expect(day2?.persons.find((p) => p.productId === "A")).toMatchObject({
+      sold: "19",
+      soldValue: "228",
+      amount: "240",
+    });
+  });
+
   it("calculates each day's product block like the workbook", () => {
     expect(day1?.products[0]).toMatchObject({
       productId: "A",
@@ -280,6 +296,42 @@ describe("computeMonth company account (D33)", () => {
       },
       { date: "2026-11-01", kind: "deposit", amount: "300", ref: "dep", balance: "1132.5" },
       { date: "2026-11-01", kind: "incentive", amount: "120", ref: "inc", balance: "1012.5" },
+    ]);
+  });
+});
+
+describe("computeMonth free goods (D16)", () => {
+  const out = computeMonth({
+    products: [{ id: "A", piecesPerCarton: "24" }],
+    opening: {
+      products: { A: { stock: "10", dueFromCompany: "48", orderPrice: "10", costPrice: "9" } },
+      companyPayable: "1000",
+    },
+    days: [{ date: "2026-11-01", products: { A: { incentiveReceived: "24" } } }],
+  });
+
+  it("adds saleable stock with no bill, no due from company and no payable", () => {
+    expect(out.days[0]?.products[0]).toMatchObject({
+      stock: "34",
+      incentiveReceived: "24",
+      received: "0",
+      receiptBill: "0",
+      dueFromCompany: "48",
+    });
+    expect(out.month.products[0]).toMatchObject({ incentiveReceived: "24", receiptTotal: "0" });
+    expect(out.month.companyPayable.closing).toBe("1000");
+  });
+
+  it("shows a memo line without an amount on the company ledger", () => {
+    expect(out.companyEntries).toEqual([
+      {
+        date: "2026-11-01",
+        kind: "freeGoods",
+        amount: "0",
+        productId: "A",
+        quantity: "24",
+        balance: "1000",
+      },
     ]);
   });
 });

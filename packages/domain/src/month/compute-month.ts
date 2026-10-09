@@ -95,6 +95,7 @@ type ProductTotals = {
   replacedFromStock: Decimal;
   replacementReceived: Decimal;
   replacementValue: Decimal;
+  incentiveReceived: Decimal;
 };
 
 function emptyProductTotals(): ProductTotals {
@@ -117,6 +118,7 @@ function emptyProductTotals(): ProductTotals {
     replacedFromStock: ZERO,
     replacementReceived: ZERO,
     replacementValue: ZERO,
+    incentiveReceived: ZERO,
   };
 }
 
@@ -241,6 +243,20 @@ export function computeMonth(input: MonthInput): MonthOutput {
 
     const lineAggregates = new Map<ProductId, LineAggregate>();
     const persons: PersonDayResult[] = [];
+    const dsrMoney = new Map<
+      StaffId,
+      { sales: Decimal; marketDueNew: Decimal; marketDueCollected: Decimal }
+    >();
+    const dsrOf = (id: StaffId) => {
+      let row = dsrMoney.get(id);
+      if (!row) {
+        row = { sales: ZERO, marketDueNew: ZERO, marketDueCollected: ZERO };
+        dsrMoney.set(id, row);
+      }
+      return row;
+    };
+    /** Only reported for staff that are DSRs that day (sheet lines or market due). */
+    const costPaid = new Map<StaffId, Decimal>();
     for (const line of day.dsrLines ?? []) {
       requireProduct(line.productId);
       if (!line.staffId) throw new RangeError("DSR line without staffId");
@@ -274,6 +290,9 @@ export function computeMonth(input: MonthInput): MonthOutput {
 
       const net = issued.sub(returned);
       const amount = net.mul(salePrice).add(splitAdjustment);
+      const soldValue = lineSold.mul(salePrice).add(splitAdjustment);
+      const dsr = dsrOf(line.staffId);
+      dsr.sales = dsr.sales.add(soldValue);
       persons.push({
         staffId: line.staffId,
         productId: line.productId,
@@ -282,6 +301,8 @@ export function computeMonth(input: MonthInput): MonthOutput {
         net: str(net),
         damaged: str(damaged),
         amount: str(amount),
+        sold: str(lineSold),
+        soldValue: str(soldValue),
       });
       const byProduct =
         personTotals.get(line.staffId) ?? new Map<ProductId, { net: Decimal; amount: Decimal }>();
@@ -294,11 +315,24 @@ export function computeMonth(input: MonthInput): MonthOutput {
     let daySales = ZERO;
     let dayReceipts = ZERO;
     const dayRefunds: CompanyEntryResult[] = [];
+    const dayFreeGoods: CompanyEntryResult[] = [];
     for (const [id, state] of products) {
       const p = dayProducts[id];
       const agg = lineAggregates.get(id);
       const ordered = dec(p?.ordered);
       const received = dec(p?.received);
+      const incentiveReceived = dec(p?.incentiveReceived);
+      if (incentiveReceived.isNegative()) throw new RangeError(`invalid free goods: ${id}`);
+      if (!incentiveReceived.isZero()) {
+        dayFreeGoods.push({
+          date: day.date,
+          kind: "freeGoods",
+          amount: "0",
+          productId: id,
+          quantity: str(incentiveReceived),
+          balance: "",
+        });
+      }
       const replacements = (p?.replacements ?? []).map((r) => ({
         quantity: toDecimal(r.quantity),
         unitCost: toDecimal(r.unitCost),
@@ -356,6 +390,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
       state.stock = state.stock
         .add(received)
         .add(replacementReceived)
+        .add(incentiveReceived)
         .sub(delivered)
         .sub(replacedFromStock);
       if (state.stock.isNegative()) {
@@ -387,6 +422,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
       t.replacedFromStock = t.replacedFromStock.add(replacedFromStock);
       t.replacementReceived = t.replacementReceived.add(replacementReceived);
       t.replacementValue = t.replacementValue.add(replacementValue);
+      t.incentiveReceived = t.incentiveReceived.add(incentiveReceived);
       companyReceipts = companyReceipts.add(receiptBill);
       companyPayable = companyPayable.add(receiptBill);
       dayReceipts = dayReceipts.add(receiptBill);
@@ -418,6 +454,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
         damageValue: str(damageValue),
         replacedFromStock: str(replacedFromStock),
         replacementReceived: str(replacementReceived),
+        incentiveReceived: str(incentiveReceived),
         dueFromCompany: str(state.dueFromCompany),
         stock: str(state.stock),
         stockValue: str(stockValue),
@@ -435,6 +472,9 @@ export function computeMonth(input: MonthInput): MonthOutput {
     for (const refund of dayRefunds) {
       companyPayable = companyPayable.sub(toDecimal(refund.amount));
       companyEntries.push({ ...refund, balance: str(companyPayable) });
+    }
+    for (const memo of dayFreeGoods) {
+      companyEntries.push({ ...memo, balance: str(companyPayable) });
     }
 
     let cashIn = ZERO;
@@ -463,6 +503,11 @@ export function computeMonth(input: MonthInput): MonthOutput {
         bucket.set(key, (bucket.get(key) ?? ZERO).add(amount));
         if (effect.marketDue === 1) dayDueNew = dayDueNew.add(amount);
         else dayDueCollected = dayDueCollected.add(amount);
+        if (entry.staffId) {
+          const dsr = dsrOf(entry.staffId);
+          if (effect.marketDue === 1) dsr.marketDueNew = dsr.marketDueNew.add(amount);
+          else dsr.marketDueCollected = dsr.marketDueCollected.add(amount);
+        }
         if (entry.shopId) {
           const shopId = entry.shopId;
           const balance = (shopDue.get(shopId) ?? ZERO).add(signed);
@@ -509,6 +554,10 @@ export function computeMonth(input: MonthInput): MonthOutput {
           ...(entry.ref === undefined ? {} : { ref: entry.ref }),
           balance: str(companyPayable),
         });
+      }
+
+      if (entry.kind === "staffCostPaid" && entry.staffId) {
+        costPaid.set(entry.staffId, (costPaid.get(entry.staffId) ?? ZERO).add(amount));
       }
 
       if (effect.staff && entry.staffId) {
@@ -559,6 +608,13 @@ export function computeMonth(input: MonthInput): MonthOutput {
       date: day.date,
       products: productResults,
       persons,
+      dsrs: [...dsrMoney].map(([staffId, d]) => ({
+        staffId,
+        sales: str(d.sales),
+        marketDueNew: str(d.marketDueNew),
+        marketDueCollected: str(d.marketDueCollected),
+        costPaid: str(costPaid.get(staffId) ?? ZERO),
+      })),
       money: {
         sales: str(daySales),
         marketDueNew: str(dayDueNew),
@@ -601,6 +657,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
       replacedFromStock: str(t.replacedFromStock),
       replacementReceived: str(t.replacementReceived),
       replacementValue: str(t.replacementValue),
+      incentiveReceived: str(t.incentiveReceived),
       salesCartons: cartons(t.delivered, p.id),
       closingStock: str(s.stock),
       closingValue: str(s.stock.mul(s.prices.costPrice ?? ZERO)),

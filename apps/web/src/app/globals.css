@@ -160,6 +160,69 @@ input[type="radio"] {
   accent-color: var(--action);
 }
 
+/* Paper: only the screen's content; the shell, navigation and actions stay off the page. */
+@media print {
+  @page {
+    margin: 12mm;
+  }
+  body {
+    background: none;
+    font-size: 11px;
+  }
+  aside,
+  nav,
+  dialog:not([data-print]),
+  header.sticky,
+  [role="tablist"],
+  a[href="#main"] {
+    display: none !important;
+  }
+  .md\:pl-64 {
+    padding-left: 0 !important;
+  }
+  main {
+    max-width: none !important;
+    padding: 0 !important;
+  }
+  .sticky {
+    position: static !important;
+    box-shadow: none !important;
+  }
+  .overflow-x-auto,
+  .overflow-auto {
+    overflow: visible !important;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+  }
+  th,
+  td {
+    border: 1px solid var(--border-strong, currentColor) !important;
+  }
+  thead {
+    display: table-header-group;
+  }
+  tr {
+    break-inside: avoid;
+  }
+  /* An open statement dialog marked `data-print` prints on its own. */
+  body:has(dialog[open][data-print]) * {
+    visibility: hidden;
+  }
+  dialog[open][data-print],
+  dialog[open][data-print] * {
+    visibility: visible;
+  }
+  dialog[open][data-print] {
+    position: absolute;
+    inset: 0;
+    max-width: none;
+    border: 0;
+    box-shadow: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

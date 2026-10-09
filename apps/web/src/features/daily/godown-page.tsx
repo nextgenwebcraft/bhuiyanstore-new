@@ -46,6 +46,7 @@ const PRICES: Record<StockEntryKind, PriceKind[]> = {
   order: ["order"],
   receipt: ["cost", "sale"],
   damage: [],
+  incentive: [],
 };
 const PRICE_FIELD = { order: "orderPrice", cost: "costPrice", sale: "salePrice" } as const;
 
@@ -54,14 +55,21 @@ const PRICE_LABEL: Record<StockEntryKind, Partial<Record<PriceKind, TranslationK
   order: { order: "godown.column.orderPrice" },
   receipt: { cost: "godown.column.batchCostPrice", sale: "godown.column.batchSalePrice" },
   damage: {},
+  incentive: {},
 };
 
 /** The day's posted quantity of each screen's kind, from the engine's product rows. */
-const POSTED_FIELD = { order: "ordered", receipt: "received", damage: "damaged" } as const;
+const POSTED_FIELD = {
+  order: "ordered",
+  receipt: "received",
+  damage: "damaged",
+  incentive: "incentiveReceived",
+} as const satisfies Record<StockEntryKind, string>;
 const POSTED_LABEL: Record<StockEntryKind, TranslationKey> = {
   order: "day.column.ordered",
   receipt: "day.column.received",
   damage: "day.column.damaged",
+  incentive: "day.column.freeGoods",
 };
 
 type Row = { cartons: string; pieces: string } & Partial<Record<PriceKind, string>>;
@@ -352,6 +360,7 @@ const TITLES: Record<StockEntryKind, { title: TranslationKey; description: Trans
   order: { title: "nav.purchases.orders", description: "godown.description.order" },
   receipt: { title: "nav.purchases.receipts", description: "godown.description.receipt" },
   damage: { title: "nav.inventory.damage", description: "godown.description.damage" },
+  incentive: { title: "godown.freeGoods.title", description: "godown.freeGoods.hint" },
 };
 
 /** D34 switch: refuse postings that would take stock below zero. */
@@ -417,6 +426,20 @@ export function GodownPage({ path, kind }: { path: string; kind: StockEntryKind 
           <>
             <GodownForm key={date} companyId={company.id} date={date} kind={kind} view={view} />
             <PostedEntries companyId={company.id} date={date} kind={kind} view={view} />
+            {kind === "receipt" ? (
+              <section className="mt-10 flex flex-col gap-2">
+                <h2 className="text-base font-semibold">{t(TITLES.incentive.title)}</h2>
+                <p className="text-sm text-text-muted">{t(TITLES.incentive.description)}</p>
+                <GodownForm
+                  key={`incentive-${date}`}
+                  companyId={company.id}
+                  date={date}
+                  kind="incentive"
+                  view={view}
+                />
+                <PostedEntries companyId={company.id} date={date} kind="incentive" view={view} />
+              </section>
+            ) : null}
           </>
         )}
       </DayGate>
