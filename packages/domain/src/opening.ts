@@ -51,8 +51,6 @@ export type OpeningStockInput = {
   salePrice: string | null;
   orderPrice: string | null;
   dueFromCompany: string | null;
-  /** The imported value, kept as evidence; a negative one is flagged for review. */
-  sourcePieces?: string | null;
 };
 
 export type OpeningBalanceInput = {
@@ -117,9 +115,6 @@ export function checkOpening(input: OpeningCheckInput): {
     const rowIssues: OpeningCheckIssue[] = [];
     const add = (code: string, severity: "error" | "warning") =>
       rowIssues.push({ code, severity, productId: line.productId });
-    if (line.sourcePieces && toDecimal(line.sourcePieces).isNegative()) {
-      add("opening.issue.sourceNegative", "warning");
-    }
     if (line.pieces === null) add("opening.issue.stockUnknown", "error");
     else if (!isWholeNonNegative(line.pieces)) add("opening.issue.stockInvalid", "error");
     const hasStock = line.pieces !== null && toDecimal(line.pieces).gt(0);

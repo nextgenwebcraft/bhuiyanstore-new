@@ -16,25 +16,18 @@ function errorResponse(error: AppError, requestId: string): Response {
 }
 
 const XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-type Body = "json" | "xlsx";
 
 /**
- * Writes only accept same-origin JSON (or a raw workbook for uploads). Neither is a type an HTML
- * form can send, so a cross-site form cannot ride the session cookie.
+ * Writes only accept same-origin JSON. That is not a type an HTML form can send, so a cross-site
+ * form cannot ride the session cookie.
  */
-function assertSameOriginBody(request: Request, body: Body): void {
+function assertSameOriginBody(request: Request): void {
   if (!UNSAFE_METHODS.has(request.method)) return;
   const origin = request.headers.get("origin");
   if (origin && new URL(origin).host !== new URL(request.url).host) {
     throw new AppError("FORBIDDEN");
   }
   const type = request.headers.get("content-type")?.toLowerCase() ?? "";
-  if (body === "xlsx") {
-    if (!type.startsWith(XLSX) && !type.startsWith("application/octet-stream")) {
-      throw new AppError("VALIDATION_FAILED", [{ path: "file", code: "validation.file.xlsx" }]);
-    }
-    return;
-  }
   if (!type.startsWith("application/json")) {
     throw new AppError("VALIDATION_FAILED", [{ path: "", code: "validation.json.required" }]);
   }
@@ -49,11 +42,10 @@ export async function handle(
   request: Request,
   run: (ctx: AppContext) => Promise<unknown>,
   successStatus = 200,
-  options: { body?: Body } = {},
 ): Promise<Response> {
   const requestId = crypto.randomUUID();
   try {
-    assertSameOriginBody(request, options.body ?? "json");
+    assertSameOriginBody(request);
     const db = database();
     const actor = await actorFromHeaders(auth(), db, request.headers);
     if (!actor) throw new AppError("UNAUTHENTICATED");
@@ -75,16 +67,6 @@ export async function readJson(request: Request): Promise<unknown> {
   } catch {
     throw new AppError("VALIDATION_FAILED", [{ path: "", code: "validation.json.invalid" }]);
   }
-}
-
-/** A raw upload body, refused before buffering when it declares more than `maxBytes`. */
-export async function readBytes(request: Request, maxBytes: number): Promise<Uint8Array> {
-  const tooLarge = () =>
-    new AppError("VALIDATION_FAILED", [{ path: "file", code: "validation.opening.fileTooLarge" }]);
-  if (Number(request.headers.get("content-length") ?? 0) > maxBytes) throw tooLarge();
-  const data = new Uint8Array(await request.arrayBuffer());
-  if (data.byteLength > maxBytes) throw tooLarge();
-  return data;
 }
 
 /** An xlsx download; the name is ASCII-safe in `filename` and exact in `filename*`. */

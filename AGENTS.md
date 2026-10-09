@@ -14,9 +14,9 @@ Before editing:
 3. Find the canonical owner of the fact/rule you are changing (guide §21.1) and change it once.
    Every calculation is owned by the month engine in `packages/domain` (PLAN §4).
 
-Current phase: **PLAN §9 Phase H — Excel month import**, built; next Phase I go-live (Phase A
-month engine and Phase B database/auth/API foundation done; Phases C masters, D opening, E daily
-entry, F month/reports and G staff/payroll/damage built). The owner
+Current phase: next **PLAN §9 Phase I — go-live** (Phase A month engine and Phase B
+database/auth/API foundation done; Phases C masters, D opening, E daily entry, F month/reports and
+G staff/payroll/damage built; Phase H Excel import removed, D36: no Excel import). The owner
 approved backend integration on 2026-10-02 (D30, [docs/client-approval.md](docs/client-approval.md)).
 Redis stays out until a measured need.
 
@@ -30,7 +30,7 @@ Redis stays out until a measured need.
 | `packages/domain`        | Pure decimal rules and the month engine; no React/Next/Prisma/Redis                                                                |
 | `packages/i18n`          | Bangla dictionary, digit normalization, formatters                                                                                 |
 | `packages/design-system` | Semantic tokens and the company theme contract                                                                                     |
-| `packages/importer`      | Header-driven workbook month reader and Excel comparison (server side only)                                                        |
+| `packages/importer`      | Workbook month reader for `verify:workbook` only (no import, D36) and report export (server side only)                             |
 | `packages/database`      | Prisma schema, migrations and client (Postgres/Neon); the only package that talks to the database                                  |
 | `packages/auth`          | Better Auth (email + password, no public sign-up), session → actor, super-admin bootstrap                                          |
 | `packages/application`   | Use cases: tenant/company/permission checks, idempotency, audit; route handlers only call these                                    |

@@ -1,22 +1,12 @@
 import { bootstrapSuperAdmin, type Actor } from "@bsd/auth";
 import { openingBalanceKinds, type Opening, type OpeningSaveRequest } from "@bsd/contracts";
 import { OPENING_KIND_EFFECTS } from "@bsd/domain";
-import { loadWorkbook, proposeOpening } from "@bsd/importer";
-import { syntheticWorkbook } from "@bsd/importer/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createRole, createUser } from "./administration";
 import { createCompany } from "./companies";
 import { cashAccounts, staffRoles } from "./configuration";
 import { AppError } from "./errors";
-import {
-  activateOpening,
-  approveOpening,
-  getOpening,
-  importOpeningWorkbook,
-  inspectOpeningWorkbook,
-  openingTemplate,
-  saveOpening,
-} from "./opening";
+import { activateOpening, approveOpening, getOpening, saveOpening } from "./opening";
 import { createProduct } from "./products";
 import { createStaff } from "./staff";
 import { contextFor, resetTestSchema, testDatabase } from "./test-support";
@@ -47,10 +37,6 @@ async function expectField(promise: Promise<unknown>, path: string, code?: strin
 function must<T>(value: T | undefined): T {
   if (value === undefined) throw new Error("expected a value");
   return value;
-}
-
-async function bytes(workbook: { xlsx: { writeBuffer(): Promise<ArrayBuffer> } }) {
-  return new Uint8Array(await workbook.xlsx.writeBuffer());
 }
 
 /** The editable part of a view, as the screen sends it back. */
@@ -114,13 +100,6 @@ beforeAll(async () => {
   beta = (await product("B1L", "Beta 1lt", "1")).id;
   const roles = await staffRoles.list(ctx);
   const role = (kind: string) => must(roles.find((r) => r.kind === kind)).id;
-  await createStaff(ctx, drinko, {
-    name: "Mamun",
-    employer: "distributor",
-    status: "active",
-    assignment: { roleId: role("dsr"), from: "2026-01-01", to: null },
-  });
-  // The workbook's "SR Rohim" columns belong to a distributor DSR, as in the real book.
   rohim = (
     await createStaff(ctx, drinko, {
       name: "Rohim",
@@ -143,7 +122,7 @@ describe("Phase D: opening balances", () => {
 
   it("starts as an empty draft where every active product is unknown, never zero", async () => {
     const view = await getOpening(contextFor(db, admin), drinko);
-    expect(view).toMatchObject({ status: "draft", version: 0, cutoffDate: null, source: null });
+    expect(view).toMatchObject({ status: "draft", version: 0, cutoffDate: null });
     expect(view.stock.map((l) => [l.sku, l.pieces])).toEqual([
       ["A250", null],
       ["B1L", null],
@@ -153,66 +132,13 @@ describe("Phase D: opening balances", () => {
     expect(codes).toContain("opening.issue.stockUnknown");
   });
 
-  it("imports a month sheet's closing as a proposal and keeps the Excel values as evidence", async () => {
-    const ctx = contextFor(db, admin);
-    const data = await bytes(syntheticWorkbook());
-    expect(await inspectOpeningWorkbook(ctx, drinko, data)).toEqual({
-      sheets: ["Nov 2026", "Oct 2026"],
-      template: false,
-    });
-    await expectField(
-      importOpeningWorkbook(ctx, drinko, {
-        data,
-        fileName: "book.xlsx",
-        sheet: "Mar 2020",
-        version: 0,
-      }),
-      "sheet",
-    );
-    await expectField(
-      importOpeningWorkbook(ctx, drinko, {
-        data: new Uint8Array([1, 2, 3]),
-        fileName: "book.xlsx",
-        sheet: "Nov 2026",
-        version: 0,
-      }),
-      "file",
-      "validation.opening.fileUnreadable",
-    );
-
-    const proposal = proposeOpening(syntheticWorkbook(), "Nov 2026");
-    const view = await importOpeningWorkbook(
-      ctx,
-      drinko,
-      { data, fileName: "book.xlsx", sheet: "Nov 2026", version: 0 },
-      "key-d-import-01",
-    );
-    expect(view.version).toBe(1);
-    expect(view.source).toMatchObject({ fileName: "book.xlsx", sheet: "Nov 2026" });
-    expect(view.source?.fileHash).toMatch(/^[0-9a-f]{64}$/);
-    const a = must(view.stock.find((l) => l.productId === alpha));
-    const b = must(view.stock.find((l) => l.productId === beta));
-    const pa = must(proposal.products.find((p) => p.label === "Alpha 250ml"));
-    expect(a).toMatchObject({ pieces: pa.stock, unitCost: "9.5", salePrice: "12" });
-    expect(a.source).toMatchObject({ label: "Alpha 250ml", pieces: pa.stock });
-    // A negative closing is evidence of missing receipts: kept as source, entered value blank.
-    expect(b.pieces).toBeNull();
-    expect(b.source?.pieces).toBe("-12");
-    expect(view.balances.find((x) => x.kind === "market_due" && !x.staffId)).toMatchObject({
-      amount: "75.00",
-      sourceAmount: "75",
-    });
-    const rohimLines = view.balances.filter((x) => x.staffId === rohim);
-    expect(rohimLines.length).toBeGreaterThan(0);
-    expect(rohimLines.every((x) => x.sourceAmount !== null)).toBe(true);
-    expect(view.source?.unmatchedProducts).toEqual([]);
-  });
-
-  it("keeps the owner's edits on re-import and refuses stale versions", async () => {
+  it("saves entered values and refuses stale versions and missing parties", async () => {
     const ctx = contextFor(db, admin);
     const before = await getOpening(ctx, drinko);
-    const stock = withPieces(before, beta, "0").map((l) =>
-      l.productId === alpha ? { ...l, pieces: "50" } : l,
+    const stock = toSave(before).stock.map((l) =>
+      l.productId === alpha
+        ? { ...l, pieces: "50", unitCost: "9.5", salePrice: "12" }
+        : { ...l, pieces: "0" },
     );
     const saved = await saveOpening(
       ctx,
@@ -221,28 +147,24 @@ describe("Phase D: opening balances", () => {
         cutoffDate: "2026-11-30",
         stock,
         balances: [
-          ...toSave(before).balances,
+          { kind: "market_due", staffId: null, cashAccountId: null, amount: "75", note: "" },
+          { kind: "advance", staffId: rohim, cashAccountId: null, amount: "200", note: "" },
           { kind: "cash", staffId: null, cashAccountId: cashBox, amount: "1000", note: "" },
         ],
       }),
       "key-d-save-0001",
     );
-    expect(saved.version).toBe(2);
-    expect(saved.totals.cash).toBe("1000.00");
-
-    const again = await importOpeningWorkbook(ctx, drinko, {
-      data: await bytes(syntheticWorkbook()),
-      fileName: "book.xlsx",
-      sheet: "Nov 2026",
-      version: 2,
+    expect(saved.version).toBe(1);
+    expect(saved.totals).toMatchObject({
+      stockValue: "475.00",
+      marketDue: "75.00",
+      staffOwesUs: "200.00",
+      cash: "1000.00",
     });
-    expect(again.version).toBe(3);
-    expect(again.stock.find((l) => l.productId === alpha)?.pieces).toBe("50");
-    expect(again.stock.find((l) => l.productId === beta)?.pieces).toBe("0");
-    expect(again.balances.find((x) => x.kind === "cash")?.amount).toBe("1000.00");
+    expect(must(saved.stock.find((l) => l.productId === beta)).pieces).toBe("0");
 
     await expectField(
-      saveOpening(ctx, drinko, toSave(saved)),
+      saveOpening(ctx, drinko, toSave(before)),
       "version",
       "validation.opening.stale",
     );
@@ -250,7 +172,7 @@ describe("Phase D: opening balances", () => {
       saveOpening(
         ctx,
         drinko,
-        toSave(again, {
+        toSave(saved, {
           balances: [
             { kind: "shortage", staffId: null, cashAccountId: null, amount: "1", note: "" },
           ],
@@ -347,35 +269,19 @@ describe("Phase D: opening balances", () => {
     ).toBe(1);
   });
 
-  it("round-trips the standard template and opens a cash account in one company only", async () => {
+  it("opens a cash account in one company only", async () => {
     const ctx = contextFor(db, admin);
-    const template = await openingTemplate(ctx, snacks);
-    expect(template.fileName).toBe("opening-Snacks.xlsx");
-    expect(await inspectOpeningWorkbook(ctx, snacks, template.data)).toEqual({
-      sheets: [],
-      template: true,
-    });
-    const workbook = await loadWorkbook(template.data);
-    const sheet = must(workbook.getWorksheet("Balances"));
-    let cashRow = 0;
-    sheet.eachRow((row, r) => {
-      if (row.getCell(1).value === "cash" && row.getCell(4).value === "Cash box") cashRow = r;
-    });
-    expect(cashRow).toBeGreaterThan(2);
-    sheet.getCell(cashRow, 5).value = 500;
-
-    const imported = await importOpeningWorkbook(ctx, snacks, {
-      data: await bytes(workbook),
-      fileName: "opening-Snacks.xlsx",
-      sheet: null,
-      version: 0,
-    });
-    expect(imported.source?.sheet).toBe("template");
-    expect(imported.balances.find((b) => b.kind === "cash")).toMatchObject({
-      cashAccountId: cashBox,
-      amount: "500.00",
-    });
-    const dated = await saveOpening(ctx, snacks, toSave(imported, { cutoffDate: "2026-11-30" }));
+    const draft = await getOpening(ctx, snacks);
+    const dated = await saveOpening(
+      ctx,
+      snacks,
+      toSave(draft, {
+        cutoffDate: "2026-11-30",
+        balances: [
+          { kind: "cash", staffId: null, cashAccountId: cashBox, amount: "500", note: "" },
+        ],
+      }),
+    );
     const approved = await approveOpening(ctx, snacks, { version: dated.version });
     await expectField(
       activateOpening(ctx, snacks, { version: approved.version }),

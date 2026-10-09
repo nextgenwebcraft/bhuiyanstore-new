@@ -5,14 +5,12 @@ import type {
   OpeningBalanceKind,
   OpeningIssue,
   OpeningSaveRequest,
-  OpeningWorkbookSheets,
   StaffMember,
 } from "@bsd/contracts";
 import { OPENING_KIND_EFFECTS } from "@bsd/domain";
 import {
   formatAmount,
   formatBusinessDate,
-  formatRate,
   normalizeDigits,
   t,
   type TranslationKey,
@@ -20,7 +18,7 @@ import {
 import { useId, useMemo, useState } from "react";
 import { Button } from "@/components/button";
 import { DatePicker } from "@/components/date-picker";
-import { Field, inputClass } from "@/components/field";
+import { Field } from "@/components/field";
 import { FormDialog } from "@/components/form-dialog";
 import { PageHeader } from "@/components/page-header";
 import { QueryError } from "@/components/query-error";
@@ -34,14 +32,10 @@ import {
   useActivateOpening,
   useApproveOpening,
   useConfigList,
-  useImportOpeningWorkbook,
-  useInspectOpeningWorkbook,
   useOpening,
   useSaveOpening,
   useStaff,
 } from "@/data/queries";
-import { useService } from "@/data/service-context";
-import { downloadBlob } from "@/lib/download";
 import { stickyCell, stickyHead } from "@/features/daily/daily-kit";
 import { NavGate } from "@/features/shell/nav-gate";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
@@ -169,111 +163,6 @@ function issueText(issue: OpeningIssue) {
   return t(issue.code as TranslationKey);
 }
 
-// ---------------------------------------------------------------- import dialog
-
-function ImportDialog({
-  companyId,
-  version,
-  onClose,
-}: {
-  companyId: string;
-  version: number;
-  onClose: () => void;
-}) {
-  const id = useId();
-  const inspect = useInspectOpeningWorkbook(companyId);
-  const run = useImportOpeningWorkbook(companyId);
-  const [file, setFile] = useState<File | null>(null);
-  const [found, setFound] = useState<OpeningWorkbookSheets | null>(null);
-  const [sheet, setSheet] = useState("");
-  const [error, setError] = useState<string | undefined>();
-
-  async function choose(next: File | null) {
-    setFile(next);
-    setFound(null);
-    setError(undefined);
-    if (!next) return;
-    try {
-      const result = await inspect.mutateAsync(next);
-      setFound(result);
-      setSheet(result.sheets[0] ?? "");
-    } catch (e) {
-      setError(describeError(e, []).form);
-    }
-  }
-
-  async function submit() {
-    if (!file || !found) {
-      setError(t("validation.required"));
-      return;
-    }
-    if (!found.template && !sheet) {
-      setError(t("validation.opening.sheet"));
-      return;
-    }
-    try {
-      await run.mutateAsync({
-        file,
-        fileName: file.name,
-        sheet: found.template ? null : sheet,
-        version,
-      });
-      onClose();
-    } catch (e) {
-      setError(describeError(e, []).form);
-    }
-  }
-
-  return (
-    <FormDialog
-      open
-      title={t("opening.import.title")}
-      error={error}
-      pending={inspect.isPending || run.isPending}
-      submitLabel={run.isPending ? t("opening.import.running") : t("opening.import.run")}
-      onSubmit={() => void submit()}
-      onClose={onClose}
-    >
-      <Field id={`${id}-file`} label={t("opening.import.file")}>
-        <input
-          id={`${id}-file`}
-          type="file"
-          accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-          onChange={(event) => void choose(event.target.files?.[0] ?? null)}
-          className="block w-full text-sm"
-        />
-      </Field>
-      {inspect.isPending ? (
-        <p className="text-sm text-text-muted">{t("opening.import.reading")}</p>
-      ) : null}
-      {found?.template ? <StatePanel title={t("opening.import.template")} /> : null}
-      {found && !found.template && found.sheets.length === 0 ? (
-        <StatePanel tone="warning" title={t("opening.import.noSheets")} />
-      ) : null}
-      {found && !found.template && found.sheets.length > 0 ? (
-        <Field
-          id={`${id}-sheet`}
-          label={t("opening.import.sheet")}
-          hint={`${t("opening.import.sheetHint")} ${t("opening.import.keepsEdits")}`}
-        >
-          <select
-            id={`${id}-sheet`}
-            value={sheet}
-            onChange={(event) => setSheet(event.target.value)}
-            className={inputClass}
-          >
-            {found.sheets.map((name) => (
-              <option key={name} value={name}>
-                {name}
-              </option>
-            ))}
-          </select>
-        </Field>
-      ) : null}
-    </FormDialog>
-  );
-}
-
 // ---------------------------------------------------------------- tabs
 
 function StockTab({
@@ -314,9 +203,6 @@ function StockTab({
               <th scope="col" className={`px-3 py-3 font-medium ${stickyHead}`}>
                 {t("product.name")}
               </th>
-              <th scope="col" className="px-3 py-3 text-right font-medium">
-                {t("opening.fromExcel")}
-              </th>
               {stockFields.map((f) => (
                 <th key={f} scope="col" className="px-3 py-3 text-right font-medium">
                   {labels[f]}
@@ -329,8 +215,6 @@ function StockTab({
               const d = draft.stock[line.productId];
               const issues = issuesBy.get(line.productId) ?? [];
               const errors = issues.filter((i) => i.severity === "error");
-              const differs =
-                line.source?.pieces != null && (d?.pieces ?? "") !== line.source.pieces;
               return (
                 <tr key={line.productId} className="border-t border-border align-top">
                   <th scope="row" className={`px-3 py-2 text-left font-medium ${stickyCell}`}>
@@ -352,11 +236,6 @@ function StockTab({
                       </div>
                     ))}
                   </th>
-                  <td
-                    className={`px-3 py-2 text-right ${differs ? "text-warning" : "text-text-muted"}`}
-                  >
-                    {line.source?.pieces != null ? formatAmount(line.source.pieces) : "—"}
-                  </td>
                   {stockFields.map((f) => (
                     <td key={f} className="px-3 py-2 text-right">
                       <CellInput
@@ -373,16 +252,6 @@ function StockTab({
                         }
                         onChange={(value) => onChange(line.productId, f, value)}
                       />
-                      {line.source?.[f] != null &&
-                      f !== "pieces" &&
-                      line.source[f] !== (d?.[f] ?? "") ? (
-                        <div className="mt-0.5 text-xs text-text-subtle">
-                          {t("opening.fromExcel")}{" "}
-                          {f === "dueFromCompany"
-                            ? formatAmount(line.source[f] ?? "")
-                            : formatRate(line.source[f] ?? "")}
-                        </div>
-                      ) : null}
                     </td>
                   ))}
                 </tr>
@@ -415,7 +284,6 @@ function BalanceTable({
   locked: boolean;
   onChange: (key: string, field: keyof BalanceDraft, value: string) => void;
 }) {
-  const sourceOf = new Map(view.balances.map((b) => [keyOf(b.kind, b), b.sourceAmount]));
   const issuesOf = (row: BalanceRow) =>
     view.issues.filter(
       (i) =>
@@ -432,9 +300,6 @@ function BalanceTable({
               {t("common.kind")}
             </th>
             <th scope="col" className="px-3 py-3 text-right font-medium">
-              {t("opening.fromExcel")}
-            </th>
-            <th scope="col" className="px-3 py-3 text-right font-medium">
               {t("opening.amount")}
             </th>
             <th scope="col" className="px-3 py-3 font-medium">
@@ -446,13 +311,12 @@ function BalanceTable({
           {rows.flatMap((row, index) => {
             const key = keyOf(row.kind, row.party);
             const d = draft.balances[key] ?? { amount: "", note: "" };
-            const source = sourceOf.get(key);
             const issues = issuesOf(row);
             const out: React.ReactNode[] = [];
             if (row.group && row.group !== rows[index - 1]?.group) {
               out.push(
                 <tr key={`${key}-group`} className="border-t border-border bg-surface-muted/50">
-                  <th colSpan={4} scope="rowgroup" className="px-3 py-2 text-left font-semibold">
+                  <th colSpan={3} scope="rowgroup" className="px-3 py-2 text-left font-semibold">
                     {row.group}
                   </th>
                 </tr>,
@@ -473,9 +337,6 @@ function BalanceTable({
                     </div>
                   ))}
                 </th>
-                <td className="px-3 py-2 text-right text-text-muted">
-                  {source != null ? formatAmount(source) : "—"}
-                </td>
                 <td className="px-3 py-2 text-right">
                   <CellInput
                     label={`${row.group ? `${row.group}: ` : ""}${row.label}`}
@@ -600,14 +461,12 @@ function OpeningScreen({
 }) {
   const id = useId();
   const { company, permissions } = useCurrentWorkspace();
-  const service = useService();
   const staff = useStaff(company.id);
   const accounts = useConfigList("cashAccounts");
   const save = useSaveOpening(company.id);
   const approve = useApproveOpening(company.id);
   const activate = useActivateOpening(company.id);
   const [draft, setDraft] = useState(() => draftOf(view));
-  const [importing, setImporting] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | undefined>();
 
@@ -738,25 +597,6 @@ function OpeningScreen({
             <OpeningStatus status={view.status} />
             {!locked ? (
               <Button
-                disabled={dirty}
-                title={dirty ? t("opening.saveFirst") : undefined}
-                onClick={() => setImporting(true)}
-              >
-                {t("opening.import")}
-              </Button>
-            ) : null}
-            <Button
-              onClick={() =>
-                void run(async () => {
-                  const { fileName, file } = await service.downloadOpeningTemplate(company.id);
-                  downloadBlob(file, fileName);
-                })
-              }
-            >
-              {t("opening.template.download")}
-            </Button>
-            {!locked ? (
-              <Button
                 variant="primary"
                 disabled={!dirty || save.isPending}
                 onClick={() => void run(() => save.mutateAsync(requestOf(view, draft)))}
@@ -767,13 +607,6 @@ function OpeningScreen({
           </>
         }
       />
-      {importing ? (
-        <ImportDialog
-          companyId={company.id}
-          version={view.version}
-          onClose={() => setImporting(false)}
-        />
-      ) : null}
       {confirming ? (
         <FormDialog
           open
@@ -803,7 +636,7 @@ function OpeningScreen({
         {view.status === "active" ? <StatePanel title={t("opening.activeHint")} /> : null}
         {dirty ? <StatePanel tone="warning" title={t("opening.unsaved")} /> : null}
 
-        <div className="grid gap-4 md:grid-cols-[minmax(0,18rem)_1fr]">
+        <div className="max-w-72">
           <Field id={`${id}-cutoff`} label={t("opening.cutoffDate")} hint={t("opening.cutoffHint")}>
             <DatePicker
               id={`${id}-cutoff`}
@@ -815,52 +648,6 @@ function OpeningScreen({
               className="w-full"
             />
           </Field>
-          <section className="rounded-xl border border-border bg-surface p-4 text-sm shadow-card">
-            <h2 className="mb-1 font-semibold">{t("opening.source.title")}</h2>
-            {view.source ? (
-              <div className="flex flex-col gap-2">
-                <p className="text-text-muted">
-                  {view.source.fileName} · {t("opening.source.sheet")}: {view.source.sheet}
-                </p>
-                {view.source.unmatchedProducts.length > 0 ? (
-                  <div>
-                    <p className="font-medium text-warning">
-                      {t("opening.source.unmatchedProducts")}
-                    </p>
-                    <p className="text-text-muted">{view.source.unmatchedProducts.join(", ")}</p>
-                  </div>
-                ) : null}
-                {view.source.unmatchedPersons.length > 0 ? (
-                  <div>
-                    <p className="font-medium text-warning">
-                      {t("opening.source.unmatchedPersons")}
-                    </p>
-                    <ul className="text-text-muted">
-                      {view.source.unmatchedPersons.map((p) => (
-                        <li key={p.label}>
-                          {p.label}: {p.detail}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-                {view.source.notes.length > 0 ? (
-                  <details>
-                    <summary className="cursor-pointer font-medium">
-                      {t("opening.source.notes")} ({formatAmount(String(view.source.notes.length))})
-                    </summary>
-                    <ul className="mt-1 list-disc pl-5 text-text-muted">
-                      {view.source.notes.map((note) => (
-                        <li key={note}>{note}</li>
-                      ))}
-                    </ul>
-                  </details>
-                ) : null}
-              </div>
-            ) : (
-              <p className="text-text-muted">{t("opening.source.none")}</p>
-            )}
-          </section>
         </div>
 
         <dl className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -982,7 +769,7 @@ function OpeningLoader() {
       </>
     );
   }
-  // A new version (save or import) starts a fresh local copy of the entered values.
+  // A new version starts a fresh local copy of the entered values.
   return <OpeningScreen key={opening.data.version} view={opening.data} tab={tab} setTab={setTab} />;
 }
 

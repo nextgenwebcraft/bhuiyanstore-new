@@ -7,15 +7,11 @@ import {
   dayViewSchema,
   dsrDaySchema,
   expenseCategorySchema,
-  importJobSchema,
-  importJobSummarySchema,
-  importWorkbookSheetsSchema,
   meSchema,
   moneyEntrySchema,
   monthCloseResultSchema,
   monthViewSchema,
   openingSchema,
-  openingWorkbookSheetsSchema,
   payrollRunSchema,
   priceChangeSchema,
   productHistorySchema,
@@ -48,12 +44,8 @@ type Json = Record<string, unknown> | unknown[];
 type Call = RequestOptions & {
   method?: "GET" | "POST" | "PUT";
   body?: unknown;
-  /** A raw file body (workbook uploads) instead of JSON. */
-  file?: Blob;
   idempotent?: boolean;
 };
-
-const XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 export type HttpDistributionService = DistributionService & {
   getMe(options?: RequestOptions): Promise<Me>;
@@ -91,17 +83,12 @@ export class PendingWriteKeys {
 }
 
 function fingerprintOf(url: string, call: Call): string {
-  const file = call.file;
-  const body = file
-    ? `file:${file.size}:${file instanceof File ? `${file.name}:${file.lastModified}` : ""}`
-    : JSON.stringify(call.body ?? null);
-  return `${call.method ?? "GET"} ${url} ${body}`;
+  return `${call.method ?? "GET"} ${url} ${JSON.stringify(call.body ?? null)}`;
 }
 
 async function send(url: string, call: Call, pending: PendingWriteKeys): Promise<Response> {
   const headers: Record<string, string> = { accept: "application/json" };
   if (call.body !== undefined) headers["content-type"] = "application/json";
-  if (call.file) headers["content-type"] = XLSX;
   const fingerprint = call.idempotent ? fingerprintOf(url, call) : null;
   if (fingerprint) headers["idempotency-key"] = pending.keyFor(fingerprint);
   const isRead = (call.method ?? "GET") === "GET";
@@ -116,7 +103,6 @@ async function send(url: string, call: Call, pending: PendingWriteKeys): Promise
       credentials: "same-origin",
       cache: "no-store",
       ...(call.body !== undefined ? { body: JSON.stringify(call.body) } : {}),
-      ...(call.file ? { body: call.file } : {}),
       ...(signal ? { signal } : {}),
     });
     return response;
@@ -339,67 +325,10 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
       request(openingSchema, `${company(companyId)}/opening`, options),
     saveOpening: (companyId, input) =>
       request(openingSchema, `${company(companyId)}/opening`, write("PUT", input)),
-    inspectOpeningWorkbook: (companyId, file) =>
-      request(openingWorkbookSheetsSchema, `${company(companyId)}/opening/import`, {
-        method: "POST",
-        file,
-      }),
-    importOpeningWorkbook: (companyId, input) => {
-      const query = new URLSearchParams({
-        sheet: input.sheet ?? "template",
-        version: String(input.version),
-        fileName: input.fileName,
-      });
-      return request(openingSchema, `${company(companyId)}/opening/import?${query.toString()}`, {
-        method: "POST",
-        file: input.file,
-        idempotent: true,
-      });
-    },
-    downloadOpeningTemplate: (companyId) =>
-      download(`${company(companyId)}/opening/template`, "opening.xlsx"),
     approveOpening: (companyId, input) =>
       request(openingSchema, `${company(companyId)}/opening/approve`, write("POST", input)),
     activateOpening: (companyId, input) =>
       request(openingSchema, `${company(companyId)}/opening/activate`, write("POST", input)),
-
-    inspectImportWorkbook: (companyId, file) =>
-      request(importWorkbookSheetsSchema, `${company(companyId)}/imports`, {
-        method: "POST",
-        file,
-      }),
-    createImportJob: (companyId, input) => {
-      const query = new URLSearchParams({ sheet: input.sheet, fileName: input.fileName });
-      if (input.extraBlocksToLastDay) query.set("extraBlocks", "lastDay");
-      if (input.through) query.set("through", input.through);
-      return request(importJobSchema, `${company(companyId)}/imports?${query.toString()}`, {
-        method: "POST",
-        file: input.file,
-        idempotent: true,
-      });
-    },
-    listImportJobs: (companyId, options) =>
-      request(z.array(importJobSummarySchema), `${company(companyId)}/imports`, options),
-    getImportJob: (companyId, jobId, options) =>
-      request(importJobSchema, `${company(companyId)}/imports/${id(jobId)}`, options),
-    saveImportMapping: (companyId, jobId, input) =>
-      request(
-        importJobSchema,
-        `${company(companyId)}/imports/${id(jobId)}/mapping`,
-        write("PUT", input),
-      ),
-    commitImportJob: (companyId, jobId, input) =>
-      request(
-        importJobSchema,
-        `${company(companyId)}/imports/${id(jobId)}/commit`,
-        write("POST", input),
-      ),
-    discardImportJob: (companyId, jobId, input) =>
-      request(
-        importJobSchema,
-        `${company(companyId)}/imports/${id(jobId)}/discard`,
-        write("POST", input),
-      ),
 
     getMonthView: (companyId, month, options) =>
       request(monthViewSchema, `${company(companyId)}/months/${id(month)}`, options),

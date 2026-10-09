@@ -72,7 +72,6 @@ model Company {
   payrollRuns            PayrollRun[]
   damageCases            DamageCase[]
   damageEvents           DamageEvent[]
-  importJobs             ImportJob[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -431,12 +430,6 @@ model OpeningSession {
   status           String               @default("draft")
   version          Int                  @default(0)
   cutoffDate       DateTime?            @map("cutoff_date") @db.Date
-  sourceFileName   String?              @map("source_file_name")
-  sourceSheet      String?              @map("source_sheet")
-  sourceHash       String?              @map("source_hash")
-  sourceImportedAt DateTime?            @map("source_imported_at")
-  /// Reader notes and unmatched labels from the import, shown for review.
-  sourceReport     Json?                @map("source_report")
   approvedById     String?              @map("approved_by_id")
   approvedAt       DateTime?            @map("approved_at")
   activatedById    String?              @map("activated_by_id")
@@ -451,7 +444,7 @@ model OpeningSession {
   @@map("opening_session")
 }
 
-/// NULL = unknown (never zero). `source` keeps the imported evidence beside the adjusted values.
+/// NULL = unknown (never zero).
 model OpeningStockLine {
   id             String         @id @default(cuid())
   sessionId      String         @map("session_id")
@@ -462,7 +455,6 @@ model OpeningStockLine {
   orderPrice     Decimal?       @map("order_price") @db.Decimal(20, 6)
   dueFromCompany Decimal?       @map("due_from_company") @db.Decimal(20, 6)
   note           String         @default("")
-  source         Json?
   session        OpeningSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   product        Product        @relation(fields: [productId], references: [id])
 
@@ -479,7 +471,6 @@ model OpeningBalanceLine {
   cashAccountId String?        @map("cash_account_id")
   partyKey      String         @map("party_key")
   amount        Decimal?       @db.Decimal(20, 2)
-  sourceAmount  Decimal?       @map("source_amount") @db.Decimal(20, 6)
   note          String         @default("")
   session       OpeningSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   staff         Staff?         @relation(fields: [staffId], references: [id])
@@ -752,35 +743,4 @@ model MonthClose {
 
   @@unique([companyId, month])
   @@map("month_close")
-}
-
-// ---------------------------------------------------------------- Excel month import (PLAN §8)
-
-/// One uploaded month sheet: ready → committed | discarded. Keeps the sheet's raw engine input
-/// (sheet-local keys), its labels and the comparison with Excel's saved values; the workbook
-/// itself is never stored. Committed documents carry `import:{id}` as their reference.
-model ImportJob {
-  id            String    @id @default(cuid())
-  tenantId      String    @map("tenant_id")
-  companyId     String    @map("company_id")
-  status        String    @default("ready")
-  version       Int       @default(1)
-  fileName      String    @map("file_name")
-  fileHash      String    @map("file_hash")
-  sheet         String
-  month         String
-  input         Json
-  labels        Json
-  report        Json
-  mapping       Json
-  committedMode String?   @map("committed_mode")
-  createdById   String    @map("created_by_id")
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
-  committedById String?   @map("committed_by_id")
-  committedAt   DateTime? @map("committed_at")
-  company       Company   @relation(fields: [companyId], references: [id])
-
-  @@index([companyId, createdAt])
-  @@map("import_job")
 }

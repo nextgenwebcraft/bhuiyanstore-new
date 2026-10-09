@@ -299,18 +299,8 @@ export function createMockService(
 
     getOpening: demoReadOnly,
     saveOpening: demoReadOnly,
-    inspectOpeningWorkbook: demoReadOnly,
-    importOpeningWorkbook: demoReadOnly,
-    downloadOpeningTemplate: demoReadOnly,
     approveOpening: demoReadOnly,
     activateOpening: demoReadOnly,
-    inspectImportWorkbook: demoReadOnly,
-    createImportJob: demoReadOnly,
-    listImportJobs: demoReadOnly,
-    getImportJob: demoReadOnly,
-    saveImportMapping: demoReadOnly,
-    commitImportJob: demoReadOnly,
-    discardImportJob: demoReadOnly,
   };
 }
 

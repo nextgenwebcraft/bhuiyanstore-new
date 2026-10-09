@@ -46,16 +46,13 @@ describe("checkOpening", () => {
     ]);
   });
 
-  it("flags a negative imported value and leaves error rows out of the value", () => {
+  it("leaves error rows out of the value", () => {
     const result = checkOpening({
       cutoffDate: "2026-11-01",
-      stock: [line("a", { pieces: null, sourcePieces: "-25104" }), line("b")],
+      stock: [line("a", { pieces: null }), line("b")],
       balances: [],
     });
-    expect(result.issues.map((i) => i.code)).toEqual([
-      "opening.issue.sourceNegative",
-      "opening.issue.stockUnknown",
-    ]);
+    expect(result.issues.map((i) => i.code)).toEqual(["opening.issue.stockUnknown"]);
     expect(result.totals).toMatchObject({ stockValue: "2348.00", valuedRows: 1, excludedRows: 1 });
   });
 

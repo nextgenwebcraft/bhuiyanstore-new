@@ -131,7 +131,6 @@ export const navigation: readonly NavSection[] = [
       item("admin/users", "nav.administration.users", "membership.manage", true),
       item("admin/roles", "nav.administration.roles", "role.manage", true),
       item("admin/opening", "nav.administration.opening", "opening.prepare", true),
-      item("admin/import", "nav.administration.import", "period.close", true),
     ],
   },
 ];
@@ -222,7 +221,6 @@ export const flowGroups: readonly {
       { path: "masters/staff" },
       { path: "masters/lists" },
       { path: "admin/opening" },
-      { path: "admin/import" },
       { path: "admin/users" },
       { path: "admin/roles" },
     ],
