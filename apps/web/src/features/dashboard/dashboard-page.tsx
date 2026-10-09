@@ -14,6 +14,7 @@ import { TableScroller } from "@/components/table-scroller";
 import { errorCodeOf } from "@/data/ports/service-error";
 import { useDashboardSummary } from "@/data/queries";
 import { DateBar, DayGate, money, useWorkingDate } from "@/features/daily/daily-kit";
+import { SetupBanner } from "@/features/setup/setup-page";
 import {
   companyHref,
   findNavEntry,
@@ -352,6 +353,7 @@ export function DashboardPage() {
         description={t("dashboard.description")}
         actions={<DateBar date={date} onChange={setDate} id="dashboard-date" />}
       />
+      <SetupBanner />
       <div className="mb-6 flex flex-wrap items-center gap-3">
         <p className="flex items-center gap-2 text-base font-semibold">
           <Icon name="calendar" className="size-4 text-text-muted" />

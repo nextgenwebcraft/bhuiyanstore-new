@@ -32,6 +32,8 @@ export const monthProductRowSchema = z.object({
   sold: money,
   orderTotal: money,
   receiptTotal: money,
+  /** Shop commission (D41), already taken out of `salesTotal`. */
+  commissionTotal: money,
   salesTotal: money,
   costTotal: costMoney,
   profitTotal: costMoney,
@@ -42,6 +44,8 @@ export const monthProductRowSchema = z.object({
   /** Company replacement pieces received for damage claims (D17); no bill, no payable. */
   replacementReceived: money,
   replacementValue: costMoney,
+  /** Free goods from the company (D16); no bill, no payable. */
+  incentiveReceived: money,
   salesCartons: money,
   closingStock: money,
   closingValue: costMoney,
@@ -56,6 +60,7 @@ export type MonthProductRow = z.infer<typeof monthProductRowSchema>;
 export const monthDayRowSchema = z.object({
   date: businessDateSchema,
   sales: money,
+  commission: money,
   marketDueNew: money,
   marketDueCollected: money,
   srIncentive: money,
@@ -111,6 +116,7 @@ export const monthViewSchema = z.object({
   totals: z.object({
     orderTotal: money,
     receiptTotal: money,
+    commissionTotal: money,
     salesTotal: money,
     costTotal: costMoney,
     profitTotal: costMoney,
@@ -188,6 +194,7 @@ export const reportIds = [
   "person-sales",
   "staff-balances",
   "daily-cash",
+  "dsr-daily",
 ] as const;
 export type ReportId = (typeof reportIds)[number];
 

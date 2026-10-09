@@ -70,6 +70,22 @@ describe("computeMonth golden month", () => {
   const out = computeMonth(golden);
   const [day1, day2] = out.days;
 
+  it("gives each DSR's day money for the cash check (D39)", () => {
+    expect(day1?.dsrs).toEqual([
+      { staffId: "d1", sales: "528", marketDueNew: "100", marketDueCollected: "50", costPaid: "0" },
+      { staffId: "d2", sales: "264", marketDueNew: "0", marketDueCollected: "0", costPaid: "0" },
+    ]);
+    // Day 2: B 12 sold at 22.5 with 2 at 20 (−5); A 24 − 4 − 1 = 19 at 12.
+    expect(day2?.dsrs).toEqual([
+      { staffId: "d1", sales: "493", marketDueNew: "0", marketDueCollected: "0", costPaid: "0" },
+    ]);
+    expect(day2?.persons.find((p) => p.productId === "A")).toMatchObject({
+      sold: "19",
+      soldValue: "228",
+      amount: "240",
+    });
+  });
+
   it("calculates each day's product block like the workbook", () => {
     expect(day1?.products[0]).toMatchObject({
       productId: "A",
@@ -284,6 +300,42 @@ describe("computeMonth company account (D33)", () => {
   });
 });
 
+describe("computeMonth free goods (D16)", () => {
+  const out = computeMonth({
+    products: [{ id: "A", piecesPerCarton: "24" }],
+    opening: {
+      products: { A: { stock: "10", dueFromCompany: "48", orderPrice: "10", costPrice: "9" } },
+      companyPayable: "1000",
+    },
+    days: [{ date: "2026-11-01", products: { A: { incentiveReceived: "24" } } }],
+  });
+
+  it("adds saleable stock with no bill, no due from company and no payable", () => {
+    expect(out.days[0]?.products[0]).toMatchObject({
+      stock: "34",
+      incentiveReceived: "24",
+      received: "0",
+      receiptBill: "0",
+      dueFromCompany: "48",
+    });
+    expect(out.month.products[0]).toMatchObject({ incentiveReceived: "24", receiptTotal: "0" });
+    expect(out.month.companyPayable.closing).toBe("1000");
+  });
+
+  it("shows a memo line without an amount on the company ledger", () => {
+    expect(out.companyEntries).toEqual([
+      {
+        date: "2026-11-01",
+        kind: "freeGoods",
+        amount: "0",
+        productId: "A",
+        quantity: "24",
+        balance: "1000",
+      },
+    ]);
+  });
+});
+
 describe("computeMonth data problems", () => {
   const base: MonthInput = {
     products: [{ id: "A", piecesPerCarton: "24" }],
@@ -379,5 +431,55 @@ describe("computeMonth data problems", () => {
         ],
       }),
     ).toThrow(/price splits exceed/);
+  });
+});
+
+describe("shop commission on DSR lines (D41)", () => {
+  const out = computeMonth({
+    products: [{ id: "A", piecesPerCarton: "24" }],
+    opening: {
+      products: { A: { stock: "100", dueFromCompany: "0", costPrice: "9", salePrice: "11" } },
+    },
+    days: [
+      {
+        date: "2026-11-01",
+        dsrLines: [
+          { staffId: "d1", productId: "A", issued: "24", returned: "4", commission: "15.5" },
+          { staffId: "d2", productId: "A", issued: "10", commission: "0" },
+        ],
+      },
+    ],
+  });
+  const day = out.days[0];
+
+  it("takes the commission out of the line's sold value, sales, cash and profit", () => {
+    // d1: 20 × 11 = 220 − 15.5; d2: 10 × 11 = 110.
+    expect(day?.persons[0]).toMatchObject({
+      commission: "15.5",
+      soldValue: "204.5",
+      amount: "204.5",
+    });
+    expect(day?.dsrs[0]).toMatchObject({ staffId: "d1", sales: "204.5" });
+    expect(day?.products[0]).toMatchObject({
+      sold: "30",
+      commission: "15.5",
+      sales: "314.5",
+      cost: "270",
+      grossProfit: "44.5",
+    });
+    expect(day?.money).toMatchObject({ sales: "314.5", commission: "15.5", cashLeft: "314.5" });
+    expect(out.month.totals).toMatchObject({ commissionTotal: "15.5", salesTotal: "314.5" });
+  });
+
+  it("refuses a negative commission", () => {
+    expect(() =>
+      computeMonth({
+        products: [{ id: "A", piecesPerCarton: "1" }],
+        opening: { products: {} },
+        days: [
+          { date: "2026-11-01", dsrLines: [{ staffId: "d1", productId: "A", commission: "-1" }] },
+        ],
+      }),
+    ).toThrow(/commission must not be negative/);
   });
 });

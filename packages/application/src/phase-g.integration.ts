@@ -237,8 +237,14 @@ describe("Phase G: staff and SR accounts", () => {
   });
 
   it("T25: SR loan and repayment move cash and the SR receivable only", async () => {
-    await money("2026-09-03", "srLoan", "1000", id.karim);
-    await money("2026-09-03", "srRepayment", "400", id.karim);
+    await expectField(
+      money("2026-09-03", "srLoan", "1", id.karim),
+      "srLoanType",
+      "validation.money.srLoanTypeRequired",
+    );
+    await money("2026-09-03", "srLoan", "700", id.karim, { srLoanType: "cash" });
+    await money("2026-09-03", "srLoan", "300", id.karim, { srLoanType: "commission" });
+    await money("2026-09-03", "srRepayment", "400", id.karim, { srLoanType: "commission" });
     expect((await getDayView(ctx, company, "2026-09-03")).money).toMatchObject({
       cashIn: "400",
       cashOut: "1000",
@@ -253,6 +259,11 @@ describe("Phase G: staff and SR accounts", () => {
     });
     expect(statement.kind).toBe("sr");
     expect(statement.closing.srLoan).toBe("600");
+    expect(statement.lines.map((l) => [l.kind, l.srLoanType])).toEqual([
+      ["srLoan", "cash"],
+      ["srLoan", "commission"],
+      ["srRepayment", "commission"],
+    ]);
     const profit = (await closingOn("2026-09-03")).month.profit;
     expect(profit).toMatchObject({ salaries: "0", expenses: "0" });
   });
@@ -738,5 +749,57 @@ describe("Phase G: damage replacement legs (D17)", () => {
     );
     const outsider = await userWith(["company.view"]);
     await expectForbidden(listDamageCases(outsider, company, {}));
+  });
+
+  it("never credits accepted pieces twice: refund plus replacement stays within acceptance", async () => {
+    const owned = await createDamageCase(ctx, company, {
+      caseNumber: "D-3",
+      date: "2026-09-10",
+      origin: "ownedStock",
+      staffId: null,
+      note: "",
+      sentToCompany: true,
+      lines: [{ productId: id.alpha, quantity: "2" }],
+    });
+    const leg = (kind: string, quantity: string, extra = {}, key?: string) =>
+      postDamageEvent(
+        ctx,
+        company,
+        owned.id,
+        {
+          date: "2026-09-11",
+          lineId: must(owned.lines[0]).id,
+          kind,
+          quantity,
+          fromStock: false,
+          unitCost: null,
+          reference: "",
+          note: "",
+          ...extra,
+        },
+        key,
+      );
+    await leg("companyAccept", "2");
+    const refunded = await leg("companyRefund", "2", { unitCost: "10" }, "refund-1");
+    const replay = await leg("companyRefund", "2", { unitCost: "10" }, "refund-1");
+    expect(replay.events.length).toBe(refunded.events.length);
+    await expectField(
+      leg("companyRefund", "2", { unitCost: "10" }, "refund-2"),
+      "quantity",
+      "validation.damage.overCompanyReplacement",
+    );
+    await expectField(
+      leg("companyReplacement", "1", { unitCost: "10" }),
+      "quantity",
+      "validation.damage.overCompanyReplacement",
+    );
+    const final = await getDamageCase(ctx, company, owned.id);
+    expect(must(final.lines[0]).progress).toMatchObject({
+      accepted: "2",
+      companyRefunded: "2",
+      companyReplaced: "0",
+      companyPending: "0",
+    });
+    expect(final.status).toBe("settled");
   });
 });

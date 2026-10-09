@@ -20,6 +20,7 @@ import {
 import { z } from "zod";
 import { loadCompanyAccess, requirePermission, type CompanyAccess } from "./access";
 import { recordAudit } from "./audit";
+import { nextCaseNumber } from "./case-number";
 import type { AppContext, Tx } from "./context";
 import { invalid, postingGuard, requireAll, roleOn } from "./daily";
 import { fromDbDate, toDbDate } from "./dates";
@@ -192,22 +193,6 @@ export async function getDamageCase(
   const access = await loadCompanyAccess(ctx, companyId);
   if (!canView(access)) throw new AppError("FORBIDDEN");
   return toCase(await loadCase(ctx.db, companyId, caseId), access);
-}
-
-/** The next free `D-YYYYMMDD-n` number for the date. */
-async function nextCaseNumber(db: Db, companyId: string, date: string): Promise<string> {
-  const prefix = `D-${date.replaceAll("-", "")}-`;
-  const taken = new Set(
-    (
-      await db.damageCase.findMany({
-        where: { companyId, caseNumber: { startsWith: prefix } },
-        select: { caseNumber: true },
-      })
-    ).map((c) => c.caseNumber),
-  );
-  let n = taken.size + 1;
-  while (taken.has(`${prefix}${n}`)) n += 1;
-  return `${prefix}${n}`;
 }
 
 /**

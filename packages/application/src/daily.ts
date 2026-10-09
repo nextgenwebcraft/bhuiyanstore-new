@@ -10,6 +10,7 @@ import {
   moneyEntrySchema,
   moneyKindPermission,
   moneyKindPerson,
+  srLoanTypeKinds,
   stockEntryPostRequestSchema,
   stockEntrySchema,
   type DashboardSummary,
@@ -19,6 +20,7 @@ import {
   type MoneyEntryKind,
   type PermissionId,
   type StockEntry,
+  type StockEntryKind,
 } from "@bsd/contracts";
 import type { Prisma } from "@bsd/database";
 import { MONEY_KIND_EFFECTS, sumAmounts, summarizeDay, toDecimal } from "@bsd/domain";
@@ -32,10 +34,13 @@ import { recordAudit } from "./audit";
 import type { AppContext, Tx } from "./context";
 import { fromDbDate, toDbDate, todayInDhaka } from "./dates";
 import { AppError, parseInput } from "./errors";
+import { hasFieldVisits, postFieldVisits, reverseFieldVisits } from "./field-posting";
 import { runIdempotent } from "./idempotency";
 import { activeOpening, allocationOf, monthOf, runLedger } from "./ledger";
 import { plain } from "./numeric";
 import { packOn } from "./products";
+
+const isZero = (amount: string) => toDecimal(amount).isZero();
 import { ensureStockCovers } from "./stock-guard";
 
 /**
@@ -101,10 +106,11 @@ export async function roleOn(
 
 // ---------------------------------------------------------------- stock entries
 
-const STOCK_PERMISSION: Record<string, PermissionId> = {
+const STOCK_PERMISSION: Record<StockEntryKind, PermissionId> = {
   order: "purchase.create",
   receipt: "purchase.post",
   damage: "damage.report",
+  incentive: "purchase.post",
 };
 
 const stockInclude = { product: { select: { sku: true, name: true } } } as const;
@@ -238,7 +244,7 @@ export async function reverseStockEntry(
         data: { status: "reversed", reversedAt: new Date(), reversedById: ctx.actor.userId },
       });
       if (updated.count !== 1) throw invalid("", "validation.daily.alreadyReversed");
-      if (row.kind === "receipt") {
+      if (row.kind === "receipt" || row.kind === "incentive") {
         await ensureStockCovers(tx, access, fromDbDate(row.date), [row.productId]);
       }
       await recordAudit(tx, ctx, {
@@ -277,6 +283,7 @@ function toDsrDay(row: DsrRow): DsrDay {
     version: row.version,
     marketDueNew: plain(row.marketDueNew),
     marketDueCollected: plain(row.marketDueCollected),
+    cashHandedOver: plain(row.cashHandedOver),
     lines: row.lines.map((line) => ({
       productId: line.productId,
       sku: line.product.sku,
@@ -285,6 +292,7 @@ function toDsrDay(row: DsrRow): DsrDay {
       issued: plain(line.issued),
       returned: plain(line.returned),
       damaged: plain(line.damaged),
+      commission: plain(line.commission),
     })),
     postedAt: iso(row.postedAt),
     reversedAt: iso(row.reversedAt),
@@ -325,13 +333,17 @@ export async function saveDsrDay(
   const request = parseInput(dsrDaySaveRequestSchema, input);
   const seen = new Set<string>();
   const lines = request.lines.filter(
-    (l) => l.issued !== "0" || l.returned !== "0" || l.damaged !== "0",
+    (l) => l.issued !== "0" || l.returned !== "0" || l.damaged !== "0" || !isZero(l.commission),
   );
   lines.forEach((line) => {
     const index = request.lines.indexOf(line);
     if (seen.has(line.productId))
       throw invalid(`lines.${index}`, "validation.daily.duplicateProduct");
     seen.add(line.productId);
+    const sold = toDecimal(line.issued).sub(line.returned).sub(line.damaged);
+    if (!isZero(line.commission) && sold.lte(0)) {
+      throw invalid(`lines.${index}.commission`, "validation.daily.commissionWithoutSale");
+    }
   });
 
   return runIdempotent(
@@ -366,6 +378,7 @@ export async function saveDsrDay(
         ...(request.marketDueCollected === undefined
           ? {}
           : { marketDueCollected: request.marketDueCollected }),
+        ...(request.cashHandedOver === undefined ? {} : { cashHandedOver: request.cashHandedOver }),
       };
       let id: string;
       if (live) {
@@ -406,6 +419,7 @@ export async function saveDsrDay(
             issued: line.issued,
             returned: line.returned,
             damaged: line.damaged,
+            commission: line.commission,
           },
         });
       }
@@ -451,6 +465,12 @@ async function transitionDsrDay(
         data: { status: move.to, version: { increment: 1 }, ...stamp },
       });
       if (updated.count !== 1) throw invalid("version", "validation.daily.stale");
+      const day = { id, staffId: row.staffId, date: fromDbDate(row.date) };
+      if (move.to === "posted") {
+        await postFieldVisits(tx, ctx, access, { ...row, ...day });
+      } else {
+        await reverseFieldVisits(tx, ctx, companyId, day);
+      }
       // Posting takes out issued − returned; reversing gives it back.
       const takesOut = row.lines.filter((line) => {
         const net = toDecimal(line.issued).sub(toDecimal(line.returned));
@@ -537,6 +557,7 @@ const MONEY_PERSON = moneyKindPerson;
 const CATEGORY_KINDS = new Set<MoneyEntryKind>(moneyCategoryKinds);
 const ALLOCATION_KINDS = new Set<MoneyEntryKind>(moneyAllocationKinds);
 const MARKET_KINDS = new Set<MoneyEntryKind>(["marketDueNew", "marketDueCollected"]);
+const SR_LOAN_TYPE_KINDS = new Set<MoneyEntryKind>(srLoanTypeKinds);
 
 const moneyInclude = {
   staff: { select: { name: true } },
@@ -558,6 +579,7 @@ function toMoneyEntry(row: MoneyRow): MoneyEntry {
     expenseCategoryId: row.expenseCategoryId,
     categoryName: row.expenseCategory?.name ?? null,
     allocation: allocationOf(row),
+    srLoanType: row.srLoanType,
     payrollRunId: row.payrollRunId,
     status: row.status,
     createdAt: row.createdAt.toISOString(),
@@ -661,6 +683,14 @@ export async function postMoneyEntry(
         : "validation.daily.noCategoryForKind",
     );
   }
+  if (SR_LOAN_TYPE_KINDS.has(request.kind) !== Boolean(request.srLoanType)) {
+    throw invalid(
+      "srLoanType",
+      SR_LOAN_TYPE_KINDS.has(request.kind)
+        ? "validation.money.srLoanTypeRequired"
+        : "validation.money.noSrLoanTypeForKind",
+    );
+  }
   const allocation = request.allocation;
   if (allocation) {
     if (!ALLOCATION_KINDS.has(request.kind)) {
@@ -700,6 +730,13 @@ export async function postMoneyEntry(
         });
         if (!shop) throw invalid("shopId", "validation.shop.unknown");
       }
+      if (
+        market &&
+        request.staffId &&
+        (await hasFieldVisits(tx, companyId, request.staffId, request.date))
+      ) {
+        throw invalid("shopId", "validation.field.manualDueBlocked");
+      }
       await checkOwedLimits(tx, access, request, allocation);
       const row = await tx.moneyEntry.create({
         data: {
@@ -714,6 +751,7 @@ export async function postMoneyEntry(
           allocAdvance: allocation?.advance ?? null,
           allocLoan: allocation?.loan ?? null,
           allocShortage: allocation?.shortage ?? null,
+          srLoanType: request.srLoanType,
           createdById: ctx.actor.userId,
         },
         include: moneyInclude,
@@ -746,6 +784,7 @@ export async function reverseMoneyEntry(
       if (!row) throw invalid("", "validation.daily.notFound");
       if (row.status !== "posted") throw invalid("", "validation.daily.alreadyReversed");
       if (row.payrollRunId) throw invalid("", "validation.money.payrollOwned");
+      if (row.dsrDayId) throw invalid("", "validation.money.fieldOwned");
       await postingGuard(tx, companyId, fromDbDate(row.date));
       const updated = await tx.moneyEntry.updateMany({
         where: { id: entryId, status: "posted" },
@@ -771,6 +810,7 @@ export async function reverseMoneyEntry(
 
 const ZERO_MONEY = {
   sales: "0",
+  commission: "0",
   marketDueNew: "0",
   marketDueCollected: "0",
   srIncentive: "0",

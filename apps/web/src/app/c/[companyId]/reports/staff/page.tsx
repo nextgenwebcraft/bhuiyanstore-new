@@ -6,7 +6,7 @@ export default function StaffReportRoute() {
       path="reports/staff"
       title="nav.reports.staff"
       description="report.description.staff"
-      reports={["person-sales", "staff-balances"]}
+      reports={["dsr-daily", "person-sales", "staff-balances"]}
     />
   );
 }

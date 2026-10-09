@@ -4,10 +4,10 @@ import { businessDateSchema, decimalStringSchema, idSchema } from "./primitives"
 
 /**
  * Opening balances (PLAN §7, guide §16). One opening per company; blank (`null`) means unknown,
- * never zero, and an explicit "0" is allowed. Imported values stay beside the adjusted values.
+ * never zero, and an explicit "0" is allowed.
  */
 
-/** A whole number of pieces ≥ 0. Imported negative values stay in `source` only. */
+/** A whole number of pieces ≥ 0. */
 const piecesSchema = z.string().regex(/^(0|[1-9]\d*)$/, { message: "validation.opening.pieces" });
 
 /** A money amount ≥ 0 with at most 2 decimals; the kind decides the direction (D27). */
@@ -24,6 +24,7 @@ export type OpeningStatus = (typeof openingStatuses)[number];
  */
 export const openingBalanceKinds = [
   "market_due",
+  "shop_due",
   "advance",
   "loan",
   "shortage",
@@ -47,18 +48,6 @@ export const openingStaffKinds = [
   "owed_to_sr",
 ] as const satisfies readonly OpeningBalanceKind[];
 
-/** What the imported sheet said for a product (read-only evidence). */
-export const openingStockSourceSchema = z.object({
-  label: z.string(),
-  pieces: decimalStringSchema.nullable(),
-  unitCost: decimalStringSchema.nullable(),
-  salePrice: decimalStringSchema.nullable(),
-  orderPrice: decimalStringSchema.nullable(),
-  dueFromCompany: decimalStringSchema.nullable(),
-});
-
-export type OpeningStockSource = z.infer<typeof openingStockSourceSchema>;
-
 export const openingStockLineSchema = z.object({
   productId: idSchema,
   sku: z.string(),
@@ -73,7 +62,6 @@ export const openingStockLineSchema = z.object({
     .regex(/^(0|-?[1-9]\d*)$/, { message: "validation.opening.due" })
     .nullable(),
   note: z.string(),
-  source: openingStockSourceSchema.nullable(),
 });
 
 export type OpeningStockLine = z.infer<typeof openingStockLineSchema>;
@@ -82,8 +70,9 @@ export const openingBalanceLineSchema = z.object({
   kind: z.enum(openingBalanceKinds),
   staffId: idSchema.nullable(),
   cashAccountId: idSchema.nullable(),
+  /** D38: the shop of a `shop_due` line. */
+  shopId: idSchema.nullable().default(null),
   amount: openingAmountSchema.nullable(),
-  sourceAmount: decimalStringSchema.nullable(),
   note: z.string(),
 });
 
@@ -97,9 +86,14 @@ export const openingIssueSchema = z.object({
   kind: z.enum(openingBalanceKinds).optional(),
   staffId: idSchema.optional(),
   cashAccountId: idSchema.optional(),
+  shopId: idSchema.optional(),
 });
 
 export type OpeningIssue = z.infer<typeof openingIssueSchema>;
+
+/** Setup checklist sections of the opening (`OPENING_SECTIONS` in @bsd/domain). */
+export const openingSections = ["company", "staff", "shops", "cash"] as const;
+export type OpeningSectionId = (typeof openingSections)[number];
 
 /** Control totals computed by `checkOpening` in @bsd/domain; never stored. */
 export const openingTotalsSchema = z.object({
@@ -121,18 +115,6 @@ export const openingTotalsSchema = z.object({
 
 export type OpeningTotals = z.infer<typeof openingTotalsSchema>;
 
-export const openingSourceSchema = z.object({
-  fileName: z.string(),
-  sheet: z.string(),
-  fileHash: z.string(),
-  importedAt: z.string(),
-  notes: z.array(z.string()),
-  unmatchedProducts: z.array(z.string()),
-  unmatchedPersons: z.array(z.object({ label: z.string(), detail: z.string() })),
-});
-
-export type OpeningSource = z.infer<typeof openingSourceSchema>;
-
 export const openingSchema = z.object({
   companyId: idSchema,
   status: z.enum(openingStatuses),
@@ -140,7 +122,6 @@ export const openingSchema = z.object({
   version: z.number().int().nonnegative(),
   /** Go-live date: balances are as at the start of this business date. */
   cutoffDate: businessDateSchema.nullable(),
-  source: openingSourceSchema.nullable(),
   stock: z.array(openingStockLineSchema),
   balances: z.array(openingBalanceLineSchema),
   issues: z.array(openingIssueSchema),
@@ -165,7 +146,7 @@ export const openingSaveRequestSchema = z.object({
       note: true,
     }),
   ),
-  balances: z.array(openingBalanceLineSchema.omit({ sourceAmount: true })),
+  balances: z.array(openingBalanceLineSchema),
 });
 
 export type OpeningSaveRequest = z.infer<typeof openingSaveRequestSchema>;
@@ -176,11 +157,3 @@ export const openingTransitionRequestSchema = z.object({
 });
 
 export type OpeningTransitionRequest = z.infer<typeof openingTransitionRequestSchema>;
-
-/** Month sheets found in an uploaded workbook (newest first), or the standard template. */
-export const openingWorkbookSheetsSchema = z.object({
-  sheets: z.array(z.string()),
-  template: z.boolean(),
-});
-
-export type OpeningWorkbookSheets = z.infer<typeof openingWorkbookSheetsSchema>;

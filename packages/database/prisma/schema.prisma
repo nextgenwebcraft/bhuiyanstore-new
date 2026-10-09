@@ -63,6 +63,7 @@ model Company {
   products               Product[]
   suppliers              Supplier[]
   shops                  Shop[]
+  fieldVisits            FieldVisit[]
   staffAssignments       StaffAssignment[]
   opening                OpeningSession?
   stockEntries           StockEntry[]
@@ -72,7 +73,6 @@ model Company {
   payrollRuns            PayrollRun[]
   damageCases            DamageCase[]
   damageEvents           DamageEvent[]
-  importJobs             ImportJob[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -106,6 +106,7 @@ model User {
   sessions           Session[]
   accounts           Account[]
   memberships        Membership[]
+  staff              Staff?
 
   @@map("user")
 }
@@ -259,6 +260,7 @@ model Product {
   stockEntries StockEntry[]
   dsrLines     DsrLine[]
   damageLines  DamageCaseLine[]
+  fieldLines   FieldVisitLine[]
 
   @@unique([companyId, sku])
   @@index([tenantId, companyId])
@@ -314,21 +316,26 @@ model Supplier {
 
 /// A shop the company distributes to (D35); market due is given to and collected from shops.
 model Shop {
-  id           String       @id @default(cuid())
-  tenantId     String       @map("tenant_id")
-  companyId    String       @map("company_id")
-  name         String
-  ownerName    String       @default("") @map("owner_name")
-  phone        String       @default("")
-  area         String       @default("")
-  address      String       @default("")
+  id              String               @id @default(cuid())
+  tenantId        String               @map("tenant_id")
+  companyId       String               @map("company_id")
+  name            String
+  ownerName       String               @default("") @map("owner_name")
+  phone           String               @default("")
+  area            String               @default("")
+  address         String               @default("")
   /// Warn above this due; NULL = no limit.
-  dueLimit     Decimal?     @map("due_limit") @db.Decimal(20, 2)
-  status       String       @default("active")
-  createdAt    DateTime     @default(now()) @map("created_at")
-  updatedAt    DateTime     @updatedAt @map("updated_at")
-  company      Company      @relation(fields: [companyId], references: [id])
-  moneyEntries MoneyEntry[]
+  dueLimit        Decimal?             @map("due_limit") @db.Decimal(20, 2)
+  status          String               @default("active")
+  createdAt       DateTime             @default(now()) @map("created_at")
+  updatedAt       DateTime             @updatedAt @map("updated_at")
+  /// D40: the DSR who added the shop from the field panel; NULL when added in the office.
+  addedByStaffId  String?              @map("added_by_staff_id")
+  company         Company              @relation(fields: [companyId], references: [id])
+  addedByStaff    Staff?               @relation("ShopAddedBy", fields: [addedByStaffId], references: [id], onDelete: SetNull)
+  moneyEntries    MoneyEntry[]
+  openingBalances OpeningBalanceLine[]
+  fieldVisits     FieldVisit[]
 
   @@unique([companyId, name])
   @@map("shop")
@@ -342,9 +349,14 @@ model Staff {
   employer        String
   phone           String?
   status          String               @default("active")
+  /// D40: the person's own login (field panel); NULL = no login.
+  userId          String?              @unique @map("user_id")
   createdAt       DateTime             @default(now()) @map("created_at")
   updatedAt       DateTime             @updatedAt @map("updated_at")
   tenant          Tenant               @relation(fields: [tenantId], references: [id])
+  user            User?                @relation(fields: [userId], references: [id], onDelete: SetNull)
+  shopsAdded      Shop[]               @relation("ShopAddedBy")
+  fieldVisits     FieldVisit[]
   assignments     StaffAssignment[]
   openingBalances OpeningBalanceLine[]
   dsrDays         DsrDay[]
@@ -358,16 +370,18 @@ model Staff {
 
 /// One role in one company for a period (`to` NULL = open-ended); periods never overlap per company.
 model StaffAssignment {
-  id        String    @id @default(cuid())
-  staffId   String    @map("staff_id")
-  companyId String    @map("company_id")
-  roleId    String    @map("role_id")
-  from      DateTime  @db.Date
-  to        DateTime? @db.Date
-  createdAt DateTime  @default(now()) @map("created_at")
-  staff     Staff     @relation(fields: [staffId], references: [id], onDelete: Cascade)
-  company   Company   @relation(fields: [companyId], references: [id])
-  role      StaffRole @relation(fields: [roleId], references: [id])
+  id            String    @id @default(cuid())
+  staffId       String    @map("staff_id")
+  companyId     String    @map("company_id")
+  roleId        String    @map("role_id")
+  from          DateTime  @db.Date
+  to            DateTime? @db.Date
+  /// Salary per month in this role (payroll default); NULL = not set.
+  monthlySalary Decimal?  @map("monthly_salary") @db.Decimal(20, 2)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  staff         Staff     @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  company       Company   @relation(fields: [companyId], references: [id])
+  role          StaffRole @relation(fields: [roleId], references: [id])
 
   @@index([companyId])
   @@index([staffId])
@@ -425,33 +439,27 @@ model CashAccount {
 /// One opening per company: draft → approved → active. Any save returns it to draft and bumps
 /// `version`; approve and activate act on the version the user reviewed. Active is locked.
 model OpeningSession {
-  id               String               @id @default(cuid())
-  tenantId         String               @map("tenant_id")
-  companyId        String               @unique @map("company_id")
-  status           String               @default("draft")
-  version          Int                  @default(0)
-  cutoffDate       DateTime?            @map("cutoff_date") @db.Date
-  sourceFileName   String?              @map("source_file_name")
-  sourceSheet      String?              @map("source_sheet")
-  sourceHash       String?              @map("source_hash")
-  sourceImportedAt DateTime?            @map("source_imported_at")
-  /// Reader notes and unmatched labels from the import, shown for review.
-  sourceReport     Json?                @map("source_report")
-  approvedById     String?              @map("approved_by_id")
-  approvedAt       DateTime?            @map("approved_at")
-  activatedById    String?              @map("activated_by_id")
-  activatedAt      DateTime?            @map("activated_at")
-  createdAt        DateTime             @default(now()) @map("created_at")
-  updatedAt        DateTime             @updatedAt @map("updated_at")
-  company          Company              @relation(fields: [companyId], references: [id])
-  stock            OpeningStockLine[]
-  balances         OpeningBalanceLine[]
+  id                String               @id @default(cuid())
+  tenantId          String               @map("tenant_id")
+  companyId         String               @unique @map("company_id")
+  status            String               @default("draft")
+  version           Int                  @default(0)
+  cutoffDate        DateTime?            @map("cutoff_date") @db.Date
+  approvedById      String?              @map("approved_by_id")
+  approvedAt        DateTime?            @map("approved_at")
+  activatedById     String?              @map("activated_by_id")
+  activatedAt       DateTime?            @map("activated_at")
+  createdAt         DateTime             @default(now()) @map("created_at")
+  updatedAt         DateTime             @updatedAt @map("updated_at")
+  company           Company              @relation(fields: [companyId], references: [id])
+  stock             OpeningStockLine[]
+  balances          OpeningBalanceLine[]
 
   @@index([tenantId])
   @@map("opening_session")
 }
 
-/// NULL = unknown (never zero). `source` keeps the imported evidence beside the adjusted values.
+/// NULL = unknown (never zero).
 model OpeningStockLine {
   id             String         @id @default(cuid())
   sessionId      String         @map("session_id")
@@ -462,7 +470,6 @@ model OpeningStockLine {
   orderPrice     Decimal?       @map("order_price") @db.Decimal(20, 6)
   dueFromCompany Decimal?       @map("due_from_company") @db.Decimal(20, 6)
   note           String         @default("")
-  source         Json?
   session        OpeningSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   product        Product        @relation(fields: [productId], references: [id])
 
@@ -477,16 +484,19 @@ model OpeningBalanceLine {
   kind          String
   staffId       String?        @map("staff_id")
   cashAccountId String?        @map("cash_account_id")
+  /// D38: the shop of a `shop_due` line.
+  shopId        String?        @map("shop_id")
   partyKey      String         @map("party_key")
   amount        Decimal?       @db.Decimal(20, 2)
-  sourceAmount  Decimal?       @map("source_amount") @db.Decimal(20, 6)
   note          String         @default("")
   session       OpeningSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   staff         Staff?         @relation(fields: [staffId], references: [id])
   cashAccount   CashAccount?   @relation(fields: [cashAccountId], references: [id])
+  shop          Shop?          @relation(fields: [shopId], references: [id], onDelete: Restrict)
 
   @@unique([sessionId, kind, partyKey])
   @@index([cashAccountId])
+  @@index([shopId])
   @@map("opening_balance_line")
 }
 
@@ -523,26 +533,30 @@ model StockEntry {
 
 /// One DSR's day (D03): one live sheet per company, DSR and date (partial unique index in SQL).
 model DsrDay {
-  id                 String    @id @default(cuid())
-  tenantId           String    @map("tenant_id")
-  companyId          String    @map("company_id")
-  staffId            String    @map("staff_id")
-  date               DateTime  @db.Date
-  status             String    @default("draft")
-  version            Int       @default(1)
-  marketDueNew       Decimal   @default(0) @map("market_due_new") @db.Decimal(20, 2)
-  marketDueCollected Decimal   @default(0) @map("market_due_collected") @db.Decimal(20, 2)
-  note               String    @default("")
-  createdById        String    @map("created_by_id")
-  createdAt          DateTime  @default(now()) @map("created_at")
-  updatedAt          DateTime  @updatedAt @map("updated_at")
-  postedById         String?   @map("posted_by_id")
-  postedAt           DateTime? @map("posted_at")
-  reversedById       String?   @map("reversed_by_id")
-  reversedAt         DateTime? @map("reversed_at")
-  company            Company   @relation(fields: [companyId], references: [id])
-  staff              Staff     @relation(fields: [staffId], references: [id])
+  id                 String       @id @default(cuid())
+  tenantId           String       @map("tenant_id")
+  companyId          String       @map("company_id")
+  staffId            String       @map("staff_id")
+  date               DateTime     @db.Date
+  status             String       @default("draft")
+  version            Int          @default(1)
+  marketDueNew       Decimal      @default(0) @map("market_due_new") @db.Decimal(20, 2)
+  marketDueCollected Decimal      @default(0) @map("market_due_collected") @db.Decimal(20, 2)
+  /// D39: cash the DSR handed over (compared with the expected cash, never posted).
+  cashHandedOver     Decimal?     @map("cash_handed_over") @db.Decimal(20, 2)
+  note               String       @default("")
+  createdById        String       @map("created_by_id")
+  createdAt          DateTime     @default(now()) @map("created_at")
+  updatedAt          DateTime     @updatedAt @map("updated_at")
+  postedById         String?      @map("posted_by_id")
+  postedAt           DateTime?    @map("posted_at")
+  reversedById       String?      @map("reversed_by_id")
+  reversedAt         DateTime?    @map("reversed_at")
+  company            Company      @relation(fields: [companyId], references: [id])
+  staff              Staff        @relation(fields: [staffId], references: [id])
   lines              DsrLine[]
+  moneyEntries       MoneyEntry[]
+  damageCases        DamageCase[]
 
   @@index([companyId, date])
   @@map("dsr_day")
@@ -557,6 +571,8 @@ model DsrLine {
   issued          Decimal         @default(0) @db.Decimal(20, 6)
   returned        Decimal         @default(0) @db.Decimal(20, 6)
   damaged         Decimal         @default(0) @db.Decimal(20, 6)
+  /// D41: taka given to shops on this line; lowers its sales.
+  commission      Decimal         @default(0) @db.Decimal(20, 2)
   dsrDay          DsrDay          @relation(fields: [dsrDayId], references: [id], onDelete: Cascade)
   product         Product         @relation(fields: [productId], references: [id])
   splits          DsrPriceSplit[]
@@ -576,6 +592,52 @@ model DsrPriceSplit {
   @@map("dsr_price_split")
 }
 
+/// D40: one shop visit a DSR records on the phone. Open until the office posts the DSR's day,
+/// which reads the visits into the day sheet and locks them.
+model FieldVisit {
+  id           String           @id @default(cuid())
+  tenantId     String           @map("tenant_id")
+  companyId    String           @map("company_id")
+  staffId      String           @map("staff_id")
+  shopId       String           @map("shop_id")
+  date         DateTime         @db.Date
+  /// Cash for today's goods (≤ the visit's sales value; the rest becomes the shop's due).
+  cashReceived Decimal          @default(0) @map("cash_received") @db.Decimal(20, 2)
+  /// Old due collected from the shop.
+  dueCollected Decimal          @default(0) @map("due_collected") @db.Decimal(20, 2)
+  note         String           @default("")
+  status       String           @default("open")
+  version      Int              @default(1)
+  createdById  String           @map("created_by_id")
+  createdAt    DateTime         @default(now()) @map("created_at")
+  updatedAt    DateTime         @updatedAt @map("updated_at")
+  company      Company          @relation(fields: [companyId], references: [id])
+  staff        Staff            @relation(fields: [staffId], references: [id])
+  shop         Shop             @relation(fields: [shopId], references: [id])
+  lines        FieldVisitLine[]
+
+  @@index([companyId, date])
+  @@index([staffId, date])
+  @@map("field_visit")
+}
+
+/// Pieces delivered (sold at the day's sale price) and exchanged (damaged taken back, the same
+/// number of good pieces given) for one product in a visit.
+model FieldVisitLine {
+  id              String     @id @default(cuid())
+  visitId         String     @map("visit_id")
+  productId       String     @map("product_id")
+  piecesPerCarton Int        @map("pieces_per_carton")
+  unitPrice       Decimal    @map("unit_price") @db.Decimal(20, 6)
+  delivered       Decimal    @default(0) @db.Decimal(20, 6)
+  exchanged       Decimal    @default(0) @db.Decimal(20, 6)
+  visit           FieldVisit @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  product         Product    @relation(fields: [productId], references: [id])
+
+  @@unique([visitId, productId])
+  @@map("field_visit_line")
+}
+
 /// A typed money entry (D27): the kind decides the direction (MONEY_KIND_EFFECTS); amount > 0.
 model MoneyEntry {
   id                String           @id @default(cuid())
@@ -593,6 +655,10 @@ model MoneyEntry {
   allocLoan         Decimal?         @map("alloc_loan") @db.Decimal(20, 2)
   allocShortage     Decimal?         @map("alloc_shortage") @db.Decimal(20, 2)
   payrollRunId      String?          @map("payroll_run_id")
+  /// D40: the posted DSR day that created this entry from field visits (reversed with it).
+  dsrDayId          String?          @map("dsr_day_id")
+  /// D42: SR loan/repayment type, `cash` or `commission`; NULL for every other kind.
+  srLoanType        String?          @map("sr_loan_type")
   reference         String           @default("")
   note              String           @default("")
   status            String           @default("posted")
@@ -605,11 +671,13 @@ model MoneyEntry {
   shop              Shop?            @relation(fields: [shopId], references: [id], onDelete: Restrict)
   expenseCategory   ExpenseCategory? @relation(fields: [expenseCategoryId], references: [id], onDelete: Restrict)
   payrollRun        PayrollRun?      @relation(fields: [payrollRunId], references: [id], onDelete: Restrict)
+  dsrDay            DsrDay?          @relation(fields: [dsrDayId], references: [id], onDelete: Restrict)
 
   @@index([companyId, date])
   @@index([staffId])
   @@index([shopId])
   @@index([payrollRunId])
+  @@index([dsrDayId])
   @@map("money_entry")
 }
 
@@ -682,15 +750,19 @@ model DamageCase {
   staffId     String?          @map("staff_id")
   status      String           @default("open")
   note        String           @default("")
+  /// D40: the posted DSR day whose field exchanges opened this case.
+  dsrDayId    String?          @map("dsr_day_id")
   createdById String           @map("created_by_id")
   createdAt   DateTime         @default(now()) @map("created_at")
   company     Company          @relation(fields: [companyId], references: [id])
   staff       Staff?           @relation(fields: [staffId], references: [id], onDelete: Restrict)
+  dsrDay      DsrDay?          @relation(fields: [dsrDayId], references: [id], onDelete: Restrict)
   lines       DamageCaseLine[]
   events      DamageEvent[]
 
   @@unique([companyId, caseNumber])
   @@index([companyId, date])
+  @@index([dsrDayId])
   @@map("damage_case")
 }
 
@@ -752,35 +824,4 @@ model MonthClose {
 
   @@unique([companyId, month])
   @@map("month_close")
-}
-
-// ---------------------------------------------------------------- Excel month import (PLAN §8)
-
-/// One uploaded month sheet: ready → committed | discarded. Keeps the sheet's raw engine input
-/// (sheet-local keys), its labels and the comparison with Excel's saved values; the workbook
-/// itself is never stored. Committed documents carry `import:{id}` as their reference.
-model ImportJob {
-  id            String    @id @default(cuid())
-  tenantId      String    @map("tenant_id")
-  companyId     String    @map("company_id")
-  status        String    @default("ready")
-  version       Int       @default(1)
-  fileName      String    @map("file_name")
-  fileHash      String    @map("file_hash")
-  sheet         String
-  month         String
-  input         Json
-  labels        Json
-  report        Json
-  mapping       Json
-  committedMode String?   @map("committed_mode")
-  createdById   String    @map("created_by_id")
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
-  committedById String?   @map("committed_by_id")
-  committedAt   DateTime? @map("committed_at")
-  company       Company   @relation(fields: [companyId], references: [id])
-
-  @@index([companyId, createdAt])
-  @@map("import_job")
 }

@@ -15,9 +15,11 @@ import type { AppContext, Tx } from "./context";
 import { fromDbDate, toDbDate, todayInDhaka } from "./dates";
 import { AppError, parseInput } from "./errors";
 import { runIdempotent } from "./idempotency";
+import { plain } from "./numeric";
 
 const withAssignments = {
   assignments: { include: { role: true }, orderBy: { from: "asc" } },
+  user: { select: { email: true } },
 } as const;
 
 type AssignmentRow = {
@@ -26,6 +28,7 @@ type AssignmentRow = {
   roleId: string;
   from: Date;
   to: Date | null;
+  monthlySalary: Parameters<typeof plain>[0] | null;
   role: { name: string; kind: string };
 };
 
@@ -35,6 +38,7 @@ type StaffRow = {
   employer: string;
   status: string;
   assignments: AssignmentRow[];
+  user: { email: string } | null;
 };
 
 /** Companies whose staff assignments the actor may see (anti-enumeration, like COMPANY_NOT_FOUND). */
@@ -59,6 +63,7 @@ function toRecord(row: StaffRow, visible: Set<string>): StaffRecord {
     name: row.name,
     employer: row.employer,
     status: row.status,
+    loginEmail: row.user?.email ?? null,
     assignments: row.assignments
       .filter((a) => visible.has(a.companyId))
       .map((a) => ({
@@ -69,6 +74,7 @@ function toRecord(row: StaffRow, visible: Set<string>): StaffRecord {
         roleKind: a.role.kind,
         from: fromDbDate(a.from),
         to: a.to ? fromDbDate(a.to) : null,
+        monthlySalary: a.monthlySalary === null ? null : plain(a.monthlySalary),
       })),
   });
 }
@@ -152,6 +158,19 @@ export async function listStaffRecords(ctx: AppContext, companyId: string): Prom
   return rows.map((row) => toRecord(row, visible));
 }
 
+export async function getStaffRecord(
+  ctx: AppContext,
+  companyId: string,
+  staffId: string,
+): Promise<StaffRecord> {
+  await requirePermission(ctx, companyId, "company.view");
+  const [row, visible] = await Promise.all([
+    loadCompanyStaff(ctx.db, ctx, companyId, staffId),
+    visibleCompanyIds(ctx),
+  ]);
+  return toRecord(row, visible);
+}
+
 /** Every person of the tenant, so a DSR can be assigned to a second brand (D09). Super-admin only. */
 export async function listAllStaff(ctx: AppContext): Promise<StaffRecord[]> {
   requireSuperAdmin(ctx);
@@ -221,6 +240,9 @@ export async function createStaff(
       if (employerMismatch(role.kind, data.employer)) {
         throw invalid("employer", "validation.staff.employerRole");
       }
+      if (role.kind === "sr" && data.assignment.monthlySalary !== null) {
+        throw invalid("assignment.monthlySalary", "validation.staff.srSalary");
+      }
       const created = await tx.staff.create({
         data: {
           tenantId: ctx.actor.tenantId,
@@ -233,6 +255,7 @@ export async function createStaff(
               roleId: role.id,
               from: toDbDate(data.assignment.from),
               to: data.assignment.to ? toDbDate(data.assignment.to) : null,
+              monthlySalary: data.assignment.monthlySalary,
             },
           },
         },
@@ -323,11 +346,15 @@ async function writeAssignment(
     if (employerMismatch(role.kind, staff.employer as StaffEmployer)) {
       throw invalid("roleId", "validation.staff.employerRole");
     }
+    if (role.kind === "sr" && data.monthlySalary !== null) {
+      throw invalid("monthlySalary", "validation.staff.srSalary");
+    }
     await checkNoOverlap(tx, staffId, companyId, data, assignmentId, "");
     const values = {
       roleId: role.id,
       from: toDbDate(data.from),
       to: data.to ? toDbDate(data.to) : null,
+      monthlySalary: data.monthlySalary,
     };
     if (assignmentId) {
       await tx.staffAssignment.update({ where: { id: assignmentId }, data: values });

@@ -16,8 +16,9 @@ export function testDatabase(): { db: Database; schema: string } {
 const TABLES = [
   "audit_event",
   "idempotency_record",
-  "import_job",
   "month_close",
+  "field_visit_line",
+  "field_visit",
   "damage_event",
   "damage_case_line",
   "damage_case",

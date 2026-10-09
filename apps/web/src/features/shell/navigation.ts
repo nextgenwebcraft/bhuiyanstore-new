@@ -47,6 +47,7 @@ export const navigation: readonly NavSection[] = [
       item("sales/firot", "sales.firot", "sale.view", true),
       item("sales/old-dues-collection", "sales.oldDuesCollection", "sale.view", true),
       item("sales/shops", "nav.sales.shops", "company.view", true),
+      item("sales/field", "nav.sales.field", "field.entry", true),
     ],
   },
   {
@@ -120,6 +121,7 @@ export const navigation: readonly NavSection[] = [
     labelKey: "nav.masters",
     items: [
       item("masters/products", "nav.masters.products", "product.view", true),
+      item("masters/cartons", "nav.masters.cartons", "product.view", true),
       item("masters/staff", "nav.masters.staff", "company.view", true),
       item("masters/lists", "nav.masters.lists", "company.view", true),
     ],
@@ -128,10 +130,10 @@ export const navigation: readonly NavSection[] = [
     id: "administration",
     labelKey: "nav.administration",
     items: [
+      item("admin/setup", "nav.administration.setup", "opening.prepare", true),
       item("admin/users", "nav.administration.users", "membership.manage", true),
       item("admin/roles", "nav.administration.roles", "role.manage", true),
       item("admin/opening", "nav.administration.opening", "opening.prepare", true),
-      item("admin/import", "nav.administration.import", "period.close", true),
     ],
   },
 ];
@@ -162,6 +164,7 @@ export const flowGroups: readonly {
       { path: "purchases/receipts", labelKey: "nav.flow.receipts", shortcut: 2 },
       { path: "sales/old-dues-collection", labelKey: "nav.flow.marketDue", shortcut: 3 },
       { path: "sales/shops" },
+      { path: "sales/field" },
       { path: "finance/expenses", shortcut: 4 },
       { path: "dsr/settlements", labelKey: "nav.flow.staffCash", shortcut: 5 },
       { path: "finance/supplier-deposits", shortcut: 6 },
@@ -218,11 +221,12 @@ export const flowGroups: readonly {
     labelKey: "nav.flow.setup",
     collapsed: true,
     entries: [
+      { path: "admin/setup" },
       { path: "masters/products" },
+      { path: "masters/cartons" },
       { path: "masters/staff" },
       { path: "masters/lists" },
       { path: "admin/opening" },
-      { path: "admin/import" },
       { path: "admin/users" },
       { path: "admin/roles" },
     ],
@@ -314,6 +318,9 @@ export function equivalentPath(path: string, destination: CompanyWorkspace): str
   const entry = findNavEntry(path);
   return entry && navAccess(destination, entry.section, entry.item) === "ok" ? path : "";
 }
+
+/** The DSR field panel (D40); field-only members see nothing else. */
+export const FIELD_PATH = "sales/field";
 
 export function companyHref(companyId: string, path = ""): string {
   return path ? `/c/${companyId}/${path}` : `/c/${companyId}`;

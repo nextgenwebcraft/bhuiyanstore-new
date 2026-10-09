@@ -75,7 +75,10 @@ async function owedOn(db: Db, access: CompanyAccess, date: string): Promise<Map<
   return owed;
 }
 
-/** Distributor employees (not SR) assigned to the company on some day of the month. */
+/**
+ * Distributor employees (not SR) assigned to the company on some day of the month, with the
+ * latest assignment's monthly salary as the payroll default (salary master).
+ */
 async function eligibleStaff(db: Db, companyId: string, month: string) {
   const from = toDbDate(firstOfMonth(month));
   const to = toDbDate(lastOfMonth(month));
@@ -90,10 +93,18 @@ async function eligibleStaff(db: Db, companyId: string, month: string) {
     include: { staff: { select: { id: true, name: true } }, role: { select: { name: true } } },
     orderBy: { from: "desc" },
   });
-  const people = new Map<string, { id: string; name: string; roleName: string }>();
+  const people = new Map<
+    string,
+    { id: string; name: string; roleName: string; monthlySalary: string | null }
+  >();
   for (const a of assignments) {
     if (!people.has(a.staff.id)) {
-      people.set(a.staff.id, { id: a.staff.id, name: a.staff.name, roleName: a.role.name });
+      people.set(a.staff.id, {
+        id: a.staff.id,
+        name: a.staff.name,
+        roleName: a.role.name,
+        monthlySalary: a.monthlySalary === null ? null : plain(a.monthlySalary),
+      });
     }
   }
   return [...people.values()].sort((a, b) => a.name.localeCompare(b.name));
@@ -184,7 +195,7 @@ async function viewOf(
     for (const p of previous)
       if (!lastSalary.has(p.staffId)) lastSalary.set(p.staffId, plain(p.salary));
     lines = (await eligibleStaff(db, access.company.id, month)).map((p) => {
-      const salary = lastSalary.get(p.id) ?? "0";
+      const salary = p.monthlySalary ?? lastSalary.get(p.id) ?? "0";
       const personOwed = owed.get(p.id) ?? ZERO_OWED;
       return line({
         staffId: p.id,

@@ -231,7 +231,7 @@ describe("staff, roles and assignments", () => {
       name: "Mamun",
       employer: "distributor",
       status: "active",
-      assignment: { roleId: dsr.id, from: "2026-01-01", to: null },
+      assignment: { roleId: dsr.id, from: "2026-01-01", to: null, monthlySalary: null },
     };
 
     await expectField(createStaff(ctx, drinko, { ...mamun, employer: "supplier" }), "employer");

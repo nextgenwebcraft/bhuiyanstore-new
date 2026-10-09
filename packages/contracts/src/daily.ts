@@ -36,7 +36,8 @@ export type DocumentStatus = (typeof documentStatuses)[number];
 // ---------------------------------------------------------------- godown (stock entries)
 
 /** Excel `C` Due Quantity (order), `G` Receive (receipt) and `N` DAMAGE PRODUCT (damage). */
-export const stockEntryKinds = ["order", "receipt", "damage"] as const;
+/** `incentive`: free goods from the company (D16), stock without a bill or payable. */
+export const stockEntryKinds = ["order", "receipt", "damage", "incentive"] as const;
 export type StockEntryKind = (typeof stockEntryKinds)[number];
 
 export const stockEntrySchema = z.object({
@@ -95,6 +96,8 @@ export const dsrLineRequestSchema = z.object({
   /** Firot: unsold pieces returned. */
   returned: wholePiecesSchema,
   damaged: wholePiecesSchema,
+  /** Taka given to shops on this line (D41); lowers its sales. */
+  commission: amountSchema.default("0"),
 });
 
 export const dsrDaySaveRequestSchema = z.object({
@@ -108,6 +111,8 @@ export const dsrDaySaveRequestSchema = z.object({
    */
   marketDueNew: amountSchema.optional(),
   marketDueCollected: amountSchema.optional(),
+  /** Cash the DSR handed over at day end (D39; display only, no ledger effect). */
+  cashHandedOver: amountSchema.nullable().optional(),
   lines: z.array(dsrLineRequestSchema).max(500),
 });
 
@@ -128,6 +133,7 @@ export const dsrDaySchema = z.object({
   version: z.number().int().positive(),
   marketDueNew: decimalStringSchema,
   marketDueCollected: decimalStringSchema,
+  cashHandedOver: decimalStringSchema.nullable(),
   lines: z.array(dsrLineSchema),
   postedAt: z.string().nullable(),
   reversedAt: z.string().nullable(),
@@ -170,6 +176,11 @@ export const moneyEntryKinds = [
 ] as const;
 
 export type MoneyEntryKind = (typeof moneyEntryKinds)[number];
+
+/** D42: an SR loan is a direct cash loan or a product commission advance; repayments name one. */
+export const srLoanTypes = ["cash", "commission"] as const;
+export type SrLoanType = (typeof srLoanTypes)[number];
+export const srLoanTypeKinds: readonly MoneyEntryKind[] = ["srLoan", "srRepayment"];
 
 /**
  * Which person a kind is entered against: a DSR (market due), an SR (D18) or distributor staff
@@ -255,6 +266,8 @@ export const moneyEntryPostRequestSchema = z.object({
   shopId: idSchema.nullable().default(null),
   expenseCategoryId: idSchema.nullable().default(null),
   allocation: owedAllocationSchema.nullable().default(null),
+  /** Required for SR loans and repayments (D42); null for every other kind. */
+  srLoanType: z.enum(srLoanTypes).nullable().default(null),
 });
 
 export type MoneyEntryPostRequest = z.input<typeof moneyEntryPostRequestSchema>;
@@ -271,6 +284,7 @@ export const moneyEntrySchema = z.object({
   expenseCategoryId: idSchema.nullable(),
   categoryName: z.string().nullable(),
   allocation: owedAllocationSchema.nullable(),
+  srLoanType: z.enum(srLoanTypes).nullable(),
   /** Set when a payroll run posted the entry; it is then reversed only with the run. */
   payrollRunId: idSchema.nullable(),
   status: z.enum(documentStatuses),
@@ -293,6 +307,8 @@ export const dayProductRowSchema = z.object({
   piecesPerCarton: z.string(),
   ordered: money,
   received: money,
+  /** Free goods from the company (D16): stock without a bill. */
+  incentiveReceived: money,
   issued: money,
   returned: money,
   delivered: money,
@@ -301,6 +317,8 @@ export const dayProductRowSchema = z.object({
   orderPrice: money.nullable(),
   costPrice: costMoney,
   salePrice: money.nullable(),
+  /** Shop commission (D41), already taken out of `sales`. */
+  commission: money,
   sales: money,
   cost: costMoney,
   grossProfit: costMoney,
@@ -324,11 +342,13 @@ export const dayPersonRowSchema = z.object({
   returned: money,
   net: money,
   damaged: money,
+  commission: money,
   amount: money,
 });
 
 export const dayMoneySchema = z.object({
   sales: money,
+  commission: money,
   marketDueNew: money,
   marketDueCollected: money,
   srIncentive: money,

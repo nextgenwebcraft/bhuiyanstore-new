@@ -13,13 +13,21 @@ import {
   type ReportTable,
 } from "@bsd/contracts";
 import type { Prisma } from "@bsd/database";
-import { shiftBusinessDate, type MonthClosing, type MonthOutput } from "@bsd/domain";
+import {
+  dsrCashSettlement,
+  fieldRemaining,
+  shiftBusinessDate,
+  sumQuantities,
+  toDecimal,
+  type MonthClosing,
+  type MonthOutput,
+} from "@bsd/domain";
 import { buildReportWorkbook, reportCsv, type ExportableReport } from "@bsd/importer";
 import { requirePermission, type CompanyAccess } from "./access";
 import { recordAudit } from "./audit";
 import type { AppContext, Tx } from "./context";
 import { namesFor } from "./daily";
-import { toDbDate, todayInDhaka } from "./dates";
+import { fromDbDate, toDbDate, todayInDhaka } from "./dates";
 import { AppError, parseInput } from "./errors";
 import { runIdempotent } from "./idempotency";
 import {
@@ -31,6 +39,7 @@ import {
   runLedger,
   type ActiveOpening,
 } from "./ledger";
+import { plain } from "./numeric";
 
 /**
  * Month view, month close/reopen and range reports (PLAN §9 Phase F). Every figure is a field of
@@ -184,6 +193,7 @@ export async function getMonthView(
     totals: {
       orderTotal: totals?.orderTotal ?? "0",
       receiptTotal: totals?.receiptTotal ?? "0",
+      commissionTotal: totals?.commissionTotal ?? "0",
       salesTotal: totals?.salesTotal ?? "0",
       costTotal: cost(totals?.costTotal ?? "0"),
       profitTotal: profit(totals?.profitTotal ?? "0"),
@@ -375,6 +385,8 @@ function buildTables(
   names: Names,
   categories: Map<string, string>,
   seen: Visibility,
+  from: string,
+  dsrExtras?: DsrExtras,
 ): ReportTable[] {
   const m = output.month;
   const staffName = (sid: string) => names.staff.get(sid) ?? "";
@@ -387,6 +399,7 @@ function buildTables(
         "closingValue",
         "closingAtSale",
         "dueFromCompany",
+        "incentiveReceived",
       ];
       return [
         table(
@@ -398,6 +411,7 @@ function buildTables(
             col("closingValue", "money", "cost"),
             col("closingAtSale", "money"),
             col("dueFromCompany", "quantity"),
+            col("incentiveReceived", "quantity"),
           ],
           productRows(output, names, fields),
           { closingValue: m.totals.closingValue },
@@ -406,7 +420,15 @@ function buildTables(
       ];
     }
     case "sales": {
-      const fields = ["delivered", "damaged", "sold", "salesTotal", "returnValue", "salesCartons"];
+      const fields = [
+        "delivered",
+        "damaged",
+        "sold",
+        "commissionTotal",
+        "salesTotal",
+        "returnValue",
+        "salesCartons",
+      ];
       return [
         table(
           "salesByProduct",
@@ -416,18 +438,21 @@ function buildTables(
             col("damaged", "quantity"),
             col("sold", "quantity"),
             col("salesCartons", "cartons"),
+            col("commissionTotal", "money"),
             col("salesTotal", "money"),
             col("returnValue", "money"),
           ],
           productRows(output, names, fields),
-          { salesTotal: m.totals.salesTotal },
+          { commissionTotal: m.totals.commissionTotal, salesTotal: m.totals.salesTotal },
           seen,
         ),
         table(
           "salesByDay",
-          [col("date", "text"), col("sales", "money")],
-          output.days.map((d) => ({ cells: { date: d.date, sales: d.money.sales } })),
-          { sales: m.totals.salesTotal },
+          [col("date", "text"), col("commission", "money"), col("sales", "money")],
+          output.days.map((d) => ({
+            cells: { date: d.date, commission: d.money.commission, sales: d.money.sales },
+          })),
+          { commission: m.totals.commissionTotal, sales: m.totals.salesTotal },
           seen,
         ),
       ];
@@ -549,6 +574,7 @@ function buildTables(
     case "company-account": {
       const c = m.companyPayable;
       const productNames = new Map(names.products.map((p) => [p.id, p.name]));
+      const sizes = new Map(names.products.map((p) => [p.id, p.piecesPerCarton]));
       return [
         table(
           "companyAccountSummary",
@@ -570,23 +596,40 @@ function buildTables(
             col("date", "text"),
             col("line", "label"),
             col("product", "text"),
+            col("quantity", "quantity"),
             col("increase", "money"),
             col("decrease", "money"),
             col("balance", "money"),
           ],
-          output.companyEntries.map((e) => {
-            const increase = e.kind === "receipt";
-            return {
+          [
+            {
               cells: {
-                date: e.date,
-                line: `report.line.company.${e.kind}`,
-                product: e.productId ? (productNames.get(e.productId) ?? "") : "",
-                increase: increase ? e.amount : null,
-                decrease: increase ? null : e.amount,
-                balance: e.balance,
+                date: from,
+                line: "report.line.company.opening",
+                product: "",
+                quantity: null,
+                increase: null,
+                decrease: null,
+                balance: c.opening,
               },
-            };
-          }),
+            },
+            ...output.companyEntries.map((e) => {
+              const increase = e.kind === "receipt";
+              const memo = e.kind === "freeGoods";
+              return {
+                ...(e.productId ? { piecesPerCarton: sizes.get(e.productId) ?? "1" } : {}),
+                cells: {
+                  date: e.date,
+                  line: `report.line.company.${e.kind}`,
+                  product: e.productId ? (productNames.get(e.productId) ?? "") : "",
+                  quantity: e.quantity ?? null,
+                  increase: increase && !memo ? e.amount : null,
+                  decrease: increase || memo ? null : e.amount,
+                  balance: e.balance,
+                },
+              };
+            }),
+          ],
           null,
           seen,
         ),
@@ -719,7 +762,152 @@ function buildTables(
         ),
       ];
     }
+    case "dsr-daily": {
+      const sizes = new Map(names.products.map((p) => [p.id, p]));
+      return [
+        table(
+          "dsrDaily",
+          [
+            col("date", "text"),
+            col("staff", "text"),
+            col("sales", "money"),
+            col("marketDueNew", "money"),
+            col("marketDueCollected", "money"),
+            col("costPaid", "money"),
+            col("expectedCash", "money"),
+            col("handedOver", "money"),
+            col("difference", "money"),
+            col("flag", "label"),
+          ],
+          output.days.flatMap((d) =>
+            d.dsrs.map((r) => {
+              const extra = dsrExtras?.get(`${d.date}|${r.staffId}`);
+              const cash = dsrCashSettlement({
+                sales: r.sales,
+                dueGiven: r.marketDueNew,
+                dueCollected: r.marketDueCollected,
+                expenses: r.costPaid,
+                handedOver: extra?.handedOver ?? null,
+              });
+              return {
+                cells: {
+                  date: d.date,
+                  staff: staffName(r.staffId),
+                  sales: r.sales,
+                  marketDueNew: r.marketDueNew,
+                  marketDueCollected: r.marketDueCollected,
+                  costPaid: r.costPaid,
+                  expectedCash: cash.expected,
+                  handedOver: cash.handedOver,
+                  difference: cash.difference,
+                  flag: extra?.stockMismatch ? "report.flag.stockMismatch" : "",
+                },
+              };
+            }),
+          ),
+          null,
+          seen,
+        ),
+        table(
+          "dsrDailyProducts",
+          [
+            col("date", "text"),
+            col("staff", "text"),
+            product,
+            col("issued", "quantity"),
+            col("returned", "quantity"),
+            col("damaged", "quantity"),
+            col("sold", "quantity"),
+            col("commission", "money"),
+            col("soldValue", "money"),
+          ],
+          output.days.flatMap((d) =>
+            d.persons.map((p) => ({
+              piecesPerCarton: sizes.get(p.productId)?.piecesPerCarton ?? "1",
+              cells: {
+                date: d.date,
+                staff: staffName(p.staffId),
+                product: sizes.get(p.productId)?.name ?? "",
+                issued: p.issued,
+                returned: p.returned,
+                damaged: p.damaged,
+                sold: p.sold,
+                commission: p.commission,
+                soldValue: p.soldValue,
+              },
+            })),
+          ),
+          null,
+          seen,
+        ),
+      ];
+    }
   }
+}
+
+type DsrExtras = Map<string, { handedOver: string | null; stockMismatch: boolean }>;
+
+/**
+ * Per posted DSR day (`date|staffId`): the cash handed over (D39) and whether the sheet's firot
+ * or damage differs from what the field visits left in hand (D40).
+ */
+async function loadDsrExtras(
+  db: Db,
+  companyId: string,
+  from: string,
+  to: string,
+): Promise<DsrExtras> {
+  const range = { gte: toDbDate(from), lte: toDbDate(to) };
+  const [sheets, visits] = await Promise.all([
+    db.dsrDay.findMany({
+      where: { companyId, status: "posted", date: range },
+      select: {
+        staffId: true,
+        date: true,
+        cashHandedOver: true,
+        lines: { select: { productId: true, issued: true, returned: true, damaged: true } },
+      },
+    }),
+    db.fieldVisit.findMany({
+      where: { companyId, status: "locked", date: range },
+      select: {
+        staffId: true,
+        date: true,
+        lines: { select: { productId: true, delivered: true, exchanged: true } },
+      },
+    }),
+  ]);
+  const used = new Map<string, { delivered: string; exchanged: string }[]>();
+  for (const v of visits) {
+    for (const l of v.lines) {
+      const key = `${fromDbDate(v.date)}|${v.staffId}|${l.productId}`;
+      used.set(key, [
+        ...(used.get(key) ?? []),
+        { delivered: plain(l.delivered), exchanged: plain(l.exchanged) },
+      ]);
+    }
+  }
+  const withVisits = new Set(visits.map((v) => `${fromDbDate(v.date)}|${v.staffId}`));
+  const extras: DsrExtras = new Map();
+  for (const s of sheets) {
+    const key = `${fromDbDate(s.date)}|${s.staffId}`;
+    const stockMismatch =
+      withVisits.has(key) &&
+      s.lines.some((l) => {
+        const lines = used.get(`${key}|${l.productId}`) ?? [];
+        const expected = fieldRemaining(plain(l.issued), lines);
+        const exchanged = sumQuantities(["0", ...lines.map((u) => u.exchanged)]);
+        return (
+          !toDecimal(plain(l.returned)).eq(toDecimal(expected)) ||
+          !toDecimal(plain(l.damaged)).eq(toDecimal(exchanged))
+        );
+      });
+    extras.set(key, {
+      handedOver: s.cashHandedOver === null ? null : plain(s.cashHandedOver),
+      stockMismatch,
+    });
+  }
+  return extras;
 }
 
 /** Extra permission per report beyond `report.view`. */
@@ -761,16 +949,17 @@ export async function getReport(
 
   const active = await activeOpening(ctx.db, companyId);
   const run = await rangeRun(ctx.db, access, range.from, to, active);
-  const [names, categories] = await Promise.all([
+  const [names, categories, dsrExtras] = await Promise.all([
     namesFor(ctx.db, access, run?.from ?? range.from),
     categoryNames(ctx.db, access.company.tenantId),
+    run && id === "dsr-daily" ? loadDsrExtras(ctx.db, companyId, run.from, to) : undefined,
   ]);
   return reportSchema.parse({
     report: id,
     from: run?.from ?? range.from,
     to,
     cutoffDate: active?.cutoffDate ?? null,
-    tables: run ? buildTables(id, run.output, names, categories, seen) : [],
+    tables: run ? buildTables(id, run.output, names, categories, seen, run.from, dsrExtras) : [],
     warnings: run?.output.warnings ?? [],
   });
 }

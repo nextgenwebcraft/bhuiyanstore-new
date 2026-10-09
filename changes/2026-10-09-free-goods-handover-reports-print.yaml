@@ -1,0 +1,33 @@
+id: 2026-10-09-free-goods-handover-reports-print
+reason: Close the remaining daily-operation gaps - free-goods incentive (D16), DSR cash handover shown only (D39), the dsr-daily report, the supplier ledger, printing, and a test that a damage refund cannot credit twice.
+owners: [web, application, contracts, domain, database, i18n, docs]
+changedDefinitionIds:
+  - packages/domain - month engine: incentiveReceived adds stock with no bill or payable and pushes a freeGoods memo company entry (quantity, amount 0); per-DSR day money (sold, soldValue, DayResult.dsrs); dsrCashSettlement
+  - packages/application - ledger.ts STOCK_FIELD.incentive; daily.ts incentive posting (purchase.post) and reversal stock check; dsr_day.cash_handed_over saved; month.ts dsr-daily report (dsrDaily + dsrDailyProducts tables, handed over and stock mismatch from locked field visits), company-account statement gains an opening row, a quantity column and the free-goods memo
+  - packages/contracts - stockEntryKinds incentive; incentiveReceived on day/month product rows; dsrDay cashHandedOver; reportIds dsr-daily
+  - apps/web - godown free-goods form and list; DSR sheet cash check with handover input; shared PrintButton/PrintHeader and @media print rules; print on DSR sheet, day report, month, reports, company account, staff accounts and statement, payroll, shop statement dialog, opening
+  - packages/database - stock_entry kind incentive; dsr_day.cash_handed_over
+  - packages/i18n - godown.freeGoods.*, dsr.cash.*, report dsr-daily keys, print.*
+affectedActionIds: [purchase.post, purchase.reverse, sale.create, report.view]
+affectedResources: [stock_entry, dsr_day, report]
+affectedMetrics:
+  - stock: + incentiveReceived (no bill, no payable, no profit effect)
+  - none for handover: display only (D39)
+affectedUi:
+  - inventory receipts (free goods), DSR day sheet, reports/staff (dsr-daily), company account, print on the priority screens
+schemaMigration: 20261009030000_setup_field_panel (shared; additive; applied to test and public)
+backfill: not-applicable
+historicalPolicy: earlier days have no handover (null) and no incentive entries
+contractCompatibility: additive
+cacheAndProjectionPlan: incentive postings invalidate the stock-entry posting effects; reports re-read
+securityReview: no new permission; incentive posting reuses purchase.post; reports keep cost redaction
+knownGaps:
+  - company-ledger is not a separate report; the existing company-account report is the supplier ledger (no duplicate owner)
+  - the damage double-credit guard already existed in damageEventError (refund + replacement <= accepted, under a row lock); this change adds tests only
+  - Bangla print output not checked on paper or PDF; browser walkthrough not done
+tests:
+  - domain - computeMonth free goods (D16), per-DSR day money, refund plus replacement never exceeds acceptance
+  - production-setup.integration.ts - incentive entry, idempotent replay, reversal; payable unchanged
+  - phase-g.integration.ts - a second refund with a new key and an extra replacement are refused
+rollout: deploy the app
+recovery: revert the commit; incentive entries can be reversed first

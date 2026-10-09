@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/page-header";
 import { StatePanel } from "@/components/state-panel";
 import { TableSummary, type SummaryItem } from "@/components/table-summary";
 import { NavGate } from "@/features/shell/nav-gate";
+import { PrintButton, PrintHeader } from "@/features/shell/print";
 import { PageWarnings } from "@/features/shell/notifications";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 import {
@@ -63,6 +64,7 @@ const DAY_COLUMNS: Column[] = [
   qty("day.column.damaged", "damaged"),
   qty("day.column.sold", "sold"),
   { key: "day.column.salePrice", cell: rate("salePrice") },
+  { key: "day.column.commission", cell: amount("commission"), total: "commission" },
   { key: "day.column.sales", cell: amount("sales"), total: "sales" },
   { key: "day.column.costPrice", cell: rate("costPrice"), needs: "cost" },
   { key: "day.column.cost", cell: amount("cost"), needs: "cost", total: "cost" },
@@ -140,6 +142,7 @@ function ProductGrid({ view, shown }: { view: DayView; shown: Column[] }) {
 }
 
 const MONEY_LINES: { key: TranslationKey; field: keyof DayView["money"] }[] = [
+  { key: "day.money.commission", field: "commission" },
   { key: "day.money.sales", field: "sales" },
   { key: "day.money.marketDueNew", field: "marketDueNew" },
   { key: "day.money.marketDueCollected", field: "marketDueCollected" },
@@ -186,8 +189,14 @@ function DayPage({
       <PageHeader
         title={t(title)}
         description={t(description)}
-        actions={<DateBar date={date} onChange={setDate} />}
+        actions={
+          <>
+            <DateBar date={date} onChange={setDate} />
+            <PrintButton />
+          </>
+        }
       />
+      <PrintHeader title={t(title)} from={date} />
       <DateHeading date={date} />
       <DayGate companyId={company.id} date={date}>
         {children}

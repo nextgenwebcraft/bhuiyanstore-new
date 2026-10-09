@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { businessDateSchema, idSchema } from "./primitives";
+import { amountSchema } from "./daily";
+import { businessDateSchema, decimalStringSchema, idSchema } from "./primitives";
 
 const nameSchema = z.string().trim().min(1).max(120);
 
@@ -41,6 +42,8 @@ export const staffAssignmentSchema = z.object({
   roleKind: z.enum(staffRoleKinds),
   from: businessDateSchema,
   to: businessDateSchema.nullable(),
+  /** The payroll default for this period; SR assignments have none (D18). */
+  monthlySalary: decimalStringSchema.nullable(),
 });
 
 export type StaffAssignment = z.infer<typeof staffAssignmentSchema>;
@@ -51,6 +54,8 @@ export const staffRecordSchema = z.object({
   name: z.string().min(1),
   employer: z.enum(staffEmployers),
   status: z.enum(recordStatuses),
+  /** The field-panel sign-in linked to this person (D40); null = none. */
+  loginEmail: z.string().nullable(),
   assignments: z.array(staffAssignmentSchema),
 });
 
@@ -70,6 +75,7 @@ export const staffCreateRequestSchema = staffUpsertRequestSchema.extend({
     roleId: idSchema,
     from: businessDateSchema,
     to: businessDateSchema.nullable(),
+    monthlySalary: amountSchema.nullable().default(null),
   }),
 });
 
@@ -79,6 +85,7 @@ export const staffAssignmentRequestSchema = z.object({
   roleId: idSchema,
   from: businessDateSchema,
   to: businessDateSchema.nullable(),
+  monthlySalary: amountSchema.nullable().default(null),
 });
 
 export type StaffAssignmentRequest = z.infer<typeof staffAssignmentRequestSchema>;

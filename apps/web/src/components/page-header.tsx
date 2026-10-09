@@ -13,7 +13,7 @@ export function PageHeader({
         <h1 className="text-[22px] font-semibold tracking-tight">{title}</h1>
         {description ? <p className="mt-1 text-sm text-text-muted">{description}</p> : null}
       </div>
-      {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
+      {actions ? <div className="flex flex-wrap gap-2 print:hidden">{actions}</div> : null}
     </header>
   );
 }

@@ -40,6 +40,8 @@ export type SheetProduct = {
   row: number;
   /** Pieces per carton from the person-grid formulas; undefined when the sheet has none. */
   cartonSize?: string;
+  /** Every distinct factor the grids use for this product (more than one = P04 conflict). */
+  cartonSizesSeen?: string[];
 };
 
 export type MoneyColumn = {
@@ -222,6 +224,7 @@ export function readMonthSheet(
   if (!grids.length) notes.push("no person grids found");
 
   const cartonSize = new Map<string, Decimal>();
+  const cartonSizesSeen = new Map<string, Set<string>>();
   const persons = new Set<string>();
   let gridFallbacks = 0;
   const gridQuantity = (row: number, totalCol: number, productId: string): Decimal => {
@@ -232,6 +235,9 @@ export function readMonthSheet(
     if (m) {
       const factor = new Decimal(m[3] ?? "1");
       if (!cartonSize.has(productId)) cartonSize.set(productId, factor);
+      const seen = cartonSizesSeen.get(productId) ?? new Set<string>();
+      seen.add(factor.toString());
+      cartonSizesSeen.set(productId, seen);
       const cartons = inputNumber(cellAt(ws, Number(m[2]), columnNumber(m[1] ?? "A")));
       const pieces = inputNumber(cellAt(ws, Number(m[5]), columnNumber(m[4] ?? "A")));
       return (cartons ?? new Decimal(0)).mul(factor).add(pieces ?? new Decimal(0));
@@ -766,6 +772,8 @@ export function readMonthSheet(
   for (const p of products) {
     const size = cartonSize.get(p.id);
     if (size) p.cartonSize = size.toString();
+    const seen = cartonSizesSeen.get(p.id);
+    if (seen) p.cartonSizesSeen = [...seen];
   }
   const noSize = products.filter((p) => !cartonSize.has(p.id)).map((p) => p.name);
   if (noSize.length) notes.push(`carton size not found (using 1) for: ${noSize.join(", ")}`);

@@ -13,12 +13,12 @@ import type {
   DsrDaySaveRequest,
   ExpenseCategory,
   ExpenseCategoryUpsertRequest,
-  ImportCommitRequest,
-  ImportDiscardRequest,
-  ImportJob,
-  ImportJobSummary,
-  ImportMappingRequest,
-  ImportWorkbookSheets,
+  FieldDay,
+  FieldShopCreateRequest,
+  FieldVisit,
+  FieldVisitDeleteRequest,
+  FieldVisitSaveRequest,
+  StaffLoginCreateRequest,
   MoneyEntry,
   MoneyEntryPostRequest,
   MonthCloseResult,
@@ -26,7 +26,6 @@ import type {
   Opening,
   OpeningSaveRequest,
   OpeningTransitionRequest,
-  OpeningWorkbookSheets,
   PayrollAction,
   PayrollRun,
   PayrollSaveRequest,
@@ -43,6 +42,7 @@ import type {
   ReportRange,
   Role,
   RoleUpsertRequest,
+  SetupStatus,
   Shop,
   ShopStatement,
   ShopUpsertRequest,
@@ -303,53 +303,46 @@ export interface DistributionService {
   getOpening(companyId: string, options?: RequestOptions): Promise<Opening>;
   /** Full replace of the entered values at `version`; any change returns it to draft. */
   saveOpening(companyId: string, input: OpeningSaveRequest): Promise<Opening>;
-  /** Lists an uploaded workbook's month sheets, or recognises the standard template. */
-  inspectOpeningWorkbook(companyId: string, file: Blob): Promise<OpeningWorkbookSheets>;
-  /** Imports a month sheet's closing (`sheet`) or a filled template (`sheet: null`). */
-  importOpeningWorkbook(
-    companyId: string,
-    input: { file: Blob; fileName: string; sheet: string | null; version: number },
-  ): Promise<Opening>;
-  /** The standard template pre-filled with the company's products, people and accounts. */
-  downloadOpeningTemplate(companyId: string): Promise<{ fileName: string; file: Blob }>;
   /** Requires `opening.approve`; refused while readiness errors remain. */
   approveOpening(companyId: string, input: OpeningTransitionRequest): Promise<Opening>;
   /** Requires `opening.activate`; locks the snapshot and sets catalog prices at the cutoff. */
   activateOpening(companyId: string, input: OpeningTransitionRequest): Promise<Opening>;
+  /** Requires `company.view`: the nine go-live steps, computed on the server. */
+  getSetupStatus(companyId: string, options?: RequestOptions): Promise<SetupStatus>;
 
-  // Excel month import (PLAN §9 Phase H). Requires `period.close` unless noted.
+  // DSR field panel (D40). The demo mock has none.
 
-  /** Lists an uploaded workbook's month sheets, newest first. */
-  inspectImportWorkbook(companyId: string, file: Blob): Promise<ImportWorkbookSheets>;
-  /** Reads one month sheet into a new job: comparison with Excel and a proposed mapping. */
-  createImportJob(
+  /** Requires `field.entry`: the signed-in DSR's own day (samari in hand, visits, shops). */
+  getFieldDay(companyId: string, date: string, options?: RequestOptions): Promise<FieldDay>;
+  /** Requires `sale.view`: one DSR's field day for the office day-end. */
+  getDsrFieldDay(
     companyId: string,
-    input: {
-      file: Blob;
-      fileName: string;
-      sheet: string;
-      /** Adds blocks after the month's last day to that day. */
-      extraBlocksToLastDay?: boolean;
-      /** Imports up to this date and leaves the month open. */
-      through?: string;
-    },
-  ): Promise<ImportJob>;
-  /** The latest jobs, newest first. */
-  listImportJobs(companyId: string, options?: RequestOptions): Promise<ImportJobSummary[]>;
-  /** A job with its mapping, issues and what a commit would post. */
-  getImportJob(companyId: string, jobId: string, options?: RequestOptions): Promise<ImportJob>;
-  saveImportMapping(
+    staffId: string,
+    date: string,
+    options?: RequestOptions,
+  ): Promise<FieldDay>;
+  /** Creates (no `visitId`) or replaces an own open visit; the price comes from the server. */
+  saveFieldVisit(
     companyId: string,
-    jobId: string,
-    input: ImportMappingRequest,
-  ): Promise<ImportJob>;
-  /** Documents mode also needs every posting permission used; opening mode `opening.prepare`. */
-  commitImportJob(companyId: string, jobId: string, input: ImportCommitRequest): Promise<ImportJob>;
-  discardImportJob(
+    visitId: string | undefined,
+    input: FieldVisitSaveRequest,
+  ): Promise<FieldVisit>;
+  deleteFieldVisit(
     companyId: string,
-    jobId: string,
-    input: ImportDiscardRequest,
-  ): Promise<ImportJob>;
+    visitId: string,
+    input: FieldVisitDeleteRequest,
+  ): Promise<void>;
+  /** Requires `field.shop_create`. */
+  createFieldShop(
+    companyId: string,
+    input: FieldShopCreateRequest,
+  ): Promise<FieldDay["shops"][number]>;
+  /** Super-admin: a field sign-in linked to the DSR. */
+  createStaffLogin(
+    companyId: string,
+    staffId: string,
+    input: StaffLoginCreateRequest,
+  ): Promise<StaffRecord>;
 }
 
 export type ConfigLists = {

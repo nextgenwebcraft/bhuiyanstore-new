@@ -6,8 +6,8 @@ type Group = "marketDue" | "owesUs" | "weOwe" | "companyPayable" | "companyAdvan
 
 export type OpeningKindEffect = {
   group: Group;
-  /** Who the balance belongs to: a person, optionally a person (legacy bucket), a cash account, or nobody. */
-  party: "staff" | "optionalStaff" | "cashAccount" | "none";
+  /** Who the balance belongs to: a person, optionally a person (legacy bucket), a shop, a cash account, or nobody. */
+  party: "staff" | "optionalStaff" | "shop" | "cashAccount" | "none";
   /** The engine's staff balance it opens (D27, guide §11.9). */
   staffBalance?: keyof StaffBalances;
   /** SR-only kinds (D18) and kinds an SR never has (salary, distributor staff money; D02). */
@@ -20,6 +20,8 @@ export type OpeningKindEffect = {
  */
 export const OPENING_KIND_EFFECTS = {
   market_due: { group: "marketDue", party: "optionalStaff" },
+  /** D38: a shop's opening due; it carries into the shop's statement. */
+  shop_due: { group: "marketDue", party: "shop" },
   advance: { group: "owesUs", party: "staff", staffBalance: "advance", personKind: "distributor" },
   loan: { group: "owesUs", party: "staff", staffBalance: "loan", personKind: "distributor" },
   shortage: {
@@ -44,6 +46,19 @@ export const OPENING_KIND_EFFECTS = {
 
 export type OpeningKind = keyof typeof OPENING_KIND_EFFECTS;
 
+/** Setup checklist sections an owner confirms (stock is complete by its own checks). */
+export const OPENING_SECTIONS = ["company", "staff", "shops", "cash"] as const;
+export type OpeningSection = (typeof OPENING_SECTIONS)[number];
+
+/** The checklist section a balance kind belongs to. */
+export function sectionOfKind(kind: OpeningKind): OpeningSection {
+  const effect: OpeningKindEffect = OPENING_KIND_EFFECTS[kind];
+  if (effect.party === "staff") return "staff";
+  if (effect.party === "cashAccount") return "cash";
+  if (effect.party === "none") return "company";
+  return "shops";
+}
+
 export type OpeningStockInput = {
   productId: string;
   pieces: string | null;
@@ -51,8 +66,6 @@ export type OpeningStockInput = {
   salePrice: string | null;
   orderPrice: string | null;
   dueFromCompany: string | null;
-  /** The imported value, kept as evidence; a negative one is flagged for review. */
-  sourcePieces?: string | null;
 };
 
 export type OpeningBalanceInput = {
@@ -60,6 +73,7 @@ export type OpeningBalanceInput = {
   amount: string | null;
   staffId: string | null;
   cashAccountId: string | null;
+  shopId?: string | null;
   /** The person's role kind in this company; SR kinds need an SR (D18). */
   personRoleKind?: "dsr" | "sr" | "general" | null;
 };
@@ -77,6 +91,7 @@ export type OpeningCheckIssue = {
   kind?: OpeningKind;
   staffId?: string;
   cashAccountId?: string;
+  shopId?: string;
 };
 
 export type OpeningCheckTotals = {
@@ -117,9 +132,6 @@ export function checkOpening(input: OpeningCheckInput): {
     const rowIssues: OpeningCheckIssue[] = [];
     const add = (code: string, severity: "error" | "warning") =>
       rowIssues.push({ code, severity, productId: line.productId });
-    if (line.sourcePieces && toDecimal(line.sourcePieces).isNegative()) {
-      add("opening.issue.sourceNegative", "warning");
-    }
     if (line.pieces === null) add("opening.issue.stockUnknown", "error");
     else if (!isWholeNonNegative(line.pieces)) add("opening.issue.stockInvalid", "error");
     const hasStock = line.pieces !== null && toDecimal(line.pieces).gt(0);
@@ -159,12 +171,16 @@ export function checkOpening(input: OpeningCheckInput): {
       kind: line.kind,
       ...(line.staffId ? { staffId: line.staffId } : {}),
       ...(line.cashAccountId ? { cashAccountId: line.cashAccountId } : {}),
+      ...(line.shopId ? { shopId: line.shopId } : {}),
     };
-    const key = `${line.kind}|${line.staffId ?? ""}|${line.cashAccountId ?? ""}`;
+    const key = `${line.kind}|${line.staffId ?? ""}|${line.cashAccountId ?? ""}|${line.shopId ?? ""}`;
     if (seen.has(key)) issues.push({ ...ref, code: "opening.issue.duplicate", severity: "error" });
     seen.add(key);
     if (effect.party === "staff" && !line.staffId) {
       issues.push({ ...ref, code: "opening.issue.personMissing", severity: "error" });
+    }
+    if (effect.party === "shop" && !line.shopId) {
+      issues.push({ ...ref, code: "opening.issue.shopMissing", severity: "error" });
     }
     if (effect.party === "cashAccount" && !line.cashAccountId) {
       issues.push({ ...ref, code: "opening.issue.accountMissing", severity: "error" });
@@ -215,12 +231,22 @@ export function toMonthOpening(input: OpeningCheckInput): MonthOpening {
     };
   }
   const marketDue: Record<string, string> = {};
+  const shopDue: Record<string, string> = {};
   const staff: Record<string, StaffBalances> = {};
   let companyPayable = new Decimal(0);
   for (const line of input.balances) {
     if (line.amount === null) continue;
     const effect: OpeningKindEffect = OPENING_KIND_EFFECTS[line.kind];
-    if (effect.group === "marketDue") {
+    if (effect.party === "shop") {
+      if (!line.shopId) continue;
+      shopDue[line.shopId] = toDecimal(shopDue[line.shopId] ?? "0")
+        .add(line.amount)
+        .toString();
+      // The engine's market due total is the per-DSR map; a shop opening is not a DSR's.
+      marketDue[""] = toDecimal(marketDue[""] ?? "0")
+        .add(line.amount)
+        .toString();
+    } else if (effect.group === "marketDue") {
       const key = line.staffId ?? "";
       marketDue[key] = toDecimal(marketDue[key] ?? "0")
         .add(line.amount)
@@ -236,5 +262,5 @@ export function toMonthOpening(input: OpeningCheckInput): MonthOpening {
       companyPayable = companyPayable.sub(line.amount);
     }
   }
-  return { products, marketDue, staff, companyPayable: companyPayable.toString() };
+  return { products, marketDue, shopDue, staff, companyPayable: companyPayable.toString() };
 }

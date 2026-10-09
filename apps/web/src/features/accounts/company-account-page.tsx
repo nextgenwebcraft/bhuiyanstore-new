@@ -21,6 +21,7 @@ import { clean, money } from "@/features/daily/daily-kit";
 import { ReportTableView } from "@/features/reports/report-page";
 import { companyHref } from "@/features/shell/navigation";
 import { NavGate } from "@/features/shell/nav-gate";
+import { PrintButton, PrintHeader } from "@/features/shell/print";
 import { PageWarnings } from "@/features/shell/notifications";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 
@@ -171,10 +172,14 @@ export function CompanyAccountPage() {
         title={t("nav.finance.companyAccount")}
         description={t("companyAccount.description")}
         actions={
-          <DateRangePicker value={range} onChange={setRange} max={businessDateOf(new Date())} />
+          <>
+            <DateRangePicker value={range} onChange={setRange} max={businessDateOf(new Date())} />
+            <PrintButton />
+          </>
         }
       />
-      <div className="mb-6 flex flex-wrap items-center gap-2">
+      <PrintHeader title={t("nav.finance.companyAccount")} from={range.from} to={range.to} />
+      <div className="mb-6 flex flex-wrap items-center gap-2 print:hidden">
         {allowed.map((kind) => (
           <Button key={kind} variant="primary" onClick={() => setEntry(kind)}>
             + {kindLabel(kind)}

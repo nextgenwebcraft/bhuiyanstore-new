@@ -64,6 +64,11 @@ export type ProductDayInput = {
    */
   replacements?: readonly { quantity: DecimalInput; unitCost: DecimalInput }[];
   /**
+   * Free goods the company gave as an incentive (D16): saleable stock with no bill, no due from
+   * company and no payable. Shown on the company ledger as a memo without an amount.
+   */
+  incentiveReceived?: DecimalInput;
+  /**
    * Money the company returned for damaged goods sent to it (D33). Quantity × price per piece
    * lowers what we owe the company; stock and profit are unchanged.
    */
@@ -86,6 +91,8 @@ export type DsrLineInput = {
   returned?: DecimalInput;
   damaged?: DecimalInput;
   priceSplits?: readonly PriceSplitInput[];
+  /** Taka given to shops on this line (D41); lowers its sales, cash and profit. */
+  commission?: DecimalInput;
 };
 
 export type MoneyKind =
@@ -170,6 +177,8 @@ export type ProductDayResult = {
   orderPrice: string | null;
   costPrice: string | null;
   salePrice: string | null;
+  /** Shop commission on the day's DSR lines (D41); already taken out of `sales`. */
+  commission: string;
   sales: string;
   cost: string;
   grossProfit: string;
@@ -180,6 +189,7 @@ export type ProductDayResult = {
   damageValue: string;
   replacedFromStock: string;
   replacementReceived: string;
+  incentiveReceived: string;
   dueFromCompany: string;
   stock: string;
   stockValue: string;
@@ -192,11 +202,29 @@ export type PersonDayResult = {
   returned: string;
   net: string;
   damaged: string;
+  /** Excel's person amount: net × sale price (+ split adjustment − commission); damaged included. */
   amount: string;
+  /** issued − returned − damaged. */
+  sold: string;
+  commission: string;
+  /** sold × sale price (+ split adjustment − commission): what the DSR sold for cash or due. */
+  soldValue: string;
+};
+
+/** One DSR's money for a day (D39 cash check): sales, dues and costs paid from that cash. */
+export type DsrDayMoneyResult = {
+  staffId: StaffId;
+  sales: string;
+  marketDueNew: string;
+  marketDueCollected: string;
+  /** `staffCostPaid` entries: business costs the DSR paid personally. */
+  costPaid: string;
 };
 
 export type DayMoneyResult = {
+  /** Net of shop commission (D41). */
   sales: string;
+  commission: string;
   marketDueNew: string;
   marketDueCollected: string;
   srIncentive: string;
@@ -212,6 +240,8 @@ export type DayResult = {
   date: string;
   products: ProductDayResult[];
   persons: PersonDayResult[];
+  /** Per DSR with sheet lines or DSR-level money that day. */
+  dsrs: DsrDayMoneyResult[];
   money: DayMoneyResult;
 };
 
@@ -227,6 +257,7 @@ export type ProductMonthResult = {
   orderTotal: string;
   receiptTotal: string;
   receiptSaleTotal: string;
+  commissionTotal: string;
   salesTotal: string;
   costTotal: string;
   profitTotal: string;
@@ -235,6 +266,7 @@ export type ProductMonthResult = {
   replacedFromStock: string;
   replacementReceived: string;
   replacementValue: string;
+  incentiveReceived: string;
   salesCartons: string;
   closingStock: string;
   closingValue: string;
@@ -265,6 +297,7 @@ export type MonthResult = {
   totals: {
     orderTotal: string;
     receiptTotal: string;
+    commissionTotal: string;
     salesTotal: string;
     costTotal: string;
     profitTotal: string;
@@ -354,19 +387,22 @@ export type StaffEntryResult = {
   balances: StaffBalanceValues;
 };
 
-export type CompanyEntryKind = "receipt" | "deposit" | "incentive" | "damageRefund";
+export type CompanyEntryKind = "receipt" | "deposit" | "incentive" | "damageRefund" | "freeGoods";
 
 /**
  * One movement of what we owe the company, in posting order: a day's receipt bills (raises it),
- * a deposit, a cash incentive or a damage money return (lower it).
+ * a deposit, a cash incentive or a damage money return (lower it). `freeGoods` is a memo with
+ * amount 0 (D16).
  */
 export type CompanyEntryResult = {
   date: string;
   kind: CompanyEntryKind;
   amount: string;
   ref?: string;
-  /** The product of a damage money return. */
+  /** The product of a damage money return or free goods. */
   productId?: ProductId;
+  /** Pieces of free goods (memo only). */
+  quantity?: string;
   /** What we owe the company after this entry (negative = our advance with it). */
   balance: string;
 };

@@ -1,7 +1,21 @@
 "use client";
 
-import type { DayView, DsrDay, DsrDaySaveRequest, StaffRecord } from "@bsd/contracts";
-import { sumAmounts, sumQuantities, toBaseQuantity, toCartonDisplay } from "@bsd/domain";
+import type {
+  DayView,
+  DsrDay,
+  DsrDaySaveRequest,
+  FieldDay,
+  MoneyEntry,
+  StaffRecord,
+} from "@bsd/contracts";
+import {
+  dsrCashSettlement,
+  sumAmounts,
+  sumQuantities,
+  toBaseQuantity,
+  toCartonDisplay,
+  toDecimal,
+} from "@bsd/domain";
 import { formatRate, t } from "@bsd/i18n";
 import { useState } from "react";
 import { Button } from "@/components/button";
@@ -12,8 +26,16 @@ import { StatTile } from "@/components/stat-tile";
 import { StatePanel } from "@/components/state-panel";
 import { TableSummary, type SummaryItem } from "@/components/table-summary";
 import { describeError } from "@/data/ports/service-error";
-import { useDsrDayCommand, useDsrDays, useSaveDsrDay, useStaffRecords } from "@/data/queries";
+import {
+  useDsrDayCommand,
+  useDsrDays,
+  useDsrFieldDay,
+  useMoneyEntries,
+  useSaveDsrDay,
+  useStaffRecords,
+} from "@/data/queries";
 import { NavGate } from "@/features/shell/nav-gate";
+import { PrintButton, PrintHeader } from "@/features/shell/print";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 import {
   CartonQty,
@@ -45,6 +67,11 @@ const GROUP = {
   issued: { head: "bg-info/10 text-info", sub: "bg-info/5", cell: "bg-info/[0.03]" },
   returned: { head: "bg-success/10 text-success", sub: "bg-success/5", cell: "bg-success/[0.03]" },
   damaged: { head: "bg-error/10 text-error", sub: "bg-error/5", cell: "bg-error/[0.03]" },
+  commission: {
+    head: "bg-warning/10 text-warning",
+    sub: "bg-warning/5",
+    cell: "bg-warning/[0.03]",
+  },
 } as const;
 const groupHead =
   "border-b border-l border-border px-3 py-2 text-center text-xs font-semibold tracking-wide";
@@ -58,8 +85,9 @@ type LineDraft = {
   returnedCartons: string;
   returnedPieces: string;
   damaged: string;
+  commission: string;
 };
-type SheetDraft = { lines: Record<string, LineDraft> };
+type SheetDraft = { lines: Record<string, LineDraft>; handedOver: string };
 
 const blankLine: LineDraft = {
   issuedCartons: "",
@@ -67,7 +95,9 @@ const blankLine: LineDraft = {
   returnedCartons: "",
   returnedPieces: "",
   damaged: "",
+  commission: "",
 };
+const isAmount = (value: string) => /^\d+(\.\d{1,2})?$/.test(value);
 
 /** DSRs assigned to the company on the date (D23: product custody is DSR-only). */
 export function dsrsOn(records: StaffRecord[], companyId: string, date: string) {
@@ -100,9 +130,10 @@ function draftOf(sheet: DsrDay | undefined): SheetDraft {
       returnedCartons,
       returnedPieces,
       damaged: line.damaged === "0" ? "" : line.damaged,
+      commission: toDecimal(line.commission).isZero() ? "" : line.commission,
     };
   }
-  return { lines };
+  return { lines, handedOver: sheet?.cashHandedOver ?? "" };
 }
 
 const whole = (value: string) => clean(value) || "0";
@@ -113,6 +144,8 @@ function requestOf(
   view: DayView,
   base: { date: string; staffId: string; version: number },
 ): DsrDaySaveRequest | string {
+  const handed = clean(draft.handedOver);
+  if (handed && !isAmount(handed)) return t("validation.opening.amount");
   const lines: DsrDaySaveRequest["lines"] = [];
   for (const product of view.products) {
     const d = draft.lines[product.productId];
@@ -128,10 +161,241 @@ function requestOf(
     const [ic, ip, rc, rp, damaged] = parts as [string, string, string, string, string];
     const issued = toBaseQuantity(ic, ip, product.piecesPerCarton);
     const returned = toBaseQuantity(rc, rp, product.piecesPerCarton);
-    if (issued === "0" && returned === "0" && damaged === "0") continue;
-    lines.push({ productId: product.productId, issued, returned, damaged });
+    const commission = clean(d.commission) || "0";
+    if (!isAmount(commission)) return t("validation.opening.amount");
+    const noCommission = toDecimal(commission).isZero();
+    if (issued === "0" && returned === "0" && damaged === "0" && noCommission) continue;
+    lines.push({
+      productId: product.productId,
+      issued,
+      returned,
+      damaged,
+      commission: noCommission ? "0" : commission,
+    });
   }
-  return { ...base, lines };
+  return { ...base, cashHandedOver: handed || null, lines };
+}
+
+/** Pieces sold × the day's price − commission, before posting (the engine owns the posted figure). */
+function previewSales(lines: DsrDaySaveRequest["lines"], view: DayView): string {
+  const prices = new Map(view.products.map((p) => [p.productId, p.salePrice]));
+  return sumAmounts([
+    "0",
+    ...lines.map((l) => {
+      const sold = toDecimal(l.issued).sub(toDecimal(l.returned)).sub(toDecimal(l.damaged));
+      return sold
+        .mul(toDecimal(prices.get(l.productId) ?? "0"))
+        .sub(toDecimal(l.commission ?? "0"))
+        .toString();
+    }),
+  ]);
+}
+
+const commissionOf = (lines: { commission?: string | undefined }[]) =>
+  sumAmounts(["0", ...lines.map((l) => l.commission ?? "0")]);
+
+/**
+ * What the DSR recorded on the phone (D40): visits per shop, the samari still in hand and flags
+ * where the office sheet disagrees with the field.
+ */
+function FieldEntries({
+  field,
+  draft,
+  view,
+  locked,
+  onPrefill,
+}: {
+  field: FieldDay;
+  draft: SheetDraft;
+  view: DayView;
+  locked: boolean;
+  onPrefill: () => void;
+}) {
+  const prices = new Map(view.products.map((p) => [p.productId, p.salePrice]));
+  const priceMismatch = field.visits.some((v) =>
+    v.lines.some((l) => {
+      const today = prices.get(l.productId);
+      return today !== null && today !== undefined && !toDecimal(today).eq(toDecimal(l.unitPrice));
+    }),
+  );
+  const product = (id: string) => view.products.find((p) => p.productId === id);
+  const mismatch = (kind: "returned" | "damaged") =>
+    field.products.some((p) => {
+      const d = draft.lines[p.productId] ?? blankLine;
+      const size = product(p.productId)?.piecesPerCarton ?? p.piecesPerCarton;
+      const entered =
+        kind === "returned"
+          ? [d.returnedCartons, d.returnedPieces].map(whole)
+          : ["0", whole(d.damaged)];
+      if (!entered.every(isWhole)) return true;
+      const pieces = toBaseQuantity(entered[0] ?? "0", entered[1] ?? "0", size);
+      const expected = kind === "returned" ? p.remaining : p.exchanged;
+      return !toDecimal(pieces).eq(toDecimal(expected));
+    });
+  const flags = [
+    mismatch("returned") ? t("field.office.firotMismatch") : null,
+    mismatch("damaged") ? t("field.office.damagedMismatch") : null,
+    priceMismatch ? t("field.office.priceMismatch") : null,
+  ].filter((f): f is string => f !== null);
+
+  return (
+    <section className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="font-semibold">{t("field.office.title")}</h3>
+          <p className="text-xs text-text-muted">{t("field.office.hint")}</p>
+        </div>
+        {!locked ? <Button onClick={onPrefill}>{t("field.office.prefill")}</Button> : null}
+      </div>
+      {flags.length ? (
+        <ul className="flex flex-col gap-1 text-sm text-warning">
+          {flags.map((f) => (
+            <li key={f}>⚠ {f}</li>
+          ))}
+        </ul>
+      ) : null}
+      <TableScroller>
+        <table className={tableClass}>
+          <thead className={theadClass}>
+            <tr>
+              <th scope="col" className={thClass}>
+                {t("field.shop")}
+              </th>
+              <th scope="col" className={thNum}>
+                {t("field.salesValue")}
+              </th>
+              <th scope="col" className={thNum}>
+                {t("field.cashReceived")}
+              </th>
+              <th scope="col" className={thNum}>
+                {t("field.dueCreated")}
+              </th>
+              <th scope="col" className={thNum}>
+                {t("field.dueCollected")}
+              </th>
+              <th scope="col" className={thNum}>
+                {t("field.exchanged")}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {field.visits.map((v) => (
+              <tr key={v.id} className="border-t border-border">
+                <td className={tdClass}>{v.shopName}</td>
+                <td className={tdNum}>{money(v.salesValue)}</td>
+                <td className={tdNum}>{money(v.cashReceived)}</td>
+                <td className={tdNum}>{money(v.dueCreated)}</td>
+                <td className={tdNum}>{money(v.dueCollected)}</td>
+                <td className={tdNum}>
+                  {quantity(sumQuantities(["0", ...v.lines.map((l) => l.exchanged)]))}
+                </td>
+              </tr>
+            ))}
+            <tr className="border-t-2 border-border font-semibold">
+              <td className={tdClass}>{t("common.total")}</td>
+              <td className={tdNum}>{money(field.totals.sales)}</td>
+              <td className={tdNum}>{money(field.totals.cashReceived)}</td>
+              <td className={tdNum}>{money(field.totals.dueCreated)}</td>
+              <td className={tdNum}>{money(field.totals.dueCollected)}</td>
+              <td className={tdNum}>
+                {quantity(sumQuantities(["0", ...field.products.map((p) => p.exchanged)]))}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </TableScroller>
+      <ul className="grid gap-1 text-sm sm:grid-cols-2">
+        {field.products.map((p) => (
+          <li key={p.productId} className="flex justify-between gap-2">
+            <span className="truncate">{p.productName}</span>
+            <span className="text-text-muted tabular-nums">
+              {t("field.office.expectedFirot")}{" "}
+              <CartonQty pieces={p.remaining} piecesPerCarton={p.piecesPerCarton} />
+            </span>
+          </li>
+        ))}
+      </ul>
+      <p className="text-xs text-text-muted">{t("field.office.duesFromField")}</p>
+    </section>
+  );
+}
+
+/** Day-end cash check (D39): display only, nothing is posted from it. */
+function CashCheck({
+  sales,
+  dueGiven,
+  dueCollected,
+  expenses,
+  handedOver,
+  locked,
+  onHandedOver,
+}: {
+  sales: string;
+  dueGiven: string;
+  dueCollected: string;
+  expenses: string;
+  handedOver: string;
+  locked: boolean;
+  onHandedOver: (value: string) => void;
+}) {
+  const handed = clean(handedOver);
+  const settlement = dsrCashSettlement({
+    sales,
+    dueGiven,
+    dueCollected,
+    expenses,
+    handedOver: handed && /^\d+(\.\d{1,2})?$/.test(handed) ? handed : null,
+  });
+  const diff = settlement.difference;
+  return (
+    <section className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-4">
+      <h3 className="font-semibold">{t("dsr.cash.title")}</h3>
+      <dl className="grid gap-2 text-sm sm:grid-cols-3">
+        {(
+          [
+            ["dsr.cash.sales", sales],
+            ["dsr.cash.dueGiven", dueGiven],
+            ["dsr.cash.dueCollected", dueCollected],
+            ["dsr.cash.expenses", expenses],
+            ["dsr.cash.expected", settlement.expected],
+          ] as const
+        ).map(([key, value]) => (
+          <div
+            key={key}
+            className="flex justify-between gap-2 rounded-md bg-surface-muted px-3 py-2"
+          >
+            <dt className="text-text-muted">{t(key)}</dt>
+            <dd className="font-medium tabular-nums">{money(value)}</dd>
+          </div>
+        ))}
+        <div className="flex items-center justify-between gap-2 rounded-md bg-surface-muted px-3 py-2">
+          <dt className="text-text-muted">{t("dsr.cash.handedOver")}</dt>
+          <dd>
+            <CellInput
+              label={t("dsr.cash.handedOver")}
+              value={handedOver}
+              onChange={onHandedOver}
+              disabled={locked}
+              mode="decimal"
+              width="w-28"
+            />
+          </dd>
+        </div>
+      </dl>
+      {diff !== null ? (
+        <p
+          className={`text-sm font-semibold ${
+            toDecimal(diff).isZero() ? "text-success" : "text-error"
+          }`}
+        >
+          {t("dsr.cash.difference")}: {money(diff)}
+          {toDecimal(diff).isNegative() ? ` (${t("dsr.cash.short")})` : ""}
+          {toDecimal(diff).gt(0) ? ` (${t("dsr.cash.excess")})` : ""}
+        </p>
+      ) : null}
+      <p className="text-xs text-text-muted">{t("dsr.cash.hint")}</p>
+    </section>
+  );
 }
 
 function SheetEditor({
@@ -168,6 +432,42 @@ function SheetEditor({
     view.persons.filter((p) => p.staffId === staff.id).map((p) => [p.productId, p.amount]),
   );
   const entered = typeof built === "string" ? [] : built.lines;
+  const fieldDay = useDsrFieldDay(companyId, staff.id, date);
+  const entries = useMoneyEntries(companyId, { from: date, to: date, staffId: staff.id });
+  const field = fieldDay.data && fieldDay.data.visits.length > 0 ? fieldDay.data : null;
+  const posts = (entries.data ?? []).filter((e) => e.status === "posted");
+  const entrySum = (kind: MoneyEntry["kind"]) =>
+    sumAmounts(["0", ...posts.filter((e) => e.kind === kind).map((e) => e.amount)]);
+  const sheetDue = (value: string | undefined) => value ?? "0";
+  const cash = {
+    sales: posted ? sumAmounts(["0", ...amounts.values()]) : previewSales(entered, view),
+    dueGiven: field
+      ? field.totals.dueCreated
+      : sumAmounts([entrySum("marketDueNew"), sheetDue(sheet?.marketDueNew)]),
+    dueCollected: field
+      ? field.totals.dueCollected
+      : sumAmounts([entrySum("marketDueCollected"), sheetDue(sheet?.marketDueCollected)]),
+    expenses: entrySum("staffCostPaid"),
+  };
+
+  /** Firot = samari still in hand, damaged = pieces exchanged at shops. */
+  function prefillFromField() {
+    if (!field) return;
+    setDraft((d) => {
+      const lines = { ...d.lines };
+      for (const p of field.products) {
+        const size = view.products.find((v) => v.productId === p.productId)?.piecesPerCarton;
+        const [returnedCartons, returnedPieces] = split(p.remaining, size ?? p.piecesPerCarton);
+        lines[p.productId] = {
+          ...(lines[p.productId] ?? blankLine),
+          returnedCartons,
+          returnedPieces,
+          damaged: p.exchanged === "0" ? "" : p.exchanged,
+        };
+      }
+      return { ...d, lines };
+    });
+  }
   const sheetSummary: SummaryItem[] = [
     { label: t("table.summary.products"), value: quantity(String(entered.length)) },
     {
@@ -182,6 +482,7 @@ function SheetEditor({
       label: `${t("dsr.sheet.damaged")} (${t("godown.column.pieces")})`,
       value: quantity(sumQuantities(entered.map((l) => l.damaged))),
     },
+    { label: t("dsr.summary.commission"), value: money(commissionOf(entered)) },
     ...(posted
       ? [
           {
@@ -268,6 +569,9 @@ function SheetEditor({
               <th scope="col" rowSpan={2} className={`${loneHead} ${GROUP.damaged.head}`}>
                 {t("dsr.sheet.damaged")}
               </th>
+              <th scope="col" rowSpan={2} className={`${loneHead} ${GROUP.commission.head}`}>
+                {t("dsr.sheet.commission")}
+              </th>
               <th
                 scope="col"
                 rowSpan={2}
@@ -339,6 +643,14 @@ function SheetEditor({
                   <td className={`${inputCell} border-l ${GROUP.damaged.cell}`}>
                     {cell(product.productId, "damaged", `${name} ${t("dsr.sheet.damaged")}`)}
                   </td>
+                  <td className={`${inputCell} border-l ${GROUP.commission.cell}`}>
+                    {cell(
+                      product.productId,
+                      "commission",
+                      `${name} ${t("dsr.sheet.commission")}`,
+                      "decimal",
+                    )}
+                  </td>
                   <td className={`${tdNum} border-l border-border`}>
                     {product.salePrice ? formatRate(product.salePrice) : "—"}
                   </td>
@@ -352,6 +664,21 @@ function SheetEditor({
         </table>
       </TableScroller>
       <p className="text-xs text-text-muted">{t("dsr.sheet.hint")}</p>
+      {field ? (
+        <FieldEntries
+          field={field}
+          draft={draft}
+          view={view}
+          locked={locked}
+          onPrefill={prefillFromField}
+        />
+      ) : null}
+      <CashCheck
+        {...cash}
+        handedOver={draft.handedOver}
+        locked={locked}
+        onHandedOver={(handedOver) => setDraft((d) => ({ ...d, handedOver }))}
+      />
       {error ? <StatePanel tone="error" title={error} /> : null}
       <div className="flex flex-wrap gap-2">
         {!posted && permissions.includes("sale.create") ? (
@@ -436,6 +763,7 @@ function Sheets({ companyId, date, view }: { companyId: string; date: string; vi
         <StatTile label={pieceLabel("dsr.sheet.issued")} value={dayPieces("issued")} />
         <StatTile label={pieceLabel("dsr.sheet.returned")} value={dayPieces("returned")} />
         <StatTile label={pieceLabel("dsr.sheet.damaged")} value={dayPieces("damaged")} />
+        <StatTile label={t("dsr.summary.commission")} value={money(view.money.commission)} />
         <StatTile label={t("dsr.summary.sales")} value={money(view.money.sales)} emphasis />
       </dl>
       {dsrs.length === 0 ? (
@@ -468,6 +796,7 @@ function dsrSummary(sheet: DsrDay | undefined, view: DayView, staffId: string): 
       label: pieceLabel("dsr.sheet.damaged"),
       value: quantity(sumQuantities(lines.map((l) => l.damaged))),
     },
+    { label: t("dsr.summary.commission"), value: money(commissionOf(lines)) },
     {
       label: t("dsr.summary.dsrSales"),
       value: sheet?.status === "posted" ? money(sumAmounts(sales)) : "—",
@@ -526,8 +855,14 @@ export function DsrDaysPage() {
       <PageHeader
         title={t("nav.sales.dailySummaries")}
         description={t("dsr.sheet.description")}
-        actions={<DateBar date={date} onChange={setDate} />}
+        actions={
+          <>
+            <DateBar date={date} onChange={setDate} />
+            <PrintButton />
+          </>
+        }
       />
+      <PrintHeader title={t("nav.sales.dailySummaries")} from={date} />
       <DateHeading date={date} />
       <DayGate companyId={company.id} date={date} skeleton={<ListSkeleton rows={4} action />}>
         {(view) => <Sheets key={date} companyId={company.id} date={date} view={view} />}

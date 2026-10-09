@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { amountSchema, moneyEntryKinds, owedAllocationSchema } from "./daily";
+import { amountSchema, moneyEntryKinds, owedAllocationSchema, srLoanTypes } from "./daily";
 import { monthSchema, staffBalancesSchema } from "./month";
 import { businessDateSchema, decimalStringSchema, idSchema } from "./primitives";
 
@@ -39,6 +39,8 @@ export const staffStatementLineSchema = z.object({
   kind: z.enum(moneyEntryKinds),
   amount: money,
   payrollRunId: idSchema.nullable(),
+  /** D42: the SR loan type of an SR loan or repayment. */
+  srLoanType: z.enum(srLoanTypes).nullable(),
   change: staffBalancesSchema,
   balances: staffBalancesSchema,
 });

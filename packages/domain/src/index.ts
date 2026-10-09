@@ -23,8 +23,11 @@ export {
 export { ENTITY_TIMEZONE, businessDateOf, shiftBusinessDate } from "./dates";
 export {
   OPENING_KIND_EFFECTS,
+  OPENING_SECTIONS,
   checkOpening,
+  sectionOfKind,
   toMonthOpening,
+  type OpeningSection,
   type OpeningBalanceInput,
   type OpeningCheckInput,
   type OpeningCheckIssue,
@@ -33,6 +36,14 @@ export {
   type OpeningKindEffect,
   type OpeningStockInput,
 } from "./opening";
+export {
+  dsrCashSettlement,
+  fieldRemaining,
+  fieldVisitTotals,
+  lineValue,
+  type FieldLineInput,
+  type FieldVisitTotals,
+} from "./field";
 export { computeMonth } from "./month/compute-month";
 export { summarizeDay, type DaySummary, type DsrDaySummary } from "./month/day-summary";
 export { MONEY_KIND_EFFECTS, type MoneyKindEffect } from "./month/money-kinds";

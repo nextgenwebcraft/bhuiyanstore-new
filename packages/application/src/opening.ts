@@ -1,37 +1,15 @@
-import { createHash } from "node:crypto";
 import {
   openingBalanceKinds,
   openingSaveRequestSchema,
   openingSchema,
-  openingSourceSchema,
-  openingStockSourceSchema,
   openingTransitionRequestSchema,
-  openingWorkbookSheetsSchema,
   type Opening,
   type OpeningBalanceKind,
   type OpeningBalanceLine,
-  type OpeningSource,
   type OpeningStockLine,
-  type OpeningStockSource,
-  type OpeningWorkbookSheets,
 } from "@bsd/contracts";
 import type { Prisma } from "@bsd/database";
-import {
-  OPENING_KIND_EFFECTS,
-  checkOpening,
-  toDecimal,
-  type MonthClosing,
-  type OpeningKindEffect,
-} from "@bsd/domain";
-import {
-  MAX_WORKBOOK_BYTES,
-  buildOpeningTemplate,
-  isOpeningTemplate,
-  loadWorkbook,
-  monthSheetNames,
-  proposeOpening,
-  readOpeningTemplate,
-} from "@bsd/importer";
+import { OPENING_KIND_EFFECTS, checkOpening, type OpeningKindEffect } from "@bsd/domain";
 import { requirePermission, type CompanyAccess } from "./access";
 import { recordAudit } from "./audit";
 import type { AppContext, Tx } from "./context";
@@ -41,24 +19,14 @@ import { runIdempotent } from "./idempotency";
 import { plain } from "./numeric";
 import { packOn } from "./products";
 
-export const MAX_OPENING_WORKBOOK_BYTES = MAX_WORKBOOK_BYTES;
-
 type Db = AppContext["db"] | Tx;
 
 const invalid = (path: string, code: string) => new AppError("VALIDATION_FAILED", [{ path, code }]);
 
-const WHOLE = /^(0|[1-9]\d*)$/;
-const SIGNED_WHOLE = /^(0|-?[1-9]\d*)$/;
-const UNIT_PRICE = /^\d+(\.\d{1,6})?$/;
-const AMOUNT = /^\d+(\.\d{1,2})?$/;
-const accept = (value: string | null | undefined, pattern: RegExp) =>
-  value !== null && value !== undefined && pattern.test(value) ? value : null;
+type PartyRef = { staffId: string | null; cashAccountId: string | null; shopId?: string | null };
 
-export const nameKey = (name: string) => name.replace(/\s+/g, " ").trim().toLowerCase();
-const partyKey = (line: { staffId: string | null; cashAccountId: string | null }) =>
-  line.staffId ?? line.cashAccountId ?? "";
-const lineKey = (line: { kind: string; staffId: string | null; cashAccountId: string | null }) =>
-  `${line.kind}|${partyKey(line)}`;
+const partyKey = (line: PartyRef) => line.shopId ?? line.staffId ?? line.cashAccountId ?? "";
+const lineKey = (line: PartyRef & { kind: string }) => `${line.kind}|${partyKey(line)}`;
 
 // ---------------------------------------------------------------- reading
 
@@ -73,6 +41,7 @@ type Catalog = {
   }[];
   staff: { id: string; name: string; roleKind: "dsr" | "sr" | "general" }[];
   cashAccounts: { id: string; name: string }[];
+  shops: { id: string }[];
 };
 
 async function loadCatalog(
@@ -82,7 +51,7 @@ async function loadCatalog(
 ): Promise<Catalog> {
   const companyId = access.company.id;
   const onDate = cutoffDate ?? todayInDhaka();
-  const [products, staff, cashAccounts] = await Promise.all([
+  const [products, staff, cashAccounts, shops] = await Promise.all([
     db.product.findMany({
       where: { companyId },
       include: { packs: true },
@@ -97,6 +66,7 @@ async function loadCatalog(
       where: { legalEntityId: access.company.legalEntityId, active: true },
       orderBy: { name: "asc" },
     }),
+    db.shop.findMany({ where: { companyId }, select: { id: true } }),
   ]);
   return {
     products: products.map((p) => ({
@@ -119,6 +89,7 @@ async function loadCatalog(
       };
     }),
     cashAccounts: cashAccounts.map((a) => ({ id: a.id, name: a.name })),
+    shops,
   };
 }
 
@@ -130,29 +101,12 @@ async function findSession(db: Db, companyId: string) {
 
 type SessionRow = NonNullable<Awaited<ReturnType<typeof findSession>>>;
 
-function sourceOf(session: SessionRow | null): OpeningSource | null {
-  if (!session?.sourceFileName || !session.sourceSheet || !session.sourceHash) return null;
-  const report = openingSourceSchema
-    .pick({ notes: true, unmatchedProducts: true, unmatchedPersons: true })
-    .safeParse(session.sourceReport);
-  return {
-    fileName: session.sourceFileName,
-    sheet: session.sourceSheet,
-    fileHash: session.sourceHash,
-    importedAt: session.sourceImportedAt?.toISOString() ?? "",
-    notes: report.success ? report.data.notes : [],
-    unmatchedProducts: report.success ? report.data.unmatchedProducts : [],
-    unmatchedPersons: report.success ? report.data.unmatchedPersons : [],
-  };
-}
-
 function toView(companyId: string, session: SessionRow | null, catalog: Catalog): Opening {
   const lines = new Map(session?.stock.map((l) => [l.productId, l]) ?? []);
   const stock: OpeningStockLine[] = catalog.products
     .filter((p) => p.status === "active" || lines.has(p.id))
     .map((p) => {
       const line = lines.get(p.id);
-      const source = openingStockSourceSchema.safeParse(line?.source);
       return {
         productId: p.id,
         sku: p.sku,
@@ -164,7 +118,6 @@ function toView(companyId: string, session: SessionRow | null, catalog: Catalog)
         orderPrice: plain(line?.orderPrice ?? null),
         dueFromCompany: plain(line?.dueFromCompany ?? null),
         note: line?.note ?? "",
-        source: source.success ? source.data : null,
       };
     });
   const balances: OpeningBalanceLine[] = (session?.balances ?? [])
@@ -172,8 +125,8 @@ function toView(companyId: string, session: SessionRow | null, catalog: Catalog)
       kind: b.kind as OpeningBalanceKind,
       staffId: b.staffId,
       cashAccountId: b.cashAccountId,
+      shopId: b.shopId,
       amount: b.amount === null ? null : b.amount.toFixed(2),
-      sourceAmount: plain(b.sourceAmount),
       note: b.note,
     }))
     .sort(
@@ -185,7 +138,7 @@ function toView(companyId: string, session: SessionRow | null, catalog: Catalog)
   const cutoffDate = session?.cutoffDate ? fromDbDate(session.cutoffDate) : null;
   const { issues, totals } = checkOpening({
     cutoffDate,
-    stock: stock.map((l) => ({ ...l, sourcePieces: l.source?.pieces ?? null })),
+    stock,
     balances: balances.map((b) => ({
       ...b,
       personRoleKind: b.staffId ? (roleOf.get(b.staffId) ?? null) : null,
@@ -196,7 +149,6 @@ function toView(companyId: string, session: SessionRow | null, catalog: Catalog)
     status: session?.status ?? "draft",
     version: session?.version ?? 0,
     cutoffDate,
-    source: sourceOf(session),
     stock,
     balances,
     issues,
@@ -206,7 +158,7 @@ function toView(companyId: string, session: SessionRow | null, catalog: Catalog)
   });
 }
 
-async function viewOf(db: Db, access: CompanyAccess): Promise<Opening> {
+export async function openingView(db: Db, access: CompanyAccess): Promise<Opening> {
   const session = await findSession(db, access.company.id);
   const cutoff = session?.cutoffDate ? fromDbDate(session.cutoffDate) : null;
   return toView(access.company.id, session, await loadCatalog(db, access, cutoff));
@@ -214,7 +166,7 @@ async function viewOf(db: Db, access: CompanyAccess): Promise<Opening> {
 
 export async function getOpening(ctx: AppContext, companyId: string): Promise<Opening> {
   const access = await requirePermission(ctx, companyId, "opening.prepare");
-  return viewOf(ctx.db, access);
+  return openingView(ctx.db, access);
 }
 
 // ---------------------------------------------------------------- writing
@@ -253,10 +205,13 @@ async function claimVersion(
   throw invalid("version", "validation.opening.stale");
 }
 
-function checkParty(
-  effect: OpeningKindEffect,
-  line: { staffId: string | null; cashAccountId: string | null },
-): string | null {
+function checkParty(effect: OpeningKindEffect, line: PartyRef): string | null {
+  if (effect.party === "shop") {
+    return !line.shopId || line.staffId || line.cashAccountId
+      ? "validation.opening.shopRequired"
+      : null;
+  }
+  if (line.shopId) return "validation.opening.noParty";
   if (effect.party === "staff" && (!line.staffId || line.cashAccountId)) {
     return "validation.opening.personRequired";
   }
@@ -270,17 +225,16 @@ function checkParty(
   return null;
 }
 
-type BalanceWrite = Omit<OpeningBalanceLine, "sourceAmount">;
-
 function validateRefs(
   catalog: Catalog,
   stock: { productId: string }[],
-  balances: BalanceWrite[],
+  balances: OpeningBalanceLine[],
 ): void {
   const errors: FieldError[] = [];
   const productIds = new Set(catalog.products.map((p) => p.id));
   const staffIds = new Set(catalog.staff.map((s) => s.id));
   const accountIds = new Set(catalog.cashAccounts.map((a) => a.id));
+  const shopIds = new Set(catalog.shops.map((s) => s.id));
   const seenProducts = new Set<string>();
   stock.forEach((line, i) => {
     if (!productIds.has(line.productId) || seenProducts.has(line.productId)) {
@@ -298,6 +252,9 @@ function validateRefs(
     if (line.cashAccountId && !accountIds.has(line.cashAccountId)) {
       errors.push({ path: `balances.${i}.cashAccountId`, code: "validation.cashAccount.unknown" });
     }
+    if (line.shopId && !shopIds.has(line.shopId)) {
+      errors.push({ path: `balances.${i}.shopId`, code: "validation.shop.unknown" });
+    }
     const key = lineKey(line);
     if (seen.has(key))
       errors.push({ path: `balances.${i}.kind`, code: "validation.opening.duplicate" });
@@ -306,8 +263,7 @@ function validateRefs(
   if (errors.length) throw new AppError("VALIDATION_FAILED", errors);
 }
 
-async function replaceBalances(tx: Tx, session: SessionRow, balances: BalanceWrite[]) {
-  const sources = new Map(session.balances.map((b) => [lineKey(b), b.sourceAmount]));
+async function replaceBalances(tx: Tx, session: SessionRow, balances: OpeningBalanceLine[]) {
   await tx.openingBalanceLine.deleteMany({ where: { sessionId: session.id } });
   if (!balances.length) return;
   await tx.openingBalanceLine.createMany({
@@ -316,15 +272,15 @@ async function replaceBalances(tx: Tx, session: SessionRow, balances: BalanceWri
       kind: b.kind,
       staffId: b.staffId,
       cashAccountId: b.cashAccountId,
+      shopId: b.shopId,
       partyKey: partyKey(b),
       amount: b.amount,
-      sourceAmount: sources.get(lineKey(b)) ?? null,
       note: b.note,
     })),
   });
 }
 
-/** Full replace of the editable values; imported evidence (`source`) is kept as it was. */
+/** Full replace of the editable values; a section whose values change loses its confirmation. */
 export async function saveOpening(
   ctx: AppContext,
   companyId: string,
@@ -370,539 +326,9 @@ export async function saveOpening(
         resourceId: session.id,
         after: data,
       });
-      return viewOf(tx, access);
+      return openingView(tx, access);
     },
   );
-}
-
-// ---------------------------------------------------------------- import
-
-type ProposedStock = {
-  productId: string;
-  source: OpeningStockSource;
-  pieces: string | null;
-  unitCost: string | null;
-  salePrice: string | null;
-  orderPrice: string | null;
-  dueFromCompany: string | null;
-  note?: string;
-};
-
-type ProposedBalance = BalanceWrite & { sourceAmount: string | null };
-
-type ImportResult = {
-  stock: ProposedStock[];
-  balances: ProposedBalance[];
-  report: Pick<OpeningSource, "notes" | "unmatchedProducts" | "unmatchedPersons">;
-  /** Template uploads are the owner's own entries and replace adjusted values. */
-  overwrite: boolean;
-};
-
-function readWorkbookBytes(data: Uint8Array): void {
-  if (data.byteLength === 0) throw invalid("file", "validation.opening.fileEmpty");
-  if (data.byteLength > MAX_WORKBOOK_BYTES)
-    throw invalid("file", "validation.opening.fileTooLarge");
-}
-
-async function openWorkbook(data: Uint8Array) {
-  readWorkbookBytes(data);
-  try {
-    return await loadWorkbook(data);
-  } catch {
-    throw invalid("file", "validation.opening.fileUnreadable");
-  }
-}
-
-/** Month sheets of an uploaded workbook, or `template: true` for the standard template. */
-export async function inspectOpeningWorkbook(
-  ctx: AppContext,
-  companyId: string,
-  data: Uint8Array,
-): Promise<OpeningWorkbookSheets> {
-  await requirePermission(ctx, companyId, "opening.prepare");
-  const workbook = await openWorkbook(data);
-  return openingWorkbookSheetsSchema.parse(
-    isOpeningTemplate(workbook)
-      ? { sheets: [], template: true }
-      : { sheets: monthSheetNames(workbook), template: false },
-  );
-}
-
-export function matchPerson<T extends { name: string }>(label: string, staff: T[]): T | undefined {
-  const key = nameKey(label);
-  return staff.find((s) => {
-    const name = nameKey(s.name);
-    return key === name || key.endsWith(` ${name}`) || key.split(" ").includes(name);
-  });
-}
-
-const STAFF_KIND_OF: Record<string, OpeningBalanceKind> = {
-  advance: "advance",
-  loan: "loan",
-  shortage: "shortage",
-  credit: "credit",
-  salaryPayable: "salary_payable",
-  srLoan: "sr_loan",
-  owedToSr: "owed_to_sr",
-};
-
-function fromMonthSheet(
-  workbook: Awaited<ReturnType<typeof loadWorkbook>>,
-  sheet: string,
-  catalog: Catalog,
-): ImportResult {
-  if (!monthSheetNames(workbook).includes(sheet))
-    throw invalid("sheet", "validation.opening.sheet");
-  let proposal;
-  try {
-    proposal = proposeOpening(workbook, sheet);
-  } catch {
-    throw invalid("sheet", "validation.opening.sheetLayout");
-  }
-  const byName = new Map<string, string>();
-  for (const p of catalog.products) {
-    for (const name of [p.name, ...p.aliases]) byName.set(nameKey(name), p.id);
-  }
-  const unmatchedProducts: string[] = [];
-  const stock: ProposedStock[] = [];
-  for (const p of proposal.products) {
-    const productId = byName.get(nameKey(p.label));
-    if (!productId) {
-      unmatchedProducts.push(p.label);
-      continue;
-    }
-    stock.push({
-      productId,
-      source: {
-        label: p.label,
-        pieces: p.stock,
-        unitCost: p.costPrice ?? null,
-        salePrice: p.salePrice ?? null,
-        orderPrice: p.orderPrice ?? null,
-        dueFromCompany: p.dueFromCompany,
-      },
-      pieces: accept(p.stock, WHOLE),
-      unitCost: accept(p.costPrice, UNIT_PRICE),
-      salePrice: accept(p.salePrice, UNIT_PRICE),
-      orderPrice: accept(p.orderPrice, UNIT_PRICE),
-      dueFromCompany: accept(p.dueFromCompany, SIGNED_WHOLE),
-    });
-  }
-
-  const unmatchedPersons: OpeningSource["unmatchedPersons"] = [];
-  const balances: ProposedBalance[] = [];
-  const add = (kind: OpeningBalanceKind, staffId: string | null, value: string) => {
-    balances.push({
-      kind,
-      staffId,
-      cashAccountId: null,
-      amount: accept(value, AMOUNT),
-      sourceAmount: value,
-      note: "",
-    });
-  };
-  for (const due of proposal.marketDue) {
-    const person = due.label ? matchPerson(due.label, catalog.staff) : undefined;
-    if (due.label && !person) {
-      unmatchedPersons.push({ label: due.label, detail: `market_due ${due.amount}` });
-      continue;
-    }
-    add("market_due", person?.id ?? null, due.amount);
-  }
-  for (const s of proposal.staff) {
-    const person = matchPerson(s.label, catalog.staff);
-    if (!person) {
-      unmatchedPersons.push({
-        label: s.label,
-        detail: Object.entries(s.balances)
-          .map(([k, v]) => `${k} ${v}`)
-          .join("; "),
-      });
-      continue;
-    }
-    for (const [key, value] of Object.entries(s.balances)) {
-      const kind = STAFF_KIND_OF[key];
-      if (kind && value) add(kind, person.id, value);
-    }
-  }
-  if (proposal.companyPayable && !/^-?0(\.0+)?$/.test(proposal.companyPayable)) {
-    const negative = proposal.companyPayable.startsWith("-");
-    add(
-      negative ? "company_advance" : "company_payable",
-      null,
-      proposal.companyPayable.replace(/^-/, ""),
-    );
-  }
-  return {
-    stock,
-    balances,
-    report: { notes: proposal.notes, unmatchedProducts, unmatchedPersons },
-    overwrite: false,
-  };
-}
-
-function fromTemplate(
-  workbook: Awaited<ReturnType<typeof loadWorkbook>>,
-  catalog: Catalog,
-): ImportResult {
-  const rows = readOpeningTemplate(workbook);
-  const notes: string[] = [];
-  const unmatchedProducts: string[] = [];
-  const unmatchedPersons: OpeningSource["unmatchedPersons"] = [];
-  const bySku = new Map(catalog.products.map((p) => [p.sku, p.id]));
-  const check = (row: number, column: string, value: string | null, pattern: RegExp) => {
-    if (value === null || pattern.test(value)) return value;
-    notes.push(`Products row ${row}: ${column} "${value}" is not valid; left blank`);
-    return null;
-  };
-  const stock: ProposedStock[] = [];
-  for (const r of rows.products) {
-    const productId = bySku.get(r.code);
-    if (!productId) {
-      unmatchedProducts.push(r.code || `row ${r.row}`);
-      continue;
-    }
-    const values = {
-      pieces: check(r.row, "pieces", r.pieces, WHOLE),
-      unitCost: check(r.row, "unit_cost", r.unitCost, UNIT_PRICE),
-      salePrice: check(r.row, "sale_price", r.salePrice, UNIT_PRICE),
-      orderPrice: check(r.row, "order_price", r.orderPrice, UNIT_PRICE),
-      dueFromCompany: check(r.row, "due_from_company", r.dueFromCompany, SIGNED_WHOLE),
-    };
-    stock.push({
-      productId,
-      source: {
-        label: r.code,
-        pieces: r.pieces,
-        unitCost: r.unitCost,
-        salePrice: r.salePrice,
-        orderPrice: r.orderPrice,
-        dueFromCompany: r.dueFromCompany,
-      },
-      ...values,
-      note: r.note,
-    });
-  }
-  const balances: ProposedBalance[] = [];
-  for (const r of rows.balances) {
-    const kind = openingBalanceKinds.find((k) => k === r.kind);
-    if (!kind) {
-      notes.push(`Balances row ${r.row}: unknown kind "${r.kind}"`);
-      continue;
-    }
-    const effect: OpeningKindEffect = OPENING_KIND_EFFECTS[kind];
-    const person = r.person ? matchPerson(r.person, catalog.staff) : undefined;
-    if (r.person && !person) {
-      unmatchedPersons.push({ label: r.person, detail: `${kind} ${r.amount ?? ""}`.trim() });
-      continue;
-    }
-    const account = r.cashAccount
-      ? catalog.cashAccounts.find((a) => nameKey(a.name) === nameKey(r.cashAccount))
-      : undefined;
-    if (r.cashAccount && !account) {
-      notes.push(`Balances row ${r.row}: unknown cash account "${r.cashAccount}"`);
-      continue;
-    }
-    const line = {
-      kind,
-      staffId:
-        effect.party === "staff" || effect.party === "optionalStaff" ? (person?.id ?? null) : null,
-      cashAccountId: effect.party === "cashAccount" ? (account?.id ?? null) : null,
-    };
-    if (checkParty(effect, line)) {
-      notes.push(`Balances row ${r.row}: ${kind} needs ${effect.party}`);
-      continue;
-    }
-    if (r.amount !== null && !AMOUNT.test(r.amount)) {
-      notes.push(`Balances row ${r.row}: amount "${r.amount}" is not valid; left blank`);
-    }
-    balances.push({ ...line, amount: accept(r.amount, AMOUNT), sourceAmount: null, note: r.note });
-  }
-  return {
-    stock,
-    balances,
-    report: { notes, unmatchedProducts, unmatchedPersons },
-    overwrite: true,
-  };
-}
-
-const stockFields = ["pieces", "unitCost", "salePrice", "orderPrice", "dueFromCompany"] as const;
-
-/**
- * Re-importing never wipes the owner's adjustments: a value is replaced only where it still
- * equals what the previous import proposed (or is blank and nothing was proposed before).
- */
-async function applyImport(tx: Tx, session: SessionRow, result: ImportResult) {
-  for (const p of result.stock) {
-    const existing = session.stock.find((l) => l.productId === p.productId);
-    const before = openingStockSourceSchema.safeParse(existing?.source);
-    const values: Record<(typeof stockFields)[number], string | null> = {
-      pieces: null,
-      unitCost: null,
-      salePrice: null,
-      orderPrice: null,
-      dueFromCompany: null,
-    };
-    for (const field of stockFields) {
-      const current = plain(existing?.[field] ?? null);
-      const proposedBefore = before.success ? before.data[field] : null;
-      const untouched = !existing || current === null || current === proposedBefore;
-      values[field] = result.overwrite || untouched ? p[field] : current;
-    }
-    const data = {
-      ...values,
-      source: p.source as Prisma.InputJsonValue,
-      ...(p.note !== undefined ? { note: p.note } : {}),
-    };
-    await tx.openingStockLine.upsert({
-      where: { sessionId_productId: { sessionId: session.id, productId: p.productId } },
-      create: { sessionId: session.id, productId: p.productId, ...data },
-      update: data,
-    });
-  }
-  for (const b of result.balances) {
-    const existing = session.balances.find((l) => lineKey(l) === lineKey(b));
-    const current = existing?.amount ? existing.amount.toFixed(2) : null;
-    const before = existing?.sourceAmount ? accept(plain(existing.sourceAmount), AMOUNT) : null;
-    const untouched = !existing || current === null || current === before;
-    const amount = result.overwrite || untouched ? b.amount : current;
-    const data = {
-      amount,
-      sourceAmount: b.sourceAmount,
-      ...(b.note ? { note: b.note } : {}),
-    };
-    if (existing) {
-      await tx.openingBalanceLine.update({ where: { id: existing.id }, data });
-    } else {
-      await tx.openingBalanceLine.create({
-        data: {
-          sessionId: session.id,
-          kind: b.kind,
-          staffId: b.staffId,
-          cashAccountId: b.cashAccountId,
-          partyKey: partyKey(b),
-          note: b.note,
-          ...data,
-        },
-      });
-    }
-  }
-}
-
-/**
- * Imports a completed month sheet (its closing becomes the proposed opening, D26) or a filled
- * standard template (guide §16.7). The workbook itself is never stored, only its hash and the
- * extracted values with their source.
- */
-export async function importOpeningWorkbook(
-  ctx: AppContext,
-  companyId: string,
-  input: { data: Uint8Array; fileName: string; sheet: string | null; version: number },
-  requestKey?: string,
-): Promise<Opening> {
-  const access = await requirePermission(ctx, companyId, "opening.prepare", { write: true });
-  const fileHash = createHash("sha256").update(input.data).digest("hex");
-  const fileName = input.fileName.slice(0, 200) || "workbook.xlsx";
-  const workbook = await openWorkbook(input.data);
-  const template = isOpeningTemplate(workbook);
-  if (!template && !input.sheet) throw invalid("sheet", "validation.opening.sheet");
-  const sheet = template ? "template" : (input.sheet ?? "");
-  const before = await findSession(ctx.db, companyId);
-  const cutoff = before?.cutoffDate ? fromDbDate(before.cutoffDate) : null;
-  const result = template
-    ? fromTemplate(workbook, await loadCatalog(ctx.db, access, cutoff))
-    : fromMonthSheet(workbook, sheet, await loadCatalog(ctx.db, access, cutoff));
-  return runIdempotent(
-    ctx,
-    { scope: companyId, action: "opening.import", requestKey },
-    { fileHash, sheet, version: input.version },
-    async (tx) => {
-      const session = await ensureSession(tx, access);
-      await claimVersion(tx, session, input.version, {
-        sourceFileName: fileName,
-        sourceSheet: sheet,
-        sourceHash: fileHash,
-        sourceImportedAt: new Date(),
-        sourceReport: result.report as Prisma.InputJsonValue,
-      });
-      await applyImport(tx, session, result);
-      await recordAudit(tx, ctx, {
-        companyId,
-        action: "opening.import",
-        resourceType: "opening",
-        resourceId: session.id,
-        after: {
-          fileName,
-          fileHash,
-          sheet,
-          products: result.stock.length,
-          balances: result.balances.length,
-          ...result.report,
-        },
-      });
-      return viewOf(tx, access);
-    },
-  );
-}
-
-/**
- * Writes a mapped month closing into the draft opening (PLAN §8 step 5, a month before go-live):
- * products and people are already catalog IDs. The go-live date becomes the next month's first
- * day. Same merge rules as a sheet upload: the owner's adjustments are kept.
- */
-export async function importOpeningFromClosing(
-  tx: Tx,
-  ctx: AppContext,
-  access: CompanyAccess,
-  input: {
-    version: number;
-    cutoffDate: string;
-    fileName: string;
-    sheet: string;
-    fileHash: string;
-    jobId: string;
-    closing: MonthClosing;
-    products: { productId: string; label: string }[];
-    notes: string[];
-  },
-): Promise<void> {
-  const { closing } = input;
-  const stock: ProposedStock[] = [];
-  for (const p of input.products) {
-    const c = closing.products[p.productId];
-    if (!c) continue;
-    stock.push({
-      productId: p.productId,
-      source: {
-        label: p.label,
-        pieces: c.stock,
-        unitCost: c.costPrice ?? null,
-        salePrice: c.salePrice ?? null,
-        orderPrice: c.orderPrice ?? null,
-        dueFromCompany: c.dueFromCompany,
-      },
-      pieces: accept(c.stock, WHOLE),
-      unitCost: accept(c.costPrice, UNIT_PRICE),
-      salePrice: accept(c.salePrice, UNIT_PRICE),
-      orderPrice: accept(c.orderPrice, UNIT_PRICE),
-      dueFromCompany: accept(c.dueFromCompany, SIGNED_WHOLE),
-    });
-  }
-  const balances: ProposedBalance[] = [];
-  const add = (kind: OpeningBalanceKind, staffId: string | null, value: string) => {
-    if (toDecimal(value).isZero()) return;
-    balances.push({
-      kind,
-      staffId,
-      cashAccountId: null,
-      amount: accept(value, AMOUNT),
-      sourceAmount: value,
-      note: "",
-    });
-  };
-  for (const [staffKey, amount] of Object.entries(closing.marketDue)) {
-    add("market_due", staffKey || null, amount);
-  }
-  for (const [staffId, values] of Object.entries(closing.staff)) {
-    for (const [key, value] of Object.entries(values)) {
-      const kind = STAFF_KIND_OF[key];
-      if (kind && value) add(kind, staffId, value);
-    }
-  }
-  const payable = toDecimal(closing.companyPayable);
-  if (payable.isNegative()) add("company_advance", null, payable.abs().toString());
-  else add("company_payable", null, payable.toString());
-
-  const report = { notes: input.notes, unmatchedProducts: [], unmatchedPersons: [] };
-  const session = await ensureSession(tx, access);
-  await claimVersion(tx, session, input.version, {
-    cutoffDate: toDbDate(input.cutoffDate),
-    sourceFileName: input.fileName,
-    sourceSheet: input.sheet,
-    sourceHash: input.fileHash,
-    sourceImportedAt: new Date(),
-    sourceReport: report as Prisma.InputJsonValue,
-  });
-  await applyImport(tx, session, { stock, balances, report, overwrite: false });
-  await recordAudit(tx, ctx, {
-    companyId: access.company.id,
-    action: "opening.import",
-    resourceType: "opening",
-    resourceId: session.id,
-    after: {
-      importJobId: input.jobId,
-      fileName: input.fileName,
-      fileHash: input.fileHash,
-      sheet: input.sheet,
-      cutoffDate: input.cutoffDate,
-      products: stock.length,
-      balances: balances.length,
-    },
-  });
-}
-
-/** The company's standard opening template with its current values (guide §16.7). */
-export async function openingTemplate(
-  ctx: AppContext,
-  companyId: string,
-): Promise<{ fileName: string; data: Uint8Array }> {
-  const access = await requirePermission(ctx, companyId, "opening.prepare");
-  const session = await findSession(ctx.db, companyId);
-  const catalog = await loadCatalog(
-    ctx.db,
-    access,
-    session?.cutoffDate ? fromDbDate(session.cutoffDate) : null,
-  );
-  const view = toView(companyId, session, catalog);
-  const staffName = new Map(catalog.staff.map((s) => [s.id, s.name]));
-  const accountName = new Map(catalog.cashAccounts.map((a) => [a.id, a.name]));
-  const existing = new Map(view.balances.map((b) => [lineKey(b), b]));
-  const rows: { kind: OpeningBalanceKind; staffId: string | null; cashAccountId: string | null }[] =
-    [{ kind: "market_due", staffId: null, cashAccountId: null }];
-  for (const s of catalog.staff) {
-    if (s.roleKind === "dsr") rows.push({ kind: "market_due", staffId: s.id, cashAccountId: null });
-  }
-  for (const s of catalog.staff) {
-    for (const kind of openingBalanceKinds) {
-      const effect: OpeningKindEffect = OPENING_KIND_EFFECTS[kind];
-      if (effect.party !== "staff") continue;
-      if ((effect.personKind === "sr") !== (s.roleKind === "sr")) continue;
-      rows.push({ kind, staffId: s.id, cashAccountId: null });
-    }
-  }
-  rows.push(
-    { kind: "company_payable", staffId: null, cashAccountId: null },
-    { kind: "company_advance", staffId: null, cashAccountId: null },
-  );
-  for (const a of catalog.cashAccounts)
-    rows.push({ kind: "cash", staffId: null, cashAccountId: a.id });
-  for (const b of view.balances) if (!rows.some((r) => lineKey(r) === lineKey(b))) rows.push(b);
-
-  const data = await buildOpeningTemplate({
-    products: view.stock.map((l) => ({
-      code: l.sku,
-      name: l.productName,
-      cartonSize: l.piecesPerCarton,
-      pieces: l.pieces,
-      unitCost: l.unitCost,
-      salePrice: l.salePrice,
-      orderPrice: l.orderPrice,
-      dueFromCompany: l.dueFromCompany,
-      note: l.note,
-    })),
-    balances: rows.map((r) => {
-      const current = existing.get(lineKey(r));
-      return {
-        kind: r.kind,
-        person: r.staffId ? (staffName.get(r.staffId) ?? "") : "",
-        cashAccount: r.cashAccountId ? (accountName.get(r.cashAccountId) ?? "") : "",
-        amount: current?.amount ?? null,
-        note: current?.note ?? "",
-      };
-    }),
-  });
-  const safeName = access.company.name.replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "");
-  return { fileName: `opening-${safeName || "company"}.xlsx`, data };
 }
 
 // ---------------------------------------------------------------- approval and activation
@@ -934,7 +360,7 @@ export async function approveOpening(
     { version },
     async (tx) => {
       const session = await requireSession(tx, companyId, version, "draft");
-      const view = await viewOf(tx, access);
+      const view = await openingView(tx, access);
       if (view.issues.some((i) => i.severity === "error")) {
         throw invalid("", "validation.opening.hasErrors");
       }
@@ -950,7 +376,7 @@ export async function approveOpening(
         resourceId: session.id,
         after: { version, totals: view.totals },
       });
-      return viewOf(tx, access);
+      return openingView(tx, access);
     },
   );
 }
@@ -974,7 +400,7 @@ export async function activateOpening(
     { version },
     async (tx) => {
       const session = await requireSession(tx, companyId, version, "approved");
-      const view = await viewOf(tx, access);
+      const view = await openingView(tx, access);
       if (!view.cutoffDate || view.issues.some((i) => i.severity === "error")) {
         throw invalid("", "validation.opening.hasErrors");
       }
@@ -1028,7 +454,7 @@ export async function activateOpening(
         resourceId: session.id,
         after: { version, cutoffDate: view.cutoffDate, totals: view.totals, pricesSet: prices },
       });
-      return viewOf(tx, access);
+      return openingView(tx, access);
     },
   );
 }

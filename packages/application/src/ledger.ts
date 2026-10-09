@@ -13,6 +13,7 @@ import {
   type PriceKind,
   type ProductDayInput,
 } from "@bsd/domain";
+import type { StockEntryKind } from "@bsd/contracts";
 import type { CompanyAccess } from "./access";
 import type { AppContext, Tx } from "./context";
 import { fromDbDate, toDbDate } from "./dates";
@@ -33,10 +34,14 @@ const ENGINE_PRICE: Record<string, PriceKind> = {
   sale: "salePrice",
 };
 
-const STOCK_FIELD: Record<string, "ordered" | "received" | "damaged"> = {
+const STOCK_FIELD: Record<
+  StockEntryKind,
+  "ordered" | "received" | "damaged" | "incentiveReceived"
+> = {
   order: "ordered",
   receipt: "received",
   damage: "damaged",
+  incentive: "incentiveReceived",
 };
 
 export const monthOf = (date: string) => date.slice(0, 7);
@@ -106,6 +111,7 @@ export async function activeOpening(db: Db, companyId: string): Promise<ActiveOp
       amount: plain(line.amount),
       staffId: line.staffId,
       cashAccountId: line.cashAccountId,
+      shopId: line.shopId,
     })),
   });
   return { sessionId: session.id, cutoffDate, opening };
@@ -190,7 +196,7 @@ async function rangeInput(
 
   for (const entry of stock) {
     const target = dayProduct(fromDbDate(entry.date), entry.productId) as Record<string, string>;
-    const field = STOCK_FIELD[entry.kind] ?? "damaged";
+    const field = STOCK_FIELD[entry.kind as StockEntryKind] ?? "damaged";
     target[field] = sumQuantities([target[field] ?? "0", plain(entry.pieces)]);
   }
 
@@ -203,6 +209,7 @@ async function rangeInput(
         issued: plain(line.issued),
         returned: plain(line.returned),
         damaged: plain(line.damaged),
+        commission: plain(line.commission),
         priceSplits: line.splits.map((s) => ({
           quantity: plain(s.quantity),
           unitPrice: plain(s.unitPrice),
