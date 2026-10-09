@@ -237,8 +237,14 @@ describe("Phase G: staff and SR accounts", () => {
   });
 
   it("T25: SR loan and repayment move cash and the SR receivable only", async () => {
-    await money("2026-09-03", "srLoan", "1000", id.karim);
-    await money("2026-09-03", "srRepayment", "400", id.karim);
+    await expectField(
+      money("2026-09-03", "srLoan", "1", id.karim),
+      "srLoanType",
+      "validation.money.srLoanTypeRequired",
+    );
+    await money("2026-09-03", "srLoan", "700", id.karim, { srLoanType: "cash" });
+    await money("2026-09-03", "srLoan", "300", id.karim, { srLoanType: "commission" });
+    await money("2026-09-03", "srRepayment", "400", id.karim, { srLoanType: "commission" });
     expect((await getDayView(ctx, company, "2026-09-03")).money).toMatchObject({
       cashIn: "400",
       cashOut: "1000",
@@ -253,6 +259,11 @@ describe("Phase G: staff and SR accounts", () => {
     });
     expect(statement.kind).toBe("sr");
     expect(statement.closing.srLoan).toBe("600");
+    expect(statement.lines.map((l) => [l.kind, l.srLoanType])).toEqual([
+      ["srLoan", "cash"],
+      ["srLoan", "commission"],
+      ["srRepayment", "commission"],
+    ]);
     const profit = (await closingOn("2026-09-03")).month.profit;
     expect(profit).toMatchObject({ salaries: "0", expenses: "0" });
   });

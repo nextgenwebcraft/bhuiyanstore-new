@@ -209,6 +209,7 @@ async function rangeInput(
         issued: plain(line.issued),
         returned: plain(line.returned),
         damaged: plain(line.damaged),
+        commission: plain(line.commission),
         priceSplits: line.splits.map((s) => ({
           quantity: plain(s.quantity),
           unitPrice: plain(s.unitPrice),

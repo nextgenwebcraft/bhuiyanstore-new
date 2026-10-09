@@ -10,6 +10,7 @@ import {
   moneyEntrySchema,
   moneyKindPermission,
   moneyKindPerson,
+  srLoanTypeKinds,
   stockEntryPostRequestSchema,
   stockEntrySchema,
   type DashboardSummary,
@@ -38,6 +39,8 @@ import { runIdempotent } from "./idempotency";
 import { activeOpening, allocationOf, monthOf, runLedger } from "./ledger";
 import { plain } from "./numeric";
 import { packOn } from "./products";
+
+const isZero = (amount: string) => toDecimal(amount).isZero();
 import { ensureStockCovers } from "./stock-guard";
 
 /**
@@ -289,6 +292,7 @@ function toDsrDay(row: DsrRow): DsrDay {
       issued: plain(line.issued),
       returned: plain(line.returned),
       damaged: plain(line.damaged),
+      commission: plain(line.commission),
     })),
     postedAt: iso(row.postedAt),
     reversedAt: iso(row.reversedAt),
@@ -329,13 +333,17 @@ export async function saveDsrDay(
   const request = parseInput(dsrDaySaveRequestSchema, input);
   const seen = new Set<string>();
   const lines = request.lines.filter(
-    (l) => l.issued !== "0" || l.returned !== "0" || l.damaged !== "0",
+    (l) => l.issued !== "0" || l.returned !== "0" || l.damaged !== "0" || !isZero(l.commission),
   );
   lines.forEach((line) => {
     const index = request.lines.indexOf(line);
     if (seen.has(line.productId))
       throw invalid(`lines.${index}`, "validation.daily.duplicateProduct");
     seen.add(line.productId);
+    const sold = toDecimal(line.issued).sub(line.returned).sub(line.damaged);
+    if (!isZero(line.commission) && sold.lte(0)) {
+      throw invalid(`lines.${index}.commission`, "validation.daily.commissionWithoutSale");
+    }
   });
 
   return runIdempotent(
@@ -411,6 +419,7 @@ export async function saveDsrDay(
             issued: line.issued,
             returned: line.returned,
             damaged: line.damaged,
+            commission: line.commission,
           },
         });
       }
@@ -548,6 +557,7 @@ const MONEY_PERSON = moneyKindPerson;
 const CATEGORY_KINDS = new Set<MoneyEntryKind>(moneyCategoryKinds);
 const ALLOCATION_KINDS = new Set<MoneyEntryKind>(moneyAllocationKinds);
 const MARKET_KINDS = new Set<MoneyEntryKind>(["marketDueNew", "marketDueCollected"]);
+const SR_LOAN_TYPE_KINDS = new Set<MoneyEntryKind>(srLoanTypeKinds);
 
 const moneyInclude = {
   staff: { select: { name: true } },
@@ -569,6 +579,7 @@ function toMoneyEntry(row: MoneyRow): MoneyEntry {
     expenseCategoryId: row.expenseCategoryId,
     categoryName: row.expenseCategory?.name ?? null,
     allocation: allocationOf(row),
+    srLoanType: row.srLoanType,
     payrollRunId: row.payrollRunId,
     status: row.status,
     createdAt: row.createdAt.toISOString(),
@@ -672,6 +683,14 @@ export async function postMoneyEntry(
         : "validation.daily.noCategoryForKind",
     );
   }
+  if (SR_LOAN_TYPE_KINDS.has(request.kind) !== Boolean(request.srLoanType)) {
+    throw invalid(
+      "srLoanType",
+      SR_LOAN_TYPE_KINDS.has(request.kind)
+        ? "validation.money.srLoanTypeRequired"
+        : "validation.money.noSrLoanTypeForKind",
+    );
+  }
   const allocation = request.allocation;
   if (allocation) {
     if (!ALLOCATION_KINDS.has(request.kind)) {
@@ -732,6 +751,7 @@ export async function postMoneyEntry(
           allocAdvance: allocation?.advance ?? null,
           allocLoan: allocation?.loan ?? null,
           allocShortage: allocation?.shortage ?? null,
+          srLoanType: request.srLoanType,
           createdById: ctx.actor.userId,
         },
         include: moneyInclude,
@@ -790,6 +810,7 @@ export async function reverseMoneyEntry(
 
 const ZERO_MONEY = {
   sales: "0",
+  commission: "0",
   marketDueNew: "0",
   marketDueCollected: "0",
   srIncentive: "0",

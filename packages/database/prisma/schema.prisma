@@ -571,6 +571,8 @@ model DsrLine {
   issued          Decimal         @default(0) @db.Decimal(20, 6)
   returned        Decimal         @default(0) @db.Decimal(20, 6)
   damaged         Decimal         @default(0) @db.Decimal(20, 6)
+  /// D41: taka given to shops on this line; lowers its sales.
+  commission      Decimal         @default(0) @db.Decimal(20, 2)
   dsrDay          DsrDay          @relation(fields: [dsrDayId], references: [id], onDelete: Cascade)
   product         Product         @relation(fields: [productId], references: [id])
   splits          DsrPriceSplit[]
@@ -655,6 +657,8 @@ model MoneyEntry {
   payrollRunId      String?          @map("payroll_run_id")
   /// D40: the posted DSR day that created this entry from field visits (reversed with it).
   dsrDayId          String?          @map("dsr_day_id")
+  /// D42: SR loan/repayment type, `cash` or `commission`; NULL for every other kind.
+  srLoanType        String?          @map("sr_loan_type")
   reference         String           @default("")
   note              String           @default("")
   status            String           @default("posted")

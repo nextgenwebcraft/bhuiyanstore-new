@@ -32,6 +32,8 @@ export const monthProductRowSchema = z.object({
   sold: money,
   orderTotal: money,
   receiptTotal: money,
+  /** Shop commission (D41), already taken out of `salesTotal`. */
+  commissionTotal: money,
   salesTotal: money,
   costTotal: costMoney,
   profitTotal: costMoney,
@@ -58,6 +60,7 @@ export type MonthProductRow = z.infer<typeof monthProductRowSchema>;
 export const monthDayRowSchema = z.object({
   date: businessDateSchema,
   sales: money,
+  commission: money,
   marketDueNew: money,
   marketDueCollected: money,
   srIncentive: money,
@@ -113,6 +116,7 @@ export const monthViewSchema = z.object({
   totals: z.object({
     orderTotal: money,
     receiptTotal: money,
+    commissionTotal: money,
     salesTotal: money,
     costTotal: costMoney,
     profitTotal: costMoney,

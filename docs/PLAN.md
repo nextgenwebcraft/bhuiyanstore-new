@@ -87,7 +87,7 @@ issued        = Σ over DSRs (issue pieces)                     Excel K = M45+F4
 returned      = Σ over DSRs (return pieces)                    Excel L
 delivered     = issued − returned                              Excel M = K−L
 sold          = delivered − damaged                            (inside P, Q, S)
-sales         = sold × sale_price                              Excel P = (M−N)×O
+sales         = sold × sale_price − commission                 Excel P = (M−N)×O; commission D41 (no Excel column)
 cost          = sold × cost_price                              Excel Q = (M−N)×H   (D29)
 gross_profit  = sales − cost                                   Excel S
 return_value  = returned × sale_price                          Excel R (report only)
@@ -99,7 +99,8 @@ stock         = previous stock + received − delivered          Excel T (AM7 = 
                 + company replacements − replaced from stock   (D17; no Excel column)
 stock_value   = stock × cost_price                             Excel U
 person_net    = person issue − person return                   Excel J45, Q45 (the software uses subtraction, always)
-person_amount = person_net × sale_price                        Excel C45, R45 (report only)
+person_amount = person_net × sale_price − commission           Excel C45, R45 (report only)
+commission    = Σ over DSR lines (taka given to shops, D41)     lowers sales, the DSR's expected cash and profit
 ```
 
 Damaged pieces leave saleable stock as part of `delivered` and earn no revenue. A damaged item
@@ -254,18 +255,18 @@ All rows carry `tenant_id`, and company-owned rows carry `company_id`.
 - **Daily documents:** each one is posted once and immutable after posting, with reversal plus
   re-entry for corrections. Each lists the stock or balances it affects:
 
-  | Document                                       | Effect                                                                                                                                   |
-  | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-  | `purchase_order` / lines                       | Company due quantity                                                                                                                     |
-  | `goods_receipt` / lines                        | Stock, company due quantity, and optional batch/lot/expiry for stock quantity only (D29)                                                 |
-  | `dsr_day` (company, DSR, date; D03) / lines    | Per product: issue, return, damage and price splits, with carton-size and price snapshots; plus market due (বাকি) and credit for the day |
-  | `expense`                                      | Operating cost and month expenses by category                                                                                            |
-  | `sr_entry`                                     | Loan, repayment, owed, payment, incentive (D:Comition) (D18, D20)                                                                        |
-  | `staff_money_entry` + `staff_money_allocation` | D27                                                                                                                                      |
-  | `supplier_deposit`                             | Banking (D19)                                                                                                                            |
-  | `damage_case` legs                             | D17                                                                                                                                      |
-  | `field_visit` / lines (DSR, shop, date; D40)   | None until the DSR day is posted; posting writes per-shop due/collection entries and exchange custody, and locks the visits              |
-  | `payroll_run` / lines                          | D24, D25                                                                                                                                 |
+  | Document                                       | Effect                                                                                                                                                          |
+  | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | `purchase_order` / lines                       | Company due quantity                                                                                                                                            |
+  | `goods_receipt` / lines                        | Stock, company due quantity, and optional batch/lot/expiry for stock quantity only (D29)                                                                        |
+  | `dsr_day` (company, DSR, date; D03) / lines    | Per product: issue, return, damage, shop commission (D41) and price splits, with carton-size and price snapshots; plus market due (বাকি) and credit for the day |
+  | `expense`                                      | Operating cost and month expenses by category                                                                                                                   |
+  | `sr_entry`                                     | Loan, repayment, owed, payment, incentive (D:Comition) (D18, D20)                                                                                               |
+  | `staff_money_entry` + `staff_money_allocation` | D27                                                                                                                                                             |
+  | `supplier_deposit`                             | Banking (D19)                                                                                                                                                   |
+  | `damage_case` legs                             | D17                                                                                                                                                             |
+  | `field_visit` / lines (DSR, shop, date; D40)   | None until the DSR day is posted; posting writes per-shop due/collection entries and exchange custody, and locks the visits                                     |
+  | `payroll_run` / lines                          | D24, D25                                                                                                                                                        |
 
 - **Derived ledgers:** append-only `stock_movement`, plus `market_due_item` and
   `due_collection_allocation`.

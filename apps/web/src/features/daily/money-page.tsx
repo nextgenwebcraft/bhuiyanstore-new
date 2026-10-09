@@ -5,8 +5,12 @@ import {
   moneyCategoryKinds,
   moneyKindPermission,
   moneyKindPerson,
+  srLoanTypeKinds,
+  srLoanTypes,
   type DayView,
+  type MoneyEntry,
   type MoneyEntryKind,
+  type SrLoanType,
   type StaffRecord,
 } from "@bsd/contracts";
 import { MONEY_KIND_EFFECTS } from "@bsd/domain";
@@ -48,6 +52,10 @@ import {
 } from "./daily-kit";
 
 const kindLabel = (kind: MoneyEntryKind) => t(`money.kind.${kind}` as TranslationKey);
+const entryLabel = (entry: MoneyEntry) =>
+  entry.srLoanType
+    ? `${kindLabel(entry.kind)} · ${t(`money.srLoanType.${entry.srLoanType}`)}`
+    : kindLabel(entry.kind);
 
 const EMPTY_ALLOCATION = { advance: "", loan: "", shortage: "" };
 
@@ -85,10 +93,12 @@ function EntryForm({
   const [categoryId, setCategoryId] = useState("");
   const [split, setSplit] = useState(false);
   const [allocation, setAllocation] = useState(EMPTY_ALLOCATION);
+  const [loanType, setLoanType] = useState<SrLoanType | "">("");
   const [error, setError] = useState<string | undefined>();
   const [done, setDone] = useState(false);
 
   const people = peopleFor(records.data ?? [], companyId, date, kind);
+  const needsLoanType = srLoanTypeKinds.includes(kind);
   const needsPerson = Boolean(moneyKindPerson[kind]);
   const personRequired = MONEY_KIND_EFFECTS[kind].requiresStaff;
   const needsCategory = moneyCategoryKinds.includes(kind);
@@ -110,6 +120,10 @@ function EntryForm({
       setError(t("validation.daily.categoryRequired"));
       return;
     }
+    if (needsLoanType && !loanType) {
+      setError(t("validation.money.srLoanTypeRequired"));
+      return;
+    }
     const parts = {
       advance: clean(allocation.advance) || "0",
       loan: clean(allocation.loan) || "0",
@@ -127,6 +141,7 @@ function EntryForm({
         staffId: needsPerson && staffId ? staffId : null,
         expenseCategoryId: needsCategory ? categoryId : null,
         allocation: canSplit && split ? parts : null,
+        srLoanType: needsLoanType && loanType ? loanType : null,
       });
       setAmount("");
       setAllocation(EMPTY_ALLOCATION);
@@ -205,6 +220,29 @@ function EntryForm({
                     {c.name}
                   </option>
                 ))}
+            </select>
+          </Field>
+        ) : null}
+        {needsLoanType ? (
+          <Field
+            id={`${id}-loan-type`}
+            label={t("money.srLoanType")}
+            hint={t(
+              kind === "srRepayment" ? "money.srLoanType.repayHint" : "money.srLoanType.hint",
+            )}
+          >
+            <select
+              id={`${id}-loan-type`}
+              value={loanType}
+              onChange={(event) => setLoanType(event.target.value as SrLoanType | "")}
+              className={inputClass}
+            >
+              <option value="">—</option>
+              {srLoanTypes.map((type) => (
+                <option key={type} value={type}>
+                  {t(`money.srLoanType.${type}`)}
+                </option>
+              ))}
             </select>
           </Field>
         ) : null}
@@ -314,7 +352,7 @@ function EntryList({
             <tbody>
               {rows.map((entry) => (
                 <tr key={entry.id} className="border-t border-border">
-                  <td className={tdClass}>{kindLabel(entry.kind)}</td>
+                  <td className={tdClass}>{entryLabel(entry)}</td>
                   <td className={tdClass}>{entry.staffName ?? entry.categoryName ?? "—"}</td>
                   <td className={tdNum}>{money(entry.amount)}</td>
                   <td className={tdClass}>

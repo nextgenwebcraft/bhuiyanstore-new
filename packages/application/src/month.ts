@@ -193,6 +193,7 @@ export async function getMonthView(
     totals: {
       orderTotal: totals?.orderTotal ?? "0",
       receiptTotal: totals?.receiptTotal ?? "0",
+      commissionTotal: totals?.commissionTotal ?? "0",
       salesTotal: totals?.salesTotal ?? "0",
       costTotal: cost(totals?.costTotal ?? "0"),
       profitTotal: profit(totals?.profitTotal ?? "0"),
@@ -419,7 +420,15 @@ function buildTables(
       ];
     }
     case "sales": {
-      const fields = ["delivered", "damaged", "sold", "salesTotal", "returnValue", "salesCartons"];
+      const fields = [
+        "delivered",
+        "damaged",
+        "sold",
+        "commissionTotal",
+        "salesTotal",
+        "returnValue",
+        "salesCartons",
+      ];
       return [
         table(
           "salesByProduct",
@@ -429,18 +438,21 @@ function buildTables(
             col("damaged", "quantity"),
             col("sold", "quantity"),
             col("salesCartons", "cartons"),
+            col("commissionTotal", "money"),
             col("salesTotal", "money"),
             col("returnValue", "money"),
           ],
           productRows(output, names, fields),
-          { salesTotal: m.totals.salesTotal },
+          { commissionTotal: m.totals.commissionTotal, salesTotal: m.totals.salesTotal },
           seen,
         ),
         table(
           "salesByDay",
-          [col("date", "text"), col("sales", "money")],
-          output.days.map((d) => ({ cells: { date: d.date, sales: d.money.sales } })),
-          { sales: m.totals.salesTotal },
+          [col("date", "text"), col("commission", "money"), col("sales", "money")],
+          output.days.map((d) => ({
+            cells: { date: d.date, commission: d.money.commission, sales: d.money.sales },
+          })),
+          { commission: m.totals.commissionTotal, sales: m.totals.salesTotal },
           seen,
         ),
       ];
@@ -806,6 +818,7 @@ function buildTables(
             col("returned", "quantity"),
             col("damaged", "quantity"),
             col("sold", "quantity"),
+            col("commission", "money"),
             col("soldValue", "money"),
           ],
           output.days.flatMap((d) =>
@@ -819,6 +832,7 @@ function buildTables(
                 returned: p.returned,
                 damaged: p.damaged,
                 sold: p.sold,
+                commission: p.commission,
                 soldValue: p.soldValue,
               },
             })),

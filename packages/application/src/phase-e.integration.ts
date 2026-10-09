@@ -3,6 +3,7 @@ import { moneyEntryKinds, type MoneyEntryKind, type OpeningSaveRequest } from "@
 import {
   MONEY_KIND_EFFECTS,
   computeMonth,
+  toDecimal,
   type DayInput,
   type MonthOpening,
   type MonthResult,
@@ -274,6 +275,7 @@ async function enterDay(day: DayFacts): Promise<void> {
       staffId: m.staff ?? null,
       shopId: m.shop ?? null,
       expenseCategoryId: m.category ?? null,
+      srLoanType: m.kind === "srLoan" || m.kind === "srRepayment" ? "cash" : null,
     });
   }
 }
@@ -465,6 +467,7 @@ describe("Phase E: daily entry", () => {
         kind: "srLoan",
         amount: "5",
         staffId: id.rohim,
+        srLoanType: "cash",
       }),
       "staffId",
       "validation.daily.srOnly",
@@ -613,6 +616,42 @@ describe("Phase E: daily entry", () => {
     });
     await postDsrDay(ctx, company, redo.id, { version: redo.version });
     expect((await getDayView(ctx, company, "2026-09-02")).money).toEqual(before.money);
+  });
+
+  it("D41: shop commission is stored per line and lowers sales and cash left", async () => {
+    const date = "2026-09-03";
+    const before = (await getDayView(ctx, company, date)).money;
+    const sheet = (commission: string, issued = "10") => ({
+      date,
+      staffId: id.mamun,
+      version: 0,
+      lines: [{ productId: id.alpha, issued, returned: "0", damaged: "0", commission }],
+    });
+    await expectField(
+      saveDsrDay(ctx, company, sheet("5", "0")),
+      "lines.0.commission",
+      "validation.daily.commissionWithoutSale",
+    );
+    const draft = await saveDsrDay(ctx, company, sheet("12.5"));
+    expect(draft.lines[0]?.commission).toBe("12.5");
+    await postDsrDay(ctx, company, draft.id, { version: draft.version });
+
+    const view = await getDayView(ctx, company, date);
+    const alpha = must(view.products.find((p) => p.productId === id.alpha));
+    expect(alpha.commission).toBe("12.5");
+    expect(
+      toDecimal(alpha.sold)
+        .mul(must(alpha.salePrice ?? undefined))
+        .sub("12.5")
+        .eq(alpha.sales),
+    ).toBe(true);
+    expect(view.money.commission).toBe("12.5");
+    expect(
+      toDecimal(view.money.cashLeft)
+        .sub(before.cashLeft)
+        .eq(toDecimal(view.money.sales).sub(before.sales)),
+    ).toBe(true);
+    expect(view.persons.find((p) => p.staffId === id.mamun)?.commission).toBe("12.5");
   });
 
   it("refuses postings in a closed month", async () => {

@@ -64,6 +64,7 @@ const DAY_COLUMNS: Column[] = [
   qty("day.column.damaged", "damaged"),
   qty("day.column.sold", "sold"),
   { key: "day.column.salePrice", cell: rate("salePrice") },
+  { key: "day.column.commission", cell: amount("commission"), total: "commission" },
   { key: "day.column.sales", cell: amount("sales"), total: "sales" },
   { key: "day.column.costPrice", cell: rate("costPrice"), needs: "cost" },
   { key: "day.column.cost", cell: amount("cost"), needs: "cost", total: "cost" },
@@ -141,6 +142,7 @@ function ProductGrid({ view, shown }: { view: DayView; shown: Column[] }) {
 }
 
 const MONEY_LINES: { key: TranslationKey; field: keyof DayView["money"] }[] = [
+  { key: "day.money.commission", field: "commission" },
   { key: "day.money.sales", field: "sales" },
   { key: "day.money.marketDueNew", field: "marketDueNew" },
   { key: "day.money.marketDueCollected", field: "marketDueCollected" },

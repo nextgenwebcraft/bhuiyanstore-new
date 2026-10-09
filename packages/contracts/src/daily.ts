@@ -96,6 +96,8 @@ export const dsrLineRequestSchema = z.object({
   /** Firot: unsold pieces returned. */
   returned: wholePiecesSchema,
   damaged: wholePiecesSchema,
+  /** Taka given to shops on this line (D41); lowers its sales. */
+  commission: amountSchema.default("0"),
 });
 
 export const dsrDaySaveRequestSchema = z.object({
@@ -174,6 +176,11 @@ export const moneyEntryKinds = [
 ] as const;
 
 export type MoneyEntryKind = (typeof moneyEntryKinds)[number];
+
+/** D42: an SR loan is a direct cash loan or a product commission advance; repayments name one. */
+export const srLoanTypes = ["cash", "commission"] as const;
+export type SrLoanType = (typeof srLoanTypes)[number];
+export const srLoanTypeKinds: readonly MoneyEntryKind[] = ["srLoan", "srRepayment"];
 
 /**
  * Which person a kind is entered against: a DSR (market due), an SR (D18) or distributor staff
@@ -259,6 +266,8 @@ export const moneyEntryPostRequestSchema = z.object({
   shopId: idSchema.nullable().default(null),
   expenseCategoryId: idSchema.nullable().default(null),
   allocation: owedAllocationSchema.nullable().default(null),
+  /** Required for SR loans and repayments (D42); null for every other kind. */
+  srLoanType: z.enum(srLoanTypes).nullable().default(null),
 });
 
 export type MoneyEntryPostRequest = z.input<typeof moneyEntryPostRequestSchema>;
@@ -275,6 +284,7 @@ export const moneyEntrySchema = z.object({
   expenseCategoryId: idSchema.nullable(),
   categoryName: z.string().nullable(),
   allocation: owedAllocationSchema.nullable(),
+  srLoanType: z.enum(srLoanTypes).nullable(),
   /** Set when a payroll run posted the entry; it is then reversed only with the run. */
   payrollRunId: idSchema.nullable(),
   status: z.enum(documentStatuses),
@@ -307,6 +317,8 @@ export const dayProductRowSchema = z.object({
   orderPrice: money.nullable(),
   costPrice: costMoney,
   salePrice: money.nullable(),
+  /** Shop commission (D41), already taken out of `sales`. */
+  commission: money,
   sales: money,
   cost: costMoney,
   grossProfit: costMoney,
@@ -330,11 +342,13 @@ export const dayPersonRowSchema = z.object({
   returned: money,
   net: money,
   damaged: money,
+  commission: money,
   amount: money,
 });
 
 export const dayMoneySchema = z.object({
   sales: money,
+  commission: money,
   marketDueNew: money,
   marketDueCollected: money,
   srIncentive: money,

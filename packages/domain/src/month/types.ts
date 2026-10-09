@@ -91,6 +91,8 @@ export type DsrLineInput = {
   returned?: DecimalInput;
   damaged?: DecimalInput;
   priceSplits?: readonly PriceSplitInput[];
+  /** Taka given to shops on this line (D41); lowers its sales, cash and profit. */
+  commission?: DecimalInput;
 };
 
 export type MoneyKind =
@@ -175,6 +177,8 @@ export type ProductDayResult = {
   orderPrice: string | null;
   costPrice: string | null;
   salePrice: string | null;
+  /** Shop commission on the day's DSR lines (D41); already taken out of `sales`. */
+  commission: string;
   sales: string;
   cost: string;
   grossProfit: string;
@@ -198,11 +202,12 @@ export type PersonDayResult = {
   returned: string;
   net: string;
   damaged: string;
-  /** Excel's person amount: net × sale price (+ split adjustment); damaged pieces included. */
+  /** Excel's person amount: net × sale price (+ split adjustment − commission); damaged included. */
   amount: string;
   /** issued − returned − damaged. */
   sold: string;
-  /** sold × sale price (+ split adjustment): what the DSR sold for cash or due. */
+  commission: string;
+  /** sold × sale price (+ split adjustment − commission): what the DSR sold for cash or due. */
   soldValue: string;
 };
 
@@ -217,7 +222,9 @@ export type DsrDayMoneyResult = {
 };
 
 export type DayMoneyResult = {
+  /** Net of shop commission (D41). */
   sales: string;
+  commission: string;
   marketDueNew: string;
   marketDueCollected: string;
   srIncentive: string;
@@ -250,6 +257,7 @@ export type ProductMonthResult = {
   orderTotal: string;
   receiptTotal: string;
   receiptSaleTotal: string;
+  commissionTotal: string;
   salesTotal: string;
   costTotal: string;
   profitTotal: string;
@@ -289,6 +297,7 @@ export type MonthResult = {
   totals: {
     orderTotal: string;
     receiptTotal: string;
+    commissionTotal: string;
     salesTotal: string;
     costTotal: string;
     profitTotal: string;

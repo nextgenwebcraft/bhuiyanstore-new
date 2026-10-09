@@ -224,6 +224,11 @@ function StatementBody({ statement }: { statement: StaffStatement }) {
                   </td>
                   <td className={tdClass}>
                     {t(`money.kind.${line.kind}` as TranslationKey)}
+                    {line.srLoanType ? (
+                      <div className="text-xs text-text-muted">
+                        {t(`money.srLoanType.${line.srLoanType}`)}
+                      </div>
+                    ) : null}
                     {line.payrollRunId ? (
                       <div className="text-xs text-text-muted">{t("payroll.fromRun")}</div>
                     ) : null}

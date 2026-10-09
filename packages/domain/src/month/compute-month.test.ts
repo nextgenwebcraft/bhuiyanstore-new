@@ -433,3 +433,53 @@ describe("computeMonth data problems", () => {
     ).toThrow(/price splits exceed/);
   });
 });
+
+describe("shop commission on DSR lines (D41)", () => {
+  const out = computeMonth({
+    products: [{ id: "A", piecesPerCarton: "24" }],
+    opening: {
+      products: { A: { stock: "100", dueFromCompany: "0", costPrice: "9", salePrice: "11" } },
+    },
+    days: [
+      {
+        date: "2026-11-01",
+        dsrLines: [
+          { staffId: "d1", productId: "A", issued: "24", returned: "4", commission: "15.5" },
+          { staffId: "d2", productId: "A", issued: "10", commission: "0" },
+        ],
+      },
+    ],
+  });
+  const day = out.days[0];
+
+  it("takes the commission out of the line's sold value, sales, cash and profit", () => {
+    // d1: 20 × 11 = 220 − 15.5; d2: 10 × 11 = 110.
+    expect(day?.persons[0]).toMatchObject({
+      commission: "15.5",
+      soldValue: "204.5",
+      amount: "204.5",
+    });
+    expect(day?.dsrs[0]).toMatchObject({ staffId: "d1", sales: "204.5" });
+    expect(day?.products[0]).toMatchObject({
+      sold: "30",
+      commission: "15.5",
+      sales: "314.5",
+      cost: "270",
+      grossProfit: "44.5",
+    });
+    expect(day?.money).toMatchObject({ sales: "314.5", commission: "15.5", cashLeft: "314.5" });
+    expect(out.month.totals).toMatchObject({ commissionTotal: "15.5", salesTotal: "314.5" });
+  });
+
+  it("refuses a negative commission", () => {
+    expect(() =>
+      computeMonth({
+        products: [{ id: "A", piecesPerCarton: "1" }],
+        opening: { products: {} },
+        days: [
+          { date: "2026-11-01", dsrLines: [{ staffId: "d1", productId: "A", commission: "-1" }] },
+        ],
+      }),
+    ).toThrow(/commission must not be negative/);
+  });
+});

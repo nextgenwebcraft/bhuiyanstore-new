@@ -67,6 +67,11 @@ const GROUP = {
   issued: { head: "bg-info/10 text-info", sub: "bg-info/5", cell: "bg-info/[0.03]" },
   returned: { head: "bg-success/10 text-success", sub: "bg-success/5", cell: "bg-success/[0.03]" },
   damaged: { head: "bg-error/10 text-error", sub: "bg-error/5", cell: "bg-error/[0.03]" },
+  commission: {
+    head: "bg-warning/10 text-warning",
+    sub: "bg-warning/5",
+    cell: "bg-warning/[0.03]",
+  },
 } as const;
 const groupHead =
   "border-b border-l border-border px-3 py-2 text-center text-xs font-semibold tracking-wide";
@@ -80,6 +85,7 @@ type LineDraft = {
   returnedCartons: string;
   returnedPieces: string;
   damaged: string;
+  commission: string;
 };
 type SheetDraft = { lines: Record<string, LineDraft>; handedOver: string };
 
@@ -89,7 +95,9 @@ const blankLine: LineDraft = {
   returnedCartons: "",
   returnedPieces: "",
   damaged: "",
+  commission: "",
 };
+const isAmount = (value: string) => /^\d+(\.\d{1,2})?$/.test(value);
 
 /** DSRs assigned to the company on the date (D23: product custody is DSR-only). */
 export function dsrsOn(records: StaffRecord[], companyId: string, date: string) {
@@ -122,6 +130,7 @@ function draftOf(sheet: DsrDay | undefined): SheetDraft {
       returnedCartons,
       returnedPieces,
       damaged: line.damaged === "0" ? "" : line.damaged,
+      commission: toDecimal(line.commission).isZero() ? "" : line.commission,
     };
   }
   return { lines, handedOver: sheet?.cashHandedOver ?? "" };
@@ -136,7 +145,7 @@ function requestOf(
   base: { date: string; staffId: string; version: number },
 ): DsrDaySaveRequest | string {
   const handed = clean(draft.handedOver);
-  if (handed && !/^\d+(\.\d{1,2})?$/.test(handed)) return t("validation.opening.amount");
+  if (handed && !isAmount(handed)) return t("validation.opening.amount");
   const lines: DsrDaySaveRequest["lines"] = [];
   for (const product of view.products) {
     const d = draft.lines[product.productId];
@@ -152,23 +161,38 @@ function requestOf(
     const [ic, ip, rc, rp, damaged] = parts as [string, string, string, string, string];
     const issued = toBaseQuantity(ic, ip, product.piecesPerCarton);
     const returned = toBaseQuantity(rc, rp, product.piecesPerCarton);
-    if (issued === "0" && returned === "0" && damaged === "0") continue;
-    lines.push({ productId: product.productId, issued, returned, damaged });
+    const commission = clean(d.commission) || "0";
+    if (!isAmount(commission)) return t("validation.opening.amount");
+    const noCommission = toDecimal(commission).isZero();
+    if (issued === "0" && returned === "0" && damaged === "0" && noCommission) continue;
+    lines.push({
+      productId: product.productId,
+      issued,
+      returned,
+      damaged,
+      commission: noCommission ? "0" : commission,
+    });
   }
   return { ...base, cashHandedOver: handed || null, lines };
 }
 
-/** Pieces sold × the day's price, before posting (the engine owns the posted figure). */
+/** Pieces sold × the day's price − commission, before posting (the engine owns the posted figure). */
 function previewSales(lines: DsrDaySaveRequest["lines"], view: DayView): string {
   const prices = new Map(view.products.map((p) => [p.productId, p.salePrice]));
   return sumAmounts([
     "0",
     ...lines.map((l) => {
       const sold = toDecimal(l.issued).sub(toDecimal(l.returned)).sub(toDecimal(l.damaged));
-      return sold.mul(toDecimal(prices.get(l.productId) ?? "0")).toString();
+      return sold
+        .mul(toDecimal(prices.get(l.productId) ?? "0"))
+        .sub(toDecimal(l.commission ?? "0"))
+        .toString();
     }),
   ]);
 }
+
+const commissionOf = (lines: { commission?: string | undefined }[]) =>
+  sumAmounts(["0", ...lines.map((l) => l.commission ?? "0")]);
 
 /**
  * What the DSR recorded on the phone (D40): visits per shop, the samari still in hand and flags
@@ -458,6 +482,7 @@ function SheetEditor({
       label: `${t("dsr.sheet.damaged")} (${t("godown.column.pieces")})`,
       value: quantity(sumQuantities(entered.map((l) => l.damaged))),
     },
+    { label: t("dsr.summary.commission"), value: money(commissionOf(entered)) },
     ...(posted
       ? [
           {
@@ -544,6 +569,9 @@ function SheetEditor({
               <th scope="col" rowSpan={2} className={`${loneHead} ${GROUP.damaged.head}`}>
                 {t("dsr.sheet.damaged")}
               </th>
+              <th scope="col" rowSpan={2} className={`${loneHead} ${GROUP.commission.head}`}>
+                {t("dsr.sheet.commission")}
+              </th>
               <th
                 scope="col"
                 rowSpan={2}
@@ -614,6 +642,14 @@ function SheetEditor({
                   </td>
                   <td className={`${inputCell} border-l ${GROUP.damaged.cell}`}>
                     {cell(product.productId, "damaged", `${name} ${t("dsr.sheet.damaged")}`)}
+                  </td>
+                  <td className={`${inputCell} border-l ${GROUP.commission.cell}`}>
+                    {cell(
+                      product.productId,
+                      "commission",
+                      `${name} ${t("dsr.sheet.commission")}`,
+                      "decimal",
+                    )}
                   </td>
                   <td className={`${tdNum} border-l border-border`}>
                     {product.salePrice ? formatRate(product.salePrice) : "—"}
@@ -727,6 +763,7 @@ function Sheets({ companyId, date, view }: { companyId: string; date: string; vi
         <StatTile label={pieceLabel("dsr.sheet.issued")} value={dayPieces("issued")} />
         <StatTile label={pieceLabel("dsr.sheet.returned")} value={dayPieces("returned")} />
         <StatTile label={pieceLabel("dsr.sheet.damaged")} value={dayPieces("damaged")} />
+        <StatTile label={t("dsr.summary.commission")} value={money(view.money.commission)} />
         <StatTile label={t("dsr.summary.sales")} value={money(view.money.sales)} emphasis />
       </dl>
       {dsrs.length === 0 ? (
@@ -759,6 +796,7 @@ function dsrSummary(sheet: DsrDay | undefined, view: DayView, staffId: string): 
       label: pieceLabel("dsr.sheet.damaged"),
       value: quantity(sumQuantities(lines.map((l) => l.damaged))),
     },
+    { label: t("dsr.summary.commission"), value: money(commissionOf(lines)) },
     {
       label: t("dsr.summary.dsrSales"),
       value: sheet?.status === "posted" ? money(sumAmounts(sales)) : "—",
