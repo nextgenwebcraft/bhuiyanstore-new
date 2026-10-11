@@ -361,7 +361,9 @@ async function writeOpeningPrices(
       ["order", line.orderPrice],
     ] as const) {
       if (price === null) continue;
-      const key = { productId_kind_effectiveFrom: { productId: line.productId, kind, effectiveFrom } };
+      const key = {
+        productId_kind_effectiveFrom: { productId: line.productId, kind, effectiveFrom },
+      };
       // A daily/manual price on the go-live date always wins over the opening price.
       const existing = await tx.priceChange.findUnique({ where: key });
       if (existing?.source === "manual") continue;
