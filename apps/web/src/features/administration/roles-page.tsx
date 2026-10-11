@@ -1,7 +1,7 @@
 "use client";
 
 import { permissionIds, type PermissionId, type Role } from "@bsd/contracts";
-import { t, toBengaliDigits } from "@bsd/i18n";
+import { t, formatCount } from "@bsd/i18n";
 import { useId, useState } from "react";
 import { Button } from "@/components/button";
 import { Field, inputClass } from "@/components/field";
@@ -79,7 +79,7 @@ function RoleDialog({ draft, onClose }: { draft: Draft; onClose: () => void }) {
       </Field>
       <fieldset className="flex max-h-[50dvh] flex-col gap-3 overflow-y-auto">
         <legend className="mb-2 text-sm font-medium">
-          {t("role.permissions")} ({toBengaliDigits(String(values.permissions.length))})
+          {t("role.permissions")} ({formatCount(values.permissions.length)})
         </legend>
         {permissionGroups.map((group) => (
           <div key={group[0]} className="grid gap-1 border-t border-border pt-2 sm:grid-cols-2">
@@ -124,7 +124,7 @@ function Roles() {
             <div>
               <div className="font-medium">{role.name}</div>
               <div className="text-sm text-text-muted">
-                {toBengaliDigits(String(role.permissions.length))} {t("role.permissionCount")}
+                {formatCount(role.permissions.length)} {t("role.permissionCount")}
               </div>
             </div>
             <Button onClick={() => edit(role)}>{t("common.edit")}</Button>

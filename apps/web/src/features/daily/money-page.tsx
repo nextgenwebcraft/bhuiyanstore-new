@@ -13,23 +13,17 @@ import {
   type SrLoanType,
   type StaffRecord,
 } from "@bsd/contracts";
-import { MONEY_KIND_EFFECTS } from "@bsd/domain";
+import { MoneyEntryTable } from "./money-entry-table";
+import { MONEY_KIND_EFFECTS, owedBuckets } from "@bsd/domain";
 import { t, type TranslationKey } from "@bsd/i18n";
 import { useId, useState } from "react";
 import { Button } from "@/components/button";
 import { Field, inputClass } from "@/components/field";
 import { PageHeader } from "@/components/page-header";
-import { QueryError } from "@/components/query-error";
 import { FormSkeleton, TableSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
 import { describeError } from "@/data/ports/service-error";
-import {
-  useConfigList,
-  useMoneyEntries,
-  usePostMoneyEntry,
-  useReverseMoneyEntry,
-  useStaffRecords,
-} from "@/data/queries";
+import { useConfigList, usePostMoneyEntry, useStaffRecords } from "@/data/queries";
 import { NavGate } from "@/features/shell/nav-gate";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 import {
@@ -38,18 +32,10 @@ import {
   DateHeading,
   DayGate,
   SectionTitle,
-  StatusChip,
   clean,
-  money,
-  tableClass,
-  TableScroller,
-  tdClass,
-  tdNum,
-  thClass,
-  thNum,
-  theadClass,
   useWorkingDate,
 } from "./daily-kit";
+import { money } from "@/components/data-table";
 
 const kindLabel = (kind: MoneyEntryKind) => t(`money.kind.${kind}` as TranslationKey);
 const entryLabel = (entry: MoneyEntry) =>
@@ -259,7 +245,7 @@ function EntryForm({
           </label>
           {split ? (
             <div className="flex flex-wrap items-center gap-3">
-              {(["advance", "loan", "shortage"] as const).map((bucket) => (
+              {owedBuckets.map((bucket) => (
                 <label key={bucket} className="flex items-center gap-2 text-sm">
                   {t(`report.column.${bucket}`)}
                   <CellInput
@@ -288,90 +274,6 @@ function EntryForm({
         </Button>
       </div>
     </div>
-  );
-}
-
-function EntryList({
-  companyId,
-  date,
-  kinds,
-}: {
-  companyId: string;
-  date: string;
-  kinds: MoneyEntryKind[];
-}) {
-  const { permissions } = useCurrentWorkspace();
-  const entries = useMoneyEntries(companyId, { from: date });
-  const reverse = useReverseMoneyEntry(companyId);
-  const [error, setError] = useState<string | undefined>();
-  const canReverse = permissions.includes("payment.reverse");
-
-  async function undo(entryId: string) {
-    if (!window.confirm(t("money.reverseConfirm"))) return;
-    setError(undefined);
-    try {
-      await reverse.mutateAsync(entryId);
-    } catch (e) {
-      setError(describeError(e, []).form);
-    }
-  }
-
-  if (entries.isPending) return <TableSkeleton rows={3} columns={5} />;
-  if (entries.isError)
-    return <QueryError error={entries.error} onRetry={() => void entries.refetch()} />;
-  const rows = entries.data.filter((e) => kinds.includes(e.kind));
-  return (
-    <>
-      {error ? <StatePanel tone="error" title={error} /> : null}
-      {rows.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-sm text-text-muted">
-          {t("money.empty")}
-        </p>
-      ) : (
-        <TableScroller>
-          <table className={tableClass}>
-            <thead className={theadClass}>
-              <tr>
-                <th scope="col" className={thClass}>
-                  {t("common.kind")}
-                </th>
-                <th scope="col" className={thClass}>
-                  {t("money.party")}
-                </th>
-                <th scope="col" className={thNum}>
-                  {t("common.amount")}
-                </th>
-                <th scope="col" className={thClass}>
-                  {t("common.status")}
-                </th>
-                <th scope="col" className={thClass}>
-                  <span className="sr-only">{t("godown.reverse")}</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((entry) => (
-                <tr key={entry.id} className="border-t border-border">
-                  <td className={tdClass}>{entryLabel(entry)}</td>
-                  <td className={tdClass}>{entry.staffName ?? entry.categoryName ?? "—"}</td>
-                  <td className={tdNum}>{money(entry.amount)}</td>
-                  <td className={tdClass}>
-                    <StatusChip status={entry.status} />
-                  </td>
-                  <td className={`${tdClass} text-right`}>
-                    {canReverse && entry.status === "posted" ? (
-                      <Button disabled={reverse.isPending} onClick={() => void undo(entry.id)}>
-                        {t("godown.reverse")}
-                      </Button>
-                    ) : null}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </TableScroller>
-      )}
-    </>
   );
 }
 
@@ -417,7 +319,16 @@ export function MoneyEntriesPage({
               <EntryForm key={date} companyId={company.id} date={date} kinds={[first, ...rest]} />
             ) : null}
             <SectionTitle>{t("money.posted")}</SectionTitle>
-            <EntryList companyId={company.id} date={date} kinds={kinds} />
+            <MoneyEntryTable
+              companyId={company.id}
+              date={date}
+              kinds={kinds}
+              columns={[
+                { label: "common.kind", cell: entryLabel },
+                { label: "money.party", cell: (e) => e.staffName ?? e.categoryName ?? "—" },
+                { label: "common.amount", numeric: true, cell: (e) => money(e.amount) },
+              ]}
+            />
           </>
         )}
       </DayGate>

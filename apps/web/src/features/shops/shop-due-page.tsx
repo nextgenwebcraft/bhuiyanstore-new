@@ -11,31 +11,18 @@ import { FormSkeleton, TableSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
 import { TableSummary } from "@/components/table-summary";
 import { describeError } from "@/data/ports/service-error";
-import {
-  useMoneyEntries,
-  usePostMoneyEntry,
-  useReverseMoneyEntry,
-  useShops,
-  useStaffRecords,
-} from "@/data/queries";
+import { usePostMoneyEntry, useShops, useStaffRecords } from "@/data/queries";
 import {
   clean,
   DateBar,
   DateHeading,
   DayGate,
-  money,
   SectionTitle,
-  StatusChip,
-  tableClass,
-  TableScroller,
-  tdClass,
-  tdNum,
-  thClass,
-  thNum,
-  theadClass,
   useWorkingDate,
 } from "@/features/daily/daily-kit";
+import { money } from "@/components/data-table";
 import { dsrsOn } from "@/features/daily/dsr-days-page";
+import { MoneyEntryTable } from "@/features/daily/money-entry-table";
 import { NavGate } from "@/features/shell/nav-gate";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 import { overLimit } from "./shops-page";
@@ -180,90 +167,6 @@ function EntryForm({
   );
 }
 
-function EntryList({ companyId, date }: { companyId: string; date: string }) {
-  const { permissions } = useCurrentWorkspace();
-  const entries = useMoneyEntries(companyId, { from: date });
-  const reverse = useReverseMoneyEntry(companyId);
-  const [error, setError] = useState<string | undefined>();
-  const canReverse = permissions.includes("payment.reverse");
-
-  async function undo(entryId: string) {
-    if (!window.confirm(t("money.reverseConfirm"))) return;
-    setError(undefined);
-    try {
-      await reverse.mutateAsync(entryId);
-    } catch (e) {
-      setError(describeError(e, []).form);
-    }
-  }
-
-  if (entries.isPending) return <TableSkeleton rows={3} columns={5} />;
-  if (entries.isError)
-    return <QueryError error={entries.error} onRetry={() => void entries.refetch()} />;
-  const rows = entries.data.filter((e) => (KINDS as readonly string[]).includes(e.kind));
-  return (
-    <>
-      {error ? <StatePanel tone="error" title={error} /> : null}
-      {rows.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-sm text-text-muted">
-          {t("money.empty")}
-        </p>
-      ) : (
-        <TableScroller>
-          <table className={tableClass}>
-            <thead className={theadClass}>
-              <tr>
-                <th scope="col" className={thClass}>
-                  {t("shop.label")}
-                </th>
-                <th scope="col" className={thClass}>
-                  {t("money.person.dsr")}
-                </th>
-                <th scope="col" className={thNum}>
-                  {t("money.kind.marketDueNew")}
-                </th>
-                <th scope="col" className={thNum}>
-                  {t("money.kind.marketDueCollected")}
-                </th>
-                <th scope="col" className={thClass}>
-                  {t("common.status")}
-                </th>
-                <th scope="col" className={thClass}>
-                  <span className="sr-only">{t("godown.reverse")}</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((entry) => (
-                <tr key={entry.id} className="border-t border-border">
-                  <td className={tdClass}>{entry.shopName ?? t("shop.none")}</td>
-                  <td className={tdClass}>{entry.staffName ?? "—"}</td>
-                  <td className={tdNum}>
-                    {entry.kind === "marketDueNew" ? money(entry.amount) : ""}
-                  </td>
-                  <td className={tdNum}>
-                    {entry.kind === "marketDueCollected" ? money(entry.amount) : ""}
-                  </td>
-                  <td className={tdClass}>
-                    <StatusChip status={entry.status} />
-                  </td>
-                  <td className={`${tdClass} text-right`}>
-                    {canReverse && entry.status === "posted" ? (
-                      <Button disabled={reverse.isPending} onClick={() => void undo(entry.id)}>
-                        {t("godown.reverse")}
-                      </Button>
-                    ) : null}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </TableScroller>
-      )}
-    </>
-  );
-}
-
 /**
  * Daily বাকি by shop (D35): due given to or collected from a shop, with the DSR who handled it.
  * The engine counts it in the day's cash and in market due like any market due entry.
@@ -324,7 +227,25 @@ export function ShopDuePage() {
             ) : null}
             <div>
               <SectionTitle>{t("money.posted")}</SectionTitle>
-              <EntryList companyId={company.id} date={date} />
+              <MoneyEntryTable
+                companyId={company.id}
+                date={date}
+                kinds={KINDS}
+                columns={[
+                  { label: "shop.label", cell: (e) => e.shopName ?? t("shop.none") },
+                  { label: "money.person.dsr", cell: (e) => e.staffName ?? "—" },
+                  {
+                    label: "money.kind.marketDueNew",
+                    numeric: true,
+                    cell: (e) => (e.kind === "marketDueNew" ? money(e.amount) : ""),
+                  },
+                  {
+                    label: "money.kind.marketDueCollected",
+                    numeric: true,
+                    cell: (e) => (e.kind === "marketDueCollected" ? money(e.amount) : ""),
+                  },
+                ]}
+              />
             </div>
           </div>
         )}

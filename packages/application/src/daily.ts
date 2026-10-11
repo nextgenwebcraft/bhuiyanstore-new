@@ -23,7 +23,14 @@ import {
   type StockEntryKind,
 } from "@bsd/contracts";
 import type { Prisma } from "@bsd/database";
-import { MONEY_KIND_EFFECTS, sumAmounts, summarizeDay, toDecimal } from "@bsd/domain";
+import {
+  MONEY_KIND_EFFECTS,
+  monthOf,
+  sumAmounts,
+  summarizeDay,
+  toDecimal,
+  todayBusinessDate,
+} from "@bsd/domain";
 import {
   loadCompanyAccess,
   requirePermission,
@@ -32,11 +39,12 @@ import {
 } from "./access";
 import { recordAudit } from "./audit";
 import type { AppContext, Tx } from "./context";
-import { fromDbDate, toDbDate, todayInDhaka } from "./dates";
-import { AppError, parseInput } from "./errors";
+import { fromDbDate, toDbDate } from "./dates";
+import { AppError, invalid, parseInput } from "./errors";
 import { hasFieldVisits, postFieldVisits, reverseFieldVisits } from "./field-posting";
 import { runIdempotent } from "./idempotency";
-import { activeOpening, allocationOf, monthOf, runLedger } from "./ledger";
+import { liveOpening, allocationOf, namesFor, rangeRun, runLedger } from "./ledger";
+import { parseReportRange } from "./report-range";
 import { plain } from "./numeric";
 import { packOn } from "./products";
 
@@ -50,8 +58,6 @@ import { ensureStockCovers } from "./stock-guard";
 
 type Db = AppContext["db"] | Tx;
 
-export const invalid = (path: string, code: string) =>
-  new AppError("VALIDATION_FAILED", [{ path, code }]);
 const iso = (value: Date | null) => (value ? value.toISOString() : null);
 export const businessDate = (value: unknown, path = "date") => {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
@@ -67,20 +73,20 @@ export function requireAll(access: CompanyAccess, permissions: Iterable<Permissi
 }
 
 /**
- * Posting needs an active opening, a date from the cutoff to today and an open month. The shared
+ * Posting needs a live opening (a saved cutoff date, D43), a date from the cutoff to today and an open month. The shared
  * company lock makes a concurrent month close wait for in-flight postings.
  */
 export async function postingGuard(tx: Tx, companyId: string, date: string): Promise<void> {
   await tx.$queryRaw`SELECT id FROM company WHERE id = ${companyId} FOR SHARE`;
   const session = await tx.openingSession.findUnique({
     where: { companyId },
-    select: { status: true, cutoffDate: true },
+    select: { cutoffDate: true },
   });
-  if (!session || session.status !== "active" || !session.cutoffDate) {
+  if (!session?.cutoffDate) {
     throw invalid("date", "validation.daily.noOpening");
   }
   if (date < fromDbDate(session.cutoffDate)) throw invalid("date", "validation.daily.beforeCutoff");
-  if (date > todayInDhaka()) throw invalid("date", "validation.daily.future");
+  if (date > todayBusinessDate()) throw invalid("date", "validation.daily.future");
   const closed = await tx.monthClose.findUnique({
     where: { companyId_month: { companyId, month: monthOf(date) } },
     select: { id: true },
@@ -88,7 +94,7 @@ export async function postingGuard(tx: Tx, companyId: string, date: string): Pro
   if (closed) throw invalid("date", "validation.daily.monthClosed");
 }
 
-export type RoleKind = "dsr" | "sr" | "general";
+type RoleKind = "dsr" | "sr" | "general";
 
 export async function roleOn(
   db: Db,
@@ -206,8 +212,8 @@ export async function postStockEntries(
         if (existing) before[`${price.productId}|${price.kind}`] = plain(existing.price);
         await tx.priceChange.upsert({
           where: { productId_kind_effectiveFrom: key },
-          create: { ...key, price: price.price },
-          update: { price: price.price },
+          create: { ...key, price: price.price, source: "manual" },
+          update: { price: price.price, source: "manual" },
         });
       }
       await recordAudit(tx, ctx, {
@@ -552,7 +558,7 @@ export async function discardDsrDay(
 // ---------------------------------------------------------------- money entries
 
 /** Who may post each entry type (guide §12.2). */
-export const MONEY_PERMISSION = moneyKindPermission;
+
 const MONEY_PERSON = moneyKindPerson;
 const CATEGORY_KINDS = new Set<MoneyEntryKind>(moneyCategoryKinds);
 const ALLOCATION_KINDS = new Set<MoneyEntryKind>(moneyAllocationKinds);
@@ -637,7 +643,7 @@ export async function listMoneyEntries(
   const market = access.permissions.includes("sale.view");
   const finance = access.permissions.includes("finance.view");
   if (!market && !finance) throw new AppError("FORBIDDEN");
-  const kinds = Object.keys(MONEY_PERMISSION).filter((k) =>
+  const kinds = Object.keys(moneyKindPermission).filter((k) =>
     MARKET_KINDS.has(k as MoneyEntryKind) ? market : finance,
   );
   const rows = await ctx.db.moneyEntry.findMany({
@@ -661,7 +667,7 @@ export async function postMoneyEntry(
   requestKey?: string,
 ): Promise<MoneyEntry> {
   const request = parseInput(moneyEntryPostRequestSchema, input);
-  const access = await requirePermission(ctx, companyId, MONEY_PERMISSION[request.kind], {
+  const access = await requirePermission(ctx, companyId, moneyKindPermission[request.kind], {
     write: true,
   });
   const effect = MONEY_KIND_EFFECTS[request.kind];
@@ -821,30 +827,6 @@ const ZERO_MONEY = {
   banked: "0",
 };
 
-/** Product names and carton sizes on `date`, and every tenant staff name, for engine rows. */
-export async function namesFor(db: Db, access: CompanyAccess, date: string) {
-  const [products, staff] = await Promise.all([
-    db.product.findMany({
-      where: { companyId: access.company.id },
-      include: { packs: true },
-      orderBy: { sku: "asc" },
-    }),
-    db.staff.findMany({
-      where: { tenantId: access.company.tenantId },
-      select: { id: true, name: true },
-    }),
-  ]);
-  return {
-    products: products.map((p) => ({
-      id: p.id,
-      sku: p.sku,
-      name: p.name,
-      piecesPerCarton: String(packOn(p.packs, date)?.piecesPerCarton ?? 1),
-    })),
-    staff: new Map(staff.map((s) => [s.id, s.name])),
-  };
-}
-
 /** The engine's view of one date (PLAN §6): godown, DSR sales, money, dues and warnings. */
 export async function getDayView(
   ctx: AppContext,
@@ -856,7 +838,7 @@ export async function getDayView(
   const canSeeCost = access.permissions.includes("inventory.cost_view");
   const canSeeProfit = canSeeCost && access.permissions.includes("report.profit_view");
   const [active, names] = await Promise.all([
-    activeOpening(ctx.db, companyId),
+    liveOpening(ctx.db, companyId),
     namesFor(ctx.db, access, date),
   ]);
   const run = await runLedger(ctx.db, access, date, active);
@@ -905,54 +887,74 @@ export async function getDayView(
   });
 }
 
-/** The dashboard's report for one date, from the engine (guide 5.2). */
+/**
+ * The dashboard's report for a range (guide 5.2): one engine run over [from, to], each day
+ * summarised by the domain and summed here; `to` stops at today (same rules as reports).
+ */
 export async function getDashboardSummary(
   ctx: AppContext,
   companyId: string,
-  dateInput: unknown,
+  query: unknown,
 ): Promise<DashboardSummary> {
   const access = await requirePermission(ctx, companyId, "company.view");
-  const date = businessDate(dateInput);
+  const range = parseReportRange(query);
   const canSeeCost = access.permissions.includes("inventory.cost_view");
   const canSeeProfit = canSeeCost && access.permissions.includes("report.profit_view");
-  const day = toDbDate(date);
+  const dates = { gte: toDbDate(range.from), lte: toDbDate(range.to) };
+  const active = await liveOpening(ctx.db, companyId);
   const [run, names, sheets, receipts] = await Promise.all([
-    runLedger(ctx.db, access, date),
+    rangeRun(ctx.db, access, range.from, range.to, active),
     ctx.db.staff.findMany({
       where: { tenantId: access.company.tenantId },
       select: { id: true, name: true },
     }),
-    ctx.db.dsrDay.count({ where: { companyId, date: day, status: "posted" } }),
-    ctx.db.stockEntry.count({ where: { companyId, date: day, status: "posted", kind: "receipt" } }),
+    ctx.db.dsrDay.count({ where: { companyId, date: dates, status: "posted" } }),
+    ctx.db.stockEntry.count({
+      where: { companyId, date: dates, status: "posted", kind: "receipt" },
+    }),
   ]);
-  const index = run?.output.days.findIndex((d) => d.date === date) ?? -1;
-  const result = run && index >= 0 ? run.output.days[index] : undefined;
-  const input = run && index >= 0 ? run.input[index] : undefined;
-  const summary = result && input ? summarizeDay(result, input) : null;
+  const summaries = run
+    ? run.output.days.flatMap((day, index) => {
+        const input = run.input[index];
+        return input ? [summarizeDay(day, input)] : [];
+      })
+    : [];
+  const total = (pick: (s: (typeof summaries)[number]) => string) =>
+    sumAmounts(summaries.map(pick));
   const staffName = new Map(names.map((s) => [s.id, s.name]));
-  const zero = "0.00";
+  const dsrIds = [...new Set(summaries.flatMap((s) => s.byDsr.map((r) => r.staffId)))];
+  const byDsr = dsrIds.map((staffId) => {
+    const rows = summaries.flatMap((s) => s.byDsr.filter((r) => r.staffId === staffId));
+    const sum = (pick: (r: (typeof rows)[number]) => string) => sumAmounts(rows.map(pick));
+    return {
+      dsrId: staffId,
+      dsrName: staffName.get(staffId) ?? "",
+      netSales: sum((r) => r.netSales),
+      salesCash: sum((r) => r.salesCash),
+      marketDueCreated: sum((r) => r.marketDueCreated),
+      oldDuesCollected: sum((r) => r.oldDuesCollected),
+    };
+  });
 
   return dashboardSummarySchema.parse({
-    date,
-    netSales: summary?.netSales ?? zero,
-    salesCash: summary?.salesCash ?? zero,
-    oldDuesCollected: summary?.oldDuesCollected ?? zero,
-    cashCollected: summary?.cashCollected ?? zero,
-    marketDueCreated: summary?.marketDueCreated ?? zero,
-    marketDueOutstanding: run?.output.month.marketDue.closing ?? zero,
+    from: range.from,
+    to: range.to,
+    cutoffDate: active?.cutoffDate ?? null,
+    netSales: total((s) => s.netSales),
+    salesCash: total((s) => s.salesCash),
+    oldDuesCollected: total((s) => s.oldDuesCollected),
+    cashCollected: total((s) => s.cashCollected),
+    marketDueCreated: total((s) => s.marketDueCreated),
+    marketDueOutstanding: run?.output.month.marketDue.closing ?? "0.00",
     postedSummaryCount: sheets,
     postedReceiptCount: receipts,
-    byDsr: (summary?.byDsr ?? []).map((row) => ({
-      dsrId: row.staffId,
-      dsrName: staffName.get(row.staffId) ?? "",
-      netSales: row.netSales,
-      salesCash: row.salesCash,
-      marketDueCreated: row.marketDueCreated,
-      oldDuesCollected: row.oldDuesCollected,
-    })),
-    ...(canSeeProfit && summary ? { grossProfit: summary.grossProfit } : {}),
-    ...(canSeeCost && summary
-      ? { receivedValue: summary.receivedValue, stockValue: summary.stockValue }
+    byDsr,
+    ...(canSeeProfit && run ? { grossProfit: total((s) => s.grossProfit) } : {}),
+    ...(canSeeCost && run
+      ? {
+          receivedValue: total((s) => s.receivedValue),
+          stockValue: summaries.at(-1)?.stockValue ?? "0.00",
+        }
       : {}),
   });
 }

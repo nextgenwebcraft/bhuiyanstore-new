@@ -1,15 +1,7 @@
-/** Business dates are calendar days in Asia/Dhaka (D08), stored as Postgres DATE (UTC midnight). */
-const dhakaDay = new Intl.DateTimeFormat("en-CA", {
-  timeZone: "Asia/Dhaka",
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-});
-
-export function todayInDhaka(now = new Date()): string {
-  return dhakaDay.format(now);
-}
-
+/**
+ * Postgres DATE (UTC midnight) conversion. Business-date arithmetic (today, month helpers) is
+ * owned by `@bsd/domain` dates (D08).
+ */
 export function toDbDate(businessDate: string): Date {
   return new Date(`${businessDate}T00:00:00.000Z`);
 }

@@ -1,5 +1,5 @@
 import { bootstrapSuperAdmin, type Actor } from "@bsd/auth";
-import { moneyEntryKinds, type MoneyEntryKind, type OpeningSaveRequest } from "@bsd/contracts";
+import { moneyEntryKinds, type MoneyEntryKind } from "@bsd/contracts";
 import {
   MONEY_KIND_EFFECTS,
   computeMonth,
@@ -29,11 +29,17 @@ import {
 } from "./daily";
 import { AppError } from "./errors";
 import { runLedger } from "./ledger";
-import { activateOpening, approveOpening, getOpening, saveOpening } from "./opening";
+import { getOpening } from "./opening";
 import { createProduct } from "./products";
 import { createShop, getShopStatement, listShops } from "./shops";
 import { createStaff } from "./staff";
-import { contextFor, resetTestSchema, testDatabase } from "./test-support";
+import {
+  contextFor,
+  resetTestSchema,
+  saveWholeOpening,
+  testDatabase,
+  type WholeOpening,
+} from "./test-support";
 
 process.env.BETTER_AUTH_SECRET ??= "integration-test-secret-integration-test-secret";
 process.env.BETTER_AUTH_URL ??= "http://localhost:3000";
@@ -366,7 +372,7 @@ beforeAll(async () => {
   id.shop = (await createShop(ctx, company, { name: "Hasan Store" })).id;
 
   const empty = await getOpening(ctx, company);
-  const opening: OpeningSaveRequest = {
+  const opening: WholeOpening = {
     version: empty.version,
     cutoffDate: "2026-08-30",
     stock: [
@@ -424,9 +430,7 @@ beforeAll(async () => {
       },
     ],
   };
-  const saved = await saveOpening(ctx, company, opening);
-  const approved = await approveOpening(ctx, company, { version: saved.version });
-  await activateOpening(ctx, company, { version: approved.version });
+  await saveWholeOpening(ctx, company, opening);
 });
 
 afterAll(async () => {
@@ -544,7 +548,10 @@ describe("Phase E: daily entry", () => {
     const hidden = await getDayView(viewerCtx, company, "2026-08-30");
     expect(hidden.canSeeCost).toBe(false);
     expect(hidden.products.every((p) => p.cost === null && p.stockValue === null)).toBe(true);
-    const summary = await getDashboardSummary(viewerCtx, company, "2026-08-30");
+    const summary = await getDashboardSummary(viewerCtx, company, {
+      from: "2026-08-30",
+      to: "2026-08-30",
+    });
     expect(summary.grossProfit).toBeUndefined();
     expect(summary.postedSummaryCount).toBe(2);
     expect(summary.byDsr.find((r) => r.dsrId === id.mamun)?.marketDueCreated).toBe("100.00");

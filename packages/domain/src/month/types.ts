@@ -119,7 +119,9 @@ export type MoneyKind =
   | "supplierDeposit"
   | "companyIncentive";
 
-export type OwedBucket = "advance" | "loan" | "shortage";
+/** The owed buckets in recovery/allocation order: advance, then loan, then shortage. */
+export const owedBuckets = ["advance", "loan", "shortage"] as const;
+export type OwedBucket = (typeof owedBuckets)[number];
 
 export type MoneyEntryInput = {
   kind: MoneyKind;

@@ -1,5 +1,10 @@
 import {
   computeMonth,
+  datesBetween,
+  firstOfMonth,
+  lastOfMonth,
+  monthOf,
+  shiftMonth,
   shiftBusinessDate,
   sumQuantities,
   toMonthOpening,
@@ -22,7 +27,7 @@ import { packOn } from "./products";
 
 /**
  * Runs the month engine over posted documents (PLAN §4). Nothing here calculates: it only turns
- * stored raw facts into `MonthInput`, month by month from the activated opening, so every screen
+ * stored raw facts into `MonthInput`, month by month from the live opening, so every screen
  * and report reads one engine.
  */
 
@@ -44,27 +49,6 @@ const STOCK_FIELD: Record<
   incentive: "incentiveReceived",
 };
 
-export const monthOf = (date: string) => date.slice(0, 7);
-export const firstOfMonth = (month: string) => `${month}-01`;
-
-export function lastOfMonth(month: string): string {
-  const [year, mon] = month.split("-").map(Number) as [number, number];
-  return new Date(Date.UTC(year, mon, 0)).toISOString().slice(0, 10);
-}
-
-export function nextMonth(month: string): string {
-  const [year, mon] = month.split("-").map(Number) as [number, number];
-  return new Date(Date.UTC(year, mon, 1)).toISOString().slice(0, 7);
-}
-
-function datesBetween(from: string, to: string): string[] {
-  const dates: string[] = [];
-  for (let d = toDbDate(from); fromDbDate(d) <= to; d = new Date(d.getTime() + 86_400_000)) {
-    dates.push(fromDbDate(d));
-  }
-  return dates;
-}
-
 type DecimalColumn = Parameters<typeof plain>[0];
 
 /** A money entry's named allocation parts, or null for the default order. */
@@ -85,8 +69,8 @@ export function allocationOf(entry: {
 
 export type ActiveOpening = { sessionId: string; cutoffDate: string; opening: MonthOpening };
 
-/** The company's activated opening as the engine's first opening; null until activation. */
-export async function activeOpening(db: Db, companyId: string): Promise<ActiveOpening | null> {
+/** The live opening (cutoff date saved, D43) as the engine's first opening; null before. */
+export async function liveOpening(db: Db, companyId: string): Promise<ActiveOpening | null> {
   const session = await db.openingSession.findUnique({
     where: { companyId },
     include: {
@@ -94,7 +78,7 @@ export async function activeOpening(db: Db, companyId: string): Promise<ActiveOp
       balances: { orderBy: [{ kind: "asc" }, { partyKey: "asc" }] },
     },
   });
-  if (!session || session.status !== "active" || !session.cutoffDate) return null;
+  if (!session || !session.cutoffDate) return null;
   const cutoffDate = fromDbDate(session.cutoffDate);
   const opening = toMonthOpening({
     cutoffDate,
@@ -278,7 +262,7 @@ export type LedgerRun = {
 /**
  * The engine output for the month containing `to`, through `to`. Earlier months come from their
  * month-close snapshot when closed, otherwise they are recalculated from posted documents.
- * Returns null before activation or for a date before the cutoff.
+ * Returns null before the cutoff date is saved or for a date before the cutoff.
  */
 export async function runLedger(
   db: Db,
@@ -287,7 +271,7 @@ export async function runLedger(
   known?: ActiveOpening | null,
 ): Promise<LedgerRun | null> {
   const companyId = access.company.id;
-  const active = known === undefined ? await activeOpening(db, companyId) : known;
+  const active = known === undefined ? await liveOpening(db, companyId) : known;
   if (!active || to < active.cutoffDate) return null;
 
   const closes = await db.monthClose.findMany({
@@ -298,7 +282,7 @@ export async function runLedger(
 
   let opening: MonthOpening = active.opening;
   let start = active.cutoffDate;
-  for (let month = monthOf(start); month < monthOf(to); month = nextMonth(month)) {
+  for (let month = monthOf(start); month < monthOf(to); month = shiftMonth(month, 1)) {
     const snapshot = closed.get(month);
     if (snapshot) {
       opening = snapshot;
@@ -307,7 +291,7 @@ export async function runLedger(
         await rangeInput(db, companyId, start, lastOfMonth(month), opening),
       ).closing;
     }
-    start = firstOfMonth(nextMonth(month));
+    start = firstOfMonth(shiftMonth(month, 1));
   }
   const input = await rangeInput(db, companyId, start, to, opening);
   return {
@@ -322,7 +306,7 @@ export async function runLedger(
 /**
  * One engine run over [from, to] (any length), opening with the engine's state at the end of the
  * day before `from`. Month aggregates in the output then cover exactly the range. `from` is moved
- * up to the cutoff; null before activation or when the whole range precedes the cutoff.
+ * up to the cutoff; null before the cutoff date is saved or when the whole range precedes the cutoff.
  */
 export async function rangeRun(
   db: Db,
@@ -331,7 +315,7 @@ export async function rangeRun(
   to: string,
   known?: ActiveOpening | null,
 ): Promise<LedgerRun | null> {
-  const active = known === undefined ? await activeOpening(db, access.company.id) : known;
+  const active = known === undefined ? await liveOpening(db, access.company.id) : known;
   if (!active || to < active.cutoffDate) return null;
   const start = from < active.cutoffDate ? active.cutoffDate : from;
   let opening = active.opening;
@@ -346,5 +330,29 @@ export async function rangeRun(
     to,
     input: input.days,
     output: computeMonth(input),
+  };
+}
+
+/** Product names and carton sizes on `date`, and every tenant staff name, for engine rows. */
+export async function namesFor(db: Db, access: CompanyAccess, date: string) {
+  const [products, staff] = await Promise.all([
+    db.product.findMany({
+      where: { companyId: access.company.id },
+      include: { packs: true },
+      orderBy: { sku: "asc" },
+    }),
+    db.staff.findMany({
+      where: { tenantId: access.company.tenantId },
+      select: { id: true, name: true },
+    }),
+  ]);
+  return {
+    products: products.map((p) => ({
+      id: p.id,
+      sku: p.sku,
+      name: p.name,
+      piecesPerCarton: String(packOn(p.packs, date)?.piecesPerCarton ?? 1),
+    })),
+    staff: new Map(staff.map((s) => [s.id, s.name])),
   };
 }

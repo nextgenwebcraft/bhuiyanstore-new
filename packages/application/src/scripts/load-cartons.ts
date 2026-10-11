@@ -1,9 +1,9 @@
+import { todayBusinessDate } from "@bsd/domain";
 import { config } from "dotenv";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { createDatabase } from "@bsd/database";
 import { readCartonSizes } from "@bsd/importer";
-import { todayInDhaka } from "../dates";
 import { addProductPack, packOn, updateProduct } from "../products";
 
 /**
@@ -67,7 +67,7 @@ try {
     notInSheet: [],
   };
   const matched = new Set<string>();
-  const today = todayInDhaka();
+  const today = todayBusinessDate();
 
   for (const row of rows) {
     const product = byName.get(key(row.name));

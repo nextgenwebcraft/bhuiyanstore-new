@@ -1,18 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { lastOfMonth, monthGrid, presetRange, shiftMonth } from "./calendar-math";
+import { monthGrid, presetRange } from "./calendar-math";
 
 describe("calendar math", () => {
-  it("shifts months across years", () => {
-    expect(shiftMonth("2026-01", -1)).toBe("2025-12");
-    expect(shiftMonth("2026-12", 1)).toBe("2027-01");
-    expect(shiftMonth("2026-10", -13)).toBe("2025-09");
-  });
-
-  it("knows the last day of a month, leap years included", () => {
-    expect(lastOfMonth("2026-09")).toBe("2026-09-30");
-    expect(lastOfMonth("2028-02")).toBe("2028-02-29");
-  });
-
   it("lays a month out in six Saturday-first weeks", () => {
     const grid = monthGrid("2026-10");
     expect(grid).toHaveLength(42);

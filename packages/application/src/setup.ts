@@ -1,3 +1,4 @@
+import { todayBusinessDate } from "@bsd/domain";
 import {
   setupStatusSchema,
   type OpeningSectionId,
@@ -5,15 +6,15 @@ import {
   type SetupStep,
   type SetupStepId,
 } from "@bsd/contracts";
-import { OPENING_KIND_EFFECTS, sectionOfKind } from "@bsd/domain";
 import { requirePermission } from "./access";
 import type { AppContext } from "./context";
-import { fromDbDate, todayInDhaka } from "./dates";
+import { fromDbDate } from "./dates";
 import { openingView } from "./opening";
 
 /**
- * The go-live checklist (PLAN §5.3). Every step is computed here from the database; the client
- * only shows it. Steps never block each other, so the owner can fill them in any order.
+ * The go-live checklist (PLAN §5.3, D43). Every step is computed here from the database; the
+ * client only shows it. Steps never block each other, so the owner can fill them in any order.
+ * The opening steps come from the same section summary the opening page shows.
  */
 
 type Missing = SetupStep["missing"][number];
@@ -28,12 +29,21 @@ const missCount = (out: Missing[], code: string, count: number) => {
   if (count > 0) out.push(miss(code, count));
 };
 
+/** Which opening section each opening step follows. */
+const OPENING_STEPS = {
+  openingStock: "stock",
+  marketDue: "marketDue",
+  shopDue: "shopDue",
+  staffOpening: "staff",
+  companyOpening: "company",
+  cashOpening: "cash",
+} as const satisfies Partial<Record<SetupStepId, OpeningSectionId>>;
+
 export async function getSetupStatus(ctx: AppContext, companyId: string): Promise<SetupStatus> {
   const access = await requirePermission(ctx, companyId, "company.view");
-  const today = todayInDhaka();
-  const [view, session, products, assignments, shops] = await Promise.all([
+  const today = todayBusinessDate();
+  const [view, products, assignments, shops] = await Promise.all([
     openingView(ctx.db, access),
-    ctx.db.openingSession.findUnique({ where: { companyId }, select: { status: true } }),
     ctx.db.product.findMany({
       where: { companyId, status: "active" },
       select: { id: true, packs: { select: { piecesPerCarton: true } } },
@@ -48,22 +58,21 @@ export async function getSetupStatus(ctx: AppContext, companyId: string): Promis
         role: { select: { kind: true } },
       },
     }),
-    ctx.db.shop.findMany({ where: { companyId, status: "active" }, select: { id: true } }),
+    ctx.db.shop.count({ where: { companyId, status: "active" } }),
   ]);
 
   const steps: Record<SetupStepId, Missing[]> = {
-    company: [],
     products: [],
     staff: [],
-    openingStock: [],
-    supplierOpening: [],
-    staffOpening: [],
     shops: [],
-    businessOpening: [],
-    activate: [],
+    cutoff: [],
+    openingStock: [],
+    marketDue: [],
+    shopDue: [],
+    staffOpening: [],
+    companyOpening: [],
+    cashOpening: [],
   };
-
-  if (access.company.status !== "active") steps.company.push(miss("companyInactive"));
 
   if (products.length === 0) steps.products.push(miss("noProducts"));
   missCount(
@@ -82,76 +91,29 @@ export async function getSetupStatus(ctx: AppContext, companyId: string): Promis
     current.filter((a) => a.role.kind !== "sr" && a.monthlySalary === null).length,
   );
 
-  const stock = view.stock;
-  if (!view.cutoffDate) steps.openingStock.push(miss("cutoffDate"));
-  missCount(steps.openingStock, "pieces", stock.filter((l) => l.pieces === null).length);
-  missCount(steps.openingStock, "orderPrice", stock.filter((l) => l.orderPrice === null).length);
-  missCount(
-    steps.openingStock,
-    "unitCost",
-    stock.filter((l) => l.pieces !== null && l.pieces !== "0" && l.unitCost === null).length,
-  );
-  const stockErrors = view.issues.filter(
-    (i) => i.severity === "error" && i.productId && i.code !== "opening.issue.dueInvalid",
-  ).length;
-  missCount(steps.openingStock, "stockErrors", stockErrors);
+  if (shops === 0) steps.shops.push(miss("noShops"));
+  if (!view.cutoffDate) steps.cutoff.push(miss("cutoffDate"));
 
-  const balances = view.balances;
-  const entered = (kind: string) => balances.some((b) => b.kind === kind && b.amount !== null);
-  const sectionUnknown = (section: OpeningSectionId) =>
-    balances.filter(
-      (b) =>
-        b.amount === null &&
-        sectionOfKind(b.kind) === section &&
-        OPENING_KIND_EFFECTS[b.kind].group !== "marketDue",
-    ).length;
-  const sectionErrors = (section: OpeningSectionId) =>
-    view.issues.filter((i) => i.severity === "error" && i.kind && sectionOfKind(i.kind) === section)
-      .length;
-  if (!entered("company_payable") && !entered("company_advance")) {
-    steps.supplierOpening.push(miss("companyBalance"));
+  for (const [step, section] of Object.entries(OPENING_STEPS) as [
+    keyof typeof OPENING_STEPS,
+    OpeningSectionId,
+  ][]) {
+    const summary = view.sections.find((s) => s.section === section);
+    if (summary?.state === "pending") {
+      steps[step].push(miss("blanks", Math.max(summary.total - summary.entered, 1)));
+    }
   }
-  missCount(
-    steps.supplierOpening,
-    "dueFromCompany",
-    stock.filter((l) => l.dueFromCompany === null).length,
-  );
-  missCount(steps.supplierOpening, "errors", sectionErrors("company"));
-  const staffWithBalance = new Set(
-    balances
-      .filter((b) => b.staffId && b.amount !== null && sectionOfKind(b.kind) === "staff")
-      .map((b) => b.staffId),
-  );
-  if (current.length === 0) steps.staffOpening.push(miss("noStaff"));
-  missCount(
-    steps.staffOpening,
-    "staffBalances",
-    new Set(current.map((a) => a.staffId).filter((id) => !staffWithBalance.has(id))).size,
-  );
-  missCount(steps.staffOpening, "unknownAmounts", sectionUnknown("staff"));
-  missCount(steps.staffOpening, "errors", sectionErrors("staff"));
-  if (shops.length === 0) steps.shops.push(miss("noShops"));
-  const dueShops = new Set(
-    balances.filter((b) => b.kind === "shop_due" && b.amount !== null).map((b) => b.shopId),
-  );
-  missCount(steps.shops, "shopDue", shops.filter((s) => !dueShops.has(s.id)).length);
-  missCount(steps.shops, "errors", sectionErrors("shops"));
-  if (!balances.some((b) => b.kind === "cash" && b.amount !== null)) {
-    steps.businessOpening.push(miss("cash"));
-  }
-  missCount(steps.businessOpening, "errors", sectionErrors("cash"));
-  if (session?.status !== "active") steps.activate.push(miss("activate"));
 
   const list = (Object.keys(steps) as SetupStepId[]).map((id) => ({
     id,
     complete: steps[id].length === 0,
     missing: steps[id],
   }));
-  const completed = list.filter((s) => s.complete).length;
   return setupStatusSchema.parse({
     steps: list,
-    completed,
-    ready: completed === list.length,
-    openingStatus: session?.status ?? "none",
+    completed: list.filter((s) => s.complete).length,
+    ready: view.cutoffDate !== null,
+    live: view.cutoffDate !== null,
+    locked: view.locked,
   });
 }

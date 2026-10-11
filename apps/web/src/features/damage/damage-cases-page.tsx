@@ -1,7 +1,9 @@
 "use client";
 
 import type { DamageCase, DamageEventKindId, PermissionId } from "@bsd/contracts";
-import { allocationCost, businessDateOf, sumAmounts, sumQuantities } from "@bsd/domain";
+import { EmptyListNote } from "@/components/empty-list-note";
+import { useAsyncAction } from "@/lib/async-action";
+import { allocationCost, sumAmounts, sumQuantities } from "@bsd/domain";
 import { formatBusinessDate, t } from "@bsd/i18n";
 import { useId, useState } from "react";
 import { Button } from "@/components/button";
@@ -22,21 +24,21 @@ import {
   useDayView,
   useProducts,
 } from "@/data/queries";
+import { CellInput, clean } from "@/features/daily/daily-kit";
 import {
-  CellInput,
-  clean,
   money,
   quantity,
   tableClass,
-  TableScroller,
   tdClass,
   tdNum,
   thClass,
   thNum,
   theadClass,
-} from "@/features/daily/daily-kit";
+} from "@/components/data-table";
+import { TableScroller } from "@/components/table-scroller";
 import { NavGate } from "@/features/shell/nav-gate";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
+import { useToday } from "@/lib/today";
 
 /**
  * Damaged pieces handed to the company and what came back (D17, D33): money, which lowers what
@@ -63,7 +65,7 @@ const openPieces = (line: Row["line"]) =>
 
 function SendForm({ companyId, onDone }: { companyId: string; onDone: () => void }) {
   const id = useId();
-  const today = businessDateOf(new Date());
+  const today = useToday();
   const products = useProducts(companyId);
   const create = useCreateDamageCase(companyId);
   const [date, setDate] = useState(today);
@@ -171,7 +173,7 @@ function ReturnDialog({
   onClose: () => void;
 }) {
   const id = useId();
-  const today = businessDateOf(new Date());
+  const today = useToday();
   const command = useDamageCaseCommand(companyId);
   const dayCost = useSendDayCost(companyId, row);
   const remaining = openPieces(row.line);
@@ -293,22 +295,12 @@ function ReturnDialog({
 function ReturnHistory({ row }: { row: Row }) {
   const { company, permissions } = useCurrentWorkspace();
   const command = useDamageCaseCommand(company.id);
-  const [error, setError] = useState<string | undefined>();
+  const action = useAsyncAction();
   const canReverse = RETURN.every((p) => permissions.includes(p));
   const returns = row.item.events.filter(
     (e) => e.lineId === row.line.id && e.status === "posted" && isReturn(e.kind),
   );
   if (returns.length === 0) return null;
-
-  async function undo(eventId: string) {
-    setError(undefined);
-    if (!window.confirm(t("damage.reverseConfirm"))) return;
-    try {
-      await command.mutateAsync({ action: "reverse", eventId });
-    } catch (e) {
-      setError(describeError(e, []).form);
-    }
-  }
 
   return (
     <ul className="flex flex-col gap-1 text-xs text-text-muted">
@@ -325,15 +317,19 @@ function ReturnHistory({ row }: { row: Row }) {
             <button
               type="button"
               disabled={command.isPending}
-              onClick={() => void undo(e.id)}
+              onClick={() =>
+                void action.run(() => command.mutateAsync({ action: "reverse", eventId: e.id }), {
+                  confirm: "damage.reverseConfirm",
+                })
+              }
               className="text-brand underline-offset-2 hover:underline disabled:opacity-50"
             >
-              {t("godown.reverse")}
+              {t("common.reverse")}
             </button>
           ) : null}
         </li>
       ))}
-      {error ? <li className="text-error">{error}</li> : null}
+      {action.error ? <li className="text-error">{action.error}</li> : null}
     </ul>
   );
 }
@@ -342,24 +338,24 @@ function ReturnHistory({ row }: { row: Row }) {
 function UndoSend({ item }: { item: DamageCase }) {
   const { company, permissions } = useCurrentWorkspace();
   const command = useDamageCaseCommand(company.id);
-  const [error, setError] = useState<string | undefined>();
+  const action = useAsyncAction();
   const posted = item.events.filter((e) => e.status === "posted");
   const onlySent = posted.length > 0 && posted.every((e) => e.kind === "companyDispatch");
   if (!onlySent || !SEND.every((p) => permissions.includes(p))) return null;
 
-  async function undo() {
-    setError(undefined);
-    const names = item.lines.map((l) => l.productName).join(", ");
-    if (!window.confirm(`${t("damage.undo.confirm")}\n${names}`)) return;
-    try {
-      for (const event of posted) {
-        await command.mutateAsync({ action: "reverse", eventId: event.id });
-      }
-      await command.mutateAsync({ action: "cancel", caseId: item.id });
-    } catch (e) {
-      setError(describeError(e, []).form);
-    }
-  }
+  const undo = () =>
+    action.run(
+      async () => {
+        for (const event of posted) {
+          await command.mutateAsync({ action: "reverse", eventId: event.id });
+        }
+        await command.mutateAsync({ action: "cancel", caseId: item.id });
+      },
+      {
+        confirm: "damage.undo.confirm",
+        confirmDetail: item.lines.map((l) => l.productName).join(", "),
+      },
+    );
 
   return (
     <>
@@ -371,7 +367,7 @@ function UndoSend({ item }: { item: DamageCase }) {
       >
         {t("damage.undo.action")}
       </button>
-      {error ? <span className="text-xs text-error">{error}</span> : null}
+      {action.error ? <span className="text-xs text-error">{action.error}</span> : null}
     </>
   );
 }
@@ -466,9 +462,7 @@ export function DamageCasesPage({ path }: { path: string }) {
         ) : cases.isError ? (
           <QueryError error={cases.error} onRetry={() => void cases.refetch()} />
         ) : rows.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-sm text-text-muted">
-            {t("damage.empty")}
-          </p>
+          <EmptyListNote textKey="damage.empty" />
         ) : (
           <>
             <TableSummary

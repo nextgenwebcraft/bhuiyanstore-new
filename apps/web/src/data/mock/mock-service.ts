@@ -16,7 +16,7 @@ import type { DistributionService, RequestOptions } from "../ports/distribution-
 import { ServiceError } from "../ports/service-error";
 import type { DemoSeed } from "./seed-schema";
 
-export type MockServiceOptions = {
+type MockServiceOptions = {
   /** Simulated network latency, so loading states are visible and cancellation is exercised. */
   latencyMs?: number;
 };
@@ -300,9 +300,8 @@ export function createMockService(
     resetUserPassword: demoReadOnly,
 
     getOpening: demoReadOnly,
-    saveOpening: demoReadOnly,
-    approveOpening: demoReadOnly,
-    activateOpening: demoReadOnly,
+    saveOpeningCutoff: demoReadOnly,
+    saveOpeningSection: demoReadOnly,
     getSetupStatus: demoReadOnly,
     getFieldDay: demoReadOnly,
     getDsrFieldDay: demoReadOnly,

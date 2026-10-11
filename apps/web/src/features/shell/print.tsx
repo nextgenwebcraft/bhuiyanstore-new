@@ -1,6 +1,6 @@
 "use client";
 
-import { formatBusinessDate, t } from "@bsd/i18n";
+import { formatBusinessDate, formatDateTime, t } from "@bsd/i18n";
 import { useSyncExternalStore } from "react";
 import { Button } from "@/components/button";
 import { useCurrentWorkspace } from "./workspace-context";
@@ -29,7 +29,7 @@ export function PrintHeader({
   const { company } = useCurrentWorkspace();
   const printedAt = useSyncExternalStore(
     subscribe,
-    () => new Date().toLocaleString("bn-BD", { dateStyle: "medium", timeStyle: "short" }),
+    () => formatDateTime(new Date()),
     () => "",
   );
   let period = "";

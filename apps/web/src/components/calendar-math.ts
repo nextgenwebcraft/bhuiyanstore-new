@@ -1,18 +1,6 @@
-import { shiftBusinessDate } from "@bsd/domain";
+import { lastOfMonth, monthOf, shiftBusinessDate, shiftMonth } from "@bsd/domain";
 
-/** Calendar arithmetic on ISO strings only (YYYY-MM-DD, YYYY-MM): no Date leaks timezones. */
-
-export const monthOf = (date: string) => date.slice(0, 7);
-
-export function shiftMonth(month: string, by: number): string {
-  const [y = 0, m = 1] = month.split("-").map(Number);
-  const index = y * 12 + (m - 1) + by;
-  return `${Math.floor(index / 12)}-${String((index % 12) + 1).padStart(2, "0")}`;
-}
-
-export function lastOfMonth(month: string): string {
-  return shiftBusinessDate(`${shiftMonth(month, 1)}-01`, -1);
-}
+/** Calendar grid and range presets; month/day arithmetic is owned by `@bsd/domain` dates. */
 
 /** 42 dates (6 weeks, Saturday first) covering the month. */
 export function monthGrid(month: string): string[] {
@@ -22,12 +10,9 @@ export function monthGrid(month: string): string[] {
   return Array.from({ length: 42 }, (_, i) => shiftBusinessDate(start, i));
 }
 
-export const clampDate = (date: string, min?: string, max?: string) =>
-  min && date < min ? min : max && date > max ? max : date;
-
 export type DateRange = { from: string; to: string };
 
-export type RangePreset =
+type RangePreset =
   "today" | "yesterday" | "last7" | "thisMonth" | "lastMonth" | "last30" | "thisYear";
 
 export const rangePresets: readonly RangePreset[] = [

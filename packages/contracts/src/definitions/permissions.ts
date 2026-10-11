@@ -57,8 +57,6 @@ export const permissionIds = [
   "report.profit_view",
   "report.export",
   "opening.prepare",
-  "opening.approve",
-  "opening.activate",
   "period.close",
   "role.manage",
   "membership.manage",

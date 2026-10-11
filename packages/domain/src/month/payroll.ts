@@ -1,5 +1,5 @@
 import { Decimal, toDecimal, type DecimalInput } from "../decimal";
-import type { OwedBucket } from "./types";
+import { owedBuckets, type OwedBucket } from "./types";
 
 /**
  * Salary recovery for distributor staff (D11, D24, D25, guide §11.6, §11.9). Recovery is
@@ -7,7 +7,7 @@ import type { OwedBucket } from "./types";
  * Cash Pabe is salary − recovery, never entered and never negative.
  */
 
-export const RECOVERY_ORDER: readonly OwedBucket[] = ["advance", "loan", "shortage"];
+export const RECOVERY_ORDER = owedBuckets;
 
 export type Recovery = Record<OwedBucket, string>;
 export type OwedInput = Partial<Record<OwedBucket, DecimalInput>>;

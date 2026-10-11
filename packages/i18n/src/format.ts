@@ -74,3 +74,29 @@ export function formatRate(value: string): string {
   const [integer = "0", fraction = ""] = value.split(".");
   return formatAmount(`${integer}.${fraction.replace(/0+$/, "").padEnd(2, "0")}`);
 }
+
+/** A whole number or count in Bengali digits, no grouping or decimals (e.g. ১২, ৩৪৫). */
+export function formatCount(value: number | string): string {
+  return toBengaliDigits(String(value));
+}
+
+/** Money for display; `null` (hidden or unknown) shows a dash. */
+export function formatMoney(value: string | null): string {
+  return value === null ? "—" : formatAmount(value);
+}
+
+// Mirrors ENTITY_TIMEZONE in @bsd/domain (the owner, D08); i18n does not depend on domain.
+const ENTITY_TIMEZONE = "Asia/Dhaka";
+const dateTime = new Intl.DateTimeFormat("bn-BD", {
+  timeZone: ENTITY_TIMEZONE,
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+});
+
+/** An instant (Date or ISO string) as Bangla date and time in Asia/Dhaka. */
+export function formatDateTime(instant: Date | string): string {
+  return dateTime.format(typeof instant === "string" ? new Date(instant) : instant);
+}

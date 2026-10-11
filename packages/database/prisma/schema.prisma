@@ -288,6 +288,8 @@ model PriceChange {
   kind          String
   price         Decimal  @db.Decimal(20, 6)
   effectiveFrom DateTime @map("effective_from") @db.Date
+  /// `manual` (catalog) or `opening` (D43: written and replaced by the opening's stock section).
+  source        String   @default("manual")
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
   product       Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
@@ -436,19 +438,14 @@ model CashAccount {
 
 // ---------------------------------------------------------------- opening balances (PLAN §7)
 
-/// One opening per company: draft → approved → active. Any save returns it to draft and bumps
-/// `version`; approve and activate act on the version the user reviewed. Active is locked.
+/// One opening per company (D43): live as soon as `cutoff_date` is set; each section saves on its
+/// own and bumps `version` (optimistic concurrency). Editable until the first month is closed.
 model OpeningSession {
   id                String               @id @default(cuid())
   tenantId          String               @map("tenant_id")
   companyId         String               @unique @map("company_id")
-  status            String               @default("draft")
   version           Int                  @default(0)
   cutoffDate        DateTime?            @map("cutoff_date") @db.Date
-  approvedById      String?              @map("approved_by_id")
-  approvedAt        DateTime?            @map("approved_at")
-  activatedById     String?              @map("activated_by_id")
-  activatedAt       DateTime?            @map("activated_at")
   createdAt         DateTime             @default(now()) @map("created_at")
   updatedAt         DateTime             @updatedAt @map("updated_at")
   company           Company              @relation(fields: [companyId], references: [id])

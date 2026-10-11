@@ -4,16 +4,17 @@ import type { CompanyWorkspace } from "@bsd/contracts";
 import { t, type TranslationKey } from "@bsd/i18n";
 import Link from "next/link";
 import { useRef } from "react";
-import { Icon, sectionIcon } from "@/components/icons";
+import { Icon } from "@/components/icons";
 import { CompanySwitcher } from "./company-switcher";
-import { companyHref, visibleFlow } from "./navigation";
+import { companyHref, hubOfPath, visibleHubs, type HubId } from "./navigation";
 import { SideNav } from "./side-nav";
 
-/** The most used daily screens get a thumb-reach tab on phones, with short labels. */
-const TABS: readonly { path: string; labelKey: TranslationKey }[] = [
-  { path: "sales/daily-summaries", labelKey: "nav.tab.dsr" },
-  { path: "purchases/receipts", labelKey: "nav.tab.receipts" },
-  { path: "sales/old-dues-collection", labelKey: "nav.tab.marketDue" },
+/** The most used hubs get a thumb-reach tab on phones, with short labels. */
+const TABS: readonly { hub: HubId; labelKey: TranslationKey }[] = [
+  { hub: "dashboard", labelKey: "nav.tab.dashboard" },
+  { hub: "sales", labelKey: "nav.tab.sales" },
+  { hub: "goods", labelKey: "nav.tab.goods" },
+  { hub: "shops", labelKey: "nav.tab.shops" },
 ];
 
 const tabClass = (active: boolean) =>
@@ -22,8 +23,8 @@ const tabClass = (active: boolean) =>
   }`;
 
 /**
- * Narrow screens: a drawer with the full work-order menu (native dialog: focus trap and Esc)
- * and a bottom tab bar for today and the three most used daily entries.
+ * Narrow screens: a drawer with the nine hubs (native dialog: focus trap and Esc) and a bottom
+ * tab bar for the dashboard and the three most used hubs.
  */
 export function MobileNav({
   workspace,
@@ -37,10 +38,11 @@ export function MobileNav({
   const dialogRef = useRef<HTMLDialogElement>(null);
   const close = () => dialogRef.current?.close();
   const companyId = workspace.company.id;
-  const links = visibleFlow(workspace).flatMap((g) => g.links);
+  const visible = visibleHubs(workspace);
+  const currentHub = hubOfPath(currentPath)?.id;
   const tabs = TABS.flatMap((tab) => {
-    const link = links.find((l) => l.path === tab.path);
-    return link ? [{ ...tab, sectionId: link.sectionId }] : [];
+    const hub = visible.find((h) => h.id === tab.hub);
+    return hub ? [{ ...tab, path: hub.path, icon: hub.icon, active: hub.id === currentHub }] : [];
   });
 
   return (
@@ -84,25 +86,17 @@ export function MobileNav({
       </dialog>
 
       <nav
-        aria-label={t("nav.flow.daily")}
+        aria-label={t("nav.menu")}
         className="fixed inset-x-0 bottom-0 z-30 flex border-t border-border bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden"
       >
-        <Link
-          href={companyHref(companyId)}
-          aria-current={currentPath === "" ? "page" : undefined}
-          className={tabClass(currentPath === "")}
-        >
-          <Icon name="dashboard" className="size-5" />
-          {t("nav.tab.today")}
-        </Link>
         {tabs.map((tab) => (
           <Link
-            key={tab.path}
+            key={tab.hub}
             href={companyHref(companyId, tab.path)}
-            aria-current={currentPath === tab.path ? "page" : undefined}
-            className={tabClass(currentPath === tab.path)}
+            aria-current={tab.active ? "page" : undefined}
+            className={tabClass(tab.active)}
           >
-            <Icon name={sectionIcon(tab.sectionId)} className="size-5" />
+            <Icon name={tab.icon} className="size-5" />
             {t(tab.labelKey)}
           </Link>
         ))}

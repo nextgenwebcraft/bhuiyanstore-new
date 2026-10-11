@@ -1,6 +1,6 @@
+import { todayBusinessDate } from "@bsd/domain";
 import type { CompanyAccess } from "./access";
 import type { Tx } from "./context";
-import { todayInDhaka } from "./dates";
 import { AppError, type StockShortage } from "./errors";
 import { rangeRun } from "./ledger";
 
@@ -17,7 +17,7 @@ export async function ensureStockCovers(
 ): Promise<void> {
   const ids = new Set(productIds);
   if (!access.company.blockNegativeStock || ids.size === 0) return;
-  const run = await rangeRun(tx, access, from, todayInDhaka());
+  const run = await rangeRun(tx, access, from, todayBusinessDate());
   if (!run) return;
   /** The first day each product goes below zero. */
   const worst = new Map<string, StockShortage>();

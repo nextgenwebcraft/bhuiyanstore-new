@@ -4,7 +4,7 @@ import { t } from "@bsd/i18n";
 import { forwardRef, useImperativeHandle, useRef } from "react";
 import { Button } from "@/components/button";
 
-export type DraftChoice = "save" | "discard" | "stay";
+type DraftChoice = "save" | "discard" | "stay";
 export type DraftSwitchPromptHandle = { ask: () => Promise<DraftChoice> };
 
 /**

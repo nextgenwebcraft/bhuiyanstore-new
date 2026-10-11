@@ -14,32 +14,35 @@ export const dsrDayRowSchema = z.object({
 export type DsrDayRow = z.infer<typeof dsrDayRowSchema>;
 
 /**
- * The dashboard's daily report for one business date (guide 5.2 "date filters; sales,
- * collections, gross profit if permitted, stock value, dues"). Derived from posted events only
- * (guide 5.3, 21.1); never a stored total. Optional fields are omitted without the matching
- * permission.
+ * The dashboard's report for a date range (guide 5.2 "date filters; sales, collections, gross
+ * profit if permitted, stock value, dues"). Derived from posted events only (guide 5.3, 21.1);
+ * never a stored total. Figures are summed over [from, to]. Optional fields are omitted without
+ * the matching permission.
  */
 export const dashboardSummarySchema = z.object({
-  date: businessDateSchema,
+  from: businessDateSchema,
+  to: businessDateSchema,
+  /** First day with figures (the activated opening's cutoff); null until an opening is live. */
+  cutoffDate: businessDateSchema.nullable(),
   netSales: decimalStringSchema,
-  /** Cash collected on that day's sales summaries. */
+  /** Cash collected on the range's sales summaries. */
   salesCash: decimalStringSchema,
-  /** Old market dues collected on that date. */
+  /** Old market dues collected in the range. */
   oldDuesCollected: decimalStringSchema,
   /** salesCash + oldDuesCollected. */
   cashCollected: decimalStringSchema,
-  /** Unpaid part of that day's sales. */
+  /** Unpaid part of the range's sales. */
   marketDueCreated: decimalStringSchema,
-  /** All market dues still open at the end of that date. */
+  /** All market dues still open at the end of the range. */
   marketDueOutstanding: decimalStringSchema,
   postedSummaryCount: z.number().int().nonnegative(),
   postedReceiptCount: z.number().int().nonnegative(),
   byDsr: z.array(dsrDayRowSchema),
   /** Requires `report.profit_view`. */
   grossProfit: decimalStringSchema.optional(),
-  /** Cost value of stock received that date; requires `inventory.cost_view`. */
+  /** Cost value of stock received in the range; requires `inventory.cost_view`. */
   receivedValue: decimalStringSchema.optional(),
-  /** Cost-based saleable inventory value now (not as of the date); requires `inventory.cost_view`. */
+  /** Cost-based saleable inventory value at the end of the range; requires `inventory.cost_view`. */
   stockValue: decimalStringSchema.optional(),
 });
 

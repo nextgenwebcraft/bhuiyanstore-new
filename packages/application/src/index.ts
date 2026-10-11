@@ -47,7 +47,7 @@ export {
   reopenMonth,
   type ReportFile,
 } from "./month";
-export { activateOpening, approveOpening, getOpening, saveOpening } from "./opening";
+export { getOpening, saveOpeningCutoff, saveOpeningSection } from "./opening";
 export {
   addProductPack,
   createProduct,

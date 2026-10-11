@@ -20,6 +20,7 @@ import {
   sumAmounts,
   sumQuantities,
   toDecimal,
+  todayBusinessDate,
 } from "@bsd/domain";
 import {
   loadCompanyAccess,
@@ -29,9 +30,9 @@ import {
 } from "./access";
 import { recordAudit } from "./audit";
 import type { AppContext, Tx } from "./context";
-import { businessDate, invalid, postingGuard, roleOn } from "./daily";
-import { fromDbDate, toDbDate, todayInDhaka } from "./dates";
-import { parseInput } from "./errors";
+import { businessDate, postingGuard, roleOn } from "./daily";
+import { fromDbDate, toDbDate } from "./dates";
+import { invalid, parseInput } from "./errors";
 import { isUniqueViolation, runIdempotent } from "./idempotency";
 import { runLedger } from "./ledger";
 import { plain } from "./numeric";
@@ -149,7 +150,7 @@ async function buildFieldDay(
       orderBy: { name: "asc" },
       select: { id: true, name: true, area: true, addedByStaffId: true },
     }),
-    runLedger(db, access, date < todayInDhaka() ? date : todayInDhaka()),
+    runLedger(db, access, date < todayBusinessDate() ? date : todayBusinessDate()),
   ]);
   if (!staff) throw invalid("staffId", "validation.staff.unknown");
   const visits = visitRows.map(toVisit);
@@ -511,7 +512,7 @@ export async function createStaffLogin(
         });
         if (!staff) throw invalid("id", "validation.staff.unknown");
         if (staff.userId) throw invalid("email", "validation.field.duplicateLogin");
-        if ((await roleOn(tx, companyId, staffId, todayInDhaka())) !== "dsr") {
+        if ((await roleOn(tx, companyId, staffId, todayBusinessDate())) !== "dsr") {
           throw invalid("id", "validation.daily.dsrOnly");
         }
         if (await tx.user.findUnique({ where: { email } })) {

@@ -1,6 +1,9 @@
 "use client";
 
 import type { DayView, PriceKind, StockEntryKind, StockEntryPostRequest } from "@bsd/contracts";
+import { EmptyListNote } from "@/components/empty-list-note";
+import { ReverseCell } from "@/components/reverse-cell";
+import { useAsyncAction } from "@/lib/async-action";
 import { sumQuantities, toBaseQuantity } from "@bsd/domain";
 import { formatRate, t, type TranslationKey } from "@bsd/i18n";
 import { useState } from "react";
@@ -19,16 +22,18 @@ import {
 import { NavGate } from "@/features/shell/nav-gate";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 import {
-  CartonQty,
   CellInput,
-  ColumnHead,
   DateBar,
   DateHeading,
   DayGate,
   SectionTitle,
-  StatusChip,
-  TableScroller,
   clean,
+  useWorkingDate,
+} from "./daily-kit";
+import {
+  CartonQty,
+  ColumnHead,
+  StatusChip,
   quantity,
   stickyCell,
   stickyHead,
@@ -38,8 +43,8 @@ import {
   thClass,
   thNum,
   theadClass,
-  useWorkingDate,
-} from "./daily-kit";
+} from "@/components/data-table";
+import { TableScroller } from "@/components/table-scroller";
 
 /** Which price each godown screen can change from its date (Excel's carry-forward columns). */
 const PRICES: Record<StockEntryKind, PriceKind[]> = {
@@ -270,31 +275,19 @@ function PostedEntries({
   const { permissions } = useCurrentWorkspace();
   const entries = useStockEntries(companyId, date);
   const reverse = useReverseStockEntry(companyId);
-  const [error, setError] = useState<string | undefined>();
+  const action = useAsyncAction();
   const canReverse = permissions.includes("purchase.reverse");
   const sizes = new Map(view.products.map((p) => [p.productId, p.piecesPerCarton]));
   const rows = (entries.data ?? []).filter((e) => e.kind === kind);
 
-  async function undo(entryId: string) {
-    if (!window.confirm(t("godown.reverseConfirm"))) return;
-    setError(undefined);
-    try {
-      await reverse.mutateAsync(entryId);
-    } catch (e) {
-      setError(describeError(e, []).form);
-    }
-  }
-
   return (
     <>
       <SectionTitle>{t("godown.posted.title")}</SectionTitle>
-      {error ? <StatePanel tone="error" title={error} /> : null}
+      {action.error ? <StatePanel tone="error" title={action.error} /> : null}
       {entries.isPending ? (
         <TableSkeleton rows={3} columns={5} />
       ) : rows.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-sm text-text-muted">
-          {t("godown.posted.empty")}
-        </p>
+        <EmptyListNote textKey="godown.posted.empty" />
       ) : (
         <>
           <TableSummary
@@ -321,7 +314,7 @@ function PostedEntries({
                     {t("common.status")}
                   </th>
                   <th scope="col" className={thClass}>
-                    <span className="sr-only">{t("godown.reverse")}</span>
+                    <span className="sr-only">{t("common.reverse")}</span>
                   </th>
                 </tr>
               </thead>
@@ -338,13 +331,16 @@ function PostedEntries({
                     <td className={tdClass}>
                       <StatusChip status={entry.status} />
                     </td>
-                    <td className={`${tdClass} text-right`}>
-                      {canReverse && entry.status === "posted" ? (
-                        <Button disabled={reverse.isPending} onClick={() => void undo(entry.id)}>
-                          {t("godown.reverse")}
-                        </Button>
-                      ) : null}
-                    </td>
+                    <ReverseCell
+                      canReverse={canReverse}
+                      posted={entry.status === "posted"}
+                      pending={reverse.isPending}
+                      onReverse={() =>
+                        void action.run(() => reverse.mutateAsync(entry.id), {
+                          confirm: "godown.reverseConfirm",
+                        })
+                      }
+                    />
                   </tr>
                 ))}
               </tbody>

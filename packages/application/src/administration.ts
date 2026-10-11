@@ -13,15 +13,13 @@ import {
 import { requireSuperAdmin, requireSuperAdminView } from "./access";
 import { recordAudit } from "./audit";
 import type { AppContext, Tx } from "./context";
-import { AppError, parseInput } from "./errors";
+import { AppError, invalid, parseInput } from "./errors";
 import { isUniqueViolation, runIdempotent } from "./idempotency";
 
 /**
  * Users and roles are tenant administration. Until delegated administration is designed
  * (guide §12.2: grant only what you hold), only the super-admin manages them.
  */
-
-const invalid = (path: string, code: string) => new AppError("VALIDATION_FAILED", [{ path, code }]);
 
 const roleInclude = { permissions: true } as const;
 

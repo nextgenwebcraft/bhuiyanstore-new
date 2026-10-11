@@ -9,7 +9,8 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p .",
-    "load-cartons": "tsx src/scripts/load-cartons.ts"
+    "load-cartons": "tsx src/scripts/load-cartons.ts",
+    "seed-demo": "node --max-old-space-size=8192 --import tsx src/scripts/seed-demo.ts"
   },
   "dependencies": {
     "@bsd/auth": "workspace:*",

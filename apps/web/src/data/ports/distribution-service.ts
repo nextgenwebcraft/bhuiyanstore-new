@@ -24,8 +24,8 @@ import type {
   MonthCloseResult,
   MonthView,
   Opening,
-  OpeningSaveRequest,
-  OpeningTransitionRequest,
+  OpeningCutoffRequest,
+  OpeningSectionSaveRequest,
   PayrollAction,
   PayrollRun,
   PayrollSaveRequest,
@@ -100,12 +100,12 @@ export interface DistributionService {
   /** Requires `company.view`. SR and DSR people assigned to this company. */
   listStaff(companyId: string, options?: RequestOptions): Promise<StaffMember[]>;
   /**
-   * The daily report for one business date (`YYYY-MM-DD`), from the month engine; requires
-   * `company.view`. Profit and stock value need their own permissions.
+   * The dashboard report summed over a date range (`YYYY-MM-DD`, `to` stops at today), from the
+   * month engine; requires `company.view`. Profit and stock value need their own permissions.
    */
   getDashboardSummary(
     companyId: string,
-    date: string,
+    range: ReportRange,
     options?: RequestOptions,
   ): Promise<DashboardSummary>;
 
@@ -299,15 +299,13 @@ export interface DistributionService {
 
   // Opening balances (PLAN §9 Phase D). Requires `opening.prepare` unless noted.
 
-  /** The company's opening snapshot with its readiness issues and totals. */
+  /** The company's opening (live once its cutoff is saved, D43) with section summaries and totals. */
   getOpening(companyId: string, options?: RequestOptions): Promise<Opening>;
-  /** Full replace of the entered values at `version`; any change returns it to draft. */
-  saveOpening(companyId: string, input: OpeningSaveRequest): Promise<Opening>;
-  /** Requires `opening.approve`; refused while readiness errors remain. */
-  approveOpening(companyId: string, input: OpeningTransitionRequest): Promise<Opening>;
-  /** Requires `opening.activate`; locks the snapshot and sets catalog prices at the cutoff. */
-  activateOpening(companyId: string, input: OpeningTransitionRequest): Promise<Opening>;
-  /** Requires `company.view`: the nine go-live steps, computed on the server. */
+  /** Saves the go-live date at `version`; refused once a daily record exists or a month is closed. */
+  saveOpeningCutoff(companyId: string, input: OpeningCutoffRequest): Promise<Opening>;
+  /** Replaces one section's lines only and takes effect at once; refused once a month is closed. */
+  saveOpeningSection(companyId: string, input: OpeningSectionSaveRequest): Promise<Opening>;
+  /** Requires `company.view`: the go-live steps, computed on the server. */
   getSetupStatus(companyId: string, options?: RequestOptions): Promise<SetupStatus>;
 
   // DSR field panel (D40). The demo mock has none.

@@ -1,7 +1,6 @@
 "use client";
 
 import type { Product } from "@bsd/contracts";
-import { businessDateOf } from "@bsd/domain";
 import { matchesSearch, normalizeDigits, t, toBengaliDigits } from "@bsd/i18n";
 import { useDeferredValue, useId, useState, type FormEvent } from "react";
 import { Button } from "@/components/button";
@@ -15,6 +14,7 @@ import { describeError } from "@/data/ports/service-error";
 import { useAddProductPack, useProducts, useUpdateProduct } from "@/data/queries";
 import { NavGate } from "@/features/shell/nav-gate";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
+import { useToday } from "@/lib/today";
 import { ProductHistoryDialog } from "./product-history-dialog";
 
 const PATH = "masters/cartons";
@@ -40,7 +40,8 @@ function CartonRow({
   const addPack = useAddProductPack(companyId, product.id);
   const [size, setSize] = useState("");
   const [dated, setDated] = useState(false);
-  const [from, setFrom] = useState(() => businessDateOf(new Date()));
+  const today = useToday();
+  const [from, setFrom] = useState(today);
   const [error, setError] = useState<string | undefined>();
   const [saved, setSaved] = useState(false);
   const pending = update.isPending || addPack.isPending;

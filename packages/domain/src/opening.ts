@@ -46,19 +46,6 @@ export const OPENING_KIND_EFFECTS = {
 
 export type OpeningKind = keyof typeof OPENING_KIND_EFFECTS;
 
-/** Setup checklist sections an owner confirms (stock is complete by its own checks). */
-export const OPENING_SECTIONS = ["company", "staff", "shops", "cash"] as const;
-export type OpeningSection = (typeof OPENING_SECTIONS)[number];
-
-/** The checklist section a balance kind belongs to. */
-export function sectionOfKind(kind: OpeningKind): OpeningSection {
-  const effect: OpeningKindEffect = OPENING_KIND_EFFECTS[kind];
-  if (effect.party === "staff") return "staff";
-  if (effect.party === "cashAccount") return "cash";
-  if (effect.party === "none") return "company";
-  return "shops";
-}
-
 export type OpeningStockInput = {
   productId: string;
   pieces: string | null;
@@ -108,13 +95,11 @@ export type OpeningCheckTotals = {
 };
 
 const isWholeNonNegative = (value: string) => /^(0|[1-9]\d*)$/.test(value);
-/** Goods due from the company may be negative: more received than ordered (D31). */
-const isWhole = (value: string) => /^(0|-?[1-9]\d*)$/.test(value);
 
 /**
- * Readiness checks and control totals for an opening (guide §16.1, §16.4, §16.6). Blank means
- * unknown: a product's stock must be counted or confirmed as zero before activation, and stock
- * with pieces needs a cost. Errors block approval; warnings are shown for review.
+ * Checks and control totals for an opening (guide §16.1, §16.4, §16.6). A blank counts as 0
+ * (D43) and only warns; real mistakes are errors that refuse the section's save: invalid pieces,
+ * stock with pieces but no cost, wrong or duplicate parties.
  */
 export function checkOpening(input: OpeningCheckInput): {
   issues: OpeningCheckIssue[];
@@ -132,17 +117,17 @@ export function checkOpening(input: OpeningCheckInput): {
     const rowIssues: OpeningCheckIssue[] = [];
     const add = (code: string, severity: "error" | "warning") =>
       rowIssues.push({ code, severity, productId: line.productId });
-    if (line.pieces === null) add("opening.issue.stockUnknown", "error");
+    if (line.pieces === null) add("opening.issue.stockUnknown", "warning");
     else if (!isWholeNonNegative(line.pieces)) add("opening.issue.stockInvalid", "error");
     const hasStock = line.pieces !== null && toDecimal(line.pieces).gt(0);
     if (hasStock && line.unitCost === null) add("opening.issue.costMissing", "error");
     if (hasStock && line.salePrice === null) add("opening.issue.salePriceMissing", "warning");
-    if (line.dueFromCompany !== null && !isWhole(line.dueFromCompany)) {
+    if (line.dueFromCompany !== null && !isWholeNonNegative(line.dueFromCompany)) {
       add("opening.issue.dueInvalid", "error");
     }
     issues.push(...rowIssues);
 
-    if (line.dueFromCompany !== null && isWhole(line.dueFromCompany)) {
+    if (line.dueFromCompany !== null && isWholeNonNegative(line.dueFromCompany)) {
       due = due.add(line.dueFromCompany);
     }
     if (rowIssues.some((i) => i.severity === "error")) {
@@ -216,8 +201,8 @@ export function checkOpening(input: OpeningCheckInput): {
 }
 
 /**
- * The month engine's first opening from an activated opening (PLAN §4, §9 Phase D exit check):
- * the engine starts from exactly the entered values. Unknown values are left out, never zeroed.
+ * The month engine's first opening from a live opening (PLAN §4, §9 Phase D exit check): the
+ * engine starts from exactly the entered values. A blank value counts as 0 (D43).
  */
 export function toMonthOpening(input: OpeningCheckInput): MonthOpening {
   const products: Record<string, OpeningProduct> = {};

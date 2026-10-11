@@ -1,6 +1,6 @@
 import { bootstrapSuperAdmin, type Actor } from "@bsd/auth";
 import { reportIds } from "@bsd/contracts";
-import { computeMonth, type DayInput, type MonthOpening } from "@bsd/domain";
+import { computeMonth, type DayInput, type MonthOpening, todayBusinessDate } from "@bsd/domain";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadCompanyAccess } from "./access";
 import { createRole, createUser } from "./administration";
@@ -8,14 +8,13 @@ import { createCompany } from "./companies";
 import { expenseCategories, staffRoles } from "./configuration";
 import type { AppContext } from "./context";
 import { discardDsrDay, postDsrDay, postMoneyEntry, postStockEntries, saveDsrDay } from "./daily";
-import { todayInDhaka } from "./dates";
 import { AppError } from "./errors";
 import { runLedger } from "./ledger";
 import { closeMonth, exportReport, getMonthView, getReport, reopenMonth } from "./month";
-import { activateOpening, approveOpening, getOpening, saveOpening } from "./opening";
+import { getOpening } from "./opening";
 import { createProduct } from "./products";
 import { createStaff } from "./staff";
-import { contextFor, resetTestSchema, testDatabase } from "./test-support";
+import { contextFor, resetTestSchema, saveWholeOpening, testDatabase } from "./test-support";
 
 process.env.BETTER_AUTH_SECRET ??= "integration-test-secret-integration-test-secret";
 process.env.BETTER_AUTH_URL ??= "http://localhost:3000";
@@ -141,7 +140,7 @@ beforeAll(async () => {
   id.transport = (await expenseCategories.create(ctx, { name: "Transport", active: true })).id;
 
   const empty = await getOpening(ctx, company);
-  const saved = await saveOpening(ctx, company, {
+  await saveWholeOpening(ctx, company, {
     version: empty.version,
     cutoffDate: "2026-08-30",
     stock: [
@@ -159,8 +158,6 @@ beforeAll(async () => {
       { kind: "market_due", staffId: id.mamun, cashAccountId: null, amount: "500", note: "" },
     ],
   });
-  const approved = await approveOpening(ctx, company, { version: saved.version });
-  await activateOpening(ctx, company, { version: approved.version });
 
   for (const f of FACTS) {
     if (f.received !== "0") {
@@ -215,7 +212,7 @@ describe("Phase F: month view, reports and closing", () => {
     expect(view.canClose).toBe(true);
     expect(view.closeBlockedBy).toBeNull();
 
-    const current = await getMonthView(ctx, company, todayInDhaka().slice(0, 7));
+    const current = await getMonthView(ctx, company, todayBusinessDate().slice(0, 7));
     expect(current.closeBlockedBy).toBe("validation.month.notOver");
     expect((await getMonthView(ctx, company, "2026-07")).status).toBe("beforeOpening");
   });

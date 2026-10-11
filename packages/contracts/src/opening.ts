@@ -1,22 +1,23 @@
 import { z } from "zod";
 import { unitPriceSchema } from "./catalog";
-import { businessDateSchema, decimalStringSchema, idSchema } from "./primitives";
+import {
+  amountStringSchema,
+  businessDateSchema,
+  decimalStringSchema,
+  idSchema,
+  wholeNumberStringSchema,
+} from "./primitives";
 
 /**
- * Opening balances (PLAN §7, guide §16). One opening per company; blank (`null`) means unknown,
- * never zero, and an explicit "0" is allowed.
+ * Opening balances (PLAN §7, guide §16). One opening per company, live once its go-live date is
+ * saved (D43). A blank (`null`) counts as 0 in every calculation and shows as pending.
  */
 
 /** A whole number of pieces ≥ 0. */
-const piecesSchema = z.string().regex(/^(0|[1-9]\d*)$/, { message: "validation.opening.pieces" });
+const piecesSchema = wholeNumberStringSchema("validation.opening.pieces");
 
 /** A money amount ≥ 0 with at most 2 decimals; the kind decides the direction (D27). */
-export const openingAmountSchema = z
-  .string()
-  .regex(/^\d+(\.\d{1,2})?$/, { message: "validation.opening.amount" });
-
-export const openingStatuses = ["draft", "approved", "active"] as const;
-export type OpeningStatus = (typeof openingStatuses)[number];
+export const openingAmountSchema = amountStringSchema("validation.opening.amount");
 
 /**
  * Money balances by type (guide §16.7, §11.9). Staff kinds need a person; `market_due` without a
@@ -38,15 +39,34 @@ export const openingBalanceKinds = [
 ] as const;
 export type OpeningBalanceKind = (typeof openingBalanceKinds)[number];
 
-export const openingStaffKinds = [
-  "advance",
-  "loan",
-  "shortage",
-  "credit",
-  "salary_payable",
-  "sr_loan",
-  "owed_to_sr",
-] as const satisfies readonly OpeningBalanceKind[];
+/**
+ * The single owner of which balance kinds each opening section saves (D43). Every kind belongs to
+ * exactly one section; a section save replaces only its own kinds. Stock has its own lines.
+ */
+export const openingSectionKinds = {
+  marketDue: ["market_due"],
+  shopDue: ["shop_due"],
+  staff: ["advance", "loan", "shortage", "credit", "salary_payable", "sr_loan", "owed_to_sr"],
+  company: ["company_payable", "company_advance"],
+  cash: ["cash"],
+} as const satisfies Record<string, readonly OpeningBalanceKind[]>;
+
+export const openingBalanceSections = Object.keys(openingSectionKinds) as [
+  keyof typeof openingSectionKinds,
+  ...(keyof typeof openingSectionKinds)[],
+];
+export type OpeningBalanceSectionId = keyof typeof openingSectionKinds;
+
+/** The opening's sections in screen order: stock, then the money sections. */
+export const openingSections = ["stock", ...openingBalanceSections] as const;
+export type OpeningSectionId = (typeof openingSections)[number];
+
+/** The section a balance kind is saved with. */
+export function sectionOfBalanceKind(kind: OpeningBalanceKind): OpeningBalanceSectionId {
+  return openingBalanceSections.find((section) =>
+    (openingSectionKinds[section] as readonly OpeningBalanceKind[]).includes(kind),
+  ) as OpeningBalanceSectionId;
+}
 
 export const openingStockLineSchema = z.object({
   productId: idSchema,
@@ -57,10 +77,7 @@ export const openingStockLineSchema = z.object({
   unitCost: unitPriceSchema.nullable(),
   salePrice: unitPriceSchema.nullable(),
   orderPrice: unitPriceSchema.nullable(),
-  dueFromCompany: z
-    .string()
-    .regex(/^(0|-?[1-9]\d*)$/, { message: "validation.opening.due" })
-    .nullable(),
+  dueFromCompany: wholeNumberStringSchema("validation.opening.due").nullable(),
   note: z.string(),
 });
 
@@ -91,10 +108,6 @@ export const openingIssueSchema = z.object({
 
 export type OpeningIssue = z.infer<typeof openingIssueSchema>;
 
-/** Setup checklist sections of the opening (`OPENING_SECTIONS` in @bsd/domain). */
-export const openingSections = ["company", "staff", "shops", "cash"] as const;
-export type OpeningSectionId = (typeof openingSections)[number];
-
 /** Control totals computed by `checkOpening` in @bsd/domain; never stored. */
 export const openingTotalsSchema = z.object({
   stockPieces: decimalStringSchema,
@@ -115,9 +128,25 @@ export const openingTotalsSchema = z.object({
 
 export type OpeningTotals = z.infer<typeof openingTotalsSchema>;
 
+/** done = every row entered (or any, for optional/open-ended sections); pending = blanks left. */
+export const openingSectionStates = ["done", "pending", "optional"] as const;
+
+/** What a section card shows; computed on the server so the cards and the setup status agree. */
+export const openingSectionSummarySchema = z.object({
+  section: z.enum(openingSections),
+  entered: z.number().int().nonnegative(),
+  total: z.number().int().nonnegative(),
+  state: z.enum(openingSectionStates),
+  /** `total`, or `owesUs` / `weOwe` for the staff section. */
+  amounts: z.array(
+    z.object({ key: z.enum(["total", "owesUs", "weOwe"]), value: decimalStringSchema }),
+  ),
+});
+
+export type OpeningSectionSummary = z.infer<typeof openingSectionSummarySchema>;
+
 export const openingSchema = z.object({
   companyId: idSchema,
-  status: z.enum(openingStatuses),
   /** Optimistic concurrency: every save increments it; writes must send the version they read. */
   version: z.number().int().nonnegative(),
   /** Go-live date: balances are as at the start of this business date. */
@@ -126,34 +155,61 @@ export const openingSchema = z.object({
   balances: z.array(openingBalanceLineSchema),
   issues: z.array(openingIssueSchema),
   totals: openingTotalsSchema,
-  approvedAt: z.string().nullable(),
-  activatedAt: z.string().nullable(),
+  sections: z.array(openingSectionSummarySchema),
+  /** True once any month is closed: the opening can no longer change (D43). */
+  locked: z.boolean(),
+  /** The go-live date can change only while no daily record exists and the opening is unlocked. */
+  cutoffEditable: z.boolean(),
 });
 
 export type Opening = z.infer<typeof openingSchema>;
 
-export const openingSaveRequestSchema = z.object({
+export const openingCutoffRequestSchema = z.object({
   version: z.number().int().nonnegative(),
-  cutoffDate: businessDateSchema.nullable(),
-  stock: z.array(
-    openingStockLineSchema.pick({
-      productId: true,
-      pieces: true,
-      unitCost: true,
-      salePrice: true,
-      orderPrice: true,
-      dueFromCompany: true,
-      note: true,
+  cutoffDate: businessDateSchema,
+});
+
+export type OpeningCutoffRequest = z.infer<typeof openingCutoffRequestSchema>;
+
+const stockSaveLine = openingStockLineSchema.pick({
+  productId: true,
+  pieces: true,
+  unitCost: true,
+  salePrice: true,
+  orderPrice: true,
+  dueFromCompany: true,
+  note: true,
+});
+
+/**
+ * Saves one section and nothing else: the stock lines, or the balance lines whose kind belongs to
+ * that section (`openingSectionKinds`).
+ */
+export const openingSectionSaveRequestSchema = z
+  .discriminatedUnion("section", [
+    z.object({
+      section: z.literal("stock"),
+      version: z.number().int().nonnegative(),
+      stock: z.array(stockSaveLine),
     }),
-  ),
-  balances: z.array(openingBalanceLineSchema),
-});
+    z.object({
+      section: z.enum(openingBalanceSections),
+      version: z.number().int().nonnegative(),
+      balances: z.array(openingBalanceLineSchema),
+    }),
+  ])
+  .superRefine((request, ctx) => {
+    if (request.section === "stock") return;
+    const allowed: readonly OpeningBalanceKind[] = openingSectionKinds[request.section];
+    request.balances.forEach((line, index) => {
+      if (!allowed.includes(line.kind)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["balances", index, "kind"],
+          message: "validation.opening.wrongSection",
+        });
+      }
+    });
+  });
 
-export type OpeningSaveRequest = z.infer<typeof openingSaveRequestSchema>;
-
-/** Approve and activate act on the exact version the user reviewed. */
-export const openingTransitionRequestSchema = z.object({
-  version: z.number().int().nonnegative(),
-});
-
-export type OpeningTransitionRequest = z.infer<typeof openingTransitionRequestSchema>;
+export type OpeningSectionSaveRequest = z.infer<typeof openingSectionSaveRequestSchema>;

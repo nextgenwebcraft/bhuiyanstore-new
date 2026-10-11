@@ -51,3 +51,7 @@ export const HTTP_STATUS: Readonly<Record<ErrorCode, number>> = {
   REQUEST_ABORTED: 499,
   INTERNAL: 500,
 };
+
+/** A single-field VALIDATION_FAILED error; `code` is an i18n key. */
+export const invalid = (path: string, code: string) =>
+  new AppError("VALIDATION_FAILED", [{ path, code }]);

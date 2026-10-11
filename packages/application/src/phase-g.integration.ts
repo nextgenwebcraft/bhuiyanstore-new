@@ -1,5 +1,5 @@
 import { bootstrapSuperAdmin, type Actor } from "@bsd/auth";
-import type { OpeningSaveRequest, PayrollRun, PermissionId } from "@bsd/contracts";
+import type { OpeningBalanceKind, PayrollRun, PermissionId } from "@bsd/contracts";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadCompanyAccess } from "./access";
 import { exportStaffStatement, getStaffAccounts, getStaffStatement } from "./accounts";
@@ -25,11 +25,11 @@ import {
 import { AppError } from "./errors";
 import { runLedger } from "./ledger";
 import { getMonthView } from "./month";
-import { activateOpening, approveOpening, getOpening, saveOpening } from "./opening";
+import { getOpening } from "./opening";
 import { getPayrollRun, payrollCommand, savePayrollRun } from "./payroll";
 import { createProduct } from "./products";
 import { createStaff } from "./staff";
-import { contextFor, resetTestSchema, testDatabase } from "./test-support";
+import { contextFor, resetTestSchema, saveWholeOpening, testDatabase } from "./test-support";
 
 process.env.BETTER_AUTH_SECRET ??= "integration-test-secret-integration-test-secret";
 process.env.BETTER_AUTH_URL ??= "http://localhost:3000";
@@ -145,18 +145,14 @@ beforeAll(async () => {
   id.karim = await person("Karim", "sr", "supplier");
 
   const empty = await getOpening(ctx, company);
-  const balance = (
-    kind: OpeningSaveRequest["balances"][number]["kind"],
-    staffId: string,
-    amount: string,
-  ) => ({
+  const balance = (kind: OpeningBalanceKind, staffId: string, amount: string) => ({
     kind,
     staffId,
     cashAccountId: null,
     amount,
     note: "",
   });
-  const saved = await saveOpening(ctx, company, {
+  await saveWholeOpening(ctx, company, {
     version: empty.version,
     cutoffDate: "2026-09-01",
     stock: [
@@ -179,8 +175,6 @@ beforeAll(async () => {
       balance("shortage", id.kamal, "1500"),
     ],
   });
-  const approved = await approveOpening(ctx, company, { version: saved.version });
-  await activateOpening(ctx, company, { version: approved.version });
 });
 
 afterAll(async () => {

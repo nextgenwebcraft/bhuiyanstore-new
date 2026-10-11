@@ -1,8 +1,8 @@
 "use client";
 
 import type { DayView } from "@bsd/contracts";
-import { businessDateOf, shiftBusinessDate, toCartonDisplay } from "@bsd/domain";
-import { formatAmount, formatBusinessDate, normalizeDigits, t, toBengaliDigits } from "@bsd/i18n";
+import { shiftBusinessDate, todayBusinessDate } from "@bsd/domain";
+import { formatBusinessDate, normalizeDigits, t } from "@bsd/i18n";
 import { useSyncExternalStore } from "react";
 import { Button, ButtonLink } from "@/components/button";
 import { DatePicker } from "@/components/date-picker";
@@ -10,16 +10,14 @@ import { Icon } from "@/components/icons";
 import { QueryError } from "@/components/query-error";
 import { TableSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
-import { StatusBadge } from "@/components/status-badge";
 import { useDayView } from "@/data/queries";
-import { useSetupNext } from "@/features/setup/setup-page";
+import { useToday } from "@/lib/today";
+import { useSetupNext } from "@/features/administration/setup-next";
 
 // ---------------------------------------------------------------- the working date
 
 const listeners = new Set<() => void>();
 let workingDate: string | null = null;
-
-const todayDate = () => businessDateOf(new Date());
 
 /**
  * The business date shared by every daily screen in this tab, so moving from the godown to the
@@ -31,8 +29,8 @@ export function useWorkingDate(): [string, (date: string) => void] {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    () => workingDate ?? todayDate(),
-    () => workingDate ?? todayDate(),
+    () => workingDate ?? todayBusinessDate(),
+    () => workingDate ?? todayBusinessDate(),
   );
   const set = (next: string) => {
     workingDate = next;
@@ -50,7 +48,7 @@ export function DateBar({
   onChange: (date: string) => void;
   id?: string;
 }) {
-  const today = todayDate();
+  const today = useToday();
   return (
     <div className="flex flex-wrap items-center gap-2">
       <Button
@@ -112,6 +110,7 @@ export function DayGate({
   skeleton?: React.ReactNode;
   children: (view: DayView) => React.ReactNode;
 }) {
+  const today = useToday();
   const view = useDayView(companyId, date);
   const next = useSetupNext();
   if (view.isPending) return skeleton;
@@ -136,7 +135,7 @@ export function DayGate({
       />
     );
   }
-  if (date > todayDate()) return <StatePanel title={t("dashboard.futureDate")} />;
+  if (date > today) return <StatePanel title={t("dashboard.futureDate")} />;
   return children(data);
 }
 
@@ -179,85 +178,6 @@ export function CellInput({
 
 /** User input with Bangla digits normalised; blank stays blank. */
 export const clean = (value: string) => normalizeDigits(value).trim();
-
-/** Pieces as "cartons/pieces" for the product's carton size (display only). */
-export function cartonText(pieces: string, piecesPerCarton: string): string {
-  if (!/^-?\d+$/.test(pieces) || !/^[1-9]\d*$/.test(piecesPerCarton) || piecesPerCarton === "1") {
-    return toBengaliDigits(pieces);
-  }
-  const negative = pieces.startsWith("-");
-  const { cartons, loosePieces } = toCartonDisplay(
-    negative ? pieces.slice(1) : pieces,
-    piecesPerCarton,
-  );
-  return toBengaliDigits(`${negative ? "-" : ""}${cartons}/${loosePieces}`);
-}
-
-/** `cartonText` with the total pieces on hover, where a carton holds more than one piece. */
-export function CartonQty({
-  pieces,
-  piecesPerCarton,
-}: {
-  pieces: string;
-  piecesPerCarton: string;
-}) {
-  const text = cartonText(pieces, piecesPerCarton);
-  if (text === toBengaliDigits(pieces)) return text;
-  const hint = `${t("common.totalPieces")}: ${formatAmount(pieces)} (${t("common.perCarton")} ${toBengaliDigits(piecesPerCarton)})`;
-  return (
-    <span title={hint} className="cursor-help">
-      {text}
-    </span>
-  );
-}
-
-export const money = (value: string | null) => (value === null ? "—" : formatAmount(value));
-export const quantity = (value: string) => toBengaliDigits(value);
-
-export { TableScroller } from "@/components/table-scroller";
-/** The first (product or person) column stays in view while a wide table scrolls sideways. */
-export const stickyHead =
-  "sticky left-0 z-10 bg-surface-muted shadow-[inset_-1px_0_0_var(--color-border)]";
-export const stickyCell =
-  "sticky left-0 z-10 bg-surface shadow-[inset_-1px_0_0_var(--color-border)]";
-export const tableClass = "w-full border-collapse text-sm";
-export const theadClass = "bg-surface-muted text-left text-xs text-text-muted";
-export const thClass = "px-3 py-2.5 font-medium";
-export const thNum = "px-3 py-2.5 text-right font-medium";
-export const tdClass = "px-3 py-2";
-export const tdNum = "px-3 py-2 text-right tabular-nums";
-
-/** A numeric column header, with "(cartons/pieces)" under quantity columns. */
-export function ColumnHead({
-  label,
-  quantity = false,
-}: {
-  label: string;
-  quantity?: boolean | undefined;
-}) {
-  return (
-    <th scope="col" className={`${thNum} whitespace-nowrap`}>
-      {label}
-      {quantity ? (
-        <span className="block text-[10.5px] font-normal text-text-subtle">
-          {t("common.cartonPiece")}
-        </span>
-      ) : null}
-    </th>
-  );
-}
-
-export function StatusChip({ status }: { status: "draft" | "posted" | "reversed" | "none" }) {
-  const tone =
-    status === "posted"
-      ? "success"
-      : status === "draft"
-        ? "brand"
-        : status === "reversed"
-          ? "error"
-          : "muted";
-  return <StatusBadge tone={tone}>{t(`daily.status.${status}`)}</StatusBadge>;
-}
 
 export function SectionTitle({ children }: { children: React.ReactNode }) {
   return <h2 className="mt-8 mb-3 text-sm font-semibold">{children}</h2>;

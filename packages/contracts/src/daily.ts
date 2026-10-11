@@ -1,7 +1,15 @@
 import { z } from "zod";
 import { priceKinds, unitPriceSchema } from "./catalog";
 import type { PermissionId } from "./definitions/permissions";
-import { businessDateSchema, decimalStringSchema, idSchema } from "./primitives";
+import {
+  amountSchema,
+  amountStringSchema,
+  businessDateSchema,
+  decimalStringSchema,
+  idSchema,
+  positiveAmountStringSchema,
+  wholePiecesSchema,
+} from "./primitives";
 
 /**
  * Daily entry (PLAN §2.2, §5, §9 Phase E). Users enter only raw facts; every calculated figure
@@ -9,26 +17,13 @@ import { businessDateSchema, decimalStringSchema, idSchema } from "./primitives"
  * document and enters a new one.
  */
 
-/** Whole pieces ≥ 0 (cartons are converted to pieces with the line's carton size). */
-export const wholePiecesSchema = z
-  .string()
-  .regex(/^(0|[1-9]\d*)$/, { message: "validation.wholeNumber" });
-
 /** Whole pieces > 0. */
 export const positivePiecesSchema = z
   .string()
   .regex(/^[1-9]\d*$/, { message: "validation.quantityPositive" });
 
 /** Taka > 0 with at most 2 decimals; the entry type decides the direction (D27). */
-export const positiveAmountSchema = z
-  .string()
-  .regex(/^\d+(\.\d{1,2})?$/, { message: "validation.amountPositive" })
-  .refine((v) => /[1-9]/.test(v), { message: "validation.amountPositive" });
-
-/** Taka ≥ 0 with at most 2 decimals. */
-export const amountSchema = z
-  .string()
-  .regex(/^\d+(\.\d{1,2})?$/, { message: "validation.opening.amount" });
+export const positiveAmountSchema = positiveAmountStringSchema("validation.amountPositive");
 
 export const documentStatuses = ["posted", "reversed"] as const;
 export type DocumentStatus = (typeof documentStatuses)[number];
@@ -244,9 +239,7 @@ export const moneyAllocationKinds: readonly MoneyEntryKind[] = [
   "salaryRecovery",
 ];
 
-const allocationPart = z
-  .string()
-  .regex(/^\d+(\.\d{1,2})?$/, { message: "validation.opening.amount" });
+const allocationPart = amountStringSchema("validation.opening.amount");
 
 /** Parts of a repayment, offset or recovery; together they equal the amount. */
 export const owedAllocationSchema = z.object({

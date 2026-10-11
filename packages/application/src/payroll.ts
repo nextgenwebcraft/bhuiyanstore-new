@@ -16,15 +16,18 @@ import {
   sumAmounts,
   toDecimal,
   type Recovery,
+  todayBusinessDate,
+  firstOfMonth,
+  lastOfMonth,
 } from "@bsd/domain";
 import { requirePermission, type CompanyAccess } from "./access";
 import { recordAudit } from "./audit";
 import type { AppContext, Tx } from "./context";
-import { invalid, postingGuard, requireAll } from "./daily";
-import { fromDbDate, toDbDate, todayInDhaka } from "./dates";
-import { AppError, parseInput } from "./errors";
+import { postingGuard, requireAll } from "./daily";
+import { fromDbDate, toDbDate } from "./dates";
+import { AppError, invalid, parseInput } from "./errors";
 import { runIdempotent } from "./idempotency";
-import { activeOpening, firstOfMonth, lastOfMonth, runLedger } from "./ledger";
+import { liveOpening, runLedger } from "./ledger";
 import { plain } from "./numeric";
 
 /**
@@ -60,7 +63,7 @@ function parseMonth(value: unknown): string {
 }
 
 function defaultDate(month: string): string {
-  const today = todayInDhaka();
+  const today = todayBusinessDate();
   const last = lastOfMonth(month);
   return last < today ? last : today < firstOfMonth(month) ? firstOfMonth(month) : today;
 }
@@ -151,7 +154,7 @@ async function viewOf(
   month: string,
   row: RunRow | null,
 ): Promise<PayrollRun> {
-  const active = await activeOpening(db, access.company.id);
+  const active = await liveOpening(db, access.company.id);
   const cutoffDate = active?.cutoffDate ?? null;
   const date = row ? fromDbDate(row.date) : defaultDate(month);
   const live = !row || row.status === "draft";
@@ -474,7 +477,7 @@ export async function payrollCommand(
 
       if (action === "pay") {
         if (run.status !== "approved") throw invalid("", "validation.payroll.notApproved");
-        const payDate = request.payDate ?? todayInDhaka();
+        const payDate = request.payDate ?? todayBusinessDate();
         if (payDate < date) throw invalid("payDate", "validation.payroll.payBeforeRun");
         await postingGuard(tx, companyId, payDate);
         for (const l of run.lines) {

@@ -1,7 +1,12 @@
 import { z } from "zod";
-import { amountSchema, wholePiecesSchema } from "./daily";
 import { MIN_PASSWORD_LENGTH } from "./organization";
-import { businessDateSchema, decimalStringSchema, idSchema } from "./primitives";
+import {
+  amountSchema,
+  businessDateSchema,
+  decimalStringSchema,
+  idSchema,
+  wholePiecesSchema,
+} from "./primitives";
 
 /**
  * DSR field panel (D40): a DSR records each shop visit on the phone. The sale price is the day's

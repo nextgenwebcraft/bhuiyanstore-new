@@ -1,3 +1,4 @@
+import { todayBusinessDate } from "@bsd/domain";
 import {
   staffAccountsSchema,
   staffBalanceKeys,
@@ -10,11 +11,11 @@ import {
 import type { StaffBalanceValues } from "@bsd/domain";
 import { loadCompanyAccess, type CompanyAccess } from "./access";
 import type { AppContext } from "./context";
-import { businessDate, invalid } from "./daily";
-import { todayInDhaka } from "./dates";
-import { AppError } from "./errors";
-import { activeOpening, rangeRun, runLedger } from "./ledger";
-import { parseReportRange, toReportFile, type ReportFile } from "./month";
+import { businessDate } from "./daily";
+import { AppError, invalid } from "./errors";
+import { liveOpening, rangeRun, runLedger } from "./ledger";
+import { toReportFile, type ReportFile } from "./month";
+import { parseReportRange } from "./report-range";
 
 /**
  * Staff and SR money accounts (D27, D18, guide §11.9): balances and statements are month-engine
@@ -55,10 +56,10 @@ export async function getStaffAccounts(
   const access = await loadCompanyAccess(ctx, companyId);
   const kind: StaffAccountKind = query.kind === "sr" ? "sr" : "distributor";
   if (!canView(access, kind)) throw new AppError("FORBIDDEN");
-  const today = todayInDhaka();
+  const today = todayBusinessDate();
   const asked = query.date === undefined || query.date === null ? today : businessDate(query.date);
   const date = asked > today ? today : asked;
-  const active = await activeOpening(ctx.db, companyId);
+  const active = await liveOpening(ctx.db, companyId);
   const run = await runLedger(ctx.db, access, date, active);
   const closing = run?.output.closing.staff ?? {};
   const owesUs = new Map(run?.output.month.staff.map((s) => [s.staffId, s]) ?? []);
@@ -91,7 +92,7 @@ export async function getStaffStatement(
   if (!person) throw invalid("staffId", "validation.daily.staffNotAssigned");
   if (!canView(access, person.kind)) throw new AppError("FORBIDDEN");
   const range = parseReportRange(query);
-  const active = await activeOpening(ctx.db, companyId);
+  const active = await liveOpening(ctx.db, companyId);
   const run = await rangeRun(ctx.db, access, range.from, range.to, active);
   const month = run?.output.month.staff.find((s) => s.staffId === staffId);
   const entries = (run?.output.staffEntries ?? []).filter((e) => e.staffId === staffId);

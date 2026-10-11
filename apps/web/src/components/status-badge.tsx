@@ -1,4 +1,4 @@
-export type BadgeTone = "success" | "brand" | "error" | "muted";
+type BadgeTone = "success" | "brand" | "error" | "muted";
 
 const TONE_CLASS: Record<BadgeTone, string> = {
   success: "border-success/30 bg-success/10 text-success",

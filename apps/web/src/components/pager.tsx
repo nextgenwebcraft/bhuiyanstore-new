@@ -1,4 +1,4 @@
-import { t, toBengaliDigits } from "@bsd/i18n";
+import { t, formatCount } from "@bsd/i18n";
 import { Button } from "./button";
 
 /** Previous / next for a list cut into pages; `page` is 1-based. Hidden for a single page. */
@@ -18,7 +18,7 @@ export function Pager({
         ← {t("pager.previous")}
       </Button>
       <span className="text-text-muted tabular-nums">
-        {toBengaliDigits(String(page))} / {toBengaliDigits(String(pages))}
+        {formatCount(page)} / {formatCount(pages)}
       </span>
       <Button disabled={page >= pages} onClick={() => onChange(page + 1)}>
         {t("pager.next")} →

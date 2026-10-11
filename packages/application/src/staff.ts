@@ -1,3 +1,4 @@
+import { todayBusinessDate } from "@bsd/domain";
 import {
   staffAssignmentRequestSchema,
   staffCreateRequestSchema,
@@ -12,8 +13,8 @@ import {
 import { requirePermission, requireSuperAdmin } from "./access";
 import { recordAudit } from "./audit";
 import type { AppContext, Tx } from "./context";
-import { fromDbDate, toDbDate, todayInDhaka } from "./dates";
-import { AppError, parseInput } from "./errors";
+import { fromDbDate, toDbDate } from "./dates";
+import { invalid, parseInput } from "./errors";
 import { runIdempotent } from "./idempotency";
 import { plain } from "./numeric";
 
@@ -82,8 +83,6 @@ function toRecord(row: StaffRow, visible: Set<string>): StaffRecord {
 function coversDate(a: { from: Date; to: Date | null }, businessDate: string): boolean {
   return fromDbDate(a.from) <= businessDate && (a.to === null || fromDbDate(a.to) >= businessDate);
 }
-
-const invalid = (path: string, code: string) => new AppError("VALIDATION_FAILED", [{ path, code }]);
 
 /** SRs are supplier-employed (D02, D18); DSRs are distributor-employed and take custody (D23). */
 function employerMismatch(kind: string, employer: StaffEmployer): boolean {
@@ -191,7 +190,7 @@ export async function listAllStaff(ctx: AppContext): Promise<StaffRecord[]> {
  */
 export async function listStaffMembers(ctx: AppContext, companyId: string): Promise<StaffMember[]> {
   await requirePermission(ctx, companyId, "company.view");
-  const today = todayInDhaka();
+  const today = todayBusinessDate();
   const [rows, visible] = await Promise.all([
     ctx.db.staff.findMany({
       where: {

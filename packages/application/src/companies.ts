@@ -1,3 +1,4 @@
+import { todayBusinessDate } from "@bsd/domain";
 import {
   companySchema,
   companyUpsertRequestSchema,
@@ -13,7 +14,6 @@ import {
 } from "./access";
 import { recordAudit } from "./audit";
 import type { AppContext, Tx } from "./context";
-import { todayInDhaka } from "./dates";
 import { AppError, parseInput } from "./errors";
 import { isUniqueViolation, runIdempotent } from "./idempotency";
 import { runLedger } from "./ledger";
@@ -36,7 +36,7 @@ function toCompany(company: CompanyAccess["company"]): Company {
 
 /** The block can only start from a godown with no product below zero today. */
 async function ensureNoNegativeStock(tx: Tx, access: CompanyAccess): Promise<void> {
-  const today = todayInDhaka();
+  const today = todayBusinessDate();
   const run = await runLedger(tx, access, today);
   if (!run) return;
   const negative = Object.entries(run.output.closing.products).filter(([, p]) =>

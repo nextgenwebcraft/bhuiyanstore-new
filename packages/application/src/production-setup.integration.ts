@@ -1,5 +1,4 @@
 import { bootstrapSuperAdmin, type Actor } from "@bsd/auth";
-import type { OpeningSaveRequest } from "@bsd/contracts";
 import { toDecimal } from "@bsd/domain";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadCompanyAccess } from "./access";
@@ -24,7 +23,7 @@ import {
   saveFieldVisit,
 } from "./field";
 import { runLedger } from "./ledger";
-import { activateOpening, approveOpening, getOpening, saveOpening } from "./opening";
+import { getOpening, saveOpeningCutoff, saveOpeningSection } from "./opening";
 import { getPayrollRun } from "./payroll";
 import { createProduct } from "./products";
 import { getSetupStatus } from "./setup";
@@ -127,18 +126,26 @@ describe("setup checklist and opening (PLAN §5.2–5.4)", () => {
   it("computes each step on the server from the entered data", async () => {
     const before = await getSetupStatus(ctx, company);
     const step = (s: typeof before, stepId: string) => must(s.steps.find((x) => x.id === stepId));
-    expect(step(before, "company").complete).toBe(true);
     expect(step(before, "products").complete).toBe(true);
     expect(step(before, "staff").missing).toEqual([{ code: "setup.missing.salary", count: 1 }]);
+    expect(step(before, "cutoff").complete).toBe(false);
     expect(step(before, "openingStock").complete).toBe(false);
     expect(step(before, "staffOpening").complete).toBe(false);
     expect(before.ready).toBe(false);
-    expect(before.openingStatus).toBe("none");
+    expect(before.live).toBe(false);
 
     const empty = await getOpening(ctx, company);
-    const request = (shopDue: string): OpeningSaveRequest => ({
+    let view = await saveOpeningCutoff(ctx, company, {
       version: empty.version,
       cutoffDate: "2026-09-01",
+    });
+    // The opening is live at once: no approval or activation step (D43).
+    expect((await getSetupStatus(ctx, company)).live).toBe(true);
+    expect(step(await getSetupStatus(ctx, company), "cutoff").complete).toBe(true);
+
+    view = await saveOpeningSection(ctx, company, {
+      section: "stock",
+      version: view.version,
       stock: [
         {
           productId: id.alpha,
@@ -150,40 +157,33 @@ describe("setup checklist and opening (PLAN §5.2–5.4)", () => {
           note: "",
         },
       ],
+    });
+    const shopDue = (amount: string) => ({
+      section: "shopDue" as const,
+      version: view.version,
       balances: [
         {
-          kind: "company_payable",
-          staffId: null,
-          cashAccountId: null,
-          shopId: null,
-          amount: "0",
-          note: "",
-        },
-        {
-          kind: "shop_due",
+          kind: "shop_due" as const,
           staffId: null,
           cashAccountId: null,
           shopId: id.shop,
-          amount: shopDue,
+          amount,
           note: "",
         },
       ],
     });
-    let view = await saveOpening(ctx, company, request("200"));
+    view = await saveOpeningSection(ctx, company, shopDue("200"));
     const entered = await getSetupStatus(ctx, company);
     expect(step(entered, "shops").complete).toBe(true);
     expect(step(entered, "openingStock").complete).toBe(true);
-    expect(step(entered, "supplierOpening").complete).toBe(true);
+    expect(step(entered, "shopDue").complete).toBe(true);
     expect(step(entered, "staffOpening").complete).toBe(false);
-    expect(step(entered, "staffOpening").missing[0]?.code).toBe("setup.missing.staffBalances");
+    expect(step(entered, "staffOpening").missing[0]?.code).toBe("setup.missing.blanks");
 
-    view = await saveOpening(ctx, company, { ...request("250"), version: view.version });
-
-    const approved = await approveOpening(ctx, company, { version: view.version });
-    await activateOpening(ctx, company, { version: approved.version });
-    const after = await getSetupStatus(ctx, company);
-    expect(after.openingStatus).toBe("active");
-    expect(step(after, "activate").complete).toBe(true);
+    view = await saveOpeningSection(ctx, company, shopDue("250"));
+    expect(view.sections.find((x) => x.section === "shopDue")?.state).toBe("done");
+    // Saving the shop section left the stock lines alone.
+    expect(view.stock.find((l) => l.productId === id.alpha)?.pieces).toBe("100");
   });
 
   it("carries a shop's opening due into its statement (D38)", async () => {

@@ -1,7 +1,6 @@
 "use client";
 
 import { moneyKindPermission, type MoneyEntryKind, type ReportRange } from "@bsd/contracts";
-import { businessDateOf } from "@bsd/domain";
 import { formatBusinessDate, labelOf, t, type TranslationKey } from "@bsd/i18n";
 import Link from "next/link";
 import { useId, useState } from "react";
@@ -17,13 +16,15 @@ import { StatTile } from "@/components/stat-tile";
 import { StatePanel } from "@/components/state-panel";
 import { describeError } from "@/data/ports/service-error";
 import { usePostMoneyEntry, useReport } from "@/data/queries";
-import { clean, money } from "@/features/daily/daily-kit";
-import { ReportTableView } from "@/features/reports/report-page";
+import { clean } from "@/features/daily/daily-kit";
+import { money } from "@/components/data-table";
+import { ReportTableView } from "@/features/reports/report-view";
 import { companyHref } from "@/features/shell/navigation";
 import { NavGate } from "@/features/shell/nav-gate";
 import { PrintButton, PrintHeader } from "@/features/shell/print";
 import { PageWarnings } from "@/features/shell/notifications";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
+import { useToday } from "@/lib/today";
 
 const PATH = "finance/company-account";
 
@@ -43,7 +44,7 @@ function EntryDialog({
   onClose: () => void;
 }) {
   const id = useId();
-  const today = businessDateOf(new Date());
+  const today = useToday();
   const post = usePostMoneyEntry(companyId);
   const [date, setDate] = useState(today);
   const [amount, setAmount] = useState("");
@@ -163,7 +164,8 @@ function Account({ companyId, range }: { companyId: string; range: ReportRange }
  */
 export function CompanyAccountPage() {
   const { company, permissions } = useCurrentWorkspace();
-  const [range, setRange] = useState(() => presetRange("thisMonth", businessDateOf(new Date())));
+  const today = useToday();
+  const [range, setRange] = useState(() => presetRange("thisMonth", today));
   const [entry, setEntry] = useState<EntryKind | null>(null);
   const allowed = ENTRY_KINDS.filter((k) => permissions.includes(moneyKindPermission[k]));
   return (
@@ -173,7 +175,7 @@ export function CompanyAccountPage() {
         description={t("companyAccount.description")}
         actions={
           <>
-            <DateRangePicker value={range} onChange={setRange} max={businessDateOf(new Date())} />
+            <DateRangePicker value={range} onChange={setRange} max={today} />
             <PrintButton />
           </>
         }
