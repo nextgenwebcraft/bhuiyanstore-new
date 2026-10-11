@@ -1,6 +1,14 @@
 import type { Actor } from "@bsd/auth";
 import { createDatabase, type Database } from "@bsd/database";
+import {
+  openingBalanceSections,
+  sectionOfBalanceKind,
+  type Opening,
+  type OpeningBalanceLine,
+  type OpeningSectionSaveRequest,
+} from "@bsd/contracts";
 import type { AppContext } from "./context";
+import { getOpening, saveOpeningCutoff, saveOpeningSection } from "./opening";
 
 /** Test-only helpers for `*.integration.ts`; never imported by production code. */
 export function testDatabase(): { db: Database; schema: string } {
@@ -63,4 +71,38 @@ export async function resetTestSchema(db: Database, schema: string): Promise<voi
 
 export function contextFor(db: Database, actor: Actor): AppContext {
   return { db, actor, requestId: "test-request" };
+}
+
+/** The whole opening in one object; tests save it section by section, as the owner would. */
+export type WholeOpening = {
+  /** Ignored: the helper reads the current version itself. */
+  version?: number;
+  cutoffDate: string;
+  stock: Extract<OpeningSectionSaveRequest, { section: "stock" }>["stock"];
+  balances: (Omit<OpeningBalanceLine, "shopId"> & { shopId?: string | null })[];
+};
+
+/** Saves the cutoff, the stock and every balance section of a company's opening. */
+export async function saveWholeOpening(
+  ctx: AppContext,
+  companyId: string,
+  opening: WholeOpening,
+): Promise<Opening> {
+  let view = await saveOpeningCutoff(ctx, companyId, {
+    version: (await getOpening(ctx, companyId)).version,
+    cutoffDate: opening.cutoffDate,
+  });
+  view = await saveOpeningSection(ctx, companyId, {
+    section: "stock",
+    version: view.version,
+    stock: opening.stock,
+  });
+  for (const section of openingBalanceSections) {
+    view = await saveOpeningSection(ctx, companyId, {
+      section,
+      version: view.version,
+      balances: opening.balances.filter((b) => sectionOfBalanceKind(b.kind) === section),
+    });
+  }
+  return view;
 }

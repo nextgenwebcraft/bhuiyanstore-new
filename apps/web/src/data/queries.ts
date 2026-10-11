@@ -11,7 +11,8 @@ import type {
   FieldVisitSaveRequest,
   MoneyEntryPostRequest,
   Opening,
-  OpeningSaveRequest,
+  OpeningCutoffRequest,
+  OpeningSectionSaveRequest,
   PayrollAction,
   PayrollSaveRequest,
   PayrollTransitionRequest,
@@ -32,10 +33,22 @@ import type {
   UserPasswordResetRequest,
   UserUpdateRequest,
 } from "@bsd/contracts";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ConfigListId, ConfigLists } from "./ports/distribution-service";
 import { postingEffects, queryKeys, resourceKey } from "./query-keys";
 import { useActorId, useService } from "./service-context";
+
+/** Refreshes every resource a command writes (postingEffects) for one company; resolves when done. */
+function useInvalidate(companyId: string, effects: keyof typeof postingEffects) {
+  const actorId = useActorId();
+  const queryClient = useQueryClient();
+  return () =>
+    Promise.all(
+      postingEffects[effects].map((resource) =>
+        queryClient.invalidateQueries({ queryKey: resourceKey(actorId, companyId, resource) }),
+      ),
+    );
+}
 
 export function useWorkspaces() {
   const service = useService();
@@ -60,12 +73,13 @@ export function useUpdateCompany(companyId: string) {
   const service = useService();
   const actorId = useActorId();
   const queryClient = useQueryClient();
+  const invalidateWorkspace = useInvalidate(companyId, "workspace");
   return useMutation({
     mutationFn: (input: CompanyUpsertRequest) => service.updateCompany(companyId, input),
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.workspaces(actorId) }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.workspace(actorId, companyId) }),
+        invalidateWorkspace(),
       ]);
     },
   });
@@ -98,36 +112,36 @@ export function useStaff(companyId: string) {
   });
 }
 
-export function useDashboardSummary(companyId: string, date: string) {
+export function useDashboardSummary(companyId: string, range: ReportRange) {
   const service = useService();
   const actorId = useActorId();
   return useQuery({
-    queryKey: queryKeys.dashboardSummary(actorId, companyId, date),
-    queryFn: ({ signal }) => service.getDashboardSummary(companyId, date, { signal }),
+    queryKey: queryKeys.dashboardSummary(actorId, companyId, range.from, range.to),
+    queryFn: ({ signal }) => service.getDashboardSummary(companyId, range, { signal }),
+    // Keeps the opening cutoff (period choices) while another period loads.
+    placeholderData: keepPreviousData,
   });
 }
 
 export function useCreateProduct(companyId: string) {
   const service = useService();
-  const actorId = useActorId();
-  const queryClient = useQueryClient();
+  const invalidate = useInvalidate(companyId, "products");
   return useMutation({
     mutationFn: (input: ProductCreateRequest) => service.createProduct(companyId, input),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.products(actorId, companyId) });
+      void invalidate();
     },
   });
 }
 
 export function useUpdateProduct(companyId: string) {
   const service = useService();
-  const actorId = useActorId();
-  const queryClient = useQueryClient();
+  const invalidate = useInvalidate(companyId, "products");
   return useMutation({
     mutationFn: ({ productId, input }: { productId: string; input: ProductCreateRequest }) =>
       service.updateProduct(companyId, productId, input),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.products(actorId, companyId) });
+      void invalidate();
     },
   });
 }
@@ -137,17 +151,11 @@ function usePostingMutation<TInput, TResult>(
   effects: keyof typeof postingEffects,
   post: (input: TInput) => Promise<TResult>,
 ) {
-  const actorId = useActorId();
-  const queryClient = useQueryClient();
+  const invalidate = useInvalidate(companyId, effects);
   return useMutation({
     mutationFn: post,
     // Awaited, so the success state never renders beside stale balances.
-    onSuccess: () =>
-      Promise.all(
-        postingEffects[effects].map((resource) =>
-          queryClient.invalidateQueries({ queryKey: resourceKey(actorId, companyId, resource) }),
-        ),
-      ),
+    onSuccess: invalidate,
   });
 }
 
@@ -601,35 +609,30 @@ export function useOpening(companyId: string) {
 }
 
 /** Every opening command returns the new snapshot; it replaces the cached one directly. */
-function useOpeningCommand<TInput>(
-  companyId: string,
-  run: (input: TInput) => Promise<Opening>,
-  alsoRefresh: readonly ResourceId[] = [],
-) {
+function useOpeningCommand<TInput>(companyId: string, run: (input: TInput) => Promise<Opening>) {
   const actorId = useActorId();
   const queryClient = useQueryClient();
+  const refresh = useInvalidate(companyId, "opening");
   return useMutation({
     mutationFn: run,
     onSuccess: (opening) => {
       queryClient.setQueryData(queryKeys.opening(actorId, companyId), opening);
-      for (const resource of alsoRefresh) {
-        void queryClient.invalidateQueries({ queryKey: resourceKey(actorId, companyId, resource) });
-      }
+      void refresh();
     },
   });
 }
 
-export function useSaveOpening(companyId: string) {
+export function useSaveOpeningCutoff(companyId: string) {
   const service = useService();
-  return useOpeningCommand(companyId, (input: OpeningSaveRequest) =>
-    service.saveOpening(companyId, input),
+  return useOpeningCommand(companyId, (input: OpeningCutoffRequest) =>
+    service.saveOpeningCutoff(companyId, input),
   );
 }
 
-export function useApproveOpening(companyId: string) {
+export function useSaveOpeningSection(companyId: string) {
   const service = useService();
-  return useOpeningCommand(companyId, (version: number) =>
-    service.approveOpening(companyId, { version }),
+  return useOpeningCommand(companyId, (input: OpeningSectionSaveRequest) =>
+    service.saveOpeningSection(companyId, input),
   );
 }
 
@@ -697,29 +700,16 @@ export function useCreateStaffLogin(companyId: string) {
   const service = useService();
   const actorId = useActorId();
   const queryClient = useQueryClient();
+  const invalidate = useInvalidate(companyId, "staffLogin");
   return useMutation({
     mutationFn: ({ staffId, input }: { staffId: string; input: StaffLoginCreateRequest }) =>
       service.createStaffLogin(companyId, staffId, input),
     onSuccess: () =>
       Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.staffRecords(actorId, companyId) }),
+        invalidate(),
         queryClient.invalidateQueries({
           queryKey: queryKeys.tenant(actorId, resourceIds.role),
         }),
       ]),
   });
-}
-
-export function useActivateOpening(companyId: string) {
-  const service = useService();
-  return useOpeningCommand(
-    companyId,
-    (version: number) => service.activateOpening(companyId, { version }),
-    [
-      resourceIds.product,
-      resourceIds.productHistory,
-      resourceIds.ledger,
-      resourceIds.dashboardSummary,
-    ],
-  );
 }

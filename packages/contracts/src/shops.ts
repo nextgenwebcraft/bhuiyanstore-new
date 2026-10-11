@@ -1,7 +1,6 @@
 import { z } from "zod";
-import { amountSchema } from "./daily";
 import { recordStatuses } from "./parties";
-import { businessDateSchema, decimalStringSchema, idSchema } from "./primitives";
+import { amountSchema, businessDateSchema, decimalStringSchema, idSchema } from "./primitives";
 
 /**
  * A shop (দোকান) the company distributes to (D35). Market due (বাকি) is given to and collected

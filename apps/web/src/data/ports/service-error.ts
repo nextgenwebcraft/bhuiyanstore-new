@@ -1,7 +1,7 @@
 import type { ErrorCode, StockShortage } from "@bsd/contracts";
 import { bn, formatAmount, formatBusinessDate, t, type TranslationKey } from "@bsd/i18n";
 
-export type ServiceFieldError = { path: string; code: string };
+type ServiceFieldError = { path: string; code: string };
 
 /** Typed failure raised by every service adapter; screens localize it via `error.<code>`. */
 export class ServiceError extends Error {

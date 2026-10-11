@@ -20,8 +20,8 @@ export const queryKeys = {
     companyResource(actorId, companyId, resourceIds.product),
   staff: (actorId: string, companyId: string) =>
     companyResource(actorId, companyId, resourceIds.staffMember),
-  dashboardSummary: (actorId: string, companyId: string, date: string) =>
-    [...companyResource(actorId, companyId, resourceIds.dashboardSummary), date] as const,
+  dashboardSummary: (actorId: string, companyId: string, from: string, to: string) =>
+    [...companyResource(actorId, companyId, resourceIds.dashboardSummary), from, to] as const,
   productHistory: (actorId: string, companyId: string, productId: string) =>
     [...companyResource(actorId, companyId, resourceIds.productHistory), productId] as const,
   staffRecords: (actorId: string, companyId: string) =>
@@ -107,6 +107,18 @@ export const queryKeys = {
  * changes the engine output, so the ledger and dashboard always refresh.
  */
 export const postingEffects = {
+  products: [resourceIds.product],
+  workspace: [resourceIds.companyWorkspace],
+  /** A new staff login also changes the staff's record (the role count is tenant-scoped). */
+  staffLogin: [resourceIds.staffRecord],
+  /** A saved opening is live at once (D43), so the setup status, prices and reports follow it. */
+  opening: [
+    resourceIds.setupStatus,
+    resourceIds.product,
+    resourceIds.productHistory,
+    resourceIds.ledger,
+    resourceIds.dashboardSummary,
+  ],
   stock: [
     resourceIds.stockEntry,
     resourceIds.productHistory,

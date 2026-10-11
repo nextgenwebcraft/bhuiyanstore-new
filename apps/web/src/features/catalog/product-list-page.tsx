@@ -1,7 +1,7 @@
 "use client";
 
 import type { Product } from "@bsd/contracts";
-import { matchesSearch, t, toBengaliDigits } from "@bsd/i18n";
+import { t, toBengaliDigits, formatCount, matchesSearch } from "@bsd/i18n";
 import { useDeferredValue, useId, useRef, useState } from "react";
 import { Button } from "@/components/button";
 import { PageHeader } from "@/components/page-header";
@@ -150,7 +150,7 @@ function ProductList() {
     body = (
       <>
         <p className="mb-3 text-sm text-text-muted" aria-live="polite">
-          {t("product.count")}: {toBengaliDigits(String(filtered.length))}
+          {t("product.count")}: {formatCount(filtered.length)}
         </p>
         {filtered.length === 0 ? (
           <StatePanel title={t("state.noResults")} />

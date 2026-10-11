@@ -62,14 +62,14 @@ export type HttpDistributionService = DistributionService & {
  * Reads give up after this long and become a retryable failure. Writes never time out on the
  * client: their outcome would be unknown, and the server bounds its own transactions.
  */
-export const READ_TIMEOUT_MS = 60_000;
+const READ_TIMEOUT_MS = 60_000;
 
 /**
  * Idempotency keys of writes whose outcome is unknown (network failure or 5xx). Resubmitting the
  * identical request reuses the key, so the server replays a commit it already made instead of
  * posting twice. A definite answer (2xx or 4xx) forgets the key; the next submission is new.
  */
-export class PendingWriteKeys {
+class PendingWriteKeys {
   private readonly keys = new Map<string, string>();
 
   keyFor(fingerprint: string): string {
@@ -201,8 +201,12 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
 
     listStaff: (companyId, options) =>
       request(z.array(staffMemberSchema), `${company(companyId)}/staff-members`, options),
-    getDashboardSummary: (companyId, date, options) =>
-      request(dashboardSummarySchema, `${company(companyId)}/dashboard?date=${id(date)}`, options),
+    getDashboardSummary: (companyId, range, options) =>
+      request(
+        dashboardSummarySchema,
+        `${company(companyId)}/dashboard?${new URLSearchParams(range).toString()}`,
+        options,
+      ),
 
     getDayView: (companyId, date, options) =>
       request(dayViewSchema, `${company(companyId)}/days/${id(date)}`, options),
@@ -327,12 +331,10 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
 
     getOpening: (companyId, options) =>
       request(openingSchema, `${company(companyId)}/opening`, options),
-    saveOpening: (companyId, input) =>
-      request(openingSchema, `${company(companyId)}/opening`, write("PUT", input)),
-    approveOpening: (companyId, input) =>
-      request(openingSchema, `${company(companyId)}/opening/approve`, write("POST", input)),
-    activateOpening: (companyId, input) =>
-      request(openingSchema, `${company(companyId)}/opening/activate`, write("POST", input)),
+    saveOpeningCutoff: (companyId, input) =>
+      request(openingSchema, `${company(companyId)}/opening/cutoff`, write("PUT", input)),
+    saveOpeningSection: (companyId, input) =>
+      request(openingSchema, `${company(companyId)}/opening/section`, write("PUT", input)),
     getSetupStatus: (companyId, options) =>
       request(setupStatusSchema, `${company(companyId)}/setup`, options),
 

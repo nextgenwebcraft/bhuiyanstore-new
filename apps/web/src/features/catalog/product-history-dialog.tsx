@@ -1,7 +1,6 @@
 "use client";
 
 import { priceKinds, type PriceKind, type Product } from "@bsd/contracts";
-import { businessDateOf } from "@bsd/domain";
 import { formatRate, normalizeDigits, t, toBengaliDigits } from "@bsd/i18n";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/button";
@@ -11,6 +10,7 @@ import { QueryError } from "@/components/query-error";
 import { TableSkeleton } from "@/components/skeleton";
 import { describeError, type DescribedError } from "@/data/ports/service-error";
 import { useAddProductPack, useProductHistory, useSetProductPrice } from "@/data/queries";
+import { useToday } from "@/lib/today";
 
 const noErrors: DescribedError = { fields: {} };
 
@@ -26,7 +26,8 @@ function PackForm({ companyId, productId }: { companyId: string; productId: stri
   const id = useId();
   const addPack = useAddProductPack(companyId, productId);
   const [pieces, setPieces] = useState("");
-  const [effectiveFrom, setEffectiveFrom] = useState(() => businessDateOf(new Date()));
+  const today = useToday();
+  const [effectiveFrom, setEffectiveFrom] = useState(today);
   const [errors, setErrors] = useState(noErrors);
 
   async function submit(event: FormEvent) {
@@ -93,7 +94,8 @@ function PriceForm({ companyId, productId }: { companyId: string; productId: str
   const setPrice = useSetProductPrice(companyId, productId);
   const [kind, setKind] = useState<PriceKind>("sale");
   const [price, setPriceText] = useState("");
-  const [effectiveFrom, setEffectiveFrom] = useState(() => businessDateOf(new Date()));
+  const today = useToday();
+  const [effectiveFrom, setEffectiveFrom] = useState(today);
   const [errors, setErrors] = useState(noErrors);
 
   async function submit(event: FormEvent) {

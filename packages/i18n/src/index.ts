@@ -3,6 +3,9 @@ export { normalizeDigits, toBengaliDigits } from "./digits";
 export {
   formatAmount,
   formatBusinessDate,
+  formatCount,
+  formatDateTime,
+  formatMoney,
   formatMonth,
   formatRate,
   formatShortDate,

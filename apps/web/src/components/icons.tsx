@@ -141,21 +141,3 @@ export function Icon({ name, className = "size-5" }: { name: IconName; className
     </svg>
   );
 }
-
-const sectionIcons: Readonly<Record<string, IconName>> = {
-  dashboard: "dashboard",
-  sales: "sales",
-  purchases: "purchases",
-  inventory: "inventory",
-  "sr-accounts": "srAccounts",
-  "dsr-staff": "dsrStaff",
-  finance: "finance",
-  reports: "reports",
-  masters: "masters",
-  administration: "administration",
-};
-
-/** Navigation sections map to icons by their stable section ID. */
-export function sectionIcon(sectionId: string): IconName {
-  return sectionIcons[sectionId] ?? "dashboard";
-}

@@ -16,6 +16,7 @@ import { CompanyMark } from "./company-mark";
 import { CompanySwitcher } from "./company-switcher";
 import { ConnectionBanner } from "./connection-banner";
 import { DraftGuardProvider } from "./draft-guard";
+import { HubTabs } from "./hub-tabs";
 import { MobileNav } from "./mobile-nav";
 import { NavProgress } from "./nav-progress";
 import { companyHref, FIELD_PATH } from "./navigation";
@@ -195,6 +196,7 @@ export function CompanyShell({
               </header>
               <ConnectionBanner />
               <main id="main" className="mx-auto w-full max-w-400 p-4 pb-24 sm:p-6 md:pb-6">
+                <HubTabs workspace={workspace.data} currentPath={currentPath} />
                 <div key={currentPath} className="animate-page-in">
                   {children}
                 </div>

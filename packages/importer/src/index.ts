@@ -1,5 +1,6 @@
 export { evaluateArithmetic } from "./arithmetic";
 export { readCartonSizes, type SheetCartonSize } from "./carton-sizes";
+export { readMonthSheetFile } from "./month-file";
 export {
   monthOfSheetName,
   readMonthSheet,

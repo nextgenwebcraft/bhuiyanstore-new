@@ -1,11 +1,18 @@
 "use client";
 
-import type { PayrollAction, PayrollLine, PayrollRun, PayrollStatus } from "@bsd/contracts";
-import { businessDateOf } from "@bsd/domain";
+import type {
+  PayrollAction,
+  PayrollLine,
+  PayrollRun,
+  PayrollSaveRequest,
+  PayrollStatus,
+} from "@bsd/contracts";
+import { EmptyListNote } from "@/components/empty-list-note";
+import { useAsyncAction } from "@/lib/async-action";
+import { lastOfMonth, monthOf, type OwedBucket, owedBuckets } from "@bsd/domain";
 import { formatBusinessDate, formatMonth, t } from "@bsd/i18n";
 import { useState } from "react";
 import { Button } from "@/components/button";
-import { lastOfMonth } from "@/components/calendar-math";
 import { DatePicker, MonthPicker } from "@/components/date-picker";
 import { Field } from "@/components/field";
 import { PageHeader } from "@/components/page-header";
@@ -14,26 +21,24 @@ import { FormSkeleton, TableSkeleton } from "@/components/skeleton";
 import { StatTile } from "@/components/stat-tile";
 import { StatePanel } from "@/components/state-panel";
 import { StatusBadge } from "@/components/status-badge";
-import { describeError } from "@/data/ports/service-error";
 import { usePayrollCommand, usePayrollRun, useSavePayrollRun } from "@/data/queries";
+import { CellInput, clean } from "@/features/daily/daily-kit";
 import {
-  CellInput,
-  clean,
   money,
   tableClass,
-  TableScroller,
   tdClass,
   tdNum,
   thClass,
   thNum,
   theadClass,
-} from "@/features/daily/daily-kit";
+} from "@/components/data-table";
+import { TableScroller } from "@/components/table-scroller";
 import { NavGate } from "@/features/shell/nav-gate";
 import { PrintButton, PrintHeader } from "@/features/shell/print";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
+import { useToday } from "@/lib/today";
 
-const BUCKETS = ["advance", "loan", "shortage"] as const;
-type Bucket = (typeof BUCKETS)[number];
+type Bucket = OwedBucket;
 
 type Draft = {
   salary: string;
@@ -45,7 +50,7 @@ type Draft = {
 const AMOUNT = /^\d+(\.\d{1,2})?$/;
 
 function draftOf(line: PayrollLine): Draft {
-  const changed = BUCKETS.some((b) => line.recovery[b] !== line.proposed[b]);
+  const changed = owedBuckets.some((b) => line.recovery[b] !== line.proposed[b]);
   return {
     salary: line.salary === "0" ? "" : line.salary,
     override: changed,
@@ -69,11 +74,11 @@ function RunEditor({ run, month }: { run: PayrollRun; month: string }) {
     Object.fromEntries(run.lines.map((l) => [l.staffId, draftOf(l)])),
   );
   const [date, setDate] = useState(run.date);
-  const [payDate, setPayDate] = useState(() => {
-    const today = businessDateOf(new Date());
-    return today < run.date ? run.date : today;
-  });
+  const today = useToday();
+  const [payDate, setPayDate] = useState(() => (today < run.date ? run.date : today));
   const [error, setError] = useState<string | undefined>();
+  const action = useAsyncAction();
+  const shownError = error ?? action.error;
   const busy = save.isPending || command.isPending;
   const can = {
     manage: permissions.includes("compensation.manage"),
@@ -90,7 +95,7 @@ function RunEditor({ run, month }: { run: PayrollRun; month: string }) {
 
   async function submit() {
     setError(undefined);
-    const lines = [];
+    const lines: PayrollSaveRequest["lines"] = [];
     for (const line of run.lines) {
       const d = drafts[line.staffId];
       if (!d) continue;
@@ -102,7 +107,7 @@ function RunEditor({ run, month }: { run: PayrollRun; month: string }) {
       if (salary === "0" && !d.override) continue;
       let recovery = null;
       if (d.override) {
-        const parts = BUCKETS.map((b) => clean(d.recovery[b]) || "0");
+        const parts = owedBuckets.map((b) => clean(d.recovery[b]) || "0");
         if (parts.some((p) => !AMOUNT.test(p))) {
           setError(`${line.staffName}: ${t("validation.opening.amount")}`);
           return;
@@ -115,24 +120,19 @@ function RunEditor({ run, month }: { run: PayrollRun; month: string }) {
       }
       lines.push({ staffId: line.staffId, salary, recovery, reason: d.reason.trim() });
     }
-    try {
-      await save.mutateAsync({ version: run.version, date, lines });
-    } catch (e) {
-      setError(describeError(e, []).form);
-    }
+    await action.run(() => save.mutateAsync({ version: run.version, date, lines }));
   }
 
-  async function act(action: PayrollAction) {
+  async function act(kind: PayrollAction) {
     setError(undefined);
-    if (!window.confirm(t(`payroll.confirm.${action}`))) return;
-    try {
-      await command.mutateAsync({
-        action,
-        input: { version: run.version, payDate: action === "pay" ? payDate : null },
-      });
-    } catch (e) {
-      setError(describeError(e, []).form);
-    }
+    await action.run(
+      () =>
+        command.mutateAsync({
+          action: kind,
+          input: { version: run.version, payDate: kind === "pay" ? payDate : null },
+        }),
+      { confirm: `payroll.confirm.${kind}` },
+    );
   }
 
   return (
@@ -175,9 +175,7 @@ function RunEditor({ run, month }: { run: PayrollRun; month: string }) {
       </dl>
       {editable ? <p className="text-sm text-text-muted">{t("payroll.hint")}</p> : null}
       {run.lines.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-sm text-text-muted">
-          {t("payroll.empty")}
-        </p>
+        <EmptyListNote textKey="payroll.empty" />
       ) : (
         <TableScroller>
           <table className={tableClass}>
@@ -223,7 +221,7 @@ function RunEditor({ run, month }: { run: PayrollRun; month: string }) {
                       )}
                     </td>
                     <td className={`${tdNum} text-xs`}>
-                      {BUCKETS.map((b) => (
+                      {owedBuckets.map((b) => (
                         <div key={b}>
                           {t(`report.column.${b}`)}: {money(line.owed[b])}
                         </div>
@@ -232,7 +230,7 @@ function RunEditor({ run, month }: { run: PayrollRun; month: string }) {
                     <td className={tdNum}>
                       {editable && can.manage && d.override ? (
                         <div className="flex flex-col items-end gap-1">
-                          {BUCKETS.map((b) => (
+                          {owedBuckets.map((b) => (
                             <label key={b} className="flex items-center gap-2 text-xs">
                               {t(`report.column.${b}`)}
                               <CellInput
@@ -287,7 +285,7 @@ function RunEditor({ run, month }: { run: PayrollRun; month: string }) {
           </table>
         </TableScroller>
       )}
-      {error ? <StatePanel tone="error" title={error} /> : null}
+      {shownError ? <StatePanel tone="error" title={shownError} /> : null}
       <div className="flex flex-wrap gap-2">
         {editable && can.manage ? (
           <Button variant="primary" disabled={busy} onClick={() => void submit()}>
@@ -322,7 +320,8 @@ function RunEditor({ run, month }: { run: PayrollRun; month: string }) {
 /** Monthly payroll: salary, recovery advance → loan → shortage, Cash Pabe (D11, D24, D25). */
 export function PayrollPage({ path }: { path: string }) {
   const { company } = useCurrentWorkspace();
-  const [month, setMonth] = useState(() => businessDateOf(new Date()).slice(0, 7));
+  const today = useToday();
+  const [month, setMonth] = useState(() => monthOf(today));
   const query = usePayrollRun(company.id, month);
   const run = query.data;
 

@@ -1,44 +1,44 @@
 "use client";
 
 import type { CompanyWorkspace } from "@bsd/contracts";
-import { t, toBengaliDigits } from "@bsd/i18n";
+import { t, formatCount } from "@bsd/i18n";
 import Link from "next/link";
-import { Icon, sectionIcon } from "@/components/icons";
+import { Icon } from "@/components/icons";
 import { useOverflowTooltip } from "@/components/overflow-tooltip";
-import { companyHref, visibleFlow, type FlowLink, type FlowLinkGroup } from "./navigation";
+import { companyHref, hubOfPath, visibleHubs, type VisibleHub } from "./navigation";
 
 export function ShortcutHint({ n }: { n: number }) {
   return (
     <kbd className="ml-auto hidden shrink-0 rounded border border-border bg-surface-muted px-1.5 font-sans text-[10.5px] text-text-muted md:inline">
-      Alt {toBengaliDigits(String(n))}
+      Alt {formatCount(n)}
     </kbd>
   );
 }
 
-function FlowNavLink({
+function HubLink({
   companyId,
-  link,
+  hub,
   active,
   onNavigate,
 }: {
   companyId: string;
-  link: FlowLink;
+  hub: VisibleHub;
   active: boolean;
   onNavigate: (() => void) | undefined;
 }) {
-  const label = t(link.labelKey);
+  const label = t(hub.labelKey);
   const { textRef, rowProps, tooltip } = useOverflowTooltip<HTMLAnchorElement>(label);
   return (
     <Link
-      href={companyHref(companyId, link.path)}
+      href={companyHref(companyId, hub.path)}
       aria-current={active ? "page" : undefined}
-      aria-keyshortcuts={link.shortcut ? `Alt+${link.shortcut}` : undefined}
+      aria-keyshortcuts={`Alt+${hub.shortcut}`}
       {...rowProps}
       onClick={() => {
         rowProps.onPointerLeave();
         onNavigate?.();
       }}
-      className={`group relative flex min-h-9 items-center gap-2.5 rounded-lg px-3 text-[13.5px] transition-colors ${
+      className={`group relative flex min-h-10 items-center gap-2.5 rounded-lg px-3 text-sm transition-colors ${
         active
           ? "bg-brand/12 font-medium text-text"
           : "text-text-muted hover:bg-surface-hover hover:text-text"
@@ -48,73 +48,21 @@ function FlowNavLink({
         <span aria-hidden className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-brand" />
       ) : null}
       <Icon
-        name={sectionIcon(link.sectionId)}
-        className={`size-4 ${active ? "text-brand" : "text-text-subtle group-hover:text-text-muted"}`}
+        name={hub.icon}
+        className={`size-[18px] ${active ? "text-brand" : "text-text-subtle group-hover:text-text-muted"}`}
       />
       <span ref={textRef} className="min-w-0 truncate">
         {label}
       </span>
-      {link.shortcut ? <ShortcutHint n={link.shortcut} /> : null}
+      <ShortcutHint n={hub.shortcut} />
       {tooltip}
     </Link>
   );
 }
 
-function Group({
-  group,
-  companyId,
-  currentPath,
-  onNavigate,
-}: {
-  group: FlowLinkGroup;
-  companyId: string;
-  currentPath: string;
-  onNavigate: (() => void) | undefined;
-}) {
-  const links = (
-    <ul className="flex flex-col gap-0.5">
-      {group.links.map((link) => (
-        <li key={link.path}>
-          <FlowNavLink
-            companyId={companyId}
-            link={link}
-            active={link.path === currentPath}
-            onNavigate={onNavigate}
-          />
-        </li>
-      ))}
-    </ul>
-  );
-  const caption = "px-3 pb-1.5 text-[11px] font-semibold tracking-wider text-text-muted";
-
-  if (!group.collapsed) {
-    return (
-      <div className="flex flex-col">
-        <h2 className={caption}>{t(group.labelKey)}</h2>
-        {links}
-      </div>
-    );
-  }
-  const holdsCurrent = group.links.some((l) => l.path === currentPath);
-  return (
-    <details className="group/details flex flex-col" open={holdsCurrent || undefined}>
-      <summary
-        className={`${caption} flex cursor-pointer list-none items-center gap-1 rounded-md pt-1 hover:text-text [&::-webkit-details-marker]:hidden`}
-      >
-        {t(group.labelKey)}
-        <Icon
-          name="chevronDown"
-          className="size-3.5 -rotate-90 transition-transform group-open/details:rotate-0"
-        />
-      </summary>
-      {links}
-    </details>
-  );
-}
-
 /**
- * The sidebar follows the work order of the workbook (`flowGroups`): today's overview, the day's
- * entries with their Alt shortcuts, checking, month end, then folded accounts, reports and setup.
+ * The sidebar is the nine hubs (`hubs`), each linking to its first visible tab; the tabs of the
+ * current hub are shown above the page by the shell. Alt+1…9 opens a hub.
  */
 export function SideNav({
   workspace,
@@ -128,50 +76,36 @@ export function SideNav({
   onSearch?: () => void;
 }) {
   const companyId = workspace.company.id;
-  const groups = visibleFlow(workspace);
-  const onDashboard = currentPath === "";
+  const currentHub = hubOfPath(currentPath)?.id;
 
   return (
-    <nav aria-label={t("nav.menu")} className="flex flex-col gap-5 px-3 py-4">
-      <div className="flex flex-col gap-1.5">
-        {onSearch ? (
-          <button
-            type="button"
-            onClick={onSearch}
-            aria-keyshortcuts="Control+K"
-            className="flex min-h-9 items-center gap-2 rounded-lg border border-border bg-surface-muted px-3 text-[13px] text-text-muted transition-colors hover:border-border-strong hover:text-text"
-          >
-            <Icon name="search" className="size-4" />
-            {t("nav.jump.open")}
-            <kbd className="ml-auto hidden rounded border border-border bg-surface px-1.5 font-sans text-[10.5px] md:inline">
-              Ctrl K
-            </kbd>
-          </button>
-        ) : null}
-        <Link
-          href={companyHref(companyId)}
-          aria-current={onDashboard ? "page" : undefined}
-          {...(onNavigate ? { onClick: onNavigate } : {})}
-          className={`flex min-h-10 items-center gap-2.5 rounded-lg px-3 text-sm font-medium transition-colors ${
-            onDashboard
-              ? "bg-brand text-brand-foreground shadow-card"
-              : "text-text hover:bg-surface-hover"
-          }`}
+    <nav aria-label={t("nav.menu")} className="flex flex-col gap-3 px-3 py-4">
+      {onSearch ? (
+        <button
+          type="button"
+          onClick={onSearch}
+          aria-keyshortcuts="Control+K"
+          className="flex min-h-9 items-center gap-2 rounded-lg border border-border bg-surface-muted px-3 text-[13px] text-text-muted transition-colors hover:border-border-strong hover:text-text"
         >
-          <Icon name="dashboard" className="size-[18px]" />
-          {t("nav.dashboard")}
-        </Link>
-      </div>
-
-      {groups.map((group) => (
-        <Group
-          key={group.id}
-          group={group}
-          companyId={companyId}
-          currentPath={currentPath}
-          onNavigate={onNavigate}
-        />
-      ))}
+          <Icon name="search" className="size-4" />
+          {t("nav.jump.open")}
+          <kbd className="ml-auto hidden rounded border border-border bg-surface px-1.5 font-sans text-[10.5px] md:inline">
+            Ctrl K
+          </kbd>
+        </button>
+      ) : null}
+      <ul className="flex flex-col gap-0.5">
+        {visibleHubs(workspace).map((hub) => (
+          <li key={hub.id}>
+            <HubLink
+              companyId={companyId}
+              hub={hub}
+              active={hub.id === currentHub}
+              onNavigate={onNavigate}
+            />
+          </li>
+        ))}
+      </ul>
     </nav>
   );
 }

@@ -1,6 +1,6 @@
 import type { EngineWarningDto } from "@bsd/contracts";
 
-export type WarningGroup = {
+type WarningGroup = {
   code: string;
   /** Distinct business dates the warning was raised on. */
   days: number;

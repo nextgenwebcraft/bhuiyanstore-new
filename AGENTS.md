@@ -51,6 +51,7 @@ pnpm verify:workbook  # local only: recalculate docs/*.xlsx months and compare w
 pnpm test:integration # migrate + test against TEST_DATABASE_URL (its schema is wiped; never public)
 pnpm db:migrate       # apply migrations to DIRECT_URL
 pnpm db:bootstrap-admin  # first super-admin from BOOTSTRAP_ADMIN_* (idempotent)
+pnpm db:seed-demo        # local only: demo company from docs/*.xlsx via services (D45); --dry-run prints counts
 ```
 
 ## Non-negotiables

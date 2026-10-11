@@ -15,8 +15,6 @@ function errorResponse(error: AppError, requestId: string): Response {
   });
 }
 
-const XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-
 /**
  * Writes only accept same-origin JSON. That is not a type an HTML form can send, so a cross-site
  * form cannot ride the session cookie.
@@ -69,11 +67,7 @@ export async function readJson(request: Request): Promise<unknown> {
   }
 }
 
-/** An xlsx download; the name is ASCII-safe in `filename` and exact in `filename*`. */
-export function xlsxResponse(fileName: string, data: Uint8Array): Response {
-  return fileResponse(fileName, XLSX, data);
-}
-
+/** A file download; the name is ASCII-safe in `filename` and exact in `filename*`. */
 export function fileResponse(fileName: string, contentType: string, data: Uint8Array): Response {
   const ascii = fileName.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_");
   return new Response(data as unknown as BodyInit, {

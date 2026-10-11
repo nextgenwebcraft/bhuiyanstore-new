@@ -30,7 +30,8 @@ import {
   useFieldDay,
   useSaveFieldVisit,
 } from "@/data/queries";
-import { CartonQty, clean, DateBar, StatusChip, useWorkingDate } from "@/features/daily/daily-kit";
+import { clean, DateBar, useWorkingDate } from "@/features/daily/daily-kit";
+import { CartonQty, StatusChip } from "@/components/data-table";
 import { NavGate } from "@/features/shell/nav-gate";
 import { FIELD_PATH } from "@/features/shell/navigation";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";

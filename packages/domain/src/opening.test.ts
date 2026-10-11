@@ -32,7 +32,7 @@ describe("checkOpening", () => {
     });
   });
 
-  it("treats blank as unknown, not zero, and needs a cost for stock", () => {
+  it("only warns about a blank count and needs a cost for stock", () => {
     expect(
       codes({
         cutoffDate: null,
@@ -41,7 +41,7 @@ describe("checkOpening", () => {
       }),
     ).toEqual([
       ["opening.issue.cutoffMissing", "error", undefined],
-      ["opening.issue.stockUnknown", "error", "a"],
+      ["opening.issue.stockUnknown", "warning", "a"],
       ["opening.issue.costMissing", "error", "b"],
     ]);
   });
@@ -49,11 +49,21 @@ describe("checkOpening", () => {
   it("leaves error rows out of the value", () => {
     const result = checkOpening({
       cutoffDate: "2026-11-01",
+      stock: [line("a", { pieces: "1.5" }), line("b")],
+      balances: [],
+    });
+    expect(result.issues.map((i) => i.code)).toEqual(["opening.issue.stockInvalid"]);
+    expect(result.totals).toMatchObject({ stockValue: "2348.00", valuedRows: 1, excludedRows: 1 });
+  });
+
+  it("counts a blank as 0 without excluding the row", () => {
+    const result = checkOpening({
+      cutoffDate: "2026-11-01",
       stock: [line("a", { pieces: null }), line("b")],
       balances: [],
     });
-    expect(result.issues.map((i) => i.code)).toEqual(["opening.issue.stockUnknown"]);
-    expect(result.totals).toMatchObject({ stockValue: "2348.00", valuedRows: 1, excludedRows: 1 });
+    expect(result.issues.map((i) => i.severity)).toEqual(["warning"]);
+    expect(result.totals).toMatchObject({ stockValue: "2348.00", valuedRows: 1, excludedRows: 0 });
   });
 
   it("checks balance parties, SR-only kinds and duplicates", () => {

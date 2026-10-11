@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { engineWarningSchema } from "./daily";
+import type { PermissionId } from "./definitions/permissions";
 import { businessDateSchema, decimalStringSchema, idSchema } from "./primitives";
 
 /**
@@ -197,6 +198,23 @@ export const reportIds = [
   "dsr-daily",
 ] as const;
 export type ReportId = (typeof reportIds)[number];
+
+/**
+ * Permissions a report needs beyond `report.view` (which every report needs). The one owner of
+ * this rule: the server enforces it and the UI hides what it would refuse.
+ */
+export const reportPermissions: Partial<Record<ReportId, readonly PermissionId[]>> = {
+  profit: ["inventory.cost_view", "report.profit_view"],
+  "staff-balances": ["finance.view"],
+};
+
+/** Whether `permissions` allow the report: `report.view` plus its own permissions. */
+export function canViewReport(id: ReportId, permissions: readonly string[]): boolean {
+  return (
+    permissions.includes("report.view") &&
+    (reportPermissions[id] ?? []).every((permission) => permissions.includes(permission))
+  );
+}
 
 /**
  * How a column is shown and exported. `quantity` is pieces (shown as cartons/pieces with the

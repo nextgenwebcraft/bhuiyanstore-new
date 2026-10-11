@@ -1,3 +1,4 @@
+import { todayBusinessDate } from "@bsd/domain";
 import { bootstrapSuperAdmin, createAuth, type Actor } from "@bsd/auth";
 import type { ProductCreateRequest, StaffCreateRequest } from "@bsd/contracts";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -5,7 +6,6 @@ import { loadCompanyAccess } from "./access";
 import { createRole, createUser, listUsers, resetUserPassword, updateUser } from "./administration";
 import { createCompany } from "./companies";
 import { cashAccounts, expenseCategories, staffRoles } from "./configuration";
-import { todayInDhaka } from "./dates";
 import { AppError } from "./errors";
 import {
   addProductPack,
@@ -130,7 +130,7 @@ describe("product packs and price history", () => {
       "170",
     );
 
-    const today = todayInDhaka();
+    const today = todayBusinessDate();
     await addProductPack(ctx, drinko, p.id, {
       piecesPerCarton: "96",
       effectiveFrom: shiftDays(today, 30),
@@ -226,7 +226,7 @@ describe("staff, roles and assignments", () => {
     const dsr = must(roles.find((r) => r.kind === "dsr"));
     const sr = must(roles.find((r) => r.kind === "sr"));
     const helper = must(roles.find((r) => r.kind === "general"));
-    const today = todayInDhaka();
+    const today = todayBusinessDate();
     const mamun: StaffCreateRequest = {
       name: "Mamun",
       employer: "distributor",

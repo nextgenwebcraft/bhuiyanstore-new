@@ -1,7 +1,7 @@
 "use client";
 
 import type { EngineWarningDto } from "@bsd/contracts";
-import { formatAmount, formatShortDate, t, toBengaliDigits, type TranslationKey } from "@bsd/i18n";
+import { t, type TranslationKey, formatCount, formatShortDate } from "@bsd/i18n";
 import {
   createContext,
   useCallback,
@@ -59,10 +59,10 @@ const NAMES_SHOWN = 8;
 /** Product or people names, the first few in full and the rest as a count. */
 function nameList(ids: string[], names: Map<string, string>, unit: TranslationKey): string {
   const known = ids.map((id) => names.get(id)).filter((n): n is string => Boolean(n));
-  if (known.length === 0) return `${formatAmount(String(ids.length))} ${t(unit)}`;
+  if (known.length === 0) return `${formatCount(ids.length)} ${t(unit)}`;
   const shown = known.slice(0, NAMES_SHOWN).join(", ");
   const rest = ids.length - Math.min(known.length, NAMES_SHOWN);
-  return rest > 0 ? `${shown} ${t("warning.andMore")} ${formatAmount(String(rest))}` : shown;
+  return rest > 0 ? `${shown} ${t("warning.andMore")} ${formatCount(rest)}` : shown;
 }
 
 /** The engine's warnings, one line per kind with the days and the products or people affected. */
@@ -88,7 +88,7 @@ function WarningList({ warnings }: { warnings: readonly EngineWarningDto[] }) {
             <div className="flex flex-wrap items-baseline gap-x-2">
               <span className="font-medium">{t(`warning.${g.code}` as TranslationKey)}</span>
               <span className="text-xs text-text-muted tabular-nums">
-                {formatAmount(String(g.days))} {t("warning.days")}
+                {formatCount(g.days)} {t("warning.days")}
                 {g.days > 1
                   ? ` · ${formatShortDate(g.firstDate)} – ${formatShortDate(g.lastDate)}`
                   : ` · ${formatShortDate(g.firstDate)}`}
@@ -156,12 +156,12 @@ export function NotificationBell() {
         <Icon name="bell" />
         {kinds > 0 ? (
           <span className="absolute top-1 right-1 inline-flex min-w-4.5 items-center justify-center rounded-full bg-warning px-1 text-[10px] leading-4.5 font-semibold text-surface tabular-nums">
-            {toBengaliDigits(String(kinds))}
+            {formatCount(kinds)}
           </span>
         ) : null}
       </button>
       <span role="status" className="sr-only">
-        {kinds > 0 ? `${t("day.warnings")}: ${toBengaliDigits(String(kinds))}` : ""}
+        {kinds > 0 ? `${t("day.warnings")}: ${formatCount(kinds)}` : ""}
       </span>
 
       {open ? (

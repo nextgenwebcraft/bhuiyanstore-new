@@ -1,27 +1,33 @@
 import {
   openingBalanceKinds,
-  openingSaveRequestSchema,
+  openingCutoffRequestSchema,
   openingSchema,
-  openingTransitionRequestSchema,
+  openingSectionKinds,
+  openingSectionSaveRequestSchema,
   type Opening,
   type OpeningBalanceKind,
   type OpeningBalanceLine,
+  type OpeningSectionSaveRequest,
   type OpeningStockLine,
 } from "@bsd/contracts";
 import type { Prisma } from "@bsd/database";
-import { OPENING_KIND_EFFECTS, checkOpening, type OpeningKindEffect } from "@bsd/domain";
+import {
+  OPENING_KIND_EFFECTS,
+  checkOpening,
+  type OpeningKindEffect,
+  todayBusinessDate,
+} from "@bsd/domain";
 import { requirePermission, type CompanyAccess } from "./access";
 import { recordAudit } from "./audit";
 import type { AppContext, Tx } from "./context";
-import { fromDbDate, toDbDate, todayInDhaka } from "./dates";
-import { AppError, parseInput, type FieldError } from "./errors";
+import { fromDbDate, toDbDate } from "./dates";
+import { AppError, invalid, parseInput, type FieldError } from "./errors";
 import { runIdempotent } from "./idempotency";
 import { plain } from "./numeric";
+import { summarizeSections } from "./opening-summary";
 import { packOn } from "./products";
 
 type Db = AppContext["db"] | Tx;
-
-const invalid = (path: string, code: string) => new AppError("VALIDATION_FAILED", [{ path, code }]);
 
 type PartyRef = { staffId: string | null; cashAccountId: string | null; shopId?: string | null };
 
@@ -41,7 +47,7 @@ type Catalog = {
   }[];
   staff: { id: string; name: string; roleKind: "dsr" | "sr" | "general" }[];
   cashAccounts: { id: string; name: string }[];
-  shops: { id: string }[];
+  shops: { id: string; active: boolean }[];
 };
 
 async function loadCatalog(
@@ -50,7 +56,7 @@ async function loadCatalog(
   cutoffDate: string | null,
 ): Promise<Catalog> {
   const companyId = access.company.id;
-  const onDate = cutoffDate ?? todayInDhaka();
+  const onDate = cutoffDate ?? todayBusinessDate();
   const [products, staff, cashAccounts, shops] = await Promise.all([
     db.product.findMany({
       where: { companyId },
@@ -66,7 +72,7 @@ async function loadCatalog(
       where: { legalEntityId: access.company.legalEntityId, active: true },
       orderBy: { name: "asc" },
     }),
-    db.shop.findMany({ where: { companyId }, select: { id: true } }),
+    db.shop.findMany({ where: { companyId }, select: { id: true, status: true } }),
   ]);
   return {
     products: products.map((p) => ({
@@ -89,7 +95,7 @@ async function loadCatalog(
       };
     }),
     cashAccounts: cashAccounts.map((a) => ({ id: a.id, name: a.name })),
-    shops,
+    shops: shops.map((s) => ({ id: s.id, active: s.status === "active" })),
   };
 }
 
@@ -101,7 +107,42 @@ async function findSession(db: Db, companyId: string) {
 
 type SessionRow = NonNullable<Awaited<ReturnType<typeof findSession>>>;
 
-function toView(companyId: string, session: SessionRow | null, catalog: Catalog): Opening {
+type Flags = { locked: boolean; cutoffEditable: boolean };
+
+/** Every table whose rows are daily records; once one exists for the company the cutoff is fixed. */
+async function hasDailyRecords(db: Db, companyId: string): Promise<boolean> {
+  const where = { where: { companyId }, select: { id: true } } as const;
+  const found = await Promise.all([
+    db.stockEntry.findFirst(where),
+    db.dsrDay.findFirst(where),
+    db.moneyEntry.findFirst(where),
+    db.damageCase.findFirst(where),
+    db.damageEvent.findFirst(where),
+    db.payrollRun.findFirst(where),
+    db.fieldVisit.findFirst(where),
+  ]);
+  return found.some((row) => row !== null);
+}
+
+/** D43: the opening is locked once the company's first month is closed. */
+async function isLocked(db: Db, companyId: string): Promise<boolean> {
+  return (await db.monthClose.findFirst({ where: { companyId }, select: { id: true } })) !== null;
+}
+
+async function flagsOf(db: Db, companyId: string): Promise<Flags> {
+  const [locked, used] = await Promise.all([
+    isLocked(db, companyId),
+    hasDailyRecords(db, companyId),
+  ]);
+  return { locked, cutoffEditable: !locked && !used };
+}
+
+function toView(
+  companyId: string,
+  session: SessionRow | null,
+  catalog: Catalog,
+  flags: Flags,
+): Opening {
   const lines = new Map(session?.stock.map((l) => [l.productId, l]) ?? []);
   const stock: OpeningStockLine[] = catalog.products
     .filter((p) => p.status === "active" || lines.has(p.id))
@@ -146,22 +187,33 @@ function toView(companyId: string, session: SessionRow | null, catalog: Catalog)
   });
   return openingSchema.parse({
     companyId,
-    status: session?.status ?? "draft",
     version: session?.version ?? 0,
     cutoffDate,
     stock,
     balances,
     issues,
     totals,
-    approvedAt: session?.approvedAt?.toISOString() ?? null,
-    activatedAt: session?.activatedAt?.toISOString() ?? null,
+    sections: summarizeSections(
+      { stock, balances, totals },
+      {
+        dsrIds: catalog.staff.filter((m) => m.roleKind === "dsr").map((m) => m.id),
+        staffIds: catalog.staff.map((m) => m.id),
+        shopIds: catalog.shops.filter((x) => x.active).map((x) => x.id),
+        cashAccountIds: catalog.cashAccounts.map((a) => a.id),
+      },
+    ),
+    ...flags,
   });
 }
 
 export async function openingView(db: Db, access: CompanyAccess): Promise<Opening> {
   const session = await findSession(db, access.company.id);
   const cutoff = session?.cutoffDate ? fromDbDate(session.cutoffDate) : null;
-  return toView(access.company.id, session, await loadCatalog(db, access, cutoff));
+  const [catalog, flags] = await Promise.all([
+    loadCatalog(db, access, cutoff),
+    flagsOf(db, access.company.id),
+  ]);
+  return toView(access.company.id, session, catalog, flags);
 }
 
 export async function getOpening(ctx: AppContext, companyId: string): Promise<Opening> {
@@ -182,28 +234,26 @@ async function ensureSession(tx: Tx, access: CompanyAccess) {
 
 /**
  * Claims the version the user edited: one atomic update, so two saves of the same version can't
- * both win. Any change returns the opening to draft and clears its approval.
+ * both win. The company row is share-locked first, so a month close waits for the save (and the
+ * lock check below cannot go stale).
  */
 async function claimVersion(
   tx: Tx,
-  session: { id: string; status: string; version: number },
+  companyId: string,
+  session: { id: string },
   version: number,
   data: Prisma.OpeningSessionUpdateManyMutationInput = {},
 ) {
+  if (await isLocked(tx, companyId)) throw invalid("", "validation.opening.locked");
   const claimed = await tx.openingSession.updateMany({
-    where: { id: session.id, version, status: { not: "active" } },
-    data: {
-      ...data,
-      version: { increment: 1 },
-      status: "draft",
-      approvedAt: null,
-      approvedById: null,
-    },
+    where: { id: session.id, version },
+    data: { ...data, version: { increment: 1 } },
   });
-  if (claimed.count === 1) return;
-  if (session.status === "active") throw invalid("", "validation.opening.locked");
-  throw invalid("version", "validation.opening.stale");
+  if (claimed.count !== 1) throw invalid("version", "validation.opening.stale");
 }
+
+const lockCompany = (tx: Tx, companyId: string) =>
+  tx.$queryRaw`SELECT id FROM company WHERE id = ${companyId} FOR SHARE`;
 
 function checkParty(effect: OpeningKindEffect, line: PartyRef): string | null {
   if (effect.party === "shop") {
@@ -263,8 +313,16 @@ function validateRefs(
   if (errors.length) throw new AppError("VALIDATION_FAILED", errors);
 }
 
-async function replaceBalances(tx: Tx, session: SessionRow, balances: OpeningBalanceLine[]) {
-  await tx.openingBalanceLine.deleteMany({ where: { sessionId: session.id } });
+/** Replaces only the section's own kinds; other sections' lines are never touched. */
+async function replaceBalances(
+  tx: Tx,
+  session: { id: string },
+  kinds: readonly OpeningBalanceKind[],
+  balances: OpeningBalanceLine[],
+) {
+  await tx.openingBalanceLine.deleteMany({
+    where: { sessionId: session.id, kind: { in: [...kinds] } },
+  });
   if (!balances.length) return;
   await tx.openingBalanceLine.createMany({
     data: balances.map((b) => ({
@@ -280,179 +338,200 @@ async function replaceBalances(tx: Tx, session: SessionRow, balances: OpeningBal
   });
 }
 
-/** Full replace of the editable values; a section whose values change loses its confirmation. */
-export async function saveOpening(
+/**
+ * The opening's prices become the catalog prices from the go-live date (D43), so they are
+ * rewritten whenever the stock lines or the cutoff change: the rows the opening wrote before
+ * (`source = 'opening'`) go, and one row per entered cost/sale/order price takes their place.
+ */
+async function writeOpeningPrices(
+  tx: Tx,
+  companyId: string,
+  sessionId: string,
+  cutoffDate: string | null,
+): Promise<number> {
+  await tx.priceChange.deleteMany({ where: { source: "opening", product: { companyId } } });
+  if (!cutoffDate) return 0;
+  const effectiveFrom = toDbDate(cutoffDate);
+  const lines = await tx.openingStockLine.findMany({ where: { sessionId } });
+  let written = 0;
+  for (const line of lines) {
+    for (const [kind, price] of [
+      ["cost", line.unitCost],
+      ["sale", line.salePrice],
+      ["order", line.orderPrice],
+    ] as const) {
+      if (price === null) continue;
+      await tx.priceChange.upsert({
+        where: { productId_kind_effectiveFrom: { productId: line.productId, kind, effectiveFrom } },
+        create: { productId: line.productId, kind, price, effectiveFrom, source: "opening" },
+        update: { price, source: "opening" },
+      });
+      written++;
+    }
+  }
+  return written;
+}
+
+/** Saves the go-live date. It cannot change once a daily record exists (D43). */
+export async function saveOpeningCutoff(
   ctx: AppContext,
   companyId: string,
   input: unknown,
   requestKey?: string,
 ): Promise<Opening> {
   const access = await requirePermission(ctx, companyId, "opening.prepare", { write: true });
-  const data = parseInput(openingSaveRequestSchema, input);
+  const data = parseInput(openingCutoffRequestSchema, input);
   return runIdempotent(
     ctx,
-    { scope: companyId, action: "opening.save", requestKey },
+    { scope: companyId, action: "opening.cutoff", requestKey },
     data,
     async (tx) => {
+      await lockCompany(tx, companyId);
       const session = await ensureSession(tx, access);
-      await claimVersion(tx, session, data.version, {
-        cutoffDate: data.cutoffDate ? toDbDate(data.cutoffDate) : null,
+      const before = session.cutoffDate ? fromDbDate(session.cutoffDate) : null;
+      await claimVersion(tx, companyId, session, data.version, {
+        cutoffDate: toDbDate(data.cutoffDate),
       });
-      validateRefs(await loadCatalog(tx, access, data.cutoffDate), data.stock, data.balances);
-      const keep = data.stock.map((l) => l.productId);
-      await tx.openingStockLine.deleteMany({
-        where: { sessionId: session.id, productId: { notIn: keep } },
-      });
-      for (const line of data.stock) {
-        const values = {
-          pieces: line.pieces,
-          unitCost: line.unitCost,
-          salePrice: line.salePrice,
-          orderPrice: line.orderPrice,
-          dueFromCompany: line.dueFromCompany,
-          note: line.note,
-        };
-        await tx.openingStockLine.upsert({
-          where: { sessionId_productId: { sessionId: session.id, productId: line.productId } },
-          create: { sessionId: session.id, productId: line.productId, ...values },
-          update: values,
-        });
+      if (before !== data.cutoffDate && (await hasDailyRecords(tx, companyId))) {
+        throw invalid("cutoffDate", "validation.opening.cutoffInUse");
       }
-      await replaceBalances(tx, session, data.balances);
+      const prices = await writeOpeningPrices(tx, companyId, session.id, data.cutoffDate);
       await recordAudit(tx, ctx, {
         companyId,
-        action: "opening.save",
+        action: "opening.cutoff",
         resourceType: "opening",
         resourceId: session.id,
-        after: data,
+        before: { cutoffDate: before },
+        after: { cutoffDate: data.cutoffDate, pricesSet: prices },
       });
       return openingView(tx, access);
     },
   );
 }
 
-// ---------------------------------------------------------------- approval and activation
-
-async function requireSession(tx: Tx, companyId: string, version: number, status: string) {
-  const session = await findSession(tx, companyId);
-  if (!session) throw invalid("version", "validation.opening.stale");
-  if (session.status === "active" && status !== "active") {
-    throw invalid("", "validation.opening.locked");
-  }
-  if (session.version !== version || session.status !== status) {
-    throw invalid("version", "validation.opening.stale");
-  }
-  return session;
+/** Real mistakes in the stock lines; a blank count only warns and never blocks (D43). */
+function stockMistakes(
+  cutoffDate: string | null,
+  stock: Extract<OpeningSectionSaveRequest, { section: "stock" }>["stock"],
+): FieldError[] {
+  const { issues } = checkOpening({ cutoffDate, stock, balances: [] });
+  return issues
+    .filter((i) => i.severity === "error" && i.productId)
+    .map((i) => ({
+      path: `stock.${stock.findIndex((l) => l.productId === i.productId)}.pieces`,
+      code: i.code,
+    }));
 }
 
-/** Approves the exact version reviewed; blocked while any readiness error remains. */
-export async function approveOpening(
-  ctx: AppContext,
-  companyId: string,
-  input: unknown,
-  requestKey?: string,
-): Promise<Opening> {
-  const access = await requirePermission(ctx, companyId, "opening.approve", { write: true });
-  const { version } = parseInput(openingTransitionRequestSchema, input);
-  return runIdempotent(
-    ctx,
-    { scope: companyId, action: "opening.approve", requestKey },
-    { version },
-    async (tx) => {
-      const session = await requireSession(tx, companyId, version, "draft");
-      const view = await openingView(tx, access);
-      if (view.issues.some((i) => i.severity === "error")) {
-        throw invalid("", "validation.opening.hasErrors");
-      }
-      const updated = await tx.openingSession.updateMany({
-        where: { id: session.id, version, status: "draft" },
-        data: { status: "approved", approvedAt: new Date(), approvedById: ctx.actor.userId },
-      });
-      if (updated.count !== 1) throw invalid("version", "validation.opening.stale");
-      await recordAudit(tx, ctx, {
-        companyId,
-        action: "opening.approve",
-        resourceType: "opening",
-        resourceId: session.id,
-        after: { version, totals: view.totals },
-      });
-      return openingView(tx, access);
-    },
-  );
+function balanceMistakes(catalog: Catalog, balances: OpeningBalanceLine[]): FieldError[] {
+  const roleOf = new Map(catalog.staff.map((m) => [m.id, m.roleKind]));
+  const { issues } = checkOpening({
+    cutoffDate: null,
+    stock: [],
+    balances: balances.map((b) => ({
+      ...b,
+      personRoleKind: b.staffId ? (roleOf.get(b.staffId) ?? null) : null,
+    })),
+  });
+  return issues
+    .filter((i) => i.severity === "error" && i.kind)
+    .map((i) => ({
+      path: `balances.${balances.findIndex(
+        (b) =>
+          b.kind === i.kind &&
+          b.staffId === (i.staffId ?? null) &&
+          b.cashAccountId === (i.cashAccountId ?? null) &&
+          b.shopId === (i.shopId ?? null),
+      )}.kind`,
+      code: i.code,
+    }));
 }
 
 /**
- * Activates the approved opening once, atomically (guide §16.5): the snapshot is locked and its
- * prices become the catalog prices from the go-live date. Cash and bank balances belong to the
- * whole distributor, so an account can be opened by one company only.
+ * Cash and bank balances belong to the whole distributor, so an account can be opened by one
+ * company only. Row locks serialise two companies saving the same account at once.
  */
-export async function activateOpening(
+async function requireCashFree(
+  tx: Tx,
+  access: CompanyAccess,
+  balances: OpeningBalanceLine[],
+): Promise<void> {
+  const cashIds = balances
+    .filter((b) => b.kind === "cash" && b.cashAccountId && b.amount !== null)
+    .map((b) => b.cashAccountId as string);
+  if (!cashIds.length) return;
+  await tx.$queryRaw`SELECT id FROM cash_account WHERE id = ANY(${cashIds}::text[]) FOR UPDATE`;
+  const elsewhere = await tx.openingBalanceLine.count({
+    where: {
+      kind: "cash",
+      cashAccountId: { in: cashIds },
+      amount: { not: null },
+      session: { tenantId: access.company.tenantId, companyId: { not: access.company.id } },
+    },
+  });
+  if (elsewhere) throw invalid("balances", "validation.opening.cashElsewhere");
+}
+
+/**
+ * Saves one section and takes effect at once (D43): the stock lines, or the balance lines of one
+ * section's kinds. Nothing outside the section changes. Blanks are fine; real mistakes refuse it.
+ */
+export async function saveOpeningSection(
   ctx: AppContext,
   companyId: string,
   input: unknown,
   requestKey?: string,
 ): Promise<Opening> {
-  const access = await requirePermission(ctx, companyId, "opening.activate", { write: true });
-  const { version } = parseInput(openingTransitionRequestSchema, input);
+  const access = await requirePermission(ctx, companyId, "opening.prepare", { write: true });
+  const data = parseInput(openingSectionSaveRequestSchema, input);
   return runIdempotent(
     ctx,
-    { scope: companyId, action: "opening.activate", requestKey },
-    { version },
+    { scope: companyId, action: "opening.section", requestKey },
+    data,
     async (tx) => {
-      const session = await requireSession(tx, companyId, version, "approved");
-      const view = await openingView(tx, access);
-      if (!view.cutoffDate || view.issues.some((i) => i.severity === "error")) {
-        throw invalid("", "validation.opening.hasErrors");
-      }
-      const cashIds = view.balances
-        .filter((b) => b.kind === "cash" && b.cashAccountId)
-        .map((b) => b.cashAccountId as string);
-      if (cashIds.length) {
-        // Row locks serialise two companies activating the same account at once.
-        await tx.$queryRaw`SELECT id FROM cash_account WHERE id = ANY(${cashIds}::text[]) FOR UPDATE`;
-        const elsewhere = await tx.openingBalanceLine.count({
-          where: {
-            kind: "cash",
-            cashAccountId: { in: cashIds },
-            session: {
-              status: "active",
-              tenantId: access.company.tenantId,
-              companyId: { not: companyId },
-            },
-          },
+      await lockCompany(tx, companyId);
+      const session = await ensureSession(tx, access);
+      await claimVersion(tx, companyId, session, data.version);
+      const cutoffDate = session.cutoffDate ? fromDbDate(session.cutoffDate) : null;
+      const catalog = await loadCatalog(tx, access, cutoffDate);
+      let prices: number | undefined;
+      if (data.section === "stock") {
+        validateRefs(catalog, data.stock, []);
+        const mistakes = stockMistakes(cutoffDate, data.stock);
+        if (mistakes.length) throw new AppError("VALIDATION_FAILED", mistakes);
+        const keep = data.stock.map((l) => l.productId);
+        await tx.openingStockLine.deleteMany({
+          where: { sessionId: session.id, productId: { notIn: keep } },
         });
-        if (elsewhere) throw invalid("balances", "validation.opening.cashElsewhere");
-      }
-      const effectiveFrom = toDbDate(view.cutoffDate);
-      let prices = 0;
-      for (const line of view.stock) {
-        for (const [kind, price] of [
-          ["cost", line.unitCost],
-          ["sale", line.salePrice],
-          ["order", line.orderPrice],
-        ] as const) {
-          if (price === null) continue;
-          await tx.priceChange.upsert({
-            where: {
-              productId_kind_effectiveFrom: { productId: line.productId, kind, effectiveFrom },
-            },
-            create: { productId: line.productId, kind, price, effectiveFrom },
-            update: { price },
+        for (const line of data.stock) {
+          const values = {
+            pieces: line.pieces,
+            unitCost: line.unitCost,
+            salePrice: line.salePrice,
+            orderPrice: line.orderPrice,
+            dueFromCompany: line.dueFromCompany,
+            note: line.note,
+          };
+          await tx.openingStockLine.upsert({
+            where: { sessionId_productId: { sessionId: session.id, productId: line.productId } },
+            create: { sessionId: session.id, productId: line.productId, ...values },
+            update: values,
           });
-          prices++;
         }
+        prices = await writeOpeningPrices(tx, companyId, session.id, cutoffDate);
+      } else {
+        validateRefs(catalog, [], data.balances);
+        const mistakes = balanceMistakes(catalog, data.balances);
+        if (mistakes.length) throw new AppError("VALIDATION_FAILED", mistakes);
+        if (data.section === "cash") await requireCashFree(tx, access, data.balances);
+        await replaceBalances(tx, session, openingSectionKinds[data.section], data.balances);
       }
-      const updated = await tx.openingSession.updateMany({
-        where: { id: session.id, version, status: "approved" },
-        data: { status: "active", activatedAt: new Date(), activatedById: ctx.actor.userId },
-      });
-      if (updated.count !== 1) throw invalid("version", "validation.opening.stale");
       await recordAudit(tx, ctx, {
         companyId,
-        action: "opening.activate",
+        action: "opening.section",
         resourceType: "opening",
         resourceId: session.id,
-        after: { version, cutoffDate: view.cutoffDate, totals: view.totals, pricesSet: prices },
+        after: { ...data, ...(prices === undefined ? {} : { pricesSet: prices }) },
       });
       return openingView(tx, access);
     },

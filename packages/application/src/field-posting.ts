@@ -3,7 +3,7 @@ import type { CompanyAccess } from "./access";
 import { nextCaseNumber } from "./case-number";
 import type { AppContext, Tx } from "./context";
 import { toDbDate } from "./dates";
-import { AppError } from "./errors";
+import { invalid } from "./errors";
 import { plain } from "./numeric";
 
 /**
@@ -12,8 +12,6 @@ import { plain } from "./numeric";
  * pieces in custody, and the visits locked. The replacement pieces given are already the sheet's
  * `damaged` column, so the case's buyer leg is recorded as given from the DSR (never from stock).
  */
-
-const invalid = (path: string, code: string) => new AppError("VALIDATION_FAILED", [{ path, code }]);
 
 type PostedDay = {
   id: string;

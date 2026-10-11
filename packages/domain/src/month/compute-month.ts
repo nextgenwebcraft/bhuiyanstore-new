@@ -1,5 +1,6 @@
 import { Decimal, toDecimal, type DecimalInput } from "../decimal";
 import { MONEY_KIND_EFFECTS } from "./money-kinds";
+import { owedBuckets } from "./types";
 import type {
   CompanyEntryResult,
   DayResult,
@@ -22,7 +23,7 @@ import type {
 } from "./types";
 
 const ZERO = new Decimal(0);
-const OWED_ORDER: readonly OwedBucket[] = ["advance", "loan", "shortage"];
+const OWED_ORDER = owedBuckets;
 const BALANCE_KEYS = [
   "advance",
   "loan",

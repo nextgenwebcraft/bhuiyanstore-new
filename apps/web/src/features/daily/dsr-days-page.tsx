@@ -16,7 +16,8 @@ import {
   toCartonDisplay,
   toDecimal,
 } from "@bsd/domain";
-import { formatRate, t } from "@bsd/i18n";
+import { useAsyncAction } from "@/lib/async-action";
+import { formatDateTime, formatRate, t } from "@bsd/i18n";
 import { useState } from "react";
 import { Button } from "@/components/button";
 import { PageHeader } from "@/components/page-header";
@@ -25,7 +26,6 @@ import { ListSkeleton } from "@/components/skeleton";
 import { StatTile } from "@/components/stat-tile";
 import { StatePanel } from "@/components/state-panel";
 import { TableSummary, type SummaryItem } from "@/components/table-summary";
-import { describeError } from "@/data/ports/service-error";
 import {
   useDsrDayCommand,
   useDsrDays,
@@ -38,15 +38,17 @@ import { NavGate } from "@/features/shell/nav-gate";
 import { PrintButton, PrintHeader } from "@/features/shell/print";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 import {
-  CartonQty,
   CellInput,
   DateBar,
   DateHeading,
   DayGate,
   SectionTitle,
-  StatusChip,
-  TableScroller,
   clean,
+  useWorkingDate,
+} from "./daily-kit";
+import {
+  CartonQty,
+  StatusChip,
   money,
   quantity,
   stickyCell,
@@ -57,8 +59,8 @@ import {
   thClass,
   thNum,
   theadClass,
-  useWorkingDate,
-} from "./daily-kit";
+} from "@/components/data-table";
+import { TableScroller } from "@/components/table-scroller";
 
 const PATH = "sales/daily-summaries";
 
@@ -420,6 +422,8 @@ function SheetEditor({
   const command = useDsrDayCommand(companyId);
   const [draft, setDraft] = useState(() => draftOf(sheet));
   const [error, setError] = useState<string | undefined>();
+  const action = useAsyncAction();
+  const shownError = error ?? action.error;
   const posted = sheet?.status === "posted";
   const locked = posted || !permissions.includes("sale.create");
   const base = { date, staffId: staff.id, version: sheet?.version ?? 0 };
@@ -500,32 +504,33 @@ function SheetEditor({
       lines: { ...d.lines, [productId]: { ...(d.lines[productId] ?? blankLine), ...patch } },
     }));
 
-  async function run(action: "save" | "post" | "discard" | "reverse") {
+  async function run(kind: "save" | "post" | "discard" | "reverse") {
     setError(undefined);
-    try {
-      if (action === "save" || action === "post") {
-        if (typeof built === "string") {
-          setError(built);
-          return;
-        }
+    if (kind === "save" || kind === "post") {
+      if (typeof built === "string") {
+        setError(built);
+        return;
+      }
+      await action.run(async () => {
         const current = dirty || !sheet ? await save.mutateAsync(built) : sheet;
-        if (action === "post") {
+        if (kind === "post") {
           await command.mutateAsync({
             action: "post",
             dayId: current.id,
             version: current.version,
           });
         }
-        return;
-      }
-      if (!sheet) return;
-      if (action === "reverse" && !window.confirm(t("dsr.sheet.reverseConfirm"))) return;
-      if (action === "discard" && !window.confirm(t("dsr.sheet.discardConfirm"))) return;
-      await command.mutateAsync({ action, dayId: sheet.id, version: sheet.version });
-      if (action === "discard") setDraft(draftOf(undefined));
-    } catch (e) {
-      setError(describeError(e, []).form);
+      });
+      return;
     }
+    if (!sheet) return;
+    await action.run(
+      async () => {
+        await command.mutateAsync({ action: kind, dayId: sheet.id, version: sheet.version });
+        if (kind === "discard") setDraft(draftOf(undefined));
+      },
+      { confirm: kind === "reverse" ? "dsr.sheet.reverseConfirm" : "dsr.sheet.discardConfirm" },
+    );
   }
 
   const cell = (
@@ -679,7 +684,7 @@ function SheetEditor({
         locked={locked}
         onHandedOver={(handedOver) => setDraft((d) => ({ ...d, handedOver }))}
       />
-      {error ? <StatePanel tone="error" title={error} /> : null}
+      {shownError ? <StatePanel tone="error" title={shownError} /> : null}
       <div className="flex flex-wrap gap-2">
         {!posted && permissions.includes("sale.create") ? (
           <Button disabled={pending || (!dirty && Boolean(sheet))} onClick={() => void run("save")}>
@@ -709,7 +714,7 @@ function SheetEditor({
             {history.map((h) => (
               <li key={h.id} className="flex items-center gap-2">
                 <StatusChip status={h.status} />
-                {h.reversedAt ? new Date(h.reversedAt).toLocaleString("bn-BD") : null}
+                {h.reversedAt ? formatDateTime(h.reversedAt) : null}
               </li>
             ))}
           </ul>

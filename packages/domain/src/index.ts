@@ -20,14 +20,23 @@ export {
   type PriceSplit,
   type SaleTotals,
 } from "./sales";
-export { ENTITY_TIMEZONE, businessDateOf, shiftBusinessDate } from "./dates";
+export {
+  ENTITY_TIMEZONE,
+  businessDateOf,
+  clampDate,
+  datesBetween,
+  daysBetween,
+  firstOfMonth,
+  lastOfMonth,
+  monthOf,
+  shiftBusinessDate,
+  shiftMonth,
+  todayBusinessDate,
+} from "./dates";
 export {
   OPENING_KIND_EFFECTS,
-  OPENING_SECTIONS,
   checkOpening,
-  sectionOfKind,
   toMonthOpening,
-  type OpeningSection,
   type OpeningBalanceInput,
   type OpeningCheckInput,
   type OpeningCheckIssue,
@@ -70,3 +79,4 @@ export {
   type DamageOrigin,
 } from "./month/damage-case";
 export type * from "./month/types";
+export { owedBuckets } from "./month/types";

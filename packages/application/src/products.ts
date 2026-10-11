@@ -1,3 +1,4 @@
+import { todayBusinessDate } from "@bsd/domain";
 import {
   priceChangeRequestSchema,
   priceChangeSchema,
@@ -14,7 +15,7 @@ import {
 import { requirePermission } from "./access";
 import { recordAudit } from "./audit";
 import type { AppContext, Tx } from "./context";
-import { fromDbDate, toDbDate, todayInDhaka } from "./dates";
+import { fromDbDate, toDbDate } from "./dates";
 import { AppError, parseInput } from "./errors";
 import { isUniqueViolation, runIdempotent } from "./idempotency";
 
@@ -54,7 +55,7 @@ export function packOn(packs: readonly PackRow[], businessDate: string): PackRow
 }
 
 function toProduct(row: ProductRow): Product {
-  const pack = packOn(row.packs, todayInDhaka());
+  const pack = packOn(row.packs, todayBusinessDate());
   if (!pack) throw new AppError("INTERNAL");
   return productSchema.parse({
     id: row.id,
@@ -221,7 +222,7 @@ export async function updateProduct(
           throw new AppError("FORBIDDEN");
         }
         await assertUniqueSku(tx, companyId, row.sku, productId);
-        const current = packOn(existing.packs, todayInDhaka());
+        const current = packOn(existing.packs, todayBusinessDate());
         if (current && current.piecesPerCarton !== pieces) {
           const base = existing.packs.find((p) => p.effectiveFrom === null);
           if (existing.packs.length > 1 || !base) {

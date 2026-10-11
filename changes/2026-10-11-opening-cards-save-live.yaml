@@ -1,0 +1,20 @@
+id: 2026-10-11-opening-cards-save-live
+reason: The owner wants the opening to be simple - cards, each section saved on its own and live at once, no approve/activate, and the setup checklist inside the opening page (D43, amends D36/D38, settles P05).
+owners: [web, application, contracts, database, domain, i18n, docs]
+changes:
+  - packages/database - migration 20261011010000_opening_save_live drops opening_session.status/approved_by_id/approved_at/activated_by_id/activated_at, deletes role_permission rows for opening.approve and opening.activate, adds price_change.source ('manual' | 'opening') and tags the prices an earlier activation wrote from the opening
+  - packages/contracts - opening view loses status/approvedAt/activatedAt and gains sections (per-section summary), locked, cutoffEditable; openingSectionKinds is the one kind-to-section map; openingCutoffRequestSchema and openingSectionSaveRequestSchema (discriminated by section) replace the full-replace save and the transition request; permissions opening.approve and opening.activate removed; setup steps are products, staff, shops, cutoff, openingStock, marketDue, shopDue, staffOpening, companyOpening, cashOpening and the status carries live and locked instead of openingStatus
+  - packages/domain - checkOpening treats a blank stock count as a warning (blank counts as 0); OPENING_SECTIONS and sectionOfKind removed
+  - packages/application - saveOpeningCutoff and saveOpeningSection replace saveOpening/approveOpening/activateOpening (idempotent, audited, version-checked, refused once a month is closed; the cutoff is refused once any daily record exists; cashElsewhere is checked at the cash section save); opening prices are rewritten on every stock save and cutoff change; opening-summary.ts owns the section summaries shared by the opening view and the setup status; liveOpening (was activeOpening) and postingGuard only need a saved cutoff date
+  - apps/web - admin/opening is a card page with ?section=<id> forms and per-section save; admin/setup and its page removed (SetupBanner/useSetupNext moved to features/administration/setup-next.tsx, shown while the opening is not live); API routes opening/cutoff and opening/section replace PUT opening, opening/approve and opening/activate
+  - packages/i18n - card, state, lock and cutoff texts added; status, approve/activate, review-tab and setup-page texts removed
+  - docs - D43, PLAN §5-§7 and §9, implementation status
+affectedActionIds: [opening.prepare, opening.approve, opening.activate]
+financialImpact: blank opening amounts now count as 0 in the month engine (before, an opening with blanks could not be activated); opening prices reach the catalog at save time (price_change rows with source 'opening', effective from the go-live date) instead of at activation; a company whose opening was still draft or approved becomes live as soon as it has a cutoff date
+backfill: migration marks existing activation prices as source 'opening'; openings that were draft or approved do not get price rows until their stock section or cutoff is saved again
+tests:
+  - pnpm check (format, lint, typecheck, 155 unit tests; new opening-summary.test.ts and checkOpening blank cases)
+  - phase-d.integration.ts rewritten - section isolation, blanks, negative stock, cutoffInUse, locked after a month close, cashElsewhere at cash save, opening prices written and replaced (typechecked; needs TEST_DATABASE_URL to run)
+  - phase-e/f/g, production-setup and sql-baseline use saveWholeOpening (test-support.ts)
+rollout: apply the migration (pnpm db:migrate), then deploy the app
+recovery: revert the commit; restore the dropped opening_session columns from backup if approval state is needed again

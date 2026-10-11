@@ -6,7 +6,6 @@ import type {
   StaffBalanceKey,
   StaffStatement,
 } from "@bsd/contracts";
-import { businessDateOf } from "@bsd/domain";
 import { formatBusinessDate, t, type TranslationKey } from "@bsd/i18n";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
@@ -22,23 +21,23 @@ import { StatePanel } from "@/components/state-panel";
 import { describeError } from "@/data/ports/service-error";
 import { useStaffAccounts, useStaffStatement } from "@/data/queries";
 import { useService } from "@/data/service-context";
+import { DateBar, useWorkingDate } from "@/features/daily/daily-kit";
 import {
-  DateBar,
   money,
   tableClass,
-  TableScroller,
   tdClass,
   tdNum,
   thClass,
   thNum,
   theadClass,
-  useWorkingDate,
-} from "@/features/daily/daily-kit";
+} from "@/components/data-table";
+import { TableScroller } from "@/components/table-scroller";
 import { NavGate } from "@/features/shell/nav-gate";
 import { PrintButton, PrintHeader } from "@/features/shell/print";
 import { companyHref } from "@/features/shell/navigation";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 import { downloadBlob } from "@/lib/download";
+import { useToday } from "@/lib/today";
 
 /** Balance columns per account kind; SR accounts carry no salary (D18). */
 const KIND_KEYS: Record<StaffAccountKind, readonly StaffBalanceKey[]> = {
@@ -296,9 +295,10 @@ function StatementContent({
   const { company, permissions } = useCurrentWorkspace();
   const service = useService();
   const initial = useSearchParams().get("staff") ?? "";
-  const people = useStaffAccounts(company.id, kind, businessDateOf(new Date()));
+  const today = useToday();
+  const people = useStaffAccounts(company.id, kind, today);
   const [staffId, setStaffId] = useState(initial);
-  const [range, setRange] = useState(() => presetRange("thisMonth", businessDateOf(new Date())));
+  const [range, setRange] = useState(() => presetRange("thisMonth", today));
   const [error, setError] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
   const canExport = permissions.includes("report.export");
@@ -328,7 +328,7 @@ function StatementContent({
         description={t("accounts.statementDescription")}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <DateRangePicker value={range} onChange={setRange} max={businessDateOf(new Date())} />
+            <DateRangePicker value={range} onChange={setRange} max={today} />
             {canExport && staffId ? (
               <>
                 <Button disabled={busy} onClick={() => void exportAs("csv")}>

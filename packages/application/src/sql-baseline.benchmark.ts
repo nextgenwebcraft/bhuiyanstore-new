@@ -4,7 +4,14 @@ import { join } from "node:path";
 import { bootstrapSuperAdmin, type Actor } from "@bsd/auth";
 import { reportIds } from "@bsd/contracts";
 import type { Database, Prisma } from "@bsd/database";
-import { shiftBusinessDate } from "@bsd/domain";
+import {
+  firstOfMonth,
+  lastOfMonth,
+  monthOf,
+  shiftBusinessDate,
+  shiftMonth,
+  todayBusinessDate,
+} from "@bsd/domain";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadCompanyAccess } from "./access";
 import { getStaffAccounts, getStaffStatement } from "./accounts";
@@ -12,12 +19,11 @@ import { createCompany } from "./companies";
 import { expenseCategories, staffRoles } from "./configuration";
 import type { AppContext } from "./context";
 import { getDashboardSummary, getDayView } from "./daily";
-import { todayInDhaka, toDbDate } from "./dates";
-import { firstOfMonth, lastOfMonth, monthOf, nextMonth } from "./ledger";
+import { toDbDate } from "./dates";
 import { closeMonth, getMonthView, getReport } from "./month";
-import { activateOpening, approveOpening, getOpening, saveOpening } from "./opening";
+import { getOpening } from "./opening";
 import { createStaff } from "./staff";
-import { contextFor, resetTestSchema, testDatabase } from "./test-support";
+import { contextFor, resetTestSchema, saveWholeOpening, testDatabase } from "./test-support";
 
 /**
  * SQL baseline for the Redis decision (T19): times the heaviest reads against the real database
@@ -157,7 +163,7 @@ let ctx: AppContext;
 let timedCtx: AppContext;
 let company = "";
 let dsrIds: string[] = [];
-const today = todayInDhaka();
+const today = todayBusinessDate();
 const cutoff = lastOfMonth(monthsBefore(monthOf(today), OPEN_MONTHS + 1));
 const counts = { days: 0, dsrLines: 0, stock: 0, money: 0, prices: 0 };
 
@@ -216,7 +222,7 @@ beforeAll(async () => {
   }
 
   const empty = await getOpening(ctx, company);
-  const saved = await saveOpening(ctx, company, {
+  await saveWholeOpening(ctx, company, {
     version: empty.version,
     cutoffDate: cutoff,
     stock: productIds.map((productId) => ({
@@ -236,8 +242,6 @@ beforeAll(async () => {
       note: "",
     })),
   });
-  const approved = await approveOpening(ctx, company, { version: saved.version });
-  await activateOpening(ctx, company, { version: approved.version });
 
   const dates: string[] = [];
   for (let d = shiftBusinessDate(cutoff, 1); d <= today; d = shiftBusinessDate(d, 1)) dates.push(d);
@@ -373,7 +377,9 @@ async function measureReads(scenario: string) {
   const report = reportIds[0];
   await measure(scenario, "company access check", () => loadCompanyAccess(timedCtx, company));
   await measure(scenario, "day view (today)", () => getDayView(timedCtx, company, today));
-  await measure(scenario, "dashboard (today)", () => getDashboardSummary(timedCtx, company, today));
+  await measure(scenario, "dashboard (today)", () =>
+    getDashboardSummary(timedCtx, company, { from: today, to: today }),
+  );
   await measure(scenario, "month view (this month)", () => getMonthView(timedCtx, company, month));
   await measure(scenario, "month view (last month)", () =>
     getMonthView(timedCtx, company, previous),
@@ -399,7 +405,7 @@ describe("SQL baseline", () => {
   }, 1_800_000);
 
   it("measures reads once past months are closed", async () => {
-    for (let m = monthOf(cutoff); m < monthOf(today); m = nextMonth(m)) {
+    for (let m = monthOf(cutoff); m < monthOf(today); m = shiftMonth(m, 1)) {
       await closeMonth(ctx, company, m);
     }
     await measureReads("past months closed");

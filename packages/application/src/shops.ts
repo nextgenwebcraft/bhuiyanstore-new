@@ -1,3 +1,4 @@
+import { todayBusinessDate } from "@bsd/domain";
 import {
   shopSchema,
   shopStatementSchema,
@@ -9,9 +10,8 @@ import type { Prisma } from "@bsd/database";
 import { loadCompanyAccess, requirePermission } from "./access";
 import { recordAudit } from "./audit";
 import type { AppContext } from "./context";
-import { todayInDhaka } from "./dates";
-import { businessDate, invalid } from "./daily";
-import { AppError, parseInput } from "./errors";
+import { businessDate } from "./daily";
+import { AppError, invalid, parseInput } from "./errors";
 import { isUniqueViolation, runIdempotent } from "./idempotency";
 import { rangeRun, runLedger } from "./ledger";
 import { plain } from "./numeric";
@@ -45,7 +45,7 @@ export async function listShops(ctx: AppContext, companyId: string): Promise<Sho
   const canSeeDue = access.permissions.includes("sale.view");
   const [rows, run] = await Promise.all([
     ctx.db.shop.findMany({ where: { companyId }, orderBy: { name: "asc" } }),
-    canSeeDue ? runLedger(ctx.db, access, todayInDhaka()) : null,
+    canSeeDue ? runLedger(ctx.db, access, todayBusinessDate()) : null,
   ]);
   const dues = run?.output.closing.shopDue ?? {};
   return rows.map((row) => toShop(row, canSeeDue ? (dues[row.id] ?? "0") : null));
@@ -131,7 +131,7 @@ export async function getShopStatement(
 ): Promise<ShopStatement> {
   const access = await loadCompanyAccess(ctx, companyId);
   if (!access.permissions.includes("sale.view")) throw new AppError("FORBIDDEN");
-  const today = todayInDhaka();
+  const today = todayBusinessDate();
   const to = query.to ? businessDate(query.to, "to") : today;
   const from = query.from ? businessDate(query.from, "from") : `${to.slice(0, 7)}-01`;
   if (from > to) throw invalid("from", "validation.period.endBeforeStart");

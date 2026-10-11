@@ -1,6 +1,5 @@
 import { z } from "zod";
-import { amountSchema } from "./daily";
-import { businessDateSchema, decimalStringSchema, idSchema } from "./primitives";
+import { amountSchema, businessDateSchema, decimalStringSchema, idSchema } from "./primitives";
 
 const nameSchema = z.string().trim().min(1).max(120);
 

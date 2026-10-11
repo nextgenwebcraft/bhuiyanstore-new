@@ -1,21 +1,29 @@
 "use client";
 
 import type { CompanyWorkspace } from "@bsd/contracts";
-import { normalizeDigits, t } from "@bsd/i18n";
+import { normalizeDigits, t, type TranslationKey } from "@bsd/i18n";
 import { useRouter } from "next/navigation";
 import { forwardRef, useEffect, useImperativeHandle, useId, useRef, useState } from "react";
-import { Icon, sectionIcon } from "@/components/icons";
+import { Icon, type IconName } from "@/components/icons";
 import { useActiveDraftGuard } from "./draft-guard";
-import { companyHref, visibleFlow, type FlowLink } from "./navigation";
+import { companyHref, visibleHubs } from "./navigation";
 import { ShortcutHint } from "./side-nav";
 
 export type QuickJumpHandle = { open: () => void };
 
-type Target = FlowLink & { group: string };
+type Target = {
+  path: string;
+  labelKey: TranslationKey;
+  icon: IconName;
+  /** The hub's name for a tab; empty for a hub itself. */
+  group: string;
+  /** Alt+n, hubs only. */
+  shortcut: number | undefined;
+};
 
 /**
- * Keyboard layer of the shell: Ctrl+K (or "/") opens a screen search, Alt+1…9 opens the daily
- * screens in work order. Both stay inactive while a form with unsaved input or another dialog is
+ * Keyboard layer of the shell: Ctrl+K (or "/") opens a screen search, Alt+1…9 opens the hubs
+ * in sidebar order. Both stay inactive while a form with unsaved input or another dialog is
  * open, so a shortcut never drops a draft.
  */
 export const QuickJump = forwardRef<QuickJumpHandle, { workspace: CompanyWorkspace }>(
@@ -29,18 +37,22 @@ export const QuickJump = forwardRef<QuickJumpHandle, { workspace: CompanyWorkspa
     const getActiveDraftGuard = useActiveDraftGuard();
     const companyId = workspace.company.id;
 
-    const targets: Target[] = [
+    const targets: Target[] = visibleHubs(workspace).flatMap((hub) => [
       {
-        path: "",
-        labelKey: "nav.dashboard",
-        sectionId: "dashboard",
-        shortcut: undefined,
+        path: hub.path,
+        labelKey: hub.labelKey,
+        icon: hub.icon,
         group: "",
+        shortcut: hub.shortcut,
       },
-      ...visibleFlow(workspace).flatMap((g) =>
-        g.links.map((link) => ({ ...link, group: t(g.labelKey) })),
-      ),
-    ];
+      ...(hub.tabs.length > 1 ? hub.tabs : []).map((tab) => ({
+        path: tab.path,
+        labelKey: tab.labelKey,
+        icon: hub.icon,
+        group: t(hub.labelKey),
+        shortcut: undefined,
+      })),
+    ]);
     const needle = normalizeDigits(query).trim().toLowerCase();
     const results = needle
       ? targets.filter(
@@ -150,7 +162,7 @@ export const QuickJump = forwardRef<QuickJumpHandle, { workspace: CompanyWorkspa
           ) : (
             results.map((target, i) => (
               <li
-                key={target.path || "dashboard"}
+                key={`${target.group}|${target.path}`}
                 id={`${listId}-${i}`}
                 role="option"
                 aria-selected={i === active}
@@ -160,7 +172,7 @@ export const QuickJump = forwardRef<QuickJumpHandle, { workspace: CompanyWorkspa
                   i === active ? "bg-brand/10 text-text" : "text-text-muted"
                 }`}
               >
-                <Icon name={sectionIcon(target.sectionId)} className="size-4" />
+                <Icon name={target.icon} className="size-4" />
                 <span className="truncate font-medium text-text">{t(target.labelKey)}</span>
                 {target.group ? (
                   <span className="truncate text-xs text-text-muted">{target.group}</span>

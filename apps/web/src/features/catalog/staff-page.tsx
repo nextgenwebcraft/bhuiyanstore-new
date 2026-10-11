@@ -8,7 +8,7 @@ import {
   type RecordStatus,
   type StaffRole,
 } from "@bsd/contracts";
-import { businessDateOf } from "@bsd/domain";
+import { todayBusinessDate } from "@bsd/domain";
 import { formatAmount, normalizeDigits, t, toBengaliDigits } from "@bsd/i18n";
 import { useId, useState } from "react";
 import { Button } from "@/components/button";
@@ -50,7 +50,7 @@ type Period = { roleId: string; from: string; to: string; monthlySalary: string 
 
 const newPeriod = (): Period => ({
   roleId: "",
-  from: businessDateOf(new Date()),
+  from: todayBusinessDate(),
   to: "",
   monthlySalary: "",
 });

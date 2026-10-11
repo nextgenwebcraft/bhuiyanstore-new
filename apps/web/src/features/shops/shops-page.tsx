@@ -1,8 +1,8 @@
 "use client";
 
 import type { RecordStatus, Shop } from "@bsd/contracts";
-import { businessDateOf, toDecimal } from "@bsd/domain";
-import { formatBusinessDate, t, toBengaliDigits } from "@bsd/i18n";
+import { firstOfMonth, toDecimal } from "@bsd/domain";
+import { t, toBengaliDigits, formatBusinessDate, formatCount } from "@bsd/i18n";
 import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/button";
 import { DatePicker } from "@/components/date-picker";
@@ -18,20 +18,21 @@ import { StatusField } from "@/components/status-field";
 import { TableSummary } from "@/components/table-summary";
 import { describeError, type DescribedError } from "@/data/ports/service-error";
 import { useSaveShop, useShopStatement, useShops } from "@/data/queries";
+import { clean } from "@/features/daily/daily-kit";
 import {
-  clean,
   money,
   tableClass,
-  TableScroller,
   tdClass,
   tdNum,
   thClass,
   thNum,
   theadClass,
-} from "@/features/daily/daily-kit";
+} from "@/components/data-table";
+import { TableScroller } from "@/components/table-scroller";
 import { NavGate } from "@/features/shell/nav-gate";
 import { PrintButton, PrintHeader } from "@/features/shell/print";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
+import { useToday } from "@/lib/today";
 
 const PATH = "sales/shops";
 const noErrors: DescribedError = { fields: {} };
@@ -179,8 +180,8 @@ function HistoryDialog({
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const id = useId();
-  const today = businessDateOf(new Date());
-  const [range, setRange] = useState({ from: `${today.slice(0, 7)}-01`, to: today });
+  const today = useToday();
+  const [range, setRange] = useState({ from: firstOfMonth(today), to: today });
   const statement = useShopStatement(companyId, shop.id, range);
 
   useEffect(() => {
@@ -325,13 +326,13 @@ function Shops() {
       <div className="flex flex-col gap-4">
         <TableSummary
           items={[
-            { label: t("shop.summary.count"), value: toBengaliDigits(String(rows.length)) },
+            { label: t("shop.summary.count"), value: formatCount(rows.length) },
             ...(canSeeDue
               ? [
                   { label: t("shop.summary.totalDue"), value: money(totalDue.toFixed(2)) },
                   {
                     label: t("shop.summary.overLimit"),
-                    value: toBengaliDigits(String(rows.filter(overLimit).length)),
+                    value: formatCount(rows.filter(overLimit).length),
                     emphasis: rows.some(overLimit),
                   },
                 ]

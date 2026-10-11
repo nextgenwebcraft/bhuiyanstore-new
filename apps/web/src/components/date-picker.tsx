@@ -1,28 +1,20 @@
 "use client";
 
-import { businessDateOf, shiftBusinessDate } from "@bsd/domain";
+import { clampDate, monthOf, shiftBusinessDate, shiftMonth } from "@bsd/domain";
 import {
+  t,
   formatBusinessDate,
+  formatCount,
   formatMonth,
   formatShortDate,
   monthNames,
-  t,
-  toBengaliDigits,
   weekdayNames,
 } from "@bsd/i18n";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import {
-  clampDate,
-  monthGrid,
-  monthOf,
-  presetRange,
-  rangePresets,
-  shiftMonth,
-  type DateRange,
-} from "./calendar-math";
+import { monthGrid, presetRange, rangePresets, type DateRange } from "./calendar-math";
+import { useToday } from "@/lib/today";
 import { Icon } from "./icons";
 
-const todayDate = () => businessDateOf(new Date());
 const sorted = (a: string, b: string): [string, string] => (a <= b ? [a, b] : [b, a]);
 
 // ---------------------------------------------------------------- popover
@@ -180,7 +172,7 @@ function MonthHeader({
   hidePrev?: boolean;
   hideNext?: boolean;
 }) {
-  const today = todayDate();
+  const today = useToday();
   const year = Number(month.slice(0, 4));
   const firstYear = Number((min ?? shiftBusinessDate(today, -365 * 10)).slice(0, 4));
   const lastYear = Number((max ?? shiftBusinessDate(today, 365)).slice(0, 4));
@@ -225,7 +217,7 @@ function MonthHeader({
           >
             {years.map((y) => (
               <option key={y} value={y}>
-                {toBengaliDigits(String(y))}
+                {formatCount(y)}
               </option>
             ))}
           </select>
@@ -271,7 +263,7 @@ function DayGrid({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const wantFocus = useRef(false);
-  const today = todayDate();
+  const today = useToday();
   const weekdays = weekdayNames();
 
   useEffect(() => {
@@ -347,7 +339,7 @@ function DayGrid({
                         : "text-text hover:bg-surface-hover"
                 } ${isToday && !edge ? "font-semibold ring-1 ring-brand/40 ring-inset" : ""}`}
               >
-                {toBengaliDigits(String(Number(date.slice(8))))}
+                {formatCount(Number(date.slice(8)))}
                 {isToday ? (
                   <span
                     aria-hidden
@@ -398,7 +390,7 @@ function SinglePanel({
   clearable: boolean;
   api: PanelApi;
 }) {
-  const today = todayDate();
+  const today = useToday();
   const start = value || clampDate(today, min, max);
   const [month, setMonth, anim] = useMonth(monthOf(start));
   const [focusDate, setFocusDate] = useState(start);
@@ -532,7 +524,7 @@ function RangePanel({
   max?: string | undefined;
   api: PanelApi;
 }) {
-  const today = todayDate();
+  const today = useToday();
   const [draft, setDraft] = useState<{ from: string; to: string | null }>(value);
   const [hover, setHover] = useState<string | null>(null);
   const [month, setMonth, anim] = useMonth(
@@ -703,7 +695,7 @@ function MonthPanel({
   max?: string | undefined;
   api: PanelApi;
 }) {
-  const current = monthOf(todayDate());
+  const current = monthOf(useToday());
   const [year, setYearState] = useState({ year: Number(value.slice(0, 4)), anim: "" });
   const setYear = (next: number) =>
     setYearState((s) => ({
@@ -734,7 +726,7 @@ function MonthPanel({
           >
             <Icon name="chevronLeft" className="size-4" />
           </button>
-          <p className="text-sm font-semibold tabular-nums">{toBengaliDigits(String(year.year))}</p>
+          <p className="text-sm font-semibold tabular-nums">{formatCount(year.year)}</p>
           <button
             type="button"
             className={iconButton}

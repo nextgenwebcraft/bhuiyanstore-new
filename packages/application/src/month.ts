@@ -1,8 +1,8 @@
 import {
+  canViewReport,
   monthSchema,
   monthViewSchema,
   reportIds,
-  reportQuerySchema,
   reportSchema,
   type MonthCloseResult,
   type MonthStatus,
@@ -16,30 +16,26 @@ import type { Prisma } from "@bsd/database";
 import {
   dsrCashSettlement,
   fieldRemaining,
+  firstOfMonth,
+  lastOfMonth,
+  monthOf,
   shiftBusinessDate,
   sumQuantities,
   toDecimal,
   type MonthClosing,
   type MonthOutput,
+  todayBusinessDate,
 } from "@bsd/domain";
 import { buildReportWorkbook, reportCsv, type ExportableReport } from "@bsd/importer";
 import { requirePermission, type CompanyAccess } from "./access";
 import { recordAudit } from "./audit";
 import type { AppContext, Tx } from "./context";
-import { namesFor } from "./daily";
-import { fromDbDate, toDbDate, todayInDhaka } from "./dates";
-import { AppError, parseInput } from "./errors";
+import { fromDbDate, toDbDate } from "./dates";
+import { AppError, invalid } from "./errors";
 import { runIdempotent } from "./idempotency";
-import {
-  activeOpening,
-  firstOfMonth,
-  lastOfMonth,
-  monthOf,
-  rangeRun,
-  runLedger,
-  type ActiveOpening,
-} from "./ledger";
+import { liveOpening, namesFor, rangeRun, runLedger, type ActiveOpening } from "./ledger";
 import { plain } from "./numeric";
+import { parseReportRange } from "./report-range";
 
 /**
  * Month view, month close/reopen and range reports (PLAN §9 Phase F). Every figure is a field of
@@ -47,9 +43,6 @@ import { plain } from "./numeric";
  */
 
 type Db = AppContext["db"] | Tx;
-
-const invalid = (path: string, code: string) => new AppError("VALIDATION_FAILED", [{ path, code }]);
-const MAX_REPORT_DAYS = 366;
 
 export function previousMonth(month: string): string {
   return monthOf(shiftBusinessDate(firstOfMonth(month), -1));
@@ -75,18 +68,18 @@ function visibility(access: CompanyAccess): Visibility {
 function monthStatus(month: string, active: ActiveOpening | null, closed: boolean): MonthStatus {
   if (!active) return "noOpening";
   if (month < monthOf(active.cutoffDate)) return "beforeOpening";
-  if (month > monthOf(todayInDhaka())) return "future";
+  if (month > monthOf(todayBusinessDate())) return "future";
   return closed ? "closed" : "open";
 }
 
 /** Why `month` can't be closed now (an i18n key), or null. Assumes the month is open. */
-export async function closeBlocker(
+async function closeBlocker(
   db: Db,
   companyId: string,
   month: string,
   active: ActiveOpening,
 ): Promise<string | null> {
-  if (lastOfMonth(month) >= todayInDhaka()) return "validation.month.notOver";
+  if (lastOfMonth(month) >= todayBusinessDate()) return "validation.month.notOver";
   const previous = previousMonth(month);
   if (previous >= monthOf(active.cutoffDate)) {
     const closed = await db.monthClose.findUnique({
@@ -124,7 +117,7 @@ export async function getMonthView(
   const access = await requirePermission(ctx, companyId, "report.view");
   const month = parseMonth(monthInput);
   const seen = visibility(access);
-  const active = await activeOpening(ctx.db, companyId);
+  const active = await liveOpening(ctx.db, companyId);
   const [close, laterClose] = await Promise.all([
     ctx.db.monthClose.findUnique({
       where: { companyId_month: { companyId, month } },
@@ -138,7 +131,7 @@ export async function getMonthView(
   const status = monthStatus(month, active, Boolean(close));
   const mayClose = access.permissions.includes("period.close");
 
-  const today = todayInDhaka();
+  const today = todayBusinessDate();
   const to = month === monthOf(today) ? today : lastOfMonth(month);
   const run =
     active && (status === "open" || status === "closed")
@@ -258,7 +251,7 @@ export async function closeMonth(
     { month },
     async (tx) => {
       await tx.$queryRaw`SELECT id FROM company WHERE id = ${companyId} FOR UPDATE`;
-      const active = await activeOpening(tx, companyId);
+      const active = await liveOpening(tx, companyId);
       const existing = await tx.monthClose.findUnique({
         where: { companyId_month: { companyId, month } },
         select: { id: true },
@@ -910,28 +903,6 @@ async function loadDsrExtras(
   return extras;
 }
 
-/** Extra permission per report beyond `report.view`. */
-function requireReportAccess(id: ReportId, seen: Visibility): void {
-  if (id === "profit" && !seen.canSeeProfit) throw new AppError("FORBIDDEN");
-  if (id === "staff-balances" && !seen.canSeeStaff) throw new AppError("FORBIDDEN");
-}
-
-function daysBetween(from: string, to: string): number {
-  return (toDbDate(to).getTime() - toDbDate(from).getTime()) / 86_400_000;
-}
-
-/** A report or statement range: from ≤ to, `to` stopped at today, at most a year. */
-export function parseReportRange(query: unknown): { from: string; to: string } {
-  const range = parseInput(reportQuerySchema, query);
-  const today = todayInDhaka();
-  const to = range.to > today ? today : range.to;
-  if (range.from > to) throw invalid("from", "validation.daily.future");
-  if (daysBetween(range.from, to) >= MAX_REPORT_DAYS) {
-    throw invalid("to", "validation.report.rangeTooLong");
-  }
-  return { from: range.from, to };
-}
-
 /** One report over [from, to] from a single engine run (PLAN §6). `to` stops at today. */
 export async function getReport(
   ctx: AppContext,
@@ -943,11 +914,11 @@ export async function getReport(
   const id = reportIds.find((r) => r === reportInput);
   if (!id) throw invalid("report", "validation.report.unknown");
   const seen = visibility(access);
-  requireReportAccess(id, seen);
+  if (!canViewReport(id, access.permissions)) throw new AppError("FORBIDDEN");
   const range = parseReportRange(query);
   const to = range.to;
 
-  const active = await activeOpening(ctx.db, companyId);
+  const active = await liveOpening(ctx.db, companyId);
   const run = await rangeRun(ctx.db, access, range.from, to, active);
   const [names, categories, dsrExtras] = await Promise.all([
     namesFor(ctx.db, access, run?.from ?? range.from),

@@ -1,10 +1,11 @@
 "use client";
 
 import type { MonthView, ReportColumnKind, ReportTable } from "@bsd/contracts";
-import { businessDateOf } from "@bsd/domain";
+import { useAsyncAction } from "@/lib/async-action";
+import { businessDateOf, monthOf } from "@bsd/domain";
 import { formatBusinessDate, labelOf, t, type TranslationKey } from "@bsd/i18n";
 import { useState } from "react";
-import { Button } from "@/components/button";
+import { Button, ButtonLink } from "@/components/button";
 import { MonthPicker } from "@/components/date-picker";
 import { PageHeader } from "@/components/page-header";
 import { QueryError } from "@/components/query-error";
@@ -12,16 +13,18 @@ import { SummarySkeleton } from "@/components/skeleton";
 import { StatTile } from "@/components/stat-tile";
 import { StatePanel } from "@/components/state-panel";
 import { StatusBadge } from "@/components/status-badge";
-import { describeError } from "@/data/ports/service-error";
 import { useMonthCommand, useMonthView } from "@/data/queries";
-import { money } from "@/features/daily/daily-kit";
+import { columnVisible, type ColumnNeeds, money } from "@/components/data-table";
+import { periodForMonth, periodParam } from "@/features/dashboard/period";
+import { companyHref } from "@/features/shell/navigation";
 import { NavGate } from "@/features/shell/nav-gate";
 import { PrintButton, PrintHeader } from "@/features/shell/print";
 import { PageWarnings } from "@/features/shell/notifications";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
-import { ReportTableView } from "./report-page";
+import { useToday } from "@/lib/today";
+import { ReportTableView } from "./report-view";
 
-type Col = { key: string; kind: ReportColumnKind; needs?: "cost" | "profit" };
+type Col = { key: string; kind: ReportColumnKind; needs?: ColumnNeeds };
 
 /** Shapes month-view rows for display; every value is already an engine figure. */
 function display(
@@ -31,9 +34,7 @@ function display(
   totals: Record<string, string | null> | null,
   view: MonthView,
 ): ReportTable {
-  const shown = columns.filter(
-    (c) => !c.needs || (c.needs === "cost" ? view.canSeeCost : view.canSeeProfit),
-  );
+  const shown = columns.filter((c) => columnVisible(c.needs, view));
   return {
     title: `report.table.${title}`,
     columns: shown.map((c) => ({ key: c.key, label: `report.column.${c.key}`, kind: c.kind })),
@@ -253,22 +254,17 @@ function MonthBody({ view }: { view: MonthView }) {
 
 export function MonthPage({ path, title }: { path: string; title: TranslationKey }) {
   const { company } = useCurrentWorkspace();
-  const [month, setMonth] = useState(() => businessDateOf(new Date()).slice(0, 7));
+  const today = useToday();
+  const [month, setMonth] = useState(() => monthOf(today));
   const query = useMonthView(company.id, month);
   const command = useMonthCommand(company.id);
-  const [error, setError] = useState<string | undefined>();
+  const action = useAsyncAction();
   const view = query.data;
 
-  async function run(action: "close" | "reopen") {
-    setError(undefined);
-    if (!window.confirm(t(action === "close" ? "month.closeConfirm" : "month.reopenConfirm")))
-      return;
-    try {
-      await command.mutateAsync({ action, month });
-    } catch (e) {
-      setError(describeError(e, []).form);
-    }
-  }
+  const run = (kind: "close" | "reopen") =>
+    action.run(() => command.mutateAsync({ action: kind, month }), {
+      confirm: kind === "close" ? "month.closeConfirm" : "month.reopenConfirm",
+    });
 
   return (
     <NavGate path={path}>
@@ -298,6 +294,11 @@ export function MonthPage({ path, title }: { path: string; title: TranslationKey
                 {t("month.reopen")}
               </Button>
             ) : null}
+            <ButtonLink
+              href={`${companyHref(company.id)}?period=${periodParam(periodForMonth(month, today))}`}
+            >
+              {t("month.viewOnDashboard")}
+            </ButtonLink>
             <PrintButton />
           </div>
         }
@@ -317,7 +318,7 @@ export function MonthPage({ path, title }: { path: string; title: TranslationKey
             hint={labelOf(view.closeBlockedBy)}
           />
         ) : null}
-        {error ? <StatePanel tone="error" title={error} /> : null}
+        {action.error ? <StatePanel tone="error" title={action.error} /> : null}
         {query.isPending ? (
           <SummarySkeleton stats={6} rows={8} />
         ) : query.isError ? (

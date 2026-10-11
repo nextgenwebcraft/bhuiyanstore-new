@@ -24,7 +24,8 @@ application for every company (D28). Usage has three parts:
    - cash and bank
    - company payable or advance
 
-   Opening balances can be entered on screen or through the standard template (§7).
+   Opening balances are entered on screen, section by section; each section is live as soon as it is
+   saved (D43, §7).
 
 2. **Every day after go-live.** Users enter the same raw facts they type into Excel today.
    The software calculates everything Excel calculates: stock, sales, profit, market due, cash in
@@ -244,7 +245,7 @@ All rows carry `tenant_id`, and company-owned rows carry `company_id`.
     a date is the latest change on or before it. This is Excel's carry-forward.
 - **Parties:** `supplier`, `staff` (employer supplier|distributor), `staff_assignment` (company,
   role, from/to).
-- **Opening:** `opening_session` (company, cutoff date, status), with lines for:
+- **Opening:** `opening_session` (company, cutoff date, version; live once the cutoff date is saved, D43), with lines for:
   - stock (product, pieces, cost, sale price, order price, optional lot/expiry)
   - company due quantity
   - market due (DSR or legacy) and shop due per shop (D38)
@@ -283,29 +284,49 @@ and return contract DTOs. Errors use the existing `ServiceError` codes.
 | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Session       | `/api/auth/*` (Better Auth), `GET /me`, `GET /companies`, `GET /companies/{c}`                                                                                                                                                                                                                                                                                                   |
 | Masters       | `products` (+ `packs`, `prices`), `suppliers`, `staff`, `staff-assignments`, `roles`, `expense-categories`, `cash-accounts`, `settings` (CRUD; deactivate, never delete once used)                                                                                                                                                                                               |
-| Opening       | `GET/PUT /companies/{c}/opening`, `GET …/opening/template`, `POST …/opening/import`, `POST …/opening/activate`                                                                                                                                                                                                                                                                   |
+| Opening       | `GET /companies/{c}/opening`, `PUT …/opening/cutoff` (go-live date), `PUT …/opening/section` (one section: `stock`, `marketDue`, `shopDue`, `staff`, `company` or `cash`; D43)                                                                                                                                                                                                   |
 | Daily entry   | `purchase-orders`, `goods-receipts`, `dsr-days` (`GET ?date=`, `PUT` draft, `POST …/post`, `POST …/reverse`), `collections`, `expenses`, `sr-entries`, `staff-money-entries`, `supplier-deposits`, `damage-cases`                                                                                                                                                                |
 | Day and month | `GET /companies/{c}/days/{date}` (the workbook day block with every §2.3–2.4 value), `GET /companies/{c}/months/{yyyy-mm}` (§2.5), `POST …/months/{m}/close`, `POST …/months/{m}/reopen`                                                                                                                                                                                         |
 | Reports       | `stock`, `sales`, `profit` (gross and net), `market-due`, `company-due`, `staff-statement/{staffId}`, `sr-statement/{srId}`, `cash-book`, `damage`, `cartons`, `person-sales`, `dsr-daily` (D39), `company-account` (the supplier ledger: opening row, bills, deposits, incentives, refunds, free-goods memo, running payable) (all with date range; export CSV/XLSX; printable) |
-| Setup         | `GET /companies/{c}/setup` (the 9-step go-live checklist, computed on the server)                                                                                                                                                                                                                                                                                                |
+| Dashboard     | `GET /companies/{c}/dashboard?from&to` (D44): the totals summed over the range (sales, gross profit and received/stock value only with their permissions, cash collected, market due new/collected/closing, per-DSR rows) from one engine run; same range rules as reports (`to` stops at today, at most a year); needs `company.view`                                           |
+| Setup         | `GET /companies/{c}/setup` (the go-live steps, computed on the server; shown on the opening page, D43)                                                                                                                                                                                                                                                                           |
 | Field (D40)   | `GET /companies/{c}/field/day` (own day; `?staffId=` for the office), `POST …/field/visits`, `PUT/DELETE …/field/visits/{id}`, `POST …/field/shops`, `POST …/staff/{s}/login`                                                                                                                                                                                                    |
 | Payroll       | `payroll-runs` (create, review recovery, approve, pay)                                                                                                                                                                                                                                                                                                                           |
 | Import        | `POST /companies/{c}/imports` (upload + sheet), `GET …/imports/{id}` (mapping, preview, comparison), `POST …/imports/{id}/commit`                                                                                                                                                                                                                                                |
 | Admin         | `users`, `memberships`, `roles`, `audit`                                                                                                                                                                                                                                                                                                                                         |
+
+### 6.1 Navigation and dashboard (D44)
+
+The sidebar is nine hubs, each a row of tabs shown above the page (`apps/web/src/features/shell/navigation.ts`
+owns both the access rules per path and the hubs): ড্যাশবোর্ড, দৈনিক বিক্রয় হিসাব, মাল ও মজুদ, দোকান,
+টাকার লেনদেন, খাতা ও ব্যালান্স, মাস শেষে, প্রারম্ভিক তথ্য, সেটআপ (Alt+1…9). A hub shows when at least one of its
+tabs is open to the person; its link goes to the first such tab. There are no separate day, month, stock, money or
+staff report screens and no samari/firot screens: the dashboard shows every report for a period chosen at the top
+(today by default; this month, last month, an earlier month back to the opening cutoff, or a year; kept in
+`?period=`). It opens with the summary (the range summary above), today's work checklist (today only), then the
+reports by DSR, sales and profit; cash, stock, market due, company account, damage and staff balances open on demand
+and fetch only then. The month screen stays under মাস শেষে for closing and reopening and links to the dashboard
+for that month.
 
 ## 7. Opening balances
 
 Opening balances are entered once per company at go-live, on screen (D36: no Excel import or
 template). Validation:
 
-- negative stock is rejected
-- blank means unknown, not zero
+- negative stock is rejected, and so is stock with pieces but no unit cost
+- a blank counts as 0 in every calculation and shows its section as pending (D43); blanks never
+  block a save
 - an explicit zero is allowed
 
 Opening values become the engine's first `opening`. Stock is entered in cartons + pieces and
-stored as pieces; carton sizes come from `setup/cartons` (D37). The `setup` page shows nine steps (company, products and
-cartons, staff with monthly salary, opening stock, supplier opening, staff opening, shops and
-dues, business opening, activation), each computed on the server, ending with "আমরা শুরু করতে প্রস্তুত".
+stored as pieces; carton sizes come from `setup/cartons` (D37). The opening is **save = live** (D43): there is no approve or
+activate step. The `admin/opening` page shows the go-live date, what the opening needs first
+(products with carton sizes, staff with monthly salary, shops) and one card per section (stock,
+market due, shop due, staff, company, cash). A section saves on its own and takes effect at once;
+the go-live date makes the opening live. It stays editable until the company's first month is
+closed (then locked until the months are reopened), and the go-live date is fixed once any daily
+record exists. Opening prices are written as catalog prices at the go-live date on each stock save.
+The setup steps are computed on the server (`GET /setup`).
 
 ## 8. Excel month import (removed, D36)
 
@@ -318,18 +339,18 @@ the engine reproduces the workbook, §2.1) and the report export (CSV/XLSX).
 Each phase ends with working software, passing `pnpm check`, real-database integration tests from
 Phase B onward, and an updated `implementation-status.md`.
 
-| Phase                               | Deliverable                                                                                                                                                                                                                    | Exit check                                                                                     |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| **A. Month engine**                 | `computeMonth` in `packages/domain` (Decimal), golden fixtures, `pnpm verify:workbook`                                                                                                                                         | Aug 2026 100 % match; Sep 2026 100 % except §2.6 items                                         |
-| **B. Backend foundation**           | `packages/database` (Prisma, Neon dev + test branch or local Postgres), `packages/auth` (Better Auth, super-admin seed), `packages/application`, `/api/v1` skeleton, audit, idempotency, HTTP adapter behind the existing port | Login; companies and products CRUD through the real DB; isolation and idempotency tests pass   |
-| **C. Masters and configuration**    | Products with carton sizes and price history, suppliers, staff with roles and assignments, expense categories, cash accounts, roles and users screens                                                                          | Adding a second company with different products needs no code change (T62)                     |
-| **D. Opening balances**             | Opening screen with validation; activation                                                                                                                                                                                     | Activation is atomic and idempotent; the engine's first opening equals the entered values      |
-| **E. Daily entry**                  | Godown day (orders, receipts, prices), DSR day sheet (issue/return in cartons + pieces per DSR, damage, price splits, বাকি, credit), money entries (expenses, D:Comition, staff money, SR, banking), day view                  | Entering August's raw facts through the API reproduces August's closing and daily cash exactly |
-| **F. Month view, reports, closing** | Month page (workbook right side), all §6 reports with export, month close/reopen                                                                                                                                               | Month figures equal the engine; a closed month blocks backdating                               |
-| **G. Staff, SR, payroll, damage**   | Staff money accounts and statements (D27), SR accounts (D18), payroll with recovery (D24, D25), damage replacement legs (D17)                                                                                                  | T55–T58 and T25–T27 pass                                                                       |
-| **H. Excel import**                 | Removed 2026-10-09 (D36); only the reader behind `pnpm verify:workbook` remains                                                                                                                                                | —                                                                                              |
-| **Go-live readiness**               | Built 2026-10-09: carton setup + one-time carton load (D37), opening cartons + shop dues (D38), setup checklist, monthly salary, free goods (D16), cash handover (D39), `dsr-daily` report, print, DSR field panel (D40)       | Integration tests for each; browser walkthrough before go-live                                 |
-| **I. Go-live**                      | Production Neon + hosting, backups and a restore drill, security review, Bangla print checks, user training, Drinko opening on 1 November 2026                                                                                 | Opening approved by the owner; first live day balances                                         |
+| Phase                               | Deliverable                                                                                                                                                                                                                                              | Exit check                                                                                       |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| **A. Month engine**                 | `computeMonth` in `packages/domain` (Decimal), golden fixtures, `pnpm verify:workbook`                                                                                                                                                                   | Aug 2026 100 % match; Sep 2026 100 % except §2.6 items                                           |
+| **B. Backend foundation**           | `packages/database` (Prisma, Neon dev + test branch or local Postgres), `packages/auth` (Better Auth, super-admin seed), `packages/application`, `/api/v1` skeleton, audit, idempotency, HTTP adapter behind the existing port                           | Login; companies and products CRUD through the real DB; isolation and idempotency tests pass     |
+| **C. Masters and configuration**    | Products with carton sizes and price history, suppliers, staff with roles and assignments, expense categories, cash accounts, roles and users screens                                                                                                    | Adding a second company with different products needs no code change (T62)                       |
+| **D. Opening balances**             | Opening cards with per-section save; live on save (D43)                                                                                                                                                                                                  | Each section save is atomic and idempotent; the engine's first opening equals the entered values |
+| **E. Daily entry**                  | Godown day (orders, receipts, prices), DSR day sheet (issue/return in cartons + pieces per DSR, damage, price splits, বাকি, credit), money entries (expenses, D:Comition, staff money, SR, banking), day view                                            | Entering August's raw facts through the API reproduces August's closing and daily cash exactly   |
+| **F. Month view, reports, closing** | Month page (workbook right side), all §6 reports with export, month close/reopen                                                                                                                                                                         | Month figures equal the engine; a closed month blocks backdating                                 |
+| **G. Staff, SR, payroll, damage**   | Staff money accounts and statements (D27), SR accounts (D18), payroll with recovery (D24, D25), damage replacement legs (D17)                                                                                                                            | T55–T58 and T25–T27 pass                                                                         |
+| **H. Excel import**                 | Removed 2026-10-09 (D36); only the reader behind `pnpm verify:workbook` remains                                                                                                                                                                          | —                                                                                                |
+| **Go-live readiness**               | Built 2026-10-09: carton setup + one-time carton load (D37), opening cartons + shop dues (D38), setup steps (folded into the opening page, D43), monthly salary, free goods (D16), cash handover (D39), `dsr-daily` report, print, DSR field panel (D40) | Integration tests for each; browser walkthrough before go-live                                   |
+| **I. Go-live**                      | Production Neon + hosting, backups and a restore drill, security review, Bangla print checks, user training, Drinko opening on 1 November 2026                                                                                                           | Opening saved and checked by the owner; first live day balances                                  |
 
 The existing prototype screens (receipts, daily summaries, collections, stock, batches, suppliers,
 staff, dashboard) move onto the API in phases C–F. Two changes come with that move:

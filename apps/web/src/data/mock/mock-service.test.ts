@@ -154,7 +154,9 @@ describe("mock service", () => {
     await expect(s.getDayView("drinko", "2026-10-01")).rejects.toMatchObject({
       code: "MODULE_UNAVAILABLE",
     });
-    await expect(s.getDashboardSummary("drinko", "2026-10-01")).rejects.toMatchObject({
+    await expect(
+      s.getDashboardSummary("drinko", { from: "2026-10-01", to: "2026-10-01" }),
+    ).rejects.toMatchObject({
       code: "MODULE_UNAVAILABLE",
     });
   });

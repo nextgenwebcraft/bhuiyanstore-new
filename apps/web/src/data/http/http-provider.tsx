@@ -13,7 +13,7 @@ import { ServiceProvider } from "../service-context";
 import { createHttpService, type HttpDistributionService } from "./http-service";
 
 export const SIGN_IN_PATH = "/login";
-export const CHANGE_PASSWORD_PATH = "/change-password";
+const CHANGE_PASSWORD_PATH = "/change-password";
 
 type Session = { me: Me; service: HttpDistributionService };
 

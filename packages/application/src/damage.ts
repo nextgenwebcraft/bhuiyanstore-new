@@ -22,9 +22,9 @@ import { loadCompanyAccess, requirePermission, type CompanyAccess } from "./acce
 import { recordAudit } from "./audit";
 import { nextCaseNumber } from "./case-number";
 import type { AppContext, Tx } from "./context";
-import { invalid, postingGuard, requireAll, roleOn } from "./daily";
+import { postingGuard, requireAll, roleOn } from "./daily";
 import { fromDbDate, toDbDate } from "./dates";
-import { AppError, parseInput } from "./errors";
+import { AppError, invalid, parseInput } from "./errors";
 import { runIdempotent } from "./idempotency";
 import { plain } from "./numeric";
 import { packOn } from "./products";

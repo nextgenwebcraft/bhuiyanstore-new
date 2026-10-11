@@ -5,6 +5,7 @@ type Params = { params: Promise<{ companyId: string }> };
 
 export async function GET(request: Request, { params }: Params) {
   const { companyId } = await params;
-  const date = new URL(request.url).searchParams.get("date");
-  return handle(request, (ctx) => getDashboardSummary(ctx, companyId, date));
+  const search = new URL(request.url).searchParams;
+  const query = { from: search.get("from"), to: search.get("to") };
+  return handle(request, (ctx) => getDashboardSummary(ctx, companyId, query));
 }
