@@ -1,0 +1,19 @@
+id: 2026-10-11-dashboard-report-grouping
+reason: The owner found the dashboard tables repetitive (the same date and DSR name on every row, sales and profit by product in two tables, a decimal carton column next to the carton/piece quantity) and asked for merged tables with summary cards.
+owners: [web, application, i18n]
+changes:
+  - packages/application - month.ts range reports drop the decimal carton columns that repeat the carton/piece quantity beside them - personProducts.cartons, salesByProduct.salesCartons, stock.closingCartons (the cartons report keeps its carton counts); CSV/XLSX exports lose the same columns
+  - apps/web - report-view.tsx - ReportTableView writes leading date/staff values once per run with a stronger border between groups; a one-row all-numeric table (company account summary) shows as summary cards; `summary` prop to turn the cards off
+  - apps/web - report-view.tsx - DsrDays merges dsrDaily and dsrDailyProducts into one folding block per DSR and day (sales, expected cash, handed over, difference in the header; dues, costs and product lines inside), dates as group headings, cards for DSR count, days and stock mismatches; PersonSales gets a DSR count card; shared Fold/useFolds
+  - apps/web - report-view.tsx - SalesProfitBody joins salesByProduct and profitByProduct into one product table (cost and profit columns only with the profit report), then the profit statement, then sales by day only for a range longer than one day; ReportBody takes `hide` for tables another report on the screen already shows
+  - apps/web - dashboard-page.tsx - the sales and profit section uses SalesProfitBody with export buttons for each report; the company section hides company-due's payable table when the company account summary is shown (same figures)
+  - apps/web - useReport takes `enabled` so the profit report is not fetched without its permission
+  - packages/i18n - salesProfitByProduct, dsrDays and report summary card labels
+affectedActionIds: [report.view, report.export, report.profit_view, inventory.cost_view]
+financialImpact: none; no figure is calculated in the UI, every value and total is still an engine field (cards count rows only)
+backfill: none
+tests:
+  - typecheck (web, application), eslint on the changed files, all Vitest unit tests
+  - not covered by automated tests - the grouped views; checked only that the dashboard compiles and its report requests succeed
+rollout: deploy the app (no migration)
+recovery: revert the commit

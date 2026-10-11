@@ -90,12 +90,12 @@ export function periodMonth(period: Period, today: string): string | null {
 }
 
 /**
- * Months for the "earlier month" list: from the opening cutoff month (January of this year when
+ * Months for the "earlier month" list: from January of the opening cutoff year (this year when
  * there is none) up to the month before last, newest first.
  */
 export function earlierMonths(cutoffDate: string | null, today: string): string[] {
   const newest = shiftMonth(monthOf(today), -2);
-  const oldest = cutoffDate ? monthOf(cutoffDate) : `${today.slice(0, 4)}-01`;
+  const oldest = `${(cutoffDate ?? today).slice(0, 4)}-01`;
   const months: string[] = [];
   for (let month = newest; month >= oldest; month = shiftMonth(month, -1)) months.push(month);
   return months;

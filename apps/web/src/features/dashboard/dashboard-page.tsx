@@ -26,7 +26,7 @@ import { useDashboardSummary } from "@/data/queries";
 import { SetupBanner, useSetupNext } from "@/features/administration/setup-next";
 import { DayGate } from "@/features/daily/daily-kit";
 import { money } from "@/components/data-table";
-import { ReportBody } from "@/features/reports/report-view";
+import { ReportBody, SalesProfitBody } from "@/features/reports/report-view";
 import {
   companyHref,
   findNavEntry,
@@ -67,23 +67,27 @@ function PeriodSelect({
   value,
   options,
   onPick,
+  showNewest = false,
 }: {
   label: string;
   active: boolean;
   value: string;
   options: { value: string; label: string }[];
   onPick: (value: string) => void;
+  /** Show the first (newest) option instead of the label while inactive. */
+  showNewest?: boolean;
 }) {
-  if (options.length === 0) return null;
   return (
     <select
       aria-label={label}
+      disabled={options.length === 0}
       value={active ? value : ""}
       onChange={(event) => event.target.value && onPick(event.target.value)}
-      className={`${pillClass(active)} cursor-pointer`}
+      className={`${pillClass(active)} cursor-pointer disabled:cursor-not-allowed disabled:opacity-60`}
     >
-      <option value="" disabled>
-        {label}
+      {/* Hidden rather than a real option so picking the newest still fires a change. */}
+      <option value="" disabled hidden={showNewest}>
+        {showNewest ? (options[0]?.label ?? label) : label}
       </option>
       {options.map((option) => (
         <option key={option.value} value={option.value}>
@@ -147,6 +151,7 @@ function PeriodBar({
           label: toBengaliDigits(year),
         }))}
         onPick={(year) => onChange({ kind: "year", year })}
+        showNewest
       />
     </div>
   );
@@ -459,6 +464,34 @@ function ReportSections({ range }: { range: ReportRange }) {
       {REPORT_SECTIONS.map((spec) => {
         const reports = spec.reports.filter(allowed);
         if (reports.length === 0) return null;
+        if (spec.id === "salesProfit" && reports.includes("sales")) {
+          return (
+            <Section
+              key={spec.id}
+              title={t(spec.titleKey)}
+              collapsible
+              defaultOpen={spec.defaultOpen}
+            >
+              {canExport ? (
+                <div className="flex flex-wrap items-center justify-end gap-x-6 gap-y-2">
+                  {reports.map((id) => (
+                    <div key={id} className="flex items-center gap-2">
+                      <span className="text-xs text-text-muted">
+                        {t(`report.name.${id}` as TranslationKey)}
+                      </span>
+                      <ExportButtons companyId={company.id} report={id} range={range} />
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              <SalesProfitBody
+                companyId={company.id}
+                range={range}
+                withProfit={reports.includes("profit")}
+              />
+            </Section>
+          );
+        }
         return (
           <Section
             key={spec.id}
@@ -480,7 +513,16 @@ function ReportSections({ range }: { range: ReportRange }) {
                     <ExportButtons companyId={company.id} report={id} range={range} />
                   ) : null}
                 </div>
-                <ReportBody companyId={company.id} report={id} range={range} />
+                <ReportBody
+                  companyId={company.id}
+                  report={id}
+                  range={range}
+                  hide={
+                    id === "company-due" && reports.includes("company-account")
+                      ? ["companyPayable"]
+                      : []
+                  }
+                />
               </div>
             ))}
           </Section>
