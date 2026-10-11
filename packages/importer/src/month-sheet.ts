@@ -308,6 +308,13 @@ export function readMonthSheet(
   };
 
   const days: (DayInput & { money: MoneyEntryInput[] })[] = [];
+  /**
+   * D46: the engine floors goods due at 0 (an excess receipt offsets no later order), but Excel's
+   * running due goes negative. From the first day Excel's due for a product is negative (or its
+   * opening is) to the end of the month the engine's due legitimately differs, so those goods-due
+   * comparisons (day cells and the closing check) are left out. Everything else is compared.
+   */
+  const dueNegative = new Set<string>();
   blocks.slice(0, daysInMonth).forEach((block, index) => {
     const date = `${month}-${String(index + 1).padStart(2, "0")}`;
     const where = (label: string) => `${sheetName} day ${index + 1} ${label}`;
@@ -365,7 +372,17 @@ export function readMonthSheet(
       expect("Firot", "firot", (o) => dayOf(o)?.returned);
       expect("Sales amount", "salesTotal", (o) => dayOf(o)?.sales);
       expect("Gross profit", "profit", (o) => dayOf(o)?.grossProfit);
-      expect("Goods due from company", "balance", (o) => dayOf(o)?.dueFromCompany);
+      if (index === 0 && firstBlock) {
+        const openingDue = openingFrom(p.row, firstBlock.cols.balance);
+        if (openingDue?.isNegative() && !openingDue.isZero()) dueNegative.add(p.id);
+      }
+      if (cols.balance !== undefined) {
+        const savedDue = savedNumber(cellAt(ws, p.row, cols.balance));
+        if (savedDue?.isNegative() && !savedDue.isZero()) dueNegative.add(p.id);
+      }
+      if (!dueNegative.has(p.id)) {
+        expect("Goods due from company", "balance", (o) => dayOf(o)?.dueFromCompany);
+      }
       expect("Stock pieces", "stock", (o) => dayOf(o)?.stock);
       expect("Stock value", "stockAmount", (o) => dayOf(o)?.stockValue);
 
@@ -506,6 +523,7 @@ export function readMonthSheet(
       ["Closing stock", "stock", "closingStock"],
       ["Closing goods due from company", "balance", "dueFromCompany"],
     ] as const) {
+      if (key === "dueFromCompany" && dueNegative.has(p.id)) continue; // D46
       const col = last?.cols[field];
       const saved = col === undefined ? null : savedNumber(cellAt(ws, p.row, col));
       if (saved)

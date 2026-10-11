@@ -206,7 +206,7 @@ export const bn = {
   "validation.membership.roleRequired": "প্রতিটি নির্বাচিত কোম্পানিতে অন্তত একটি ভূমিকা দিন",
   "validation.cashAccount.unknown": "নগদ/ব্যাংক হিসাবটি পাওয়া যায়নি",
   "validation.opening.pieces": "০ বা তার বেশি পূর্ণসংখ্যা লিখুন",
-  "validation.opening.due": "পূর্ণসংখ্যা লিখুন (বেশি পণ্য পেলে ঋণাত্মক)",
+  "validation.opening.due": "০ বা তার বেশি পূর্ণসংখ্যা লিখুন",
   "validation.opening.amount": "সঠিক টাকার পরিমাণ লিখুন (দশমিকের পর সর্বোচ্চ ২ ঘর)",
   "validation.opening.stale": "এর মধ্যে অন্য কেউ এটি বদলেছেন। পাতা আবার লোড করে আবার চেষ্টা করুন।",
   "validation.opening.locked": "প্রথম মাস বন্ধ হয়ে গেছে, তাই প্রারম্ভিক তথ্য আর বদলানো যাবে না",

@@ -483,3 +483,47 @@ describe("shop commission on DSR lines (D41)", () => {
     ).toThrow(/commission must not be negative/);
   });
 });
+
+describe("computeMonth goods due floors at 0 (D46)", () => {
+  const run = (opening: string, days: MonthInput["days"]) =>
+    computeMonth({
+      products: [{ id: "A", piecesPerCarton: "24" }],
+      opening: {
+        products: { A: { stock: "0", dueFromCompany: opening, orderPrice: "10", costPrice: "9" } },
+        companyPayable: "0",
+      },
+      days,
+    });
+
+  it("leaves a normal partial receipt unchanged", () => {
+    const out = run("0", [
+      { date: "2026-11-01", products: { A: { ordered: "48", received: "20" } } },
+    ]);
+    expect(out.days[0]?.products[0]?.dueFromCompany).toBe("28");
+    expect(out.closing.products.A?.dueFromCompany).toBe("28");
+  });
+
+  it("floors an excess receipt at 0 and still bills every received piece", () => {
+    const out = run("10", [{ date: "2026-11-01", products: { A: { received: "30" } } }]);
+    expect(out.days[0]?.products[0]?.dueFromCompany).toBe("0");
+    expect(out.closing.products.A?.dueFromCompany).toBe("0");
+    expect(out.month.totals.receiptTotal).toBe("300");
+    expect(out.month.companyPayable.receipts).toBe("300");
+    expect(out.month.companyPayable.closing).toBe("300");
+  });
+
+  it("does not let an excess receipt offset a later order", () => {
+    const out = run("0", [
+      { date: "2026-11-01", products: { A: { received: "20" } } },
+      { date: "2026-11-02", products: { A: { ordered: "24" } } },
+    ]);
+    expect(out.days[0]?.products[0]?.dueFromCompany).toBe("0");
+    expect(out.days[1]?.products[0]?.dueFromCompany).toBe("24");
+    expect(out.closing.products.A?.dueFromCompany).toBe("24");
+  });
+
+  it("treats a negative opening due as 0", () => {
+    const out = run("-5", [{ date: "2026-11-01", products: { A: { ordered: "6" } } }]);
+    expect(out.closing.products.A?.dueFromCompany).toBe("6");
+  });
+});

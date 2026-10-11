@@ -260,7 +260,8 @@ export function buildSeedPlan(read: SheetReadResult, options: SeedPlanOptions): 
       note = SAMPLE_NOTE;
       costFallbacks += 1;
     }
-    const due = dec(c?.dueFromCompany).toDecimalPlaces(0);
+    // D46: goods due is never negative (the excess receipt is already in the company payable).
+    const due = Decimal.max(0, dec(c?.dueFromCompany).toDecimalPlaces(0));
     stock.push({
       productKey: product.key,
       pieces: pieces(pcs),

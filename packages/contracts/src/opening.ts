@@ -77,10 +77,7 @@ export const openingStockLineSchema = z.object({
   unitCost: unitPriceSchema.nullable(),
   salePrice: unitPriceSchema.nullable(),
   orderPrice: unitPriceSchema.nullable(),
-  dueFromCompany: z
-    .string()
-    .regex(/^(0|-?[1-9]\d*)$/, { message: "validation.opening.due" })
-    .nullable(),
+  dueFromCompany: wholeNumberStringSchema("validation.opening.due").nullable(),
   note: z.string(),
 });
 

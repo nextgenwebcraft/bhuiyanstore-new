@@ -160,7 +160,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
     const o = input.opening.products[p.id];
     products.set(p.id, {
       stock: dec(o?.stock),
-      dueFromCompany: dec(o?.dueFromCompany),
+      dueFromCompany: Decimal.max(ZERO, dec(o?.dueFromCompany)), // D46: never negative
       prices: {
         orderPrice: o?.orderPrice === undefined ? null : toDecimal(o.orderPrice),
         costPrice: o?.costPrice === undefined ? null : toDecimal(o.costPrice),
@@ -403,7 +403,8 @@ export function computeMonth(input: MonthInput): MonthOutput {
         .sub(commission);
       const cost = sold.mul(costPrice);
       const grossProfit = sales.sub(cost);
-      state.dueFromCompany = state.dueFromCompany.add(ordered).sub(received);
+      // D46: goods due is never negative; an excess receipt (billed in money) offsets no later order.
+      state.dueFromCompany = Decimal.max(ZERO, state.dueFromCompany.add(ordered).sub(received));
       state.stock = state.stock
         .add(received)
         .add(replacementReceived)

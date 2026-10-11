@@ -4,6 +4,7 @@ owners: [domain, contracts, application, i18n, importer, web]
 changes:
   - packages/domain - dates.ts is the single owner of monthOf, firstOfMonth, lastOfMonth, shiftMonth, daysBetween, datesBetween, clampDate and todayBusinessDate (uses ENTITY_TIMEZONE); owedBuckets exported once and used by compute-month and RECOVERY_ORDER
   - packages/contracts - reportPermissions and canViewReport next to reportIds; primitives.ts owns the amount and whole-number patterns with message-keyed schema factories (amountSchema, wholePiecesSchema moved there, same message keys); unused nonNegativeIntegerStringSchema removed
+  - packages/contracts (fix) - amountPattern and wholeNumberPattern had lost their backslashes in the refactor (/^d+(.d{1,2})?$/); restored (escaped d and dot), with new primitives.test.ts covering amountSchema, positiveAmountStringSchema and wholePiecesSchema
   - packages/application - report-range.ts owns parseReportRange and MAX_REPORT_DAYS; namesFor moved to ledger.ts (breaks the daily <-> month cycle); invalid() lives in errors.ts; ledger month/day helpers and todayInDhaka removed (dates.ts keeps toDbDate/fromDbDate); getReport uses canViewReport; kinds.test.ts asserts contracts owed keys equal domain owedBuckets
   - packages/i18n - formatCount, formatMoney, formatDateTime added (no callers yet)
   - packages/importer - tmp-sep31.ts removed

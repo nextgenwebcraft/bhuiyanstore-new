@@ -23,10 +23,10 @@ export const positiveIntegerStringSchema = z
   .regex(/^[1-9]\d*$/, { message: "validation.positiveInteger.invalid" });
 
 /** Taka with at most 2 decimals, no sign: the one amount pattern. */
-export const amountPattern = /^d+(.d{1,2})?$/;
+export const amountPattern = /^\d+(\.\d{1,2})?$/;
 
 /** A whole number ≥ 0 without leading zeros: the one whole-number pattern. */
-export const wholeNumberPattern = /^(0|[1-9]d*)$/;
+export const wholeNumberPattern = /^(0|[1-9]\d*)$/;
 
 /** Taka ≥ 0 with at most 2 decimals; `message` is the i18n key shown on failure. */
 export const amountStringSchema = (message: string) => z.string().regex(amountPattern, { message });

@@ -90,3 +90,9 @@ describe("buildSeedPlan (synthetic workbook)", () => {
     expect(text).not.toContain("Alpha");
   });
 });
+
+describe("opening goods due (D46)", () => {
+  it("is never negative", () => {
+    expect(plan.opening.stock.every((l) => /^(0|[1-9]\d*)$/.test(l.dueFromCompany))).toBe(true);
+  });
+});
