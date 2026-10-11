@@ -82,10 +82,22 @@ describe("dashboard period", () => {
     expect(periodForMonth("2026-04", today)).toEqual({ kind: "month", month: "2026-04" });
   });
 
-  it("lists earlier months from the cutoff month to the month before last, newest first", () => {
-    expect(earlierMonths("2026-06-15", today)).toEqual(["2026-08", "2026-07", "2026-06"]);
-    expect(earlierMonths("2026-09-01", today)).toEqual([]);
-    expect(earlierMonths("2025-11-01", "2026-02-10")).toEqual(["2025-12", "2025-11"]);
+  it("lists earlier months from January of the cutoff year to the month before last", () => {
+    expect(earlierMonths("2026-09-01", today)).toEqual(earlierMonths(null, today));
+    expect(earlierMonths("2025-11-01", "2026-02-10")).toEqual([
+      "2025-12",
+      "2025-11",
+      "2025-10",
+      "2025-09",
+      "2025-08",
+      "2025-07",
+      "2025-06",
+      "2025-05",
+      "2025-04",
+      "2025-03",
+      "2025-02",
+      "2025-01",
+    ]);
   });
 
   it("falls back to January of this year without a cutoff", () => {

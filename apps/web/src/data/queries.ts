@@ -289,13 +289,13 @@ export function useMonthCommand(companyId: string) {
   );
 }
 
-export function useReport(companyId: string, report: ReportId, range: ReportRange) {
+export function useReport(companyId: string, report: ReportId, range: ReportRange, enabled = true) {
   const service = useService();
   const actorId = useActorId();
   return useQuery({
     queryKey: queryKeys.report(actorId, companyId, report, range.from, range.to),
     queryFn: ({ signal }) => service.getReport(companyId, report, range, { signal }),
-    enabled: range.from <= range.to,
+    enabled: enabled && range.from <= range.to,
   });
 }
 

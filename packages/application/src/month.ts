@@ -388,7 +388,6 @@ function buildTables(
     case "stock": {
       const fields = [
         "closingStock",
-        "closingCartons",
         "closingValue",
         "closingAtSale",
         "dueFromCompany",
@@ -400,7 +399,6 @@ function buildTables(
           [
             product,
             col("closingStock", "quantity"),
-            col("closingCartons", "cartons"),
             col("closingValue", "money", "cost"),
             col("closingAtSale", "money"),
             col("dueFromCompany", "quantity"),
@@ -420,7 +418,6 @@ function buildTables(
         "commissionTotal",
         "salesTotal",
         "returnValue",
-        "salesCartons",
       ];
       return [
         table(
@@ -430,7 +427,6 @@ function buildTables(
             col("delivered", "quantity"),
             col("damaged", "quantity"),
             col("sold", "quantity"),
-            col("salesCartons", "cartons"),
             col("commissionTotal", "money"),
             col("salesTotal", "money"),
             col("returnValue", "money"),
@@ -681,13 +677,7 @@ function buildTables(
         ),
         table(
           "personProducts",
-          [
-            col("staff", "text"),
-            product,
-            col("net", "quantity"),
-            col("cartons", "cartons"),
-            col("amount", "money"),
-          ],
+          [col("staff", "text"), product, col("net", "quantity"), col("amount", "money")],
           m.persons.flatMap((p) =>
             p.products.map((row) => ({
               piecesPerCarton: sizes.get(row.productId)?.piecesPerCarton ?? "1",
@@ -695,7 +685,6 @@ function buildTables(
                 staff: staffName(p.staffId),
                 product: sizes.get(row.productId)?.name ?? "",
                 net: row.net,
-                cartons: row.cartons,
                 amount: row.amount,
               },
             })),
