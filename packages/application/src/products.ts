@@ -345,8 +345,8 @@ export async function setProductPrice(
       const price = toPrice(
         await tx.priceChange.upsert({
           where: key,
-          create: { ...key.productId_kind_effectiveFrom, price: data.price },
-          update: { price: data.price },
+          create: { ...key.productId_kind_effectiveFrom, price: data.price, source: "manual" },
+          update: { price: data.price, source: "manual" },
         }),
       );
       await recordAudit(tx, ctx, {

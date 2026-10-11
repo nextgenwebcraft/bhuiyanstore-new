@@ -356,6 +356,55 @@ describe("Phase D: opening balances (save = live, D43)", () => {
     ]);
   });
 
+  it("keeps a daily price on the cutoff date over the opening price, even after a re-save", async () => {
+    const ctx = contextFor(db, admin);
+    const theme = { primary: "#0F766E", primaryForeground: "#FFFFFF" };
+    const company = (await createCompany(ctx, { name: "Wafer", theme, modules: ["sales"] })).company
+      .id;
+    const make = async (sku: string) =>
+      (
+        await createProduct(ctx, company, {
+          sku,
+          name: sku,
+          aliases: [],
+          baseUnit: "piece",
+          piecesPerCarton: "1",
+          status: "active",
+        })
+      ).id;
+    const withDay = await make("W1");
+    const withoutDay = await make("W2");
+    const rows = async (productId: string) =>
+      (
+        await db.priceChange.findMany({
+          where: { productId, effectiveFrom: new Date("2026-10-01T00:00:00Z") },
+          orderBy: { kind: "asc" },
+        })
+      ).map((p) => [p.kind, p.price.toFixed(), p.source]);
+    let view = await getOpening(ctx, company);
+    view = await saveOpeningCutoff(ctx, company, {
+      version: view.version,
+      cutoffDate: "2026-10-01",
+    });
+    const stock = (orderPrice: string) =>
+      stockLines(view).map((l) => ({ ...l, pieces: "5", unitCost: "4", orderPrice }));
+    view = await saveStock(ctx, company, view, stock("5"));
+    await postStockEntries(ctx, company, {
+      date: "2026-10-01",
+      lines: [{ kind: "receipt", productId: withDay, pieces: "1" }],
+      prices: [{ productId: withDay, kind: "order", price: "7.5" }],
+    });
+    view = await saveStock(ctx, company, view, stock("6"));
+    expect(await rows(withDay)).toEqual([
+      ["cost", "4", "opening"],
+      ["order", "7.5", "manual"],
+    ]);
+    expect(await rows(withoutDay)).toEqual([
+      ["cost", "4", "opening"],
+      ["order", "6", "opening"],
+    ]);
+  });
+
   it("opens a cash account in one company only, checked when the cash section is saved", async () => {
     const ctx = contextFor(db, admin);
     let view = await getOpening(ctx, snacks);

@@ -212,8 +212,8 @@ export async function postStockEntries(
         if (existing) before[`${price.productId}|${price.kind}`] = plain(existing.price);
         await tx.priceChange.upsert({
           where: { productId_kind_effectiveFrom: key },
-          create: { ...key, price: price.price },
-          update: { price: price.price },
+          create: { ...key, price: price.price, source: "manual" },
+          update: { price: price.price, source: "manual" },
         });
       }
       await recordAudit(tx, ctx, {
