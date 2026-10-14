@@ -16,6 +16,7 @@ import { StatTile } from "@/components/stat-tile";
 import { StatePanel } from "@/components/state-panel";
 import { describeError } from "@/data/ports/service-error";
 import { usePostMoneyEntry, useReport } from "@/data/queries";
+import { AccountSelect } from "@/features/daily/account-select";
 import { clean } from "@/features/daily/daily-kit";
 import { money } from "@/components/data-table";
 import { ReportTableView } from "@/features/reports/report-view";
@@ -51,6 +52,7 @@ function EntryDialog({
   const post = usePostMoneyEntry(companyId);
   const [date, setDate] = useState(today);
   const [amount, setAmount] = useState("");
+  const [accountId, setAccountId] = useState("");
   const [error, setError] = useState<string | undefined>();
 
   function close() {
@@ -75,6 +77,8 @@ function EntryDialog({
         staffId: null,
         expenseCategoryId: null,
         allocation: null,
+        // D52: a deposit leaves an account; the company's money incentive touches none.
+        cashAccountId: kind === "supplierDeposit" && accountId ? accountId : null,
       });
       close();
     } catch (e) {
@@ -107,6 +111,9 @@ function EntryDialog({
           className={inputClass}
         />
       </Field>
+      {kind === "supplierDeposit" ? (
+        <AccountSelect id={`${id}-account`} value={accountId} onChange={setAccountId} />
+      ) : null}
     </FormDialog>
   );
 }

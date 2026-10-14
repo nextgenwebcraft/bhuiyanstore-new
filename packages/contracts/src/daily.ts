@@ -106,7 +106,10 @@ export const dsrDaySaveRequestSchema = z.object({
    */
   marketDueNew: amountSchema.optional(),
   marketDueCollected: amountSchema.optional(),
-  /** Cash the DSR handed over at day end (D39; display only, no ledger effect). */
+  /**
+   * Cash the DSR handed over at day end (D39). Posting the sheet settles the difference to what
+   * was expected as a staff shortage or excess (D54).
+   */
   cashHandedOver: amountSchema.nullable().optional(),
   lines: z.array(dsrLineRequestSchema).max(500),
 });
@@ -168,6 +171,7 @@ export const moneyEntryKinds = [
   "srOffset",
   "supplierDeposit",
   "companyIncentive",
+  "cashTransfer",
 ] as const;
 
 export type MoneyEntryKind = (typeof moneyEntryKinds)[number];
@@ -227,7 +231,31 @@ export const moneyKindPermission: Record<MoneyEntryKind, PermissionId> = {
   srOffset: "sr_payable.settle",
   supplierDeposit: "payment.post",
   companyIncentive: "payment.post",
+  cashTransfer: "payment.post",
 };
+
+/**
+ * Kinds that name a cash or bank account on entry (D52): every kind that moves cash, a supplier
+ * deposit and a transfer. Asserted equal to the engine's list in `application/src/kinds.test.ts`.
+ */
+export const moneyAccountKinds: readonly MoneyEntryKind[] = [
+  "marketDueNew",
+  "marketDueCollected",
+  "srIncentive",
+  "expense",
+  "staffAdvance",
+  "staffLoan",
+  "staffShortage",
+  "staffRepayment",
+  "staffExcess",
+  "staffCreditPaid",
+  "salaryPaid",
+  "srLoan",
+  "srRepayment",
+  "srPayment",
+  "supplierDeposit",
+  "cashTransfer",
+];
 
 /** Kinds that need an expense category. */
 export const moneyCategoryKinds: readonly MoneyEntryKind[] = ["expense", "staffCostPaid"];
@@ -250,18 +278,86 @@ export const owedAllocationSchema = z.object({
 
 export type OwedAllocation = z.infer<typeof owedAllocationSchema>;
 
-export const moneyEntryPostRequestSchema = z.object({
-  date: businessDateSchema,
-  kind: z.enum(moneyEntryKinds),
-  amount: positiveAmountSchema,
-  staffId: idSchema.nullable().default(null),
-  /** Required for market due kinds (D35): the shop the due is given to or collected from. */
-  shopId: idSchema.nullable().default(null),
-  expenseCategoryId: idSchema.nullable().default(null),
-  allocation: owedAllocationSchema.nullable().default(null),
-  /** Required for SR loans and repayments (D42); null for every other kind. */
-  srLoanType: z.enum(srLoanTypes).nullable().default(null),
-});
+/** D50: kinds that may create their shop in the same request (the market due kinds). */
+export const newShopKinds: readonly MoneyEntryKind[] = ["marketDueNew", "marketDueCollected"];
+
+export const newShopSchema = z.object({ name: z.string().trim().min(1).max(120) });
+
+export const moneyEntryPostRequestSchema = z
+  .object({
+    date: businessDateSchema,
+    kind: z.enum(moneyEntryKinds),
+    amount: positiveAmountSchema,
+    staffId: idSchema.nullable().default(null),
+    /** Required for market due kinds (D35): the shop the due is given to or collected from. */
+    shopId: idSchema.nullable().default(null),
+    expenseCategoryId: idSchema.nullable().default(null),
+    allocation: owedAllocationSchema.nullable().default(null),
+    /** Required for SR loans and repayments (D42); null for every other kind. */
+    srLoanType: z.enum(srLoanTypes).nullable().default(null),
+    /**
+     * D50: a shop typed on the due page that is not in the list. Created (or, when the exact
+     * name exists, reused) in the same atomic request; mutually exclusive with `shopId`.
+     */
+    newShop: newShopSchema.nullable().default(null),
+    /**
+     * D52: the account the money moves, only for `moneyAccountKinds`. Omitted = the company's
+     * default account (the first bank account for a supplier deposit, if any). A transfer names
+     * both accounts.
+     */
+    cashAccountId: idSchema.nullable().default(null),
+    /** The receiving account of a `cashTransfer`. */
+    toCashAccountId: idSchema.nullable().default(null),
+  })
+  .superRefine((value, ctx) => {
+    if (value.newShop !== null) {
+      if (value.shopId !== null) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["newShop"],
+          message: "validation.shop.newShopExclusive",
+        });
+      } else if (!newShopKinds.includes(value.kind)) {
+        ctx.addIssue({ code: "custom", path: ["newShop"], message: "validation.shop.notForKind" });
+      }
+    }
+    const transfer = value.kind === "cashTransfer";
+    if (value.cashAccountId !== null && !moneyAccountKinds.includes(value.kind)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["cashAccountId"],
+        message: "validation.money.noAccountForKind",
+      });
+    }
+    if (transfer) {
+      if (value.cashAccountId === null) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["cashAccountId"],
+          message: "validation.money.accountRequired",
+        });
+      }
+      if (value.toCashAccountId === null) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["toCashAccountId"],
+          message: "validation.money.accountRequired",
+        });
+      } else if (value.toCashAccountId === value.cashAccountId) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["toCashAccountId"],
+          message: "validation.money.sameAccount",
+        });
+      }
+    } else if (value.toCashAccountId !== null) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["toCashAccountId"],
+        message: "validation.money.noAccountForKind",
+      });
+    }
+  });
 
 export type MoneyEntryPostRequest = z.input<typeof moneyEntryPostRequestSchema>;
 
@@ -278,8 +374,16 @@ export const moneyEntrySchema = z.object({
   categoryName: z.string().nullable(),
   allocation: owedAllocationSchema.nullable(),
   srLoanType: z.enum(srLoanTypes).nullable(),
+  /** D52: the account the entry moved (null = the default account, resolved when read). */
+  cashAccountId: idSchema.nullable(),
+  cashAccountName: z.string().nullable(),
+  /** The receiving account of a transfer. */
+  toCashAccountId: idSchema.nullable(),
+  toCashAccountName: z.string().nullable(),
   /** Set when a payroll run posted the entry; it is then reversed only with the run. */
   payrollRunId: idSchema.nullable(),
+  /** Set when a posted DSR day created the entry (field visits, D40; handover difference, D54). */
+  dsrDayId: idSchema.nullable(),
   status: z.enum(documentStatuses),
   createdAt: z.string(),
   reversedAt: z.string().nullable(),
@@ -292,6 +396,33 @@ export type MoneyEntry = z.infer<typeof moneyEntrySchema>;
 const money = decimalStringSchema;
 /** Cost-based values are null without `inventory.cost_view` (profit also needs `report.profit_view`). */
 const costMoney = decimalStringSchema.nullable();
+
+/**
+ * One FIFO batch of a product (D49): pieces received at one cost and sale price, oldest first.
+ * `costPrice` and `value` are null without `inventory.cost_view`; a zero cost is a free batch
+ * (free goods, company replacement). `startDate` is a business date, or `opening` for stock
+ * counted at the opening without a known date.
+ */
+export const batchRowSchema = z.object({
+  seq: z.number().int().positive(),
+  startDate: z.string(),
+  costPrice: costMoney,
+  salePrice: money,
+  quantity: money,
+  value: costMoney,
+});
+
+export type BatchRow = z.infer<typeof batchRowSchema>;
+
+/** The pieces of one DSR line taken from one batch, in FIFO order (D49); read-only. */
+export const lineAllocationSchema = z.object({
+  seq: z.number().int().positive(),
+  quantity: money,
+  costPrice: costMoney,
+  salePrice: money,
+});
+
+export type LineAllocation = z.infer<typeof lineAllocationSchema>;
 
 export const dayProductRowSchema = z.object({
   productId: idSchema,
@@ -323,13 +454,20 @@ export const dayProductRowSchema = z.object({
   receiptValue: money,
   receiptSale: money,
   damageValue: costMoney,
-  /** Damage refunds + replacement goods at unit cost (D47): net profit income. */
+  /** Damage refunds + replacement goods at unit cost (D47 memo; not profit). */
   damageRecovery: costMoney,
+  /** Pieces found damaged in the godown (D53); stock and cost fall, sales do not. */
+  godownDamaged: money,
+  /** Damaged goods stock in the godown and damaged pieces at the company (D53). */
+  damagedStock: money,
+  damageAtCompany: money,
   dueFromCompany: money,
   /** Billed value of the goods not yet received (D48). */
   dueFromCompanyValue: money,
   stock: money,
   stockValue: costMoney,
+  /** The batches left at the end of the day, oldest first; the newest may be 0 (D49). */
+  batches: z.array(batchRowSchema),
 });
 
 export type DayProductRow = z.infer<typeof dayProductRowSchema>;
@@ -344,6 +482,8 @@ export const dayPersonRowSchema = z.object({
   damaged: money,
   commission: money,
   amount: money,
+  /** FIFO allocation of the net pieces over the product's batches (D49). */
+  allocations: z.array(lineAllocationSchema),
 });
 
 export const dayMoneySchema = z.object({

@@ -166,6 +166,16 @@ export function createMockService(
       return product;
     },
 
+    async deleteProduct(companyId, productId) {
+      await delay(latencyMs);
+      requirePermission(companyId, "product.edit");
+      const index = state.products.findIndex(
+        (p) => p.id === productId && p.companyId === companyId,
+      );
+      if (index === -1) throw new ServiceError("VALIDATION_FAILED");
+      state.products.splice(index, 1);
+    },
+
     async updateProduct(companyId, productId, input, options) {
       await delay(latencyMs, options?.signal);
       requirePermission(companyId, "product.edit");
@@ -274,6 +284,7 @@ export function createMockService(
     listAllStaff: demoReadOnly,
     createStaff: demoReadOnly,
     updateStaff: demoReadOnly,
+    deleteStaff: demoReadOnly,
     addStaffAssignment: demoReadOnly,
     updateStaffAssignment: demoReadOnly,
     async listShops(companyId, options) {
@@ -283,6 +294,7 @@ export function createMockService(
     },
     createShop: demoReadOnly,
     updateShop: demoReadOnly,
+    deleteShop: demoReadOnly,
     getShopStatement: demoReadOnly,
 
     async listConfig(list, options) {

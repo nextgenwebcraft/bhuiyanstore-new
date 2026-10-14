@@ -1,0 +1,20 @@
+id: 2026-10-14-fifo-batches
+reason: Owner decision D49 (2026-10-14) - product batches with FIFO. A receipt at a different cost or sale price becomes a new batch; older batches keep their prices and are sold first; free goods and company replacements are zero-cost batches. Amends D22, D29, D32.
+owners: [domain, contracts, application, importer, i18n, web, docs]
+changes:
+  - packages/domain - new month/batches.ts (pure FIFO helpers); compute-month.ts keeps per-product batch layers instead of one stock figure (inflows first: receipt/new batch/merge/deficit fill, no-receipt price change re-prices the newest batch, free goods and replacements zero-cost; DSR line allocation with sold = first pieces, damaged = last, price splits against batch prices, line cost per batch; replacedFromStock and godownDamaged FIFO; stock, stockValue, closing value and damageValue from batches); types.ts adds BatchInput, BatchResult, LineAllocationResult, BatchCarry, OpeningProduct.batches, ProductDayResult.batches, PersonDayResult.allocations, ProductMonthResult.closingBatches, closing batches; opening.ts toMonthOpening makes one opening batch per stock line; batches.test.ts and opening.test.ts added, one golden closing expectation changed by hand (closing now carries its batch)
+  - packages/contracts - batchRowSchema, lineAllocationSchema, batches on the day product row, allocations on the day person row, closingBatches on the month product row
+  - packages/application - ledger.ts a price effective on a day inside the range is that day's input (strictly earlier = opening), upgradeClosing gives snapshots without batches one batch; daily.ts and month.ts carry batches/allocations and redact costs without inventory.cost_view; stock report gains the stockBatches table; new phase-k.integration.ts
+  - packages/importer - month-sheet.ts labels money differences caused by batch pricing as intended (Sales amount, Gross profit, Stock value, month sales/profit/damage, daily sales and cash left); quantities stay strict
+  - apps/web - StockPage batch sub-rows with the ব্যাচ অনুযায়ী toggle, godown receipt hint and current batches, DSR day sheet allocation text for posted lines, month page table cells skip arrays
+  - packages/i18n - batch labels, receipt hint, stock batch report keys
+  - docs - D49 added, D22/D29/D32 amended in decisions.md; PLAN 2.3 and 4 updated; implementation-status row
+affectedActionIds: []
+financialImpact: when a product's prices change at a receipt, sales, cost, gross profit, stock value and closing value are computed per batch (older stock at its own price), where they used to use the day's single price for everything. Free goods and replacement pieces cost 0 so selling them is all profit. Months in which prices never change at a receipt produce unchanged numbers (golden fixture and the Aug/Sep workbook months verified). Everything is recalculated from posted facts; no stored total changes.
+backfill: none needed. Month-close snapshots stored before this change are read as one batch per product at the closing prices; reopen and close again to store batches.
+tests:
+  - pnpm check (format, lint, types, unit tests; the .claude folder excluded from prettier/eslint)
+  - pnpm test:integration (new phase-k.integration.ts)
+  - pnpm verify:workbook (NODE_OPTIONS=--max-old-space-size=8192)
+rollout: deploy the app (no migration)
+recovery: revert the commit; no schema change

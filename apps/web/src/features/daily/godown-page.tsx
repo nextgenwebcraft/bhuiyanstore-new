@@ -5,8 +5,8 @@ import { EmptyListNote } from "@/components/empty-list-note";
 import { ReverseCell } from "@/components/reverse-cell";
 import { useAsyncAction } from "@/lib/async-action";
 import { sumQuantities, toBaseQuantity, toDecimal } from "@bsd/domain";
-import { formatRate, t, type TranslationKey } from "@bsd/i18n";
-import { useState } from "react";
+import { formatCount, formatRate, t, type TranslationKey } from "@bsd/i18n";
+import { Fragment, useState } from "react";
 import { Button } from "@/components/button";
 import { PageHeader } from "@/components/page-header";
 import { TableSkeleton } from "@/components/skeleton";
@@ -47,6 +47,7 @@ import {
   theadClass,
 } from "@/components/data-table";
 import { TableScroller } from "@/components/table-scroller";
+import { visibleBatches } from "./day-report-page";
 
 /** Which price each godown screen can change from its date (Excel's carry-forward columns). */
 const PRICES: Record<StockEntryKind, PriceKind[]> = {
@@ -81,6 +82,30 @@ const POSTED_LABEL: Record<StockEntryKind, TranslationKey> = {
 
 type Row = { cartons: string; pieces: string } & Partial<Record<PriceKind, string>>;
 const emptyRow: Row = { cartons: "", pieces: "" };
+
+/** The product's live batches, one line each, collapsed under the product name (D49). */
+function CurrentBatches({ product }: { product: DayView["products"][number] }) {
+  const batches = visibleBatches(product);
+  if (batches.length === 0) return null;
+  return (
+    <details className="mt-1 text-xs font-normal text-text-muted">
+      <summary className="cursor-pointer">{t("batch.current")}</summary>
+      <ul className="mt-1 flex flex-col gap-0.5">
+        {batches.map((b) => (
+          <li key={b.seq}>
+            {t("batch.label")} {formatCount(b.seq)} · {formatCount(b.quantity)} {t("common.pieces")}{" "}
+            @{" "}
+            {b.costPrice === null
+              ? ""
+              : `${t("batch.costShort")} ${t("batch.currency")}${formatRate(b.costPrice)} / `}
+            {t("batch.saleShort")} {t("batch.currency")}
+            {formatRate(b.salePrice)}
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
 
 function GodownForm({
   companyId,
@@ -208,6 +233,7 @@ function GodownForm({
       {kind === "receipt" && prices.length ? (
         <p className="rounded-lg border border-info/30 bg-info/5 px-4 py-3 text-sm">
           {t("godown.batchHint")}
+          <span className="mt-1 block text-text-muted">{t("batch.receiptHint")}</span>
         </p>
       ) : null}
       <TableScroller>
@@ -238,51 +264,55 @@ function GodownForm({
             {view.products.map((product) => {
               const row = rows[product.productId] ?? emptyRow;
               return (
-                <tr key={product.productId} className="border-t border-border">
-                  <th scope="row" className={`${tdClass} ${stickyCell} text-left font-medium`}>
-                    <div>{product.productName}</div>
-                    <div className="text-xs font-normal text-text-muted">
-                      {product.sku} · {t("godown.column.size")} {quantity(product.piecesPerCarton)}
-                    </div>
-                  </th>
-                  <td className={tdNum}>
-                    <CellInput
-                      label={`${product.productName} ${t("godown.column.cartons")}`}
-                      value={row.cartons}
-                      onChange={(cartons) => set(product.productId, { cartons })}
-                      width="w-16"
-                    />
-                  </td>
-                  <td className={tdNum}>
-                    <CellInput
-                      label={`${product.productName} ${t("godown.column.pieces")}`}
-                      value={row.pieces}
-                      onChange={(pieces) => set(product.productId, { pieces })}
-                      width="w-16"
-                    />
-                  </td>
-                  {prices.map((p) => {
-                    const current = product[PRICE_FIELD[p]];
-                    return (
-                      <td key={p} className={tdNum}>
-                        <CellInput
-                          label={`${product.productName} ${t(`godown.column.${p}Price` as TranslationKey)}`}
-                          value={row[p] ?? ""}
-                          placeholder={current ? formatRate(current) : undefined}
-                          onChange={(value) => set(product.productId, { [p]: value })}
-                          mode="decimal"
-                          width="w-24"
-                        />
-                      </td>
-                    );
-                  })}
-                  <td className={tdNum}>
-                    <CartonQty
-                      pieces={kind === "order" ? product.dueFromCompany : product.stock}
-                      piecesPerCarton={product.piecesPerCarton}
-                    />
-                  </td>
-                </tr>
+                <Fragment key={product.productId}>
+                  <tr className="border-t border-border">
+                    <th scope="row" className={`${tdClass} ${stickyCell} text-left font-medium`}>
+                      <div>{product.productName}</div>
+                      <div className="text-xs font-normal text-text-muted">
+                        {product.sku} · {t("godown.column.size")}{" "}
+                        {quantity(product.piecesPerCarton)}
+                      </div>
+                      {kind === "receipt" ? <CurrentBatches product={product} /> : null}
+                    </th>
+                    <td className={tdNum}>
+                      <CellInput
+                        label={`${product.productName} ${t("godown.column.cartons")}`}
+                        value={row.cartons}
+                        onChange={(cartons) => set(product.productId, { cartons })}
+                        width="w-16"
+                      />
+                    </td>
+                    <td className={tdNum}>
+                      <CellInput
+                        label={`${product.productName} ${t("godown.column.pieces")}`}
+                        value={row.pieces}
+                        onChange={(pieces) => set(product.productId, { pieces })}
+                        width="w-16"
+                      />
+                    </td>
+                    {prices.map((p) => {
+                      const current = product[PRICE_FIELD[p]];
+                      return (
+                        <td key={p} className={tdNum}>
+                          <CellInput
+                            label={`${product.productName} ${t(`godown.column.${p}Price` as TranslationKey)}`}
+                            value={row[p] ?? ""}
+                            placeholder={current ? formatRate(current) : undefined}
+                            onChange={(value) => set(product.productId, { [p]: value })}
+                            mode="decimal"
+                            width="w-24"
+                          />
+                        </td>
+                      );
+                    })}
+                    <td className={tdNum}>
+                      <CartonQty
+                        pieces={kind === "order" ? product.dueFromCompany : product.stock}
+                        piecesPerCarton={product.piecesPerCarton}
+                      />
+                    </td>
+                  </tr>
+                </Fragment>
               );
             })}
           </tbody>

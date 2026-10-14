@@ -2,6 +2,7 @@
 
 import { resourceIds, type ResourceId } from "@bsd/architecture";
 import type {
+  CompanyCreateRequest,
   CompanyUpsertRequest,
   DamageCaseCreateRequest,
   DamageEventRequest,
@@ -64,7 +65,7 @@ export function useCreateCompany() {
   const actorId = useActorId();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: CompanyUpsertRequest) => service.createCompany(input),
+    mutationFn: (input: CompanyCreateRequest) => service.createCompany(input),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.workspaces(actorId) }),
   });
 }
@@ -144,6 +145,13 @@ export function useUpdateProduct(companyId: string) {
       void invalidate();
     },
   });
+}
+
+export function useDeleteProduct(companyId: string) {
+  const service = useService();
+  return useMasterMutation([resourceIds.product, resourceIds.productHistory], (productId: string) =>
+    service.deleteProduct(companyId, productId),
+  );
 }
 
 function usePostingMutation<TInput, TResult>(
@@ -458,6 +466,13 @@ export function useSaveShop(companyId: string) {
   );
 }
 
+export function useDeleteShop(companyId: string) {
+  const service = useService();
+  return useMasterMutation([resourceIds.shop], (shopId: string) =>
+    service.deleteShop(companyId, shopId),
+  );
+}
+
 export function useShopStatement(
   companyId: string,
   shopId: string,
@@ -497,6 +512,13 @@ export function useUpdateStaff(companyId: string) {
     staffResources,
     ({ staffId, input }: { staffId: string; input: StaffUpsertRequest }) =>
       service.updateStaff(companyId, staffId, input),
+  );
+}
+
+export function useDeleteStaff(companyId: string) {
+  const service = useService();
+  return useMasterMutation(staffResources, (staffId: string) =>
+    service.deleteStaff(companyId, staffId),
   );
 }
 

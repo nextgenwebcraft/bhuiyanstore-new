@@ -1,6 +1,7 @@
 import { todayBusinessDate } from "@bsd/domain";
 import {
   companySchema,
+  companyCreateRequestSchema,
   companyUpsertRequestSchema,
   companyWorkspaceSchema,
   type Company,
@@ -17,6 +18,7 @@ import type { AppContext, Tx } from "./context";
 import { AppError, parseInput } from "./errors";
 import { isUniqueViolation, runIdempotent } from "./idempotency";
 import { runLedger } from "./ledger";
+import { applyStarterDataset } from "./starter-dataset";
 
 function toCompany(company: CompanyAccess["company"]): Company {
   return companySchema.parse({
@@ -98,12 +100,12 @@ export async function createCompany(
   requestKey?: string,
 ): Promise<CompanyWorkspace> {
   requireSuperAdmin(ctx);
-  const data = parseInput(companyUpsertRequestSchema, input);
+  const { starterData, ...data } = parseInput(companyCreateRequestSchema, input);
   try {
     const companyId = await runIdempotent(
       ctx,
       { scope: "tenant", action: "company.create", requestKey },
-      data,
+      { ...data, starterData },
       async (tx) => {
         if (
           await tx.company.findFirst({ where: { tenantId: ctx.actor.tenantId, name: data.name } })
@@ -133,8 +135,10 @@ export async function createCompany(
           action: "company.create",
           resourceType: "company",
           resourceId: company.id,
-          after: data,
+          after: { ...data, starterData },
         });
+        // D51: sample masters in the same transaction, so a failure leaves no half-seeded company.
+        if (starterData) await applyStarterDataset(tx, ctx, company);
         return company.id;
       },
     );

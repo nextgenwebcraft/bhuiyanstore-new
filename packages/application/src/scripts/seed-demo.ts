@@ -96,6 +96,7 @@ async function seed(db: ReturnType<typeof createDatabase>, plan: SeedPlan): Prom
       theme: { primary: "#0F766E", primaryForeground: "#FFFFFF" },
       modules: [...workspaceModuleIds],
       blockNegativeStock: false,
+      starterData: false,
     },
     `seed-demo-company-${nameHash}`,
   );

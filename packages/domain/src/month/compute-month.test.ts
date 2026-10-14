@@ -185,7 +185,7 @@ describe("computeMonth golden month", () => {
     expect(out.month.profit).toEqual({
       // gross: A 124 + B 37 = 161 (was 189.5: 28.5 = 3 damaged pieces × 9.5).
       gross: "161",
-      damageRecovery: "0",
+      // D47 amendment: `damageRecovery` is no longer part of the profit figures.
       salaries: "1000",
       expenses: "30",
       expensesByCategory: { operating: "30" },
@@ -254,8 +254,17 @@ describe("computeMonth golden month", () => {
   it("produces a closing that is the next month's opening", () => {
     expect(out.closing.products.A).toEqual({
       stock: "56",
+      // D49: the golden month's prices never change mid-month, so every receipt merges into the one
+      // opening batch; the closing now carries it (the only golden number that changes).
+      batches: [
+        { seq: 1, startDate: "opening", costPrice: "9.5", salePrice: "12", quantity: "56" },
+      ],
       dueFromCompany: "2",
       dueFromCompanyValue: "20",
+      // D53: day 2's DSR sheet damaged 1 piece (the product-level damaged 2 on day 1 is the
+      // workbook-importer path and never enters damaged-goods stock); nothing is at the company.
+      damagedStock: "1",
+      damageAtCompany: "0",
       orderPrice: "10",
       costPrice: "9.5",
       salePrice: "12",
@@ -309,9 +318,9 @@ describe("computeMonth company account (D33)", () => {
     expect(out.days[0]?.money).toMatchObject({ cashIn: "0", cashOut: "0", banked: "300" });
     expect(out.days[0]?.products[0]).toMatchObject({ stock: "58", grossProfit: "0" });
     expect(out.month.profit.gross).toBe("0");
-    // D47: the damage money return is damage recovery income in net profit.
-    expect(out.month.profit.damageRecovery).toBe("47.5");
-    expect(out.month.profit.net).toBe("47.5");
+    // D47 amendment: the damage money return raises the company balance only; it is not profit.
+    expect(out.month.profit.net).toBe("0");
+    expect(out.month.totals.damageRecovery).toBe("47.5"); // memo
   });
 
   it("lists every movement with the balance after it", () => {

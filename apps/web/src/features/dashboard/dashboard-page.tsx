@@ -173,13 +173,6 @@ function Summary({ range }: { range: ReportRange }) {
       {d.grossProfit !== undefined ? (
         <StatTile label={t("dashboard.grossProfit")} value={money(d.grossProfit)} />
       ) : null}
-      {d.damageRecovery !== undefined ? (
-        <StatTile
-          label={t("dashboard.damageRecovery")}
-          value={money(d.damageRecovery)}
-          hint={t("dashboard.damageRecoveryHint")}
-        />
-      ) : null}
       <StatTile label={t("dashboard.cashCollected")} value={money(d.cashCollected)} emphasis />
       <StatTile label={t("dashboard.marketDueCreated")} value={money(d.marketDueCreated)} />
       <StatTile label={t("dashboard.oldDuesCollected")} value={money(d.oldDuesCollected)} />
@@ -198,6 +191,13 @@ function Summary({ range }: { range: ReportRange }) {
           hint={t("dashboard.stockValueHint")}
         />
       ) : null}
+      {(d.cashAccounts ?? []).map((a) => (
+        <StatTile
+          key={a.accountId}
+          label={`${t("dashboard.cashAccounts")} · ${a.accountName || t("cashBook.noAccount")}`}
+          value={money(a.balance)}
+        />
+      ))}
     </dl>
   );
 }
@@ -434,7 +434,12 @@ const REPORT_SECTIONS: readonly ReportSectionSpec[] = [
     reports: ["sales", "profit"],
     defaultOpen: true,
   },
-  { id: "cash", titleKey: "dashboard.section.cash", reports: ["daily-cash"], defaultOpen: false },
+  {
+    id: "cash",
+    titleKey: "dashboard.section.cash",
+    reports: ["daily-cash", "cash-book"],
+    defaultOpen: false,
+  },
   {
     id: "stock",
     titleKey: "dashboard.section.stock",

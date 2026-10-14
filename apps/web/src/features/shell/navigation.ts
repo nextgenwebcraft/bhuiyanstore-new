@@ -95,6 +95,7 @@ export const navigation: readonly NavSection[] = [
     module: "finance",
     items: [
       item("finance/company-account", "nav.finance.companyAccount", "finance.view"),
+      item("finance/cash-book", "nav.finance.cashBook", "finance.view"),
       item("finance/supplier-deposits", "finance.supplierDeposit", "finance.view"),
       item("finance/expenses", "nav.finance.expenses", "finance.view"),
       item("finance/receivables", "nav.finance.receivables", "finance.view"),
@@ -196,6 +197,7 @@ const hubDefinitions: readonly Omit<Hub, "shortcut">[] = [
     icon: "reports",
     tabs: [
       { path: "finance/company-account" },
+      { path: "finance/cash-book" },
       { path: "finance/receivables" },
       { path: "finance/payables" },
       { path: "dsr/accounts" },

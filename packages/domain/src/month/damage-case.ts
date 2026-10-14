@@ -36,7 +36,7 @@ export type DamageLineProgress = {
   companyRefunded: string;
   companyPending: string;
   writtenOff: string;
-  /** Damaged pieces still held by the distributor. */
+  /** Damaged pieces still held by the distributor: received − sent + rejected (back) − written off. */
   stillHere: string;
 };
 
@@ -82,7 +82,8 @@ export function damageLineProgress(
     companyRefunded: companyRefunded.toString(),
     companyPending: accepted.sub(companyReplaced).sub(companyRefunded).toString(),
     writtenOff: writtenOff.toString(),
-    stillHere: r.sub(sent).sub(writtenOff).toString(),
+    // D53: pieces the company rejected come back to us, so they are here again.
+    stillHere: r.sub(sent).add(rejected).sub(writtenOff).toString(),
   };
 }
 

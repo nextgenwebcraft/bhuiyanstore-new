@@ -29,6 +29,11 @@ export function payloadHash(payload: unknown): string {
     .digest("hex");
 }
 
+/** A row is still referenced (Restrict relation): the database refused the delete. */
+export function isForeignKeyViolation(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2003";
+}
+
 export function isUniqueViolation(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
 }

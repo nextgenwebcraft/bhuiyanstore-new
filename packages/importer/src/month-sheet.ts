@@ -334,6 +334,27 @@ export function readMonthSheet(
    * D48: ordered goods are billed with the order, so a receipt bills only what exceeds the order.
    * The engine's receipt bill is therefore never more than Excel's (every received piece billed).
    */
+  /**
+   * D49: Excel prices all stock at the day's price; the engine sells and costs the oldest batch at
+   * its own price. The figures can only differ once a product held more than one batch (a receipt
+   * at a changed price) on or before the day (`upTo`, 0-based; all days when absent). `productId`
+   * absent = any product (day and month totals). Quantity checks never carry this.
+   */
+  const batchPricing = (productId?: string, upTo?: number): IntendedDifference => ({
+    reason: "D49: FIFO batches — older stock keeps its own price, Excel re-prices all stock",
+    accepts: (_engine, out) =>
+      out.days
+        .slice(0, upTo === undefined ? undefined : upTo + 1)
+        .some((d) =>
+          d.products.some(
+            (x) => (productId === undefined || x.productId === productId) && x.batches.length > 1,
+          ),
+        ),
+  });
+  const either = (a: IntendedDifference, b: IntendedDifference): IntendedDifference => ({
+    reason: `${a.reason}; ${b.reason}`,
+    accepts: (engine, out) => a.accepts(engine, out) || b.accepts(engine, out),
+  });
   const orderBilledAtOnce = (excel: Decimal): IntendedDifference => ({
     reason: "D48: ordered goods are billed with the order, a receipt bills only the excess",
     accepts: (engine) => engine.gte(0) && engine.lte(excel),
@@ -403,12 +424,21 @@ export function readMonthSheet(
         out.days[index]?.products.find((x) => x.productId === p.id);
       expect("Samari", "samari", (o) => dayOf(o)?.issued);
       expect("Firot", "firot", (o) => dayOf(o)?.returned);
-      expect("Sales amount", "salesTotal", (o) => dayOf(o)?.sales);
+      expect(
+        "Sales amount",
+        "salesTotal",
+        (o) => dayOf(o)?.sales,
+        () => batchPricing(p.id, index),
+      );
       expect(
         "Gross profit",
         "profit",
         (o) => dayOf(o)?.grossProfit,
-        (excel) => costOfDamaged(excel, (o) => dayOf(o)?.damageValue),
+        (excel) =>
+          either(
+            costOfDamaged(excel, (o) => dayOf(o)?.damageValue),
+            batchPricing(p.id, index),
+          ),
       );
       if (index === 0 && firstBlock) {
         const openingDue = openingFrom(p.row, firstBlock.cols.balance);
@@ -422,7 +452,12 @@ export function readMonthSheet(
         expect("Goods due from company", "balance", (o) => dayOf(o)?.dueFromCompany);
       }
       expect("Stock pieces", "stock", (o) => dayOf(o)?.stock);
-      expect("Stock value", "stockAmount", (o) => dayOf(o)?.stockValue);
+      expect(
+        "Stock value",
+        "stockAmount",
+        (o) => dayOf(o)?.stockValue,
+        () => batchPricing(p.id, index),
+      );
 
       if (index === 0 && firstBlock) {
         const stock = openingFrom(p.row, firstBlock.cols.stock);
@@ -545,7 +580,11 @@ export function readMonthSheet(
   // Right-side money columns, by header text.
   const right = headerCells.filter((h) => h.col >= lastBlockEnd);
   const rightCol = (key: string) => right.find((h) => h.key === key)?.col;
-  const monthChecks: [string, string, keyof MonthOutput["month"]["products"][number]][] = [
+  const monthChecks: [
+    string,
+    string,
+    Exclude<keyof MonthOutput["month"]["products"][number], "closingBatches">,
+  ][] = [
     ["Month receipt amount", "total receive amount in tk", "receiptTotal"],
     ["Month sales", "total sale in tk", "salesTotal"],
     ["Month gross profit", "total profit", "profitTotal"],
@@ -592,10 +631,17 @@ export function readMonthSheet(
         excel: saved,
         engine: (o) => pick(o)?.[key],
         ...(key === "profitTotal"
-          ? { intended: costOfDamaged(saved, (o) => pick(o)?.damageValue) }
+          ? {
+              intended: either(
+                costOfDamaged(saved, (o) => pick(o)?.damageValue),
+                batchPricing(p.id),
+              ),
+            }
           : key === "receiptTotal"
             ? { intended: orderBilledAtOnce(saved) }
-            : {}),
+            : key === "salesTotal" || key === "damageValue"
+              ? { intended: batchPricing(p.id) }
+              : {}),
         ...monthMistake,
         ...sizeMistake,
       });
@@ -614,8 +660,13 @@ export function readMonthSheet(
         excel: saved,
         engine: (o) => o.month.totals[key],
         ...(key === "profitTotal"
-          ? { intended: costOfDamaged(saved, (o) => o.month.totals.damageValue) }
-          : {}),
+          ? {
+              intended: either(
+                costOfDamaged(saved, (o) => o.month.totals.damageValue),
+                batchPricing(),
+              ),
+            }
+          : { intended: batchPricing() }),
         ...monthMistake,
       });
   }
@@ -739,6 +790,7 @@ export function readMonthSheet(
           excel: saved,
           day: d + 1,
           engine: (o) => o.days[d]?.money.sales,
+          intended: batchPricing(undefined, d),
           ...(ref && refHeader !== BLOCK_FIELDS.salesTotal
             ? { knownMistake: `reads "${refHeader}": =${f}` }
             : {}),
@@ -766,6 +818,7 @@ export function readMonthSheet(
           excel: saved,
           day: d + 1,
           engine: (o) => o.days[d]?.money.cashLeft,
+          intended: batchPricing(undefined, d),
           ...(reasons.length ? { knownMistake: reasons.join("; ") } : {}),
         });
       }

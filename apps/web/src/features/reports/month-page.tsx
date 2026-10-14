@@ -63,7 +63,12 @@ function productTable(view: MonthView): ReportTable {
     ],
     view.products.map((p) => ({
       piecesPerCarton: p.piecesPerCarton,
-      cells: { ...p, product: p.productName },
+      cells: {
+        ...(Object.fromEntries(
+          Object.entries(p).filter(([, v]) => typeof v === "string" || v === null),
+        ) as Record<string, string | null>),
+        product: p.productName,
+      },
     })),
     {
       salesTotal: view.totals.salesTotal,
@@ -161,7 +166,6 @@ function profitTable(view: MonthView): ReportTable | null {
     "profitSummary",
     [
       ["report.line.gross", p.gross],
-      ["report.line.damageRecovery", p.damageRecovery],
       ["report.line.salaries", p.salaries],
       ...p.expensesByCategory.map((e): [string, string] => [e.name, e.amount]),
       ["report.line.expenses", p.expenses],

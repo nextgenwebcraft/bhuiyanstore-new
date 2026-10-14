@@ -109,9 +109,15 @@ beforeAll(async () => {
   };
   const ctx = contextFor(db, admin);
   const theme = { primary: "#0F766E", primaryForeground: "#FFFFFF" };
-  drinko = (await createCompany(ctx, { name: "Drinko", theme, modules: ["sales"] })).company.id;
-  snacks = (await createCompany(ctx, { name: "Snacks", theme, modules: ["sales"] })).company.id;
-  bakery = (await createCompany(ctx, { name: "Bakery", theme, modules: ["sales"] })).company.id;
+  drinko = (
+    await createCompany(ctx, { name: "Drinko", theme, modules: ["sales"], starterData: false })
+  ).company.id;
+  snacks = (
+    await createCompany(ctx, { name: "Snacks", theme, modules: ["sales"], starterData: false })
+  ).company.id;
+  bakery = (
+    await createCompany(ctx, { name: "Bakery", theme, modules: ["sales"], starterData: false })
+  ).company.id;
   bakeryProduct = (
     await createProduct(ctx, bakery, {
       sku: "R1",
@@ -359,8 +365,9 @@ describe("Phase D: opening balances (save = live, D43)", () => {
   it("keeps a daily price on the cutoff date over the opening price, even after a re-save", async () => {
     const ctx = contextFor(db, admin);
     const theme = { primary: "#0F766E", primaryForeground: "#FFFFFF" };
-    const company = (await createCompany(ctx, { name: "Wafer", theme, modules: ["sales"] })).company
-      .id;
+    const company = (
+      await createCompany(ctx, { name: "Wafer", theme, modules: ["sales"], starterData: false })
+    ).company.id;
     const make = async (sku: string) =>
       (
         await createProduct(ctx, company, {

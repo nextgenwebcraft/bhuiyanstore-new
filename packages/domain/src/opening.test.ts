@@ -154,6 +154,36 @@ describe("toMonthOpening", () => {
     expect(out.closing.companyPayable).toBe("1000");
   });
 
+  it("makes each stock line one opening batch at its cost and sale price (D49)", () => {
+    const opening = toMonthOpening({
+      cutoffDate: "2026-11-01",
+      stock: [line("a"), line("b", { pieces: "0" })],
+      balances: [],
+    });
+    expect(opening.products.a?.batches).toEqual([
+      { seq: 1, startDate: "2026-11-01", costPrice: "23.48", salePrice: "25", quantity: "100" },
+    ]);
+    expect(opening.products.b?.batches).toBeUndefined(); // no pieces, no batch
+    const out = computeMonth({
+      products: [
+        { id: "a", piecesPerCarton: "24" },
+        { id: "b", piecesPerCarton: "24" },
+      ],
+      opening,
+      days: [{ date: "2026-11-01" }],
+    });
+    expect(out.days[0]?.products[0]?.batches).toEqual([
+      {
+        seq: 1,
+        startDate: "2026-11-01",
+        costPrice: "23.48",
+        salePrice: "25",
+        quantity: "100",
+        value: "2348",
+      },
+    ]);
+  });
+
   it("opens each shop's due and counts it in the market due total (D38)", () => {
     const opening = toMonthOpening({
       cutoffDate: "2026-11-01",

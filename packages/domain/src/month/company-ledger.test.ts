@@ -49,7 +49,7 @@ describe("damage collected by a DSR (D47)", () => {
     });
   });
 
-  it("adds damage refunds and replacement goods to net profit, not to gross profit", () => {
+  it("keeps damage refunds and replacement goods out of profit (D47 amendment)", () => {
     const out = base({
       date: "2026-11-01",
       products: {
@@ -61,9 +61,9 @@ describe("damage collected by a DSR (D47)", () => {
     });
     expect(out.month.profit.gross).toBe("0");
     expect(out.days[0]?.products[0]).toMatchObject({ grossProfit: "0", damageRecovery: "71.5" });
-    expect(out.month.profit.damageRecovery).toBe("71.5"); // 47.5 refund + 24 replacement
-    expect(out.month.profit.net).toBe("71.5");
-    expect(out.month.profit.netWithoutIncentive).toBe("71.5");
+    // The recovery (47.5 refund + 24 replacement) stays a memo; net profit is 0, not 71.5.
+    expect(out.month.profit.net).toBe("0");
+    expect(out.month.profit.netWithoutIncentive).toBe("0");
     expect(out.month.totals.damageRecovery).toBe("71.5");
     // The refund still lowers what we owe; the replacements are memos on the company account.
     expect(out.month.companyPayable.closing).toBe("-47.5");

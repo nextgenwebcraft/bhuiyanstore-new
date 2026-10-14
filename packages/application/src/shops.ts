@@ -1,41 +1,23 @@
 import { todayBusinessDate } from "@bsd/domain";
 import {
-  shopSchema,
   shopStatementSchema,
   shopUpsertRequestSchema,
   type Shop,
   type ShopStatement,
 } from "@bsd/contracts";
-import type { Prisma } from "@bsd/database";
 import { loadCompanyAccess, requirePermission } from "./access";
 import { recordAudit } from "./audit";
 import type { AppContext } from "./context";
 import { businessDate } from "./daily";
 import { AppError, invalid, parseInput } from "./errors";
-import { isUniqueViolation, runIdempotent } from "./idempotency";
+import { isForeignKeyViolation, isUniqueViolation, runIdempotent } from "./idempotency";
 import { rangeRun, runLedger } from "./ledger";
-import { plain } from "./numeric";
+import { insertShop, toShop } from "./shop-rows";
 
 /**
  * Shops and their market due (D35). The due itself is entered as market due money entries with a
  * shop and a DSR; every balance shown here comes from the month engine.
  */
-
-type ShopRow = Prisma.ShopGetPayload<object>;
-
-function toShop(row: ShopRow, due: string | null): Shop {
-  return shopSchema.parse({
-    id: row.id,
-    name: row.name,
-    ownerName: row.ownerName,
-    phone: row.phone,
-    area: row.area,
-    address: row.address,
-    dueLimit: row.dueLimit === null ? null : plain(row.dueLimit),
-    status: row.status,
-    due,
-  });
-}
 
 const duplicateName = () => invalid("name", "validation.shop.duplicate");
 
@@ -64,23 +46,45 @@ export async function createShop(
       ctx,
       { scope: companyId, action: "shop.create", requestKey },
       data,
-      async (tx) => {
-        const row = await tx.shop.create({
-          data: { ...data, tenantId: access.company.tenantId, companyId },
-        });
-        const shop = toShop(row, null);
-        await recordAudit(tx, ctx, {
-          companyId,
-          action: "shop.create",
-          resourceType: "shop",
-          resourceId: shop.id,
-          after: shop,
-        });
-        return shop;
-      },
+      (tx) => insertShop(tx, ctx, access.company.tenantId, companyId, data),
     );
   } catch (error) {
     if (isUniqueViolation(error)) throw duplicateName();
+    throw error;
+  }
+}
+
+/**
+ * Hard delete of a shop that nothing refers to (D51). Any money entry (also a reversed one),
+ * opening balance or field visit makes it "used": it is then refused and should be deactivated.
+ */
+export async function deleteShop(
+  ctx: AppContext,
+  companyId: string,
+  shopId: string,
+): Promise<void> {
+  await requirePermission(ctx, companyId, "shop.manage", { write: true });
+  try {
+    await ctx.db.$transaction(async (tx) => {
+      const shop = await tx.shop.findFirst({ where: { id: shopId, companyId } });
+      if (!shop) throw invalid("id", "validation.shop.unknown");
+      const [entries, balances, visits] = await Promise.all([
+        tx.moneyEntry.count({ where: { shopId } }),
+        tx.openingBalanceLine.count({ where: { shopId } }),
+        tx.fieldVisit.count({ where: { shopId } }),
+      ]);
+      if (entries + balances + visits > 0) throw invalid("id", "validation.shop.inUse");
+      await tx.shop.delete({ where: { id: shopId } });
+      await recordAudit(tx, ctx, {
+        companyId,
+        action: "shop.delete",
+        resourceType: "shop",
+        resourceId: shopId,
+        before: toShop(shop, null),
+      });
+    });
+  } catch (error) {
+    if (isForeignKeyViolation(error)) throw invalid("id", "validation.shop.inUse");
     throw error;
   }
 }

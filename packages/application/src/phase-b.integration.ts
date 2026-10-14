@@ -1,5 +1,5 @@
 import { bootstrapSuperAdmin, createAuth, type Actor } from "@bsd/auth";
-import type { CompanyUpsertRequest, ProductCreateRequest } from "@bsd/contracts";
+import type { CompanyCreateRequest, ProductCreateRequest } from "@bsd/contracts";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createCompany, getWorkspace, listWorkspaces, updateCompany } from "./companies";
 import { AppError } from "./errors";
@@ -14,11 +14,12 @@ const { db, schema } = testDatabase();
 const PASSWORD = "one-time-Password-123";
 const NEW_PASSWORD = "chosen-Password-456";
 
-const companyInput = (name: string): CompanyUpsertRequest => ({
+const companyInput = (name: string): CompanyCreateRequest => ({
   name,
   theme: { primary: "#0F766E", primaryForeground: "#FFFFFF" },
   modules: ["sales", "inventory"],
   blockNegativeStock: false,
+  starterData: false,
 });
 const productInput = (sku: string, name = `Product ${sku}`): ProductCreateRequest => ({
   sku,

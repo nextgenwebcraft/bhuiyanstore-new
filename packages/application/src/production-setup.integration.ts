@@ -91,7 +91,9 @@ beforeAll(async () => {
   };
   ctx = contextFor(db, admin);
   const theme = { primary: "#0F766E", primaryForeground: "#FFFFFF" };
-  company = (await createCompany(ctx, { name: "Drinko", theme, modules: ["sales"] })).company.id;
+  company = (
+    await createCompany(ctx, { name: "Drinko", theme, modules: ["sales"], starterData: false })
+  ).company.id;
   id.alpha = (
     await createProduct(ctx, company, {
       sku: "A250",

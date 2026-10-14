@@ -164,6 +164,11 @@ export async function getMonthView(
             damageValue: cost(row.damageValue),
             replacementValue: cost(row.replacementValue),
             closingValue: cost(row.closingValue),
+            closingBatches: row.closingBatches.map((b) => ({
+              ...b,
+              costPrice: cost(b.costPrice),
+              value: cost(b.value),
+            })),
           },
         ];
       })
@@ -403,6 +408,8 @@ function buildTables(
         "closingAtSale",
         "dueFromCompany",
         "incentiveReceived",
+        "damagedStock",
+        "damageAtCompany",
       ];
       return [
         table(
@@ -414,9 +421,43 @@ function buildTables(
             col("closingAtSale", "money"),
             col("dueFromCompany", "quantity"),
             col("incentiveReceived", "quantity"),
+            col("damagedStock", "quantity"),
+            col("damageAtCompany", "quantity"),
           ],
           productRows(output, names, fields),
           { closingValue: m.totals.closingValue },
+          seen,
+        ),
+        // D49: the batches behind the stock, oldest first; a zero batch is not shown.
+        table(
+          "stockBatches",
+          [
+            product,
+            col("batchNo", "text"),
+            col("batchStart", "text"),
+            col("batchCost", "money", "cost"),
+            col("batchSale", "money"),
+            col("closingStock", "quantity"),
+            col("batchValue", "money", "cost"),
+          ],
+          names.products.flatMap((p) => {
+            const row = m.products.find((r) => r.productId === p.id);
+            return (row?.closingBatches ?? [])
+              .filter((b) => !toDecimal(b.quantity).isZero())
+              .map((b) => ({
+                piecesPerCarton: p.piecesPerCarton,
+                cells: {
+                  product: p.name,
+                  batchNo: String(b.seq),
+                  batchStart: b.startDate === "opening" ? null : b.startDate,
+                  batchCost: b.costPrice,
+                  batchSale: b.salePrice,
+                  closingStock: b.quantity,
+                  batchValue: b.value,
+                },
+              }));
+          }),
+          null,
           seen,
         ),
       ];
@@ -486,7 +527,6 @@ function buildTables(
           [col("line", "label"), col("amount", "money")],
           [
             line("report.line.gross", p.gross),
-            line("report.line.damageRecovery", p.damageRecovery),
             line("report.line.salaries", p.salaries),
             ...Object.entries(p.expensesByCategory).map(([cid, amount]) =>
               line("", amount, categories.get(cid) ?? "report.line.uncategorized"),
@@ -667,19 +707,25 @@ function buildTables(
           [
             product,
             col("damaged", "quantity"),
+            col("godownDamaged", "quantity"),
             col("replacedFromStock", "quantity"),
             col("damageValue", "money", "cost"),
             col("replacementReceived", "quantity"),
             col("replacementValue", "money", "cost"),
             col("damageRecovery", "money", "cost"),
+            col("damagedStock", "quantity"),
+            col("damageAtCompany", "quantity"),
           ],
           productRows(output, names, [
             "damaged",
+            "godownDamaged",
             "replacedFromStock",
             "damageValue",
             "replacementReceived",
             "replacementValue",
             "damageRecovery",
+            "damagedStock",
+            "damageAtCompany",
           ]),
           {
             damageValue: m.totals.damageValue,
@@ -782,6 +828,83 @@ function buildTables(
             cells: { date: d.date, ...Object.fromEntries(keys.map((k) => [k, d.money[k]])) },
           })),
           { sales: m.totals.salesTotal, cashLeft: m.cashLeftTotal },
+          seen,
+        ),
+      ];
+    }
+    case "cash-book": {
+      // D52: every active account shows, even with no opening or movement yet; the "" bucket
+      // (money with no account) shows only when it holds something.
+      const accountName = (accountId: string) =>
+        accountId === ""
+          ? "cashBook.noAccount"
+          : (names.accounts.find((a) => a.id === accountId)?.name ?? "");
+      const book = [
+        ...m.cashBook,
+        ...names.accounts
+          .filter((a) => a.active && !m.cashBook.some((b) => b.accountId === a.id))
+          .map((a) => ({ accountId: a.id, opening: "0", in: "0", out: "0", closing: "0" })),
+      ];
+      const blank = { counterAccount: null };
+      return [
+        table(
+          "cashBookSummary",
+          [
+            col("account", "label"),
+            col("opening", "money"),
+            col("cashIn", "money"),
+            col("cashOut", "money"),
+            col("closing", "money"),
+          ],
+          book.map((a) => ({
+            cells: {
+              account: accountName(a.accountId),
+              opening: a.opening,
+              cashIn: a.in,
+              cashOut: a.out,
+              closing: a.closing,
+            },
+          })),
+          null,
+          seen,
+        ),
+        table(
+          "cashBookStatement",
+          [
+            col("date", "text"),
+            col("line", "label"),
+            col("account", "label"),
+            col("counterAccount", "label"),
+            col("cashIn", "money"),
+            col("cashOut", "money"),
+            col("cashBalance", "money"),
+          ],
+          [
+            ...m.cashBook.map((a) => ({
+              cells: {
+                ...blank,
+                date: from,
+                line: "report.line.cash.opening",
+                account: accountName(a.accountId),
+                cashIn: null,
+                cashOut: null,
+                cashBalance: a.opening,
+              },
+            })),
+            ...output.cashEntries.map((e) => ({
+              cells: {
+                date: e.date,
+                line: e.type === "sales" ? "report.line.cash.sales" : `money.kind.${e.type}`,
+                account: accountName(e.account),
+                counterAccount:
+                  e.counterAccount === undefined ? null : accountName(e.counterAccount),
+                cashIn: e.in === "0" ? null : e.in,
+                cashOut: e.out === "0" ? null : e.out,
+                cashBalance: e.balance,
+              },
+            })),
+          ],
+          null,
           seen,
         ),
       ];
@@ -946,7 +1069,9 @@ export async function getReport(
   if (!id) throw invalid("report", "validation.report.unknown");
   const seen = visibility(access);
   if (!canViewReport(id, access.permissions)) throw new AppError("FORBIDDEN");
-  const range = parseReportRange(query, { allTime: id === "company-account" });
+  const range = parseReportRange(query, {
+    allTime: id === "company-account" || id === "cash-book",
+  });
   const to = range.to;
 
   const active = await liveOpening(ctx.db, companyId);

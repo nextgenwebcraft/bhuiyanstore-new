@@ -1,4 +1,4 @@
-import { updateStaff } from "@bsd/application";
+import { deleteStaff, updateStaff } from "@bsd/application";
 import { handle, idempotencyKey, readJson } from "@/server/api";
 
 type Params = { params: Promise<{ companyId: string; staffId: string }> };
@@ -8,4 +8,10 @@ export async function PUT(request: Request, { params }: Params) {
   return handle(request, async (ctx) =>
     updateStaff(ctx, companyId, staffId, await readJson(request), idempotencyKey(request)),
   );
+}
+
+/** Hard delete of a record nothing refers to (D51); a used one is refused. */
+export async function DELETE(request: Request, { params }: Params) {
+  const { companyId, staffId } = await params;
+  return handle(request, async (ctx) => deleteStaff(ctx, companyId, staffId));
 }

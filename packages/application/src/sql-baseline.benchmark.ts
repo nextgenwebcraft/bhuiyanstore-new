@@ -185,7 +185,9 @@ beforeAll(async () => {
   ctx = contextFor(db, admin);
   timedCtx = contextFor(timed, admin);
   const theme = { primary: "#0F766E", primaryForeground: "#FFFFFF" };
-  company = (await createCompany(ctx, { name: "Drinko", theme, modules: ["sales"] })).company.id;
+  company = (
+    await createCompany(ctx, { name: "Drinko", theme, modules: ["sales"], starterData: false })
+  ).company.id;
   const tenantId = boot.tenantId;
 
   const productIds = Array.from({ length: PRODUCTS }, (_, i) => `bench-p-${i}`);

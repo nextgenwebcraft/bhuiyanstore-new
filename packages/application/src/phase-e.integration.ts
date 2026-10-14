@@ -190,7 +190,8 @@ function facts(): DayFacts[] {
   ];
 }
 
-const ENGINE_FIELD = { order: "ordered", receipt: "received", damage: "damaged" } as const;
+// D53: a godown damage entry is the engine's `godownDamaged` input, not product-level `damaged`.
+const ENGINE_FIELD = { order: "ordered", receipt: "received", damage: "godownDamaged" } as const;
 const ENGINE_PRICE = { order: "orderPrice", cost: "costPrice", sale: "salePrice" } as const;
 /** The same facts as engine input, written independently of the ledger. */
 function toEngineDay(day: DayFacts): DayInput {
@@ -341,7 +342,9 @@ beforeAll(async () => {
   };
   ctx = contextFor(db, admin);
   const theme = { primary: "#0F766E", primaryForeground: "#FFFFFF" };
-  company = (await createCompany(ctx, { name: "Drinko", theme, modules: ["sales"] })).company.id;
+  company = (
+    await createCompany(ctx, { name: "Drinko", theme, modules: ["sales"], starterData: false })
+  ).company.id;
   const product = async (sku: string, name: string, piecesPerCarton: string) =>
     (
       await createProduct(ctx, company, {

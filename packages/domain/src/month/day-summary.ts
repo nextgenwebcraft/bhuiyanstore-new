@@ -19,8 +19,6 @@ export type DaySummary = {
   cashCollected: string;
   marketDueCreated: string;
   grossProfit: string;
-  /** Damage refunds + replacement goods at unit cost (D47): income in net profit. */
-  damageRecovery: string;
   /** Billed value of stock received that day (Excel H); an excess is billed now, ordered goods were billed at the order (D48). */
   receivedValue: string;
   /** Cost value of stock at the end of the day. */
@@ -67,7 +65,6 @@ export function summarizeDay(day: DayResult, input: DayInput): DaySummary {
     cashCollected: roundSettlement(salesCash.add(collected)),
     marketDueCreated: roundSettlement(dueNew),
     grossProfit: roundSettlement(sum(day.products.map((p) => p.grossProfit))),
-    damageRecovery: roundSettlement(sum(day.products.map((p) => p.damageRecovery))),
     receivedValue: roundSettlement(sum(day.products.map((p) => p.receiptValue))),
     stockValue: roundSettlement(sum(day.products.map((p) => p.stockValue))),
     byDsr: [...dsr].map(([staffId, v]) => ({

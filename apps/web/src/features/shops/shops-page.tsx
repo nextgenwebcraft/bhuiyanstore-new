@@ -6,6 +6,7 @@ import { t, toBengaliDigits, formatBusinessDate, formatCount } from "@bsd/i18n";
 import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/button";
 import { DatePicker } from "@/components/date-picker";
+import { DeleteButton } from "@/components/delete-button";
 import { Field, inputClass } from "@/components/field";
 import { FormDialog } from "@/components/form-dialog";
 import { Icon } from "@/components/icons";
@@ -17,7 +18,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { StatusField } from "@/components/status-field";
 import { TableSummary } from "@/components/table-summary";
 import { describeError, type DescribedError } from "@/data/ports/service-error";
-import { useSaveShop, useShopStatement, useShops } from "@/data/queries";
+import { useDeleteShop, useSaveShop, useShopStatement, useShops } from "@/data/queries";
 import { clean } from "@/features/daily/daily-kit";
 import {
   money,
@@ -304,6 +305,7 @@ function HistoryDialog({
 function Shops() {
   const { company, permissions } = useCurrentWorkspace();
   const shops = useShops(company.id);
+  const deleteShop = useDeleteShop(company.id);
   const canManage = permissions.includes("shop.manage");
   const canSeeDue = permissions.includes("sale.view");
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -415,6 +417,13 @@ function Shops() {
                         >
                           {t("common.edit")}
                         </Button>
+                      ) : null}
+                      {canManage ? (
+                        <DeleteButton
+                          name={shop.name}
+                          message={t("shop.delete.confirm")}
+                          onDelete={() => deleteShop.mutateAsync(shop.id)}
+                        />
                       ) : null}
                     </div>
                   </td>
