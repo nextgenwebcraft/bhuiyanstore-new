@@ -45,6 +45,16 @@ export const companyUpsertRequestSchema = z.object({
 
 export type CompanyUpsertRequest = z.infer<typeof companyUpsertRequestSchema>;
 
+/**
+ * Creating a company (D51) may also clone the synthetic starter dataset (sample products, staff,
+ * shops and standard lists) into it; updating never does, so the flag is not part of the upsert.
+ */
+export const companyCreateRequestSchema = companyUpsertRequestSchema.extend({
+  starterData: z.boolean().default(true),
+});
+
+export type CompanyCreateRequest = z.input<typeof companyCreateRequestSchema>;
+
 /** The signed-in person (`GET /api/v1/me`). */
 export const meSchema = z.object({
   id: idSchema,

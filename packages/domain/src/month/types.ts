@@ -14,14 +14,42 @@ export type CatalogProduct = {
   piecesPerCarton: DecimalInput;
 };
 
+/**
+ * One FIFO batch of a product (D49): pieces bought or received at one cost and sale price.
+ * `seq` numbers the product's batches 1, 2, … and continues across months.
+ */
+export type BatchInput = {
+  seq: number;
+  /** The day the batch started (`YYYY-MM-DD`), or `opening` for stock without a known date. */
+  startDate: string;
+  costPrice: DecimalInput;
+  salePrice: DecimalInput;
+  /** Pieces left; negative only for the newest batch while stock is short (deficit). */
+  quantity: DecimalInput;
+};
+
 export type OpeningProduct = {
   stock: DecimalInput;
+  /**
+   * The FIFO batches, oldest first (D49). Without them non-zero `stock` becomes one batch at
+   * `costPrice` / `salePrice`; when given (and not empty) they replace `stock`.
+   */
+  batches?: readonly BatchInput[];
   /** Goods ordered from the company and not yet received (Excel "Balance Quantity"). */
   dueFromCompany: DecimalInput;
+  /**
+   * Billed value of the undelivered goods (D48). Defaults to `dueFromCompany` × `orderPrice`.
+   * The opening company payable already includes it (it is the balance after that billing).
+   */
+  dueFromCompanyValue?: DecimalInput;
   /** The previous month's last prices; day 1 carries them forward until changed. */
   orderPrice?: DecimalInput;
   costPrice?: DecimalInput;
   salePrice?: DecimalInput;
+  /** Damaged pieces held in the godown, not saleable (D53); default 0. */
+  damagedStock?: DecimalInput;
+  /** Damaged pieces at the company waiting for its decision (D53); default 0. */
+  damageAtCompany?: DecimalInput;
 };
 
 /** One person's money balances by type (D27, guide §11.9). Never one signed figure. */
@@ -43,8 +71,21 @@ export type MonthOpening = {
   /** The same market due by shop, for due entered against a shop (D35); a subset of `marketDue`. */
   shopDue?: Readonly<Record<ShopId, DecimalInput>>;
   staff?: Readonly<Record<StaffId, StaffBalances>>;
-  /** Positive = we owe the company for goods; negative = advance with the company. */
+  /**
+   * Positive = we owe the company; negative = money deposited with it. The balance after the
+   * undelivered opening goods were billed (D48).
+   */
   companyPayable?: DecimalInput;
+  /**
+   * Cash and bank book opening balance by account (D52), from the opening's cash lines. The key
+   * `""` is the "no account" bucket.
+   */
+  cashAccounts?: Readonly<Record<string, DecimalInput>>;
+  /**
+   * True when the opening is a month-close snapshot stored before the cash book (D52) and so has
+   * no account balances: the engine starts the accounts at 0 and warns once.
+   */
+  cashSnapshotMissing?: boolean;
 };
 
 export type ProductDayInput = {
@@ -52,6 +93,17 @@ export type ProductDayInput = {
   received?: DecimalInput;
   /** Damage recorded at product level (Excel column N); DSR lines may add their own. */
   damaged?: DecimalInput;
+  /**
+   * Pieces found damaged in the godown (D53, stock entry kind damage): saleable stock falls and
+   * the cost is charged, so gross profit falls; no sales effect. They become damaged stock.
+   */
+  godownDamaged?: DecimalInput;
+  /** Damaged pieces sent to the company (D53); leave damaged stock, wait at the company. */
+  companyDispatched?: DecimalInput;
+  /** Pieces the company rejected and sent back (D53); back in damaged stock, no longer at company. */
+  companyRejected?: DecimalInput;
+  /** Damaged pieces disposed of here with approval (D53); leave damaged stock. */
+  writtenOff?: DecimalInput;
   /**
    * Good pieces handed to buyers straight from the godown for their damaged ones (D17). They
    * leave stock and count in the damage value; unlike `damaged` they were never issued, so sold
@@ -70,7 +122,8 @@ export type ProductDayInput = {
   incentiveReceived?: DecimalInput;
   /**
    * Money the company returned for damaged goods sent to it (D33). Quantity × price per piece
-   * lowers what we owe the company; stock and profit are unchanged.
+   * lowers what we owe the company only (D47 amendment: not profit); stock and gross profit are
+   * unchanged.
    */
   companyRefunds?: readonly { quantity: DecimalInput; unitCost: DecimalInput; ref?: string }[];
   /** A price present here changes it from this day on (carry-forward). */
@@ -117,7 +170,8 @@ export type MoneyKind =
   | "staffOffset"
   | "srOffset"
   | "supplierDeposit"
-  | "companyIncentive";
+  | "companyIncentive"
+  | "cashTransfer";
 
 /** The owed buckets in recovery/allocation order: advance, then loan, then shortage. */
 export const owedBuckets = ["advance", "loan", "shortage"] as const;
@@ -136,6 +190,13 @@ export type MoneyEntryInput = {
   allocation?: Partial<Record<OwedBucket, DecimalInput>>;
   /** Caller's reference (e.g. the posted entry's id), echoed on staff ledger lines. */
   ref?: string;
+  /**
+   * The cash book account the money moves (D52): the source of a transfer, the account of a
+   * deposit or of any kind with a cash effect. Omitted = the day's default account.
+   */
+  account?: string;
+  /** The receiving account of a `cashTransfer`. */
+  toAccount?: string;
 };
 
 export type DayInput = {
@@ -144,6 +205,10 @@ export type DayInput = {
   products?: Readonly<Record<ProductId, ProductDayInput>>;
   dsrLines?: readonly DsrLineInput[];
   money?: readonly MoneyEntryInput[];
+  /** The account that takes the day's sales cash and entries without one (D52); `""` when none. */
+  defaultCashAccount?: string;
+  /** Default account of a supplier deposit (the first bank account); falls back to the cash one. */
+  defaultDepositAccount?: string;
 };
 
 export type MonthInput = {
@@ -157,7 +222,8 @@ export type WarningCode =
   | "MISSING_PRICE"
   | "NEGATIVE_MARKET_DUE"
   | "REPAYMENT_EXCEEDS_DUE"
-  | "NEGATIVE_BALANCE";
+  | "NEGATIVE_BALANCE"
+  | "CASH_SNAPSHOT_MISSING";
 
 export type EngineWarning = {
   code: WarningCode;
@@ -175,6 +241,8 @@ export type ProductDayResult = {
   returned: string;
   delivered: string;
   damaged: string;
+  /** Pieces found damaged in the godown (D53); stock and cost fall, sales do not. */
+  godownDamaged: string;
   sold: string;
   orderPrice: string | null;
   costPrice: string | null;
@@ -186,15 +254,49 @@ export type ProductDayResult = {
   grossProfit: string;
   returnValue: string;
   orderValue: string;
+  /** Excess receipt billed at once (D48): pieces received beyond what was ordered. */
   receiptBill: string;
+  /** Billed value of the goods received: released undelivered value + `receiptBill`. */
+  receiptValue: string;
   receiptSale: string;
   damageValue: string;
+  /** Damage money refund + company replacement goods at unit cost (D47 memo; not profit). */
+  damageRecovery: string;
   replacedFromStock: string;
   replacementReceived: string;
   incentiveReceived: string;
   dueFromCompany: string;
+  /** Billed value of the goods not yet received (D48). */
+  dueFromCompanyValue: string;
   stock: string;
+  /** Σ batch quantity × batch cost (D49). */
   stockValue: string;
+  /** The batches left at the end of the day, oldest first; the newest may be 0 (D49). */
+  batches: BatchResult[];
+  /** Damaged pieces held in the godown at the end of the day (D53). */
+  damagedStock: string;
+  /** Damaged pieces at the company awaiting its decision (D53). */
+  damageAtCompany: string;
+};
+
+/** A batch with what is left of it (D49). */
+export type BatchResult = {
+  seq: number;
+  startDate: string;
+  costPrice: string;
+  salePrice: string;
+  quantity: string;
+  /** quantity × costPrice. */
+  value: string;
+};
+
+/** The pieces of one DSR line taken from one batch, in FIFO order (D49). */
+export type LineAllocationResult = {
+  seq: number;
+  /** Negative only for a line that returns pieces (net below zero). */
+  quantity: string;
+  costPrice: string;
+  salePrice: string;
 };
 
 export type PersonDayResult = {
@@ -211,6 +313,8 @@ export type PersonDayResult = {
   commission: string;
   /** sold × sale price (+ split adjustment − commission): what the DSR sold for cash or due. */
   soldValue: string;
+  /** FIFO allocation of `net` over the batches (D49); the first `sold` pieces are sold. */
+  allocations: LineAllocationResult[];
 };
 
 /** One DSR's money for a day (D39 cash check): sales, dues and costs paid from that cash. */
@@ -255,6 +359,7 @@ export type ProductMonthResult = {
   returned: string;
   delivered: string;
   damaged: string;
+  godownDamaged: string;
   sold: string;
   orderTotal: string;
   receiptTotal: string;
@@ -265,6 +370,7 @@ export type ProductMonthResult = {
   profitTotal: string;
   returnValue: string;
   damageValue: string;
+  damageRecovery: string;
   replacedFromStock: string;
   replacementReceived: string;
   replacementValue: string;
@@ -274,8 +380,13 @@ export type ProductMonthResult = {
   closingValue: string;
   closingAtSale: string;
   closingCartons: string;
+  /** The batches at the end of the range, oldest first (D49). */
+  closingBatches: BatchResult[];
   dueFromCompany: string;
   dueFromCompanyValue: string;
+  /** Damaged goods stock in the godown, and damaged pieces at the company (D53). */
+  damagedStock: string;
+  damageAtCompany: string;
 };
 
 export type PersonMonthResult = {
@@ -304,6 +415,7 @@ export type MonthResult = {
     costTotal: string;
     profitTotal: string;
     damageValue: string;
+    damageRecovery: string;
     replacementValue: string;
     closingValue: string;
   };
@@ -331,11 +443,17 @@ export type MonthResult = {
   staff: StaffMonthResult[];
   companyPayable: {
     opening: string;
+    /** Σ order bills (D48): an order is billed on its day. */
+    orders: string;
+    /** Σ excess receipt bills: goods received beyond what was ordered. */
     receipts: string;
     deposits: string;
     incentives: string;
     damageRefunds: string;
     closing: string;
+    /** Billed value of goods ordered and not yet received, at the start and end of the range. */
+    undeliveredOpening: string;
+    undeliveredClosing: string;
   };
   profit: {
     gross: string;
@@ -343,26 +461,58 @@ export type MonthResult = {
     expenses: string;
     expensesByCategory: Record<string, string>;
     srIncentive: string;
-    /** gross − salaries − expenses − SR incentive (D20). */
+    /** gross − salaries − expenses − SR incentive (D20); damage recovery is not profit (D47). */
     net: string;
-    /** Excel's monthly profit, which leaves out the SR incentive (PLAN §2.5). */
+    /** Net before the SR incentive (Excel's monthly profit, PLAN §2.5). */
     netWithoutIncentive: string;
   };
   cashLeftTotal: string;
+  /** The cash and bank book per account over the range (D52). */
+  cashBook: CashBookAccountResult[];
+};
+
+export type CashBookAccountResult = {
+  /** The account id, or `""` for money with no account. */
+  accountId: string;
+  opening: string;
+  /** Σ money in (including transfers in and the day's sales cash). */
+  in: string;
+  out: string;
+  closing: string;
 };
 
 export type StaffBalanceValues = Required<Record<keyof StaffBalances, string>>;
+
+/** A batch as the closing carries it into the next opening (D49). */
+export type BatchCarry = {
+  seq: number;
+  startDate: string;
+  costPrice: string;
+  salePrice: string;
+  quantity: string;
+};
 
 /** Next month's opening; assignable to `MonthOpening`. */
 export type MonthClosing = {
   products: Record<
     ProductId,
-    { stock: string; dueFromCompany: string } & Partial<Record<PriceKind, string>>
+    {
+      stock: string;
+      dueFromCompany: string;
+      dueFromCompanyValue: string;
+      /** D49: the FIFO batches; absent in snapshots stored before batches (one is derived). */
+      batches?: BatchCarry[];
+      /** D53: absent in snapshots stored before damaged-goods stock; read as 0. */
+      damagedStock?: string;
+      damageAtCompany?: string;
+    } & Partial<Record<PriceKind, string>>
   >;
   marketDue: Record<StaffId, string>;
   shopDue: Record<ShopId, string>;
   staff: Record<StaffId, StaffBalanceValues>;
   companyPayable: string;
+  /** Cash and bank book balances by account (D52); absent in snapshots stored before it. */
+  cashAccounts?: Record<string, string>;
 };
 
 /** One market due entry against a shop, in posting order, with the shop's due after it. */
@@ -389,24 +539,45 @@ export type StaffEntryResult = {
   balances: StaffBalanceValues;
 };
 
-export type CompanyEntryKind = "receipt" | "deposit" | "incentive" | "damageRefund" | "freeGoods";
+export type CompanyEntryKind =
+  "order" | "receipt" | "deposit" | "incentive" | "damageRefund" | "freeGoods" | "replacement";
 
 /**
- * One movement of what we owe the company, in posting order: a day's receipt bills (raises it),
- * a deposit, a cash incentive or a damage money return (lower it). `freeGoods` is a memo with
- * amount 0 (D16).
+ * One movement of what we owe the company, in posting order (D48): an order bill and the bill of
+ * goods received beyond the order (`receipt`, amount may be 0) raise it; a deposit, a cash
+ * incentive or a damage money return lower it. `freeGoods` (amount 0) and `replacement` (amount
+ * = quantity × unit cost) are memos that do not move the balance.
  */
 export type CompanyEntryResult = {
   date: string;
   kind: CompanyEntryKind;
   amount: string;
   ref?: string;
-  /** The product of a damage money return or free goods. */
+  /** The product of an order, receipt, damage money return, free goods or replacement. */
   productId?: ProductId;
-  /** Pieces of free goods (memo only). */
+  /** Pieces ordered, received, given free or replaced. */
   quantity?: string;
-  /** What we owe the company after this entry (negative = our advance with it). */
+  /** What we owe the company after this entry (negative = money deposited with it). */
   balance: string;
+  /** Billed value of goods ordered and not yet received, after this entry. */
+  undelivered: string;
+};
+
+/**
+ * One movement of a cash book account (D52): a day's sales cash, a money entry or one side of a
+ * transfer, in posting order, with that account's balance after it.
+ */
+export type CashEntryResult = {
+  date: string;
+  ref?: string;
+  /** `sales` (the day's sales cash) or the money kind. */
+  type: "sales" | MoneyKind;
+  account: string;
+  in: string;
+  out: string;
+  balance: string;
+  /** For a transfer, the other account. */
+  counterAccount?: string;
 };
 
 export type MonthOutput = {
@@ -416,5 +587,6 @@ export type MonthOutput = {
   staffEntries: StaffEntryResult[];
   companyEntries: CompanyEntryResult[];
   shopEntries: ShopEntryResult[];
+  cashEntries: CashEntryResult[];
   warnings: EngineWarning[];
 };

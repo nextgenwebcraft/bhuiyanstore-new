@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  moneyAccountKinds,
   moneyAllocationKinds,
   moneyCategoryKinds,
   moneyKindPermission,
@@ -22,6 +23,7 @@ import { Field, inputClass } from "@/components/field";
 import { PageHeader } from "@/components/page-header";
 import { FormSkeleton, TableSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
+import { StatTile } from "@/components/stat-tile";
 import { describeError } from "@/data/ports/service-error";
 import { useConfigList, usePostMoneyEntry, useStaffRecords } from "@/data/queries";
 import { NavGate } from "@/features/shell/nav-gate";
@@ -36,6 +38,7 @@ import {
   useWorkingDate,
 } from "./daily-kit";
 import { money } from "@/components/data-table";
+import { AccountSelect } from "./account-select";
 
 const kindLabel = (kind: MoneyEntryKind) => t(`money.kind.${kind}` as TranslationKey);
 const entryLabel = (entry: MoneyEntry) =>
@@ -80,6 +83,7 @@ function EntryForm({
   const [split, setSplit] = useState(false);
   const [allocation, setAllocation] = useState(EMPTY_ALLOCATION);
   const [loanType, setLoanType] = useState<SrLoanType | "">("");
+  const [accountId, setAccountId] = useState("");
   const [error, setError] = useState<string | undefined>();
   const [done, setDone] = useState(false);
 
@@ -89,6 +93,7 @@ function EntryForm({
   const personRequired = MONEY_KIND_EFFECTS[kind].requiresStaff;
   const needsCategory = moneyCategoryKinds.includes(kind);
   const canSplit = moneyAllocationKinds.includes(kind);
+  const movesAccount = moneyAccountKinds.includes(kind);
 
   async function submit() {
     setError(undefined);
@@ -128,6 +133,7 @@ function EntryForm({
         expenseCategoryId: needsCategory ? categoryId : null,
         allocation: canSplit && split ? parts : null,
         srLoanType: needsLoanType && loanType ? loanType : null,
+        cashAccountId: movesAccount && accountId ? accountId : null,
       });
       setAmount("");
       setAllocation(EMPTY_ALLOCATION);
@@ -208,6 +214,9 @@ function EntryForm({
                 ))}
             </select>
           </Field>
+        ) : null}
+        {movesAccount ? (
+          <AccountSelect id={`${id}-account`} value={accountId} onChange={setAccountId} />
         ) : null}
         {needsLoanType ? (
           <Field
@@ -326,6 +335,7 @@ export function MoneyEntriesPage({
               columns={[
                 { label: "common.kind", cell: entryLabel },
                 { label: "money.party", cell: (e) => e.staffName ?? e.categoryName ?? "—" },
+                { label: "money.account", cell: (e) => e.cashAccountName ?? "—" },
                 { label: "common.amount", numeric: true, cell: (e) => money(e.amount) },
               ]}
             />
@@ -333,5 +343,30 @@ export function MoneyEntriesPage({
         )}
       </DayGate>
     </NavGate>
+  );
+}
+
+/** Deposits with the company, headed by the company balance at the end of the chosen date (D48). */
+export function SupplierDepositsPage() {
+  return (
+    <MoneyEntriesPage
+      path="finance/supplier-deposits"
+      title="finance.supplierDeposit"
+      description="money.description.supplierDeposit"
+      kinds={["supplierDeposit", "companyIncentive"]}
+      aside={(view) =>
+        view.company ? (
+          <dl className="mb-4 grid gap-3 sm:grid-cols-2">
+            <StatTile
+              label={t("godown.company.balance")}
+              value={money(view.company.balance)}
+              hint={t("companyAccount.balanceHint")}
+              emphasis
+              large
+            />
+          </dl>
+        ) : null
+      }
+    />
   );
 }

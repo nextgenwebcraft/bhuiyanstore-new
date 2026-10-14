@@ -2,9 +2,12 @@
 
 import { moneyKindPermission, type Shop } from "@bsd/contracts";
 import { t } from "@bsd/i18n";
-import { useId, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { Button } from "@/components/button";
+import { Combobox, type ComboboxOption } from "@/components/combobox";
+import { exactMatch } from "@/components/combobox-logic";
 import { Field, inputClass } from "@/components/field";
+import { AccountSelect } from "@/features/daily/account-select";
 import { PageHeader } from "@/components/page-header";
 import { QueryError } from "@/components/query-error";
 import { FormSkeleton, TableSkeleton } from "@/components/skeleton";
@@ -47,28 +50,54 @@ function EntryForm({
   const post = usePostMoneyEntry(companyId);
   const [kind, setKind] = useState<DueKind>(kinds[0] ?? "marketDueNew");
   const [shopText, setShopText] = useState("");
+  const [shopId, setShopId] = useState<string | null>(null);
   const [staffId, setStaffId] = useState("");
   const [amount, setAmount] = useState("");
+  const [accountId, setAccountId] = useState("");
   const [error, setError] = useState<string | undefined>();
   const [done, setDone] = useState(false);
 
   const active = shops.filter((s) => s.status === "active");
-  const shop = active.find((s) => s.name === shopText.trim());
+  const options = useMemo<ComboboxOption[]>(
+    () =>
+      shops
+        .filter((s) => s.status === "active")
+        .map((s) => ({
+          id: s.id,
+          label: s.name,
+          secondary: [s.ownerName, s.area].filter(Boolean).join(" · "),
+          ...(s.due != null ? { trailing: money(s.due) } : {}),
+          tone: overLimit(s) ? ("danger" as const) : ("default" as const),
+        })),
+    [shops],
+  );
+  // A picked row, else a listed shop whose name was typed exactly; anything else is a new shop (D50).
+  const pickedId = shopId ?? exactMatch(options, shopText)?.id ?? null;
+  const shop = active.find((s) => s.id === pickedId);
+  const newName = shop ? "" : shopText.trim();
   const dsrs = dsrsOn(records.data ?? [], companyId, date);
 
   async function submit() {
     setError(undefined);
     setDone(false);
     const value = clean(amount);
-    if (!shop) return setError(t("validation.shop.required"));
+    if (!shop && !newName) return setError(t("validation.shop.required"));
     if (!staffId) return setError(t("validation.daily.staffRequired"));
     if (!/^\d+(\.\d{1,2})?$/.test(value) || !/[1-9]/.test(value)) {
       return setError(t("validation.amountPositive"));
     }
     try {
-      await post.mutateAsync({ date, kind, amount: value, staffId, shopId: shop.id });
+      await post.mutateAsync({
+        date,
+        kind,
+        amount: value,
+        staffId,
+        cashAccountId: accountId || null,
+        ...(shop ? { shopId: shop.id } : { newShop: { name: newName } }),
+      });
       setAmount("");
       setShopText("");
+      setShopId(null);
       setDone(true);
     } catch (e) {
       setError(describeError(e, []).form);
@@ -107,25 +136,34 @@ function EntryForm({
           hint={
             shop?.due != null
               ? `${t("shop.due")}: ${money(shop.due)}${overLimit(shop) ? ` — ${t("shop.overLimit")}` : ""}`
-              : undefined
+              : newName
+                ? t("shop.combobox.createHint")
+                : undefined
           }
         >
-          <input
+          <Combobox
             id={`${id}-shop`}
-            list={`${id}-shops`}
-            value={shopText}
-            autoComplete="off"
+            text={shopText}
+            onTextChange={(text) => {
+              setShopText(text);
+              setShopId(null);
+            }}
+            options={options}
+            selectedId={pickedId}
+            onChoose={(choice) => {
+              if (choice.kind === "option") {
+                setShopText(choice.option.label);
+                setShopId(choice.option.id);
+              } else {
+                setShopText(choice.text);
+                setShopId(null);
+              }
+            }}
+            createLabel={(text) => `＋ ${t("shop.combobox.create")}: “${text}”`}
             placeholder={t("shop.pick")}
-            onChange={(event) => setShopText(event.target.value)}
-            className={inputClass}
+            emptyLabel={t("shop.combobox.empty")}
+            listLabel={t("shop.label")}
           />
-          <datalist id={`${id}-shops`}>
-            {active.map((s) => (
-              <option key={s.id} value={s.name}>
-                {[s.ownerName, s.area].filter(Boolean).join(" · ")}
-              </option>
-            ))}
-          </datalist>
         </Field>
         <Field id={`${id}-staff`} label={t("money.person.dsr")}>
           <select
@@ -154,8 +192,8 @@ function EntryForm({
             className={inputClass}
           />
         </Field>
+        <AccountSelect id={`${id}-account`} value={accountId} onChange={setAccountId} />
       </div>
-      {active.length === 0 ? <p className="text-xs text-text-muted">{t("shop.noneYet")}</p> : null}
       {error ? <StatePanel tone="error" title={error} /> : null}
       {done ? <StatePanel title={t("common.posted")} /> : null}
       <div>

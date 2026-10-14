@@ -2,6 +2,7 @@
 
 import type {
   DayView,
+  LineAllocation,
   DsrDay,
   DsrDaySaveRequest,
   FieldDay,
@@ -17,7 +18,7 @@ import {
   toDecimal,
 } from "@bsd/domain";
 import { useAsyncAction } from "@/lib/async-action";
-import { formatDateTime, formatRate, t } from "@bsd/i18n";
+import { formatCount, formatDateTime, formatRate, t } from "@bsd/i18n";
 import { useState } from "react";
 import { Button } from "@/components/button";
 import { PageHeader } from "@/components/page-header";
@@ -112,6 +113,19 @@ export function dsrsOn(records: StaffRecord[], companyId: string, date: string) 
         (a.to === null || a.to >= date),
     ),
   );
+}
+
+/** One line's FIFO allocation as small muted text: "ব্যাচ ১: ৪০ পিস @ ৳২০"; a net return reads "ফেরত ব্যাচ ১: ৫ পিস" (D49). */
+function allocationText(allocations: LineAllocation[]): string {
+  return allocations
+    .filter((a) => !toDecimal(a.quantity).isZero())
+    .map((a) => {
+      const returned = toDecimal(a.quantity).isNegative();
+      const pieces = `${formatCount(returned ? a.quantity.replace("-", "") : a.quantity)} ${t("common.pieces")}`;
+      const head = `${returned ? `${t("batch.returned")} ` : ""}${t("batch.label")} ${formatCount(a.seq)}: ${pieces}`;
+      return returned ? head : `${head} @ ${t("batch.currency")}${formatRate(a.salePrice)}`;
+    })
+    .join(", ");
 }
 
 function split(pieces: string, size: string): [string, string] {
@@ -322,7 +336,7 @@ function FieldEntries({
   );
 }
 
-/** Day-end cash check (D39): display only, nothing is posted from it. */
+/** Day-end cash check (D39). Posting the sheet settles the difference as the DSR's shortage or excess (D54). */
 function CashCheck({
   sales,
   dueGiven,
@@ -330,6 +344,7 @@ function CashCheck({
   expenses,
   handedOver,
   locked,
+  settled,
   onHandedOver,
 }: {
   sales: string;
@@ -338,6 +353,8 @@ function CashCheck({
   expenses: string;
   handedOver: string;
   locked: boolean;
+  /** The difference shown is already posted (D54). */
+  settled: boolean;
   onHandedOver: (value: string) => void;
 }) {
   const handed = clean(handedOver);
@@ -395,6 +412,11 @@ function CashCheck({
           {toDecimal(diff).gt(0) ? ` (${t("dsr.cash.excess")})` : ""}
         </p>
       ) : null}
+      {diff !== null && !toDecimal(diff).isZero() ? (
+        <p className="text-sm text-text-muted">
+          {settled ? t("dsr.cash.posted") : t("dsr.cash.willPost")}
+        </p>
+      ) : null}
       <p className="text-xs text-text-muted">{t("dsr.cash.hint")}</p>
     </section>
   );
@@ -425,7 +447,11 @@ function SheetEditor({
   const action = useAsyncAction();
   const shownError = error ?? action.error;
   const posted = sheet?.status === "posted";
-  const locked = posted || !permissions.includes("sale.create");
+  // D56: a posted sheet stays editable; saving it reverses it and posts the edit in its place.
+  const canCorrect = (["sale.create", "sale.post", "sale.reverse"] as const).every((p) =>
+    permissions.includes(p),
+  );
+  const locked = !permissions.includes("sale.create") || (posted && !canCorrect);
   const base = { date, staffId: staff.id, version: sheet?.version ?? 0 };
   const built = requestOf(draft, view, base);
   const dirty =
@@ -434,6 +460,9 @@ function SheetEditor({
   const pending = save.isPending || command.isPending;
   const amounts = new Map(
     view.persons.filter((p) => p.staffId === staff.id).map((p) => [p.productId, p.amount]),
+  );
+  const allocations = new Map(
+    view.persons.filter((p) => p.staffId === staff.id).map((p) => [p.productId, p.allocations]),
   );
   const entered = typeof built === "string" ? [] : built.lines;
   const fieldDay = useDsrFieldDay(companyId, staff.id, date);
@@ -444,7 +473,7 @@ function SheetEditor({
     sumAmounts(["0", ...posts.filter((e) => e.kind === kind).map((e) => e.amount)]);
   const sheetDue = (value: string | undefined) => value ?? "0";
   const cash = {
-    sales: posted ? sumAmounts(["0", ...amounts.values()]) : previewSales(entered, view),
+    sales: posted && !dirty ? sumAmounts(["0", ...amounts.values()]) : previewSales(entered, view),
     dueGiven: field
       ? field.totals.dueCreated
       : sumAmounts([entrySum("marketDueNew"), sheetDue(sheet?.marketDueNew)]),
@@ -504,8 +533,16 @@ function SheetEditor({
       lines: { ...d.lines, [productId]: { ...(d.lines[productId] ?? blankLine), ...patch } },
     }));
 
-  async function run(kind: "save" | "post" | "discard" | "reverse") {
+  async function run(kind: "save" | "post" | "discard" | "reverse" | "correct") {
     setError(undefined);
+    if (kind === "correct") {
+      if (typeof built === "string") {
+        setError(built);
+        return;
+      }
+      await action.run(() => save.mutateAsync(built), { confirm: "dsr.sheet.correctConfirm" });
+      return;
+    }
     if (kind === "save" || kind === "post") {
       if (typeof built === "string") {
         setError(built);
@@ -556,7 +593,9 @@ function SheetEditor({
         <h2 className="text-lg font-semibold">{staff.name}</h2>
         <StatusChip status={sheet?.status ?? "none"} />
       </div>
-      {posted ? <StatePanel title={t("dsr.sheet.postedHint")} /> : null}
+      {posted ? (
+        <StatePanel title={t(canCorrect ? "dsr.sheet.postedEditHint" : "dsr.sheet.postedHint")} />
+      ) : null}
       <TableSummary label={t("table.summary")} items={sheetSummary} />
       <TableScroller>
         <table className={tableClass}>
@@ -616,6 +655,12 @@ function SheetEditor({
                       {product.sku} · {t("godown.column.stock")}{" "}
                       <CartonQty pieces={product.stock} piecesPerCarton={product.piecesPerCarton} />
                     </div>
+                    {posted && allocationText(allocations.get(product.productId) ?? []) ? (
+                      <div className="max-w-56 text-xs font-normal whitespace-normal text-text-muted">
+                        <span className="sr-only">{t("dsr.allocation.title")}: </span>
+                        {allocationText(allocations.get(product.productId) ?? [])}
+                      </div>
+                    ) : null}
                   </th>
                   <td className={`${inputCell} border-l ${GROUP.issued.cell}`}>
                     {cell(
@@ -682,6 +727,7 @@ function SheetEditor({
         {...cash}
         handedOver={draft.handedOver}
         locked={locked}
+        settled={posted && !dirty}
         onHandedOver={(handedOver) => setDraft((d) => ({ ...d, handedOver }))}
       />
       {shownError ? <StatePanel tone="error" title={shownError} /> : null}
@@ -699,6 +745,15 @@ function SheetEditor({
         {sheet?.status === "draft" && permissions.includes("sale.create") ? (
           <Button disabled={pending} onClick={() => void run("discard")}>
             {t("dsr.sheet.discard")}
+          </Button>
+        ) : null}
+        {posted && canCorrect ? (
+          <Button
+            variant="primary"
+            disabled={pending || !dirty}
+            onClick={() => void run("correct")}
+          >
+            {save.isPending ? t("common.posting") : t("dsr.sheet.correct")}
           </Button>
         ) : null}
         {posted && permissions.includes("sale.reverse") ? (

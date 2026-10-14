@@ -1,0 +1,12 @@
+id: 2026-10-14-money-display-two-places
+reason: The owner saw the undelivered goods value (company account, D48) with many decimal places and chose display-only rounding to 2 places instead of rounding in the engine (P01 stays open).
+owners: [i18n]
+changes:
+  - packages/i18n - formatMoney shows at most 2 decimal places, half away from zero (same mode as the engine's ROUND_HALF_UP); values with 2 places or fewer are unchanged; formatAmount and formatRate keep exact decimals
+affectedActionIds: []
+financialImpact: none; engine output, stored values, API responses and CSV/XLSX exports stay exact. Shown per-line money can differ from the shown total by a paisa where the exact values have more than 2 places.
+backfill: none
+tests:
+  - packages/i18n/src/format.test.ts (rounding up, down, carry, negative, negative zero, short values unchanged)
+rollout: deploy the app (no migration)
+recovery: revert the commit

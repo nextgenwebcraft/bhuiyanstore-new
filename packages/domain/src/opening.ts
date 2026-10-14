@@ -207,9 +207,25 @@ export function checkOpening(input: OpeningCheckInput): {
 export function toMonthOpening(input: OpeningCheckInput): MonthOpening {
   const products: Record<string, OpeningProduct> = {};
   for (const line of input.stock) {
+    const pieces = line.pieces ?? "0";
     products[line.productId] = {
-      stock: line.pieces ?? "0",
+      stock: pieces,
       dueFromCompany: line.dueFromCompany ?? "0",
+      // D49: the opening stock is the product's first batch at the line's cost and sale price. A
+      // line without both prices leaves it to the engine (one batch, prices as entered).
+      ...(toDecimal(pieces).gt(0) && line.unitCost !== null && line.salePrice !== null
+        ? {
+            batches: [
+              {
+                seq: 1,
+                startDate: input.cutoffDate ?? "opening",
+                costPrice: line.unitCost,
+                salePrice: line.salePrice,
+                quantity: pieces,
+              },
+            ],
+          }
+        : {}),
       ...(line.orderPrice !== null ? { orderPrice: line.orderPrice } : {}),
       ...(line.unitCost !== null ? { costPrice: line.unitCost } : {}),
       ...(line.salePrice !== null ? { salePrice: line.salePrice } : {}),
@@ -218,6 +234,7 @@ export function toMonthOpening(input: OpeningCheckInput): MonthOpening {
   const marketDue: Record<string, string> = {};
   const shopDue: Record<string, string> = {};
   const staff: Record<string, StaffBalances> = {};
+  const cashAccounts: Record<string, string> = {};
   let companyPayable = new Decimal(0);
   for (const line of input.balances) {
     if (line.amount === null) continue;
@@ -245,7 +262,20 @@ export function toMonthOpening(input: OpeningCheckInput): MonthOpening {
       companyPayable = companyPayable.add(line.amount);
     } else if (effect.group === "companyAdvance") {
       companyPayable = companyPayable.sub(line.amount);
+    } else if (effect.group === "cash") {
+      // D52: the cash book's opening balance per account; a line without one is the "" bucket.
+      const key = line.cashAccountId ?? "";
+      cashAccounts[key] = toDecimal(cashAccounts[key] ?? "0")
+        .add(line.amount)
+        .toString();
     }
   }
-  return { products, marketDue, shopDue, staff, companyPayable: companyPayable.toString() };
+  return {
+    products,
+    marketDue,
+    shopDue,
+    staff,
+    companyPayable: companyPayable.toString(),
+    cashAccounts,
+  };
 }

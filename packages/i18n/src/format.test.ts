@@ -55,6 +55,17 @@ describe("formatMoney", () => {
     expect(formatMoney(null)).toBe("—");
     expect(formatMoney("15100.00")).toBe("১৫,১০০.০০");
   });
+
+  it("shows at most 2 decimal places, rounding half away from zero", () => {
+    expect(formatMoney("1169742.28797525084")).toBe("১১,৬৯,৭৪২.২৯");
+    expect(formatMoney("10.004")).toBe("১০.০০");
+    expect(formatMoney("10.005")).toBe("১০.০১");
+    expect(formatMoney("99.995")).toBe("১০০.০০");
+    expect(formatMoney("-2.675")).toBe("-২.৬৮");
+    expect(formatMoney("-0.001")).toBe("০.০০");
+    expect(formatMoney("7585")).toBe("৭,৫৮৫");
+    expect(formatMoney("12.5")).toBe("১২.৫");
+  });
 });
 
 describe("formatDateTime", () => {

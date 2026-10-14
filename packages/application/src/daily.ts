@@ -4,6 +4,7 @@ import {
   documentTransitionRequestSchema,
   dsrDaySaveRequestSchema,
   dsrDaySchema,
+  moneyAccountKinds,
   moneyAllocationKinds,
   moneyCategoryKinds,
   moneyEntryPostRequestSchema,
@@ -25,8 +26,10 @@ import {
 import type { Prisma } from "@bsd/database";
 import {
   MONEY_KIND_EFFECTS,
+  dsrCashSettlement,
   monthOf,
   sumAmounts,
+  sumQuantities,
   summarizeDay,
   toDecimal,
   todayBusinessDate,
@@ -42,10 +45,11 @@ import type { AppContext, Tx } from "./context";
 import { fromDbDate, toDbDate } from "./dates";
 import { AppError, invalid, parseInput } from "./errors";
 import { hasFieldVisits, postFieldVisits, reverseFieldVisits } from "./field-posting";
-import { runIdempotent } from "./idempotency";
-import { liveOpening, allocationOf, namesFor, rangeRun, runLedger } from "./ledger";
+import { isUniqueViolation, runIdempotent } from "./idempotency";
+import { cashDefaults, liveOpening, allocationOf, namesFor, rangeRun, runLedger } from "./ledger";
 import { parseReportRange } from "./report-range";
 import { plain } from "./numeric";
+import { insertShop } from "./shop-rows";
 import { packOn } from "./products";
 
 const isZero = (amount: string) => toDecimal(amount).isZero();
@@ -203,6 +207,9 @@ export async function postStockEntries(
           })),
         });
       }
+      // D53: pieces found damaged in the godown leave saleable stock.
+      const damaged = request.lines.filter((l) => l.kind === "damage").map((l) => l.productId);
+      await ensureStockCovers(tx, access, request.date, damaged);
       const before: Record<string, string> = {};
       for (const price of request.prices) {
         const key = { productId: price.productId, kind: price.kind, effectiveFrom: date };
@@ -375,9 +382,20 @@ export async function saveDsrDay(
       const live = await tx.dsrDay.findFirst({
         where: { companyId, staffId: request.staffId, date, status: { not: "reversed" } },
       });
-      if (live?.status === "posted") throw invalid("", "validation.daily.posted");
       if ((live?.version ?? 0) !== request.version) {
         throw invalid("version", "validation.daily.stale");
+      }
+      // D56: saving a posted sheet corrects it; the posted one is reversed with all it owns and
+      // the edited sheet is posted in its place, in this transaction.
+      const corrected = live?.status === "posted" ? await loadDsrDay(tx, companyId, live.id) : null;
+      if (corrected) {
+        if (
+          !access.permissions.includes("sale.post") ||
+          !access.permissions.includes("sale.reverse")
+        ) {
+          throw new AppError("FORBIDDEN");
+        }
+        await moveDsrDay(tx, ctx, access, corrected, "reversed");
       }
       const data = {
         ...(request.marketDueNew === undefined ? {} : { marketDueNew: request.marketDueNew }),
@@ -387,7 +405,7 @@ export async function saveDsrDay(
         ...(request.cashHandedOver === undefined ? {} : { cashHandedOver: request.cashHandedOver }),
       };
       let id: string;
-      if (live) {
+      if (live && !corrected) {
         const updated = await tx.dsrDay.updateMany({
           where: { id: live.id, version: live.version, status: "draft" },
           data: { ...data, version: { increment: 1 } },
@@ -400,6 +418,15 @@ export async function saveDsrDay(
           id = (
             await tx.dsrDay.create({
               data: {
+                ...(corrected
+                  ? {
+                      // Above the corrected sheet's, so a screen still holding it is stale.
+                      version: corrected.version + 1,
+                      marketDueNew: corrected.marketDueNew,
+                      marketDueCollected: corrected.marketDueCollected,
+                      cashHandedOver: corrected.cashHandedOver,
+                    }
+                  : {}),
                 ...data,
                 tenantId: access.company.tenantId,
                 companyId,
@@ -429,16 +456,106 @@ export async function saveDsrDay(
           },
         });
       }
+      if (corrected) {
+        const draft = await loadDsrDay(tx, companyId, id);
+        await moveDsrDay(tx, ctx, access, draft, "posted");
+        await ensureStockCovers(tx, access, request.date, [
+          ...new Set([...stockTakenOut(corrected, "reversed"), ...stockTakenOut(draft, "posted")]),
+        ]);
+      }
       await recordAudit(tx, ctx, {
         companyId,
-        action: "dsr_day.save",
+        action: corrected ? "dsr_day.correct" : "dsr_day.save",
         resourceType: "dsr_day",
         resourceId: id,
+        ...(corrected ? { before: { id: corrected.id, version: corrected.version } } : {}),
         after: { ...data, staffId: request.staffId, date: request.date, lines },
       });
       return toDsrDay(await loadDsrDay(tx, companyId, id));
     },
   );
+}
+
+/**
+ * D54: posting a sheet with the cash handed over settles the difference to what was expected
+ * (D39 formula): short becomes a staff shortage, over a staff excess, both owned by the day (they
+ * carry its id, are refused individual reversal and are reversed with the day). Runs in the posting
+ * transaction after the sheet is posted, so the engine day already counts it.
+ */
+async function settleHandover(
+  tx: Tx,
+  ctx: AppContext,
+  access: CompanyAccess,
+  day: { id: string; staffId: string; date: string; cashHandedOver: Parameters<typeof plain>[0] },
+): Promise<void> {
+  if (day.cashHandedOver === null) return;
+  const run = await runLedger(tx, access, day.date);
+  const money = run?.output.days
+    .find((d) => d.date === day.date)
+    ?.dsrs.find((d) => d.staffId === day.staffId);
+  const cash = dsrCashSettlement({
+    sales: money?.sales ?? "0",
+    dueGiven: money?.marketDueNew ?? "0",
+    dueCollected: money?.marketDueCollected ?? "0",
+    expenses: money?.costPaid ?? "0",
+    handedOver: plain(day.cashHandedOver),
+  });
+  const difference = toDecimal(cash.difference ?? "0");
+  if (difference.isZero()) return;
+  const defaults = await cashDefaults(tx, access.company.tenantId, access.company.id);
+  await tx.moneyEntry.create({
+    data: {
+      tenantId: access.company.tenantId,
+      companyId: access.company.id,
+      date: toDbDate(day.date),
+      kind: difference.isNegative() ? "staffShortage" : "staffExcess",
+      amount: difference.abs().toString(),
+      staffId: day.staffId,
+      dsrDayId: day.id,
+      cashAccountId: defaults.cash || null,
+      createdById: ctx.actor.userId,
+    },
+  });
+}
+
+/**
+ * Posts or reverses a sheet with everything it owns: the field visits' dues and exchange case (D40)
+ * and the handover settlement (D54). The stock check is left to the caller.
+ */
+async function moveDsrDay(
+  tx: Tx,
+  ctx: AppContext,
+  access: CompanyAccess,
+  row: DsrRow,
+  to: "posted" | "reversed",
+): Promise<void> {
+  const now = new Date();
+  const stamp =
+    to === "posted"
+      ? { postedAt: now, postedById: ctx.actor.userId }
+      : { reversedAt: now, reversedById: ctx.actor.userId };
+  const updated = await tx.dsrDay.updateMany({
+    where: { id: row.id, version: row.version, status: to === "posted" ? "draft" : "posted" },
+    data: { status: to, version: { increment: 1 }, ...stamp },
+  });
+  if (updated.count !== 1) throw invalid("version", "validation.daily.stale");
+  const day = { id: row.id, staffId: row.staffId, date: fromDbDate(row.date) };
+  if (to === "posted") {
+    await postFieldVisits(tx, ctx, access, { ...row, ...day });
+    await settleHandover(tx, ctx, access, { ...day, cashHandedOver: row.cashHandedOver });
+  } else {
+    await reverseFieldVisits(tx, ctx, access.company.id, day);
+  }
+}
+
+/** Products whose stock a move takes out: posting takes issued − returned, reversing gives it back. */
+function stockTakenOut(row: DsrRow, to: "posted" | "reversed"): string[] {
+  return row.lines
+    .filter((line) => {
+      const net = toDecimal(line.issued).sub(toDecimal(line.returned));
+      return to === "posted" ? net.gt(0) : net.lt(0);
+    })
+    .map((line) => line.productId);
 }
 
 async function transitionDsrDay(
@@ -461,32 +578,12 @@ async function transitionDsrDay(
         throw invalid("version", "validation.daily.stale");
       }
       await postingGuard(tx, companyId, fromDbDate(row.date));
-      const now = new Date();
-      const stamp =
-        move.to === "posted"
-          ? { postedAt: now, postedById: ctx.actor.userId }
-          : { reversedAt: now, reversedById: ctx.actor.userId };
-      const updated = await tx.dsrDay.updateMany({
-        where: { id, version, status: move.from },
-        data: { status: move.to, version: { increment: 1 }, ...stamp },
-      });
-      if (updated.count !== 1) throw invalid("version", "validation.daily.stale");
-      const day = { id, staffId: row.staffId, date: fromDbDate(row.date) };
-      if (move.to === "posted") {
-        await postFieldVisits(tx, ctx, access, { ...row, ...day });
-      } else {
-        await reverseFieldVisits(tx, ctx, companyId, day);
-      }
-      // Posting takes out issued − returned; reversing gives it back.
-      const takesOut = row.lines.filter((line) => {
-        const net = toDecimal(line.issued).sub(toDecimal(line.returned));
-        return move.to === "posted" ? net.gt(0) : net.lt(0);
-      });
+      await moveDsrDay(tx, ctx, access, row, move.to as "posted" | "reversed");
       await ensureStockCovers(
         tx,
         access,
         fromDbDate(row.date),
-        takesOut.map((line) => line.productId),
+        stockTakenOut(row, move.to as "posted" | "reversed"),
       );
       await recordAudit(tx, ctx, {
         companyId,
@@ -564,11 +661,14 @@ const CATEGORY_KINDS = new Set<MoneyEntryKind>(moneyCategoryKinds);
 const ALLOCATION_KINDS = new Set<MoneyEntryKind>(moneyAllocationKinds);
 const MARKET_KINDS = new Set<MoneyEntryKind>(["marketDueNew", "marketDueCollected"]);
 const SR_LOAN_TYPE_KINDS = new Set<MoneyEntryKind>(srLoanTypeKinds);
+const ACCOUNT_KINDS = new Set<MoneyEntryKind>(moneyAccountKinds);
 
 const moneyInclude = {
   staff: { select: { name: true } },
   shop: { select: { name: true } },
   expenseCategory: { select: { name: true } },
+  cashAccount: { select: { name: true } },
+  toCashAccount: { select: { name: true } },
 } as const;
 type MoneyRow = Prisma.MoneyEntryGetPayload<{ include: typeof moneyInclude }>;
 
@@ -586,7 +686,12 @@ function toMoneyEntry(row: MoneyRow): MoneyEntry {
     categoryName: row.expenseCategory?.name ?? null,
     allocation: allocationOf(row),
     srLoanType: row.srLoanType,
+    cashAccountId: row.cashAccountId,
+    cashAccountName: row.cashAccount?.name ?? null,
+    toCashAccountId: row.toCashAccountId,
+    toCashAccountName: row.toCashAccount?.name ?? null,
     payrollRunId: row.payrollRunId,
+    dsrDayId: row.dsrDayId,
     status: row.status,
     createdAt: row.createdAt.toISOString(),
     reversedAt: iso(row.reversedAt),
@@ -678,7 +783,7 @@ export async function postMoneyEntry(
   if (!person && request.staffId) throw invalid("staffId", "validation.daily.noStaffForKind");
   const market = MARKET_KINDS.has(request.kind);
   if (market && !request.staffId) throw invalid("staffId", "validation.daily.staffRequired");
-  if (market !== Boolean(request.shopId)) {
+  if (market !== Boolean(request.shopId ?? request.newShop)) {
     throw invalid("shopId", market ? "validation.shop.required" : "validation.shop.notForKind");
   }
   if (CATEGORY_KINDS.has(request.kind) !== Boolean(request.expenseCategoryId)) {
@@ -708,70 +813,118 @@ export async function postMoneyEntry(
     }
   }
 
-  return runIdempotent(
-    ctx,
-    { scope: companyId, action: "money.post", requestKey },
-    request,
-    async (tx) => {
-      await postingGuard(tx, companyId, request.date);
-      if (request.staffId) {
-        const role = await roleOn(tx, companyId, request.staffId, request.date);
-        if (!role) throw invalid("staffId", "validation.daily.staffNotAssigned");
-        if (person === "dsr" && role !== "dsr")
-          throw invalid("staffId", "validation.daily.dsrOnly");
-        if (person === "sr" && role !== "sr") throw invalid("staffId", "validation.daily.srOnly");
-        if (person === "distributor" && role === "sr") {
-          throw invalid("staffId", "validation.daily.notForSr");
+  try {
+    return await runIdempotent(
+      ctx,
+      { scope: companyId, action: "money.post", requestKey },
+      request,
+      async (tx) => {
+        await postingGuard(tx, companyId, request.date);
+        if (request.staffId) {
+          const role = await roleOn(tx, companyId, request.staffId, request.date);
+          if (!role) throw invalid("staffId", "validation.daily.staffNotAssigned");
+          if (person === "dsr" && role !== "dsr")
+            throw invalid("staffId", "validation.daily.dsrOnly");
+          if (person === "sr" && role !== "sr") throw invalid("staffId", "validation.daily.srOnly");
+          if (person === "distributor" && role === "sr") {
+            throw invalid("staffId", "validation.daily.notForSr");
+          }
         }
-      }
-      if (request.expenseCategoryId) {
-        const category = await tx.expenseCategory.findFirst({
-          where: { id: request.expenseCategoryId, tenantId: access.company.tenantId, active: true },
+        if (request.expenseCategoryId) {
+          const category = await tx.expenseCategory.findFirst({
+            where: {
+              id: request.expenseCategoryId,
+              tenantId: access.company.tenantId,
+              active: true,
+            },
+          });
+          if (!category) throw invalid("expenseCategoryId", "validation.daily.unknownCategory");
+        }
+        let shopId = request.shopId;
+        if (request.newShop) {
+          // D50: the shop typed on the due page. An exact-name match is reused, never duplicated;
+          // creating it needs only the posting permission of the kind, and rolls back with the entry.
+          const { name } = request.newShop;
+          const existing = await tx.shop.findFirst({ where: { companyId, name } });
+          if (existing && existing.status !== "active") {
+            throw invalid("newShop", "validation.shop.inactiveName");
+          }
+          shopId =
+            existing?.id ??
+            (await insertShop(tx, ctx, access.company.tenantId, companyId, { name })).id;
+        } else if (shopId) {
+          const shop = await tx.shop.findFirst({
+            where: { id: shopId, companyId, status: "active" },
+          });
+          if (!shop) throw invalid("shopId", "validation.shop.unknown");
+        }
+        if (
+          market &&
+          request.staffId &&
+          (await hasFieldVisits(tx, companyId, request.staffId, request.date))
+        ) {
+          throw invalid("shopId", "validation.field.manualDueBlocked");
+        }
+        await checkOwedLimits(tx, access, request, allocation);
+        // D52: named accounts must be active and the tenant's; an omitted one gets the default
+        // when the entry is stored, so the book never moves if the default changes later.
+        const named = [request.cashAccountId, request.toCashAccountId].filter(
+          (id): id is string => id !== null,
+        );
+        if (named.length) {
+          const found = await tx.cashAccount.count({
+            where: { id: { in: named }, tenantId: access.company.tenantId, active: true },
+          });
+          if (found !== new Set(named).size) {
+            throw invalid(
+              request.cashAccountId === null ? "toCashAccountId" : "cashAccountId",
+              "validation.money.unknownAccount",
+            );
+          }
+        }
+        let cashAccountId = request.cashAccountId;
+        if (cashAccountId === null && ACCOUNT_KINDS.has(request.kind)) {
+          const defaults = await cashDefaults(tx, access.company.tenantId, companyId);
+          cashAccountId =
+            (request.kind === "supplierDeposit" ? defaults.deposit : defaults.cash) || null;
+        }
+        const row = await tx.moneyEntry.create({
+          data: {
+            tenantId: access.company.tenantId,
+            companyId,
+            date: toDbDate(request.date),
+            kind: request.kind,
+            amount: request.amount,
+            staffId: request.staffId,
+            shopId,
+            expenseCategoryId: request.expenseCategoryId,
+            allocAdvance: allocation?.advance ?? null,
+            allocLoan: allocation?.loan ?? null,
+            allocShortage: allocation?.shortage ?? null,
+            srLoanType: request.srLoanType,
+            cashAccountId,
+            toCashAccountId: request.toCashAccountId,
+            createdById: ctx.actor.userId,
+          },
+          include: moneyInclude,
         });
-        if (!category) throw invalid("expenseCategoryId", "validation.daily.unknownCategory");
-      }
-      if (request.shopId) {
-        const shop = await tx.shop.findFirst({
-          where: { id: request.shopId, companyId, status: "active" },
-        });
-        if (!shop) throw invalid("shopId", "validation.shop.unknown");
-      }
-      if (
-        market &&
-        request.staffId &&
-        (await hasFieldVisits(tx, companyId, request.staffId, request.date))
-      ) {
-        throw invalid("shopId", "validation.field.manualDueBlocked");
-      }
-      await checkOwedLimits(tx, access, request, allocation);
-      const row = await tx.moneyEntry.create({
-        data: {
-          tenantId: access.company.tenantId,
+        await recordAudit(tx, ctx, {
           companyId,
-          date: toDbDate(request.date),
-          kind: request.kind,
-          amount: request.amount,
-          staffId: request.staffId,
-          shopId: request.shopId,
-          expenseCategoryId: request.expenseCategoryId,
-          allocAdvance: allocation?.advance ?? null,
-          allocLoan: allocation?.loan ?? null,
-          allocShortage: allocation?.shortage ?? null,
-          srLoanType: request.srLoanType,
-          createdById: ctx.actor.userId,
-        },
-        include: moneyInclude,
-      });
-      await recordAudit(tx, ctx, {
-        companyId,
-        action: "money.post",
-        resourceType: "money_entry",
-        resourceId: row.id,
-        after: request,
-      });
-      return toMoneyEntry(row);
-    },
-  );
+          action: "money.post",
+          resourceType: "money_entry",
+          resourceId: row.id,
+          after: request,
+        });
+        return toMoneyEntry(row);
+      },
+    );
+  } catch (error) {
+    // Two requests creating the same new shop at once: the loser sees the name clash.
+    if (request.newShop && isUniqueViolation(error)) {
+      throw invalid("newShop", "validation.shop.duplicate");
+    }
+    throw error;
+  }
 }
 
 export async function reverseMoneyEntry(
@@ -790,7 +943,14 @@ export async function reverseMoneyEntry(
       if (!row) throw invalid("", "validation.daily.notFound");
       if (row.status !== "posted") throw invalid("", "validation.daily.alreadyReversed");
       if (row.payrollRunId) throw invalid("", "validation.money.payrollOwned");
-      if (row.dsrDayId) throw invalid("", "validation.money.fieldOwned");
+      if (row.dsrDayId) {
+        // D54: a handover shortage/excess belongs to its day sheet; field entries to the field day.
+        const handover = row.kind === "staffShortage" || row.kind === "staffExcess";
+        throw invalid(
+          "",
+          handover ? "validation.money.dsrDayOwned" : "validation.money.fieldOwned",
+        );
+      }
       await postingGuard(tx, companyId, fromDbDate(row.date));
       const updated = await tx.moneyEntry.updateMany({
         where: { id: entryId, status: "posted" },
@@ -863,7 +1023,13 @@ export async function getDayView(
               cost: cost(row.cost),
               grossProfit: canSeeProfit ? row.grossProfit : null,
               damageValue: cost(row.damageValue),
+              damageRecovery: cost(row.damageRecovery),
               stockValue: cost(row.stockValue),
+              batches: row.batches.map((b) => ({
+                ...b,
+                costPrice: cost(b.costPrice),
+                value: cost(b.value),
+              })),
             },
           ];
         })
@@ -871,8 +1037,20 @@ export async function getDayView(
     persons: (day?.persons ?? []).map((p) => ({
       ...p,
       staffName: names.staff.get(p.staffId) ?? "",
+      allocations: p.allocations.map((a) => ({ ...a, costPrice: cost(a.costPrice) })),
     })),
     money: day?.money ?? ZERO_MONEY,
+    company:
+      canSeeCost && run
+        ? {
+            balance: toDecimal(run.output.month.companyPayable.closing).neg().toString(),
+            undeliveredValue: run.output.month.companyPayable.undeliveredClosing,
+            undeliveredPieces: sumQuantities([
+              "0",
+              ...run.output.month.products.map((p) => p.dueFromCompany),
+            ]),
+          }
+        : null,
     marketDueOutstanding: run?.output.month.marketDue.closing ?? "0",
     marketDueByDsr: (run?.output.month.marketDue.byDsr ?? [])
       .filter((d) => d.closing !== "0" && d.closing !== "0.00")
@@ -902,7 +1080,7 @@ export async function getDashboardSummary(
   const canSeeProfit = canSeeCost && access.permissions.includes("report.profit_view");
   const dates = { gte: toDbDate(range.from), lte: toDbDate(range.to) };
   const active = await liveOpening(ctx.db, companyId);
-  const [run, names, sheets, receipts] = await Promise.all([
+  const [run, names, sheets, receipts, accounts] = await Promise.all([
     rangeRun(ctx.db, access, range.from, range.to, active),
     ctx.db.staff.findMany({
       where: { tenantId: access.company.tenantId },
@@ -912,7 +1090,13 @@ export async function getDashboardSummary(
     ctx.db.stockEntry.count({
       where: { companyId, date: dates, status: "posted", kind: "receipt" },
     }),
+    ctx.db.cashAccount.findMany({
+      where: { tenantId: access.company.tenantId },
+      select: { id: true, name: true, active: true },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    }),
   ]);
+  const accountNames = new Map(accounts.map((a) => [a.id, a.name]));
   const summaries = run
     ? run.output.days.flatMap((day, index) => {
         const input = run.input[index];
@@ -949,7 +1133,28 @@ export async function getDashboardSummary(
     postedSummaryCount: sheets,
     postedReceiptCount: receipts,
     byDsr,
-    ...(canSeeProfit && run ? { grossProfit: total((s) => s.grossProfit) } : {}),
+    ...(canSeeProfit && run
+      ? {
+          grossProfit: total((s) => s.grossProfit),
+        }
+      : {}),
+    ...(access.permissions.includes("finance.view") && run
+      ? {
+          // Every active account shows, with 0 when it has no opening or movement yet.
+          cashAccounts: [
+            ...run.output.month.cashBook.map((a) => ({
+              accountId: a.accountId,
+              accountName: accountNames.get(a.accountId) ?? "",
+              balance: a.closing,
+            })),
+            ...accounts
+              .filter(
+                (a) => a.active && !run.output.month.cashBook.some((b) => b.accountId === a.id),
+              )
+              .map((a) => ({ accountId: a.id, accountName: a.name, balance: "0" })),
+          ],
+        }
+      : {}),
     ...(canSeeCost && run
       ? {
           receivedValue: total((s) => s.receivedValue),

@@ -431,6 +431,8 @@ model CashAccount {
   createdAt       DateTime             @default(now()) @map("created_at")
   legalEntity     LegalEntity          @relation(fields: [legalEntityId], references: [id])
   openingBalances OpeningBalanceLine[]
+  moneyEntries    MoneyEntry[]         @relation("MoneyEntryAccount")
+  transfersIn     MoneyEntry[]         @relation("MoneyEntryToAccount")
 
   @@unique([legalEntityId, name])
   @@map("cash_account")
@@ -441,16 +443,16 @@ model CashAccount {
 /// One opening per company (D43): live as soon as `cutoff_date` is set; each section saves on its
 /// own and bumps `version` (optimistic concurrency). Editable until the first month is closed.
 model OpeningSession {
-  id                String               @id @default(cuid())
-  tenantId          String               @map("tenant_id")
-  companyId         String               @unique @map("company_id")
-  version           Int                  @default(0)
-  cutoffDate        DateTime?            @map("cutoff_date") @db.Date
-  createdAt         DateTime             @default(now()) @map("created_at")
-  updatedAt         DateTime             @updatedAt @map("updated_at")
-  company           Company              @relation(fields: [companyId], references: [id])
-  stock             OpeningStockLine[]
-  balances          OpeningBalanceLine[]
+  id         String               @id @default(cuid())
+  tenantId   String               @map("tenant_id")
+  companyId  String               @unique @map("company_id")
+  version    Int                  @default(0)
+  cutoffDate DateTime?            @map("cutoff_date") @db.Date
+  createdAt  DateTime             @default(now()) @map("created_at")
+  updatedAt  DateTime             @updatedAt @map("updated_at")
+  company    Company              @relation(fields: [companyId], references: [id])
+  stock      OpeningStockLine[]
+  balances   OpeningBalanceLine[]
 
   @@index([tenantId])
   @@map("opening_session")
@@ -656,6 +658,10 @@ model MoneyEntry {
   dsrDayId          String?          @map("dsr_day_id")
   /// D42: SR loan/repayment type, `cash` or `commission`; NULL for every other kind.
   srLoanType        String?          @map("sr_loan_type")
+  /// D52: the cash/bank account the money moves (NULL = the default account at read time).
+  cashAccountId     String?          @map("cash_account_id")
+  /// D52: the receiving account of a `cashTransfer`.
+  toCashAccountId   String?          @map("to_cash_account_id")
   reference         String           @default("")
   note              String           @default("")
   status            String           @default("posted")
@@ -669,8 +675,12 @@ model MoneyEntry {
   expenseCategory   ExpenseCategory? @relation(fields: [expenseCategoryId], references: [id], onDelete: Restrict)
   payrollRun        PayrollRun?      @relation(fields: [payrollRunId], references: [id], onDelete: Restrict)
   dsrDay            DsrDay?          @relation(fields: [dsrDayId], references: [id], onDelete: Restrict)
+  cashAccount       CashAccount?     @relation("MoneyEntryAccount", fields: [cashAccountId], references: [id], onDelete: Restrict)
+  toCashAccount     CashAccount?     @relation("MoneyEntryToAccount", fields: [toCashAccountId], references: [id], onDelete: Restrict)
 
   @@index([companyId, date])
+  @@index([cashAccountId])
+  @@index([toCashAccountId])
   @@index([staffId])
   @@index([shopId])
   @@index([payrollRunId])

@@ -1,6 +1,7 @@
 import type {
   CashAccount,
   CashAccountUpsertRequest,
+  CompanyCreateRequest,
   CompanyUpsertRequest,
   CompanyWorkspace,
   DamageCase,
@@ -77,7 +78,7 @@ export interface DistributionService {
   /** Companies the current actor is a member of, with their effective permissions. */
   listWorkspaces(options?: RequestOptions): Promise<CompanyWorkspace[]>;
   /** Super-admin only; company names are unique within the tenant. */
-  createCompany(input: CompanyUpsertRequest): Promise<CompanyWorkspace>;
+  createCompany(input: CompanyCreateRequest): Promise<CompanyWorkspace>;
   /** Full replace; requires `company.manage`. Turning the stock block on needs no negative stock. */
   updateCompany(companyId: string, input: CompanyUpsertRequest): Promise<CompanyWorkspace>;
   /** Fails with COMPANY_NOT_FOUND for unknown and inaccessible companies alike. */
@@ -90,6 +91,8 @@ export interface DistributionService {
     input: ProductCreateRequest,
     options?: RequestOptions,
   ): Promise<Product>;
+  /** Requires `product.edit`; hard delete, refused (VALIDATION_FAILED) when anything refers to the product. */
+  deleteProduct(companyId: string, productId: string): Promise<void>;
   /** Requires `product.edit`; rejects an unknown product or one from another company. */
   updateProduct(
     companyId: string,
@@ -249,6 +252,8 @@ export interface DistributionService {
   /** Requires `staff.manage`. SRs must be supplier-employed, DSRs distributor-employed. */
   createStaff(companyId: string, input: StaffCreateRequest): Promise<StaffRecord>;
   updateStaff(companyId: string, staffId: string, input: StaffUpsertRequest): Promise<StaffRecord>;
+  /** Requires `staff.manage`; hard delete, refused when the person was ever used. */
+  deleteStaff(companyId: string, staffId: string): Promise<void>;
   /** Requires `staff.manage`; periods of one person in one company never overlap. */
   addStaffAssignment(
     companyId: string,
@@ -266,6 +271,8 @@ export interface DistributionService {
   /** Requires `shop.manage`; shop names are unique in the company. */
   createShop(companyId: string, input: ShopUpsertRequest): Promise<Shop>;
   updateShop(companyId: string, shopId: string, input: ShopUpsertRequest): Promise<Shop>;
+  /** Requires `shop.manage`; hard delete, refused when the shop was ever used. */
+  deleteShop(companyId: string, shopId: string): Promise<void>;
   /** Requires `sale.view`: one shop's due entries with a running balance. */
   getShopStatement(
     companyId: string,

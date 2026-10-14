@@ -17,7 +17,7 @@ import { recordAudit } from "./audit";
 import type { AppContext, Tx } from "./context";
 import { fromDbDate, toDbDate } from "./dates";
 import { AppError, parseInput } from "./errors";
-import { isUniqueViolation, runIdempotent } from "./idempotency";
+import { isForeignKeyViolation, isUniqueViolation, runIdempotent } from "./idempotency";
 
 const MAX_PIECES_PER_CARTON = 100_000;
 
@@ -360,4 +360,44 @@ export async function setProductPrice(
       return price;
     },
   );
+}
+
+const productInUse = () =>
+  new AppError("VALIDATION_FAILED", [{ path: "id", code: "validation.product.inUse" }]);
+
+/**
+ * Hard delete of a product that nothing refers to (D51): no opening, godown, DSR, field or damage
+ * line. Its own carton sizes and price history go with it (cascade); a used product is refused
+ * and should be archived instead.
+ */
+export async function deleteProduct(
+  ctx: AppContext,
+  companyId: string,
+  productId: string,
+): Promise<void> {
+  await requirePermission(ctx, companyId, "product.edit", { write: true });
+  try {
+    await ctx.db.$transaction(async (tx) => {
+      const existing = await findProduct(tx, companyId, productId);
+      const refs = await Promise.all([
+        tx.openingStockLine.count({ where: { productId } }),
+        tx.stockEntry.count({ where: { productId } }),
+        tx.dsrLine.count({ where: { productId } }),
+        tx.fieldVisitLine.count({ where: { productId } }),
+        tx.damageCaseLine.count({ where: { productId } }),
+      ]);
+      if (refs.some((n) => n > 0)) throw productInUse();
+      await tx.product.delete({ where: { id: productId } });
+      await recordAudit(tx, ctx, {
+        companyId,
+        action: "product.delete",
+        resourceType: "product",
+        resourceId: productId,
+        before: toProduct(existing),
+      });
+    });
+  } catch (error) {
+    if (isForeignKeyViolation(error)) throw productInUse();
+    throw error;
+  }
 }

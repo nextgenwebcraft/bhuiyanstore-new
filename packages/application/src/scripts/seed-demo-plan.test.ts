@@ -44,6 +44,23 @@ describe("buildSeedPlan (synthetic workbook)", () => {
     expect(total.toFixed(2)).toBe(expected.toFixed(2));
   });
 
+  it("adds the billed undelivered goods (due x order price) to the opening company payable (D48)", () => {
+    const closing = computeMonth(read.input).closing;
+    const billed = plan.opening.stock.reduce(
+      (sum, l) => sum.add(new Decimal(l.dueFromCompany).mul(l.orderPrice ?? "0")),
+      new Decimal(0),
+    );
+    const payable = new Decimal(closing.companyPayable).add(billed);
+    const line = plan.opening.company[0];
+    if (payable.isZero()) {
+      expect(line?.kind).toBe("company_payable"); // sample payable stands in
+    } else {
+      const signed =
+        line?.kind === "company_advance" ? new Decimal(line.amount).neg() : line?.amount;
+      expect(new Decimal(signed ?? "0").toFixed(2)).toBe(payable.toFixed(2));
+    }
+  });
+
   it("puts every required money kind on both days, dated cutoff and cutoff + 1", () => {
     expect(plan.days.map((d) => d.date)).toEqual(["2026-10-01", addDays("2026-10-01", 1)]);
     for (const day of plan.days) {

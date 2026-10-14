@@ -1,7 +1,7 @@
 "use client";
 
 import { moneyKindPermission, type MoneyEntryKind, type ReportRange } from "@bsd/contracts";
-import { formatBusinessDate, labelOf, t, type TranslationKey } from "@bsd/i18n";
+import { formatBusinessDate, formatCount, labelOf, t, type TranslationKey } from "@bsd/i18n";
 import Link from "next/link";
 import { useId, useState } from "react";
 import { Button } from "@/components/button";
@@ -16,6 +16,7 @@ import { StatTile } from "@/components/stat-tile";
 import { StatePanel } from "@/components/state-panel";
 import { describeError } from "@/data/ports/service-error";
 import { usePostMoneyEntry, useReport } from "@/data/queries";
+import { AccountSelect } from "@/features/daily/account-select";
 import { clean } from "@/features/daily/daily-kit";
 import { money } from "@/components/data-table";
 import { ReportTableView } from "@/features/reports/report-view";
@@ -27,6 +28,9 @@ import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 import { useToday } from "@/lib/today";
 
 const PATH = "finance/company-account";
+
+/** "All time" (D48): the server moves the start up to the go-live cutoff and lifts the day limit. */
+const ALL_TIME_FROM = "2000-01-01";
 
 /** The money movements with the company entered here; damage money comes from the damage page. */
 const ENTRY_KINDS = ["supplierDeposit", "companyIncentive"] as const satisfies MoneyEntryKind[];
@@ -48,6 +52,7 @@ function EntryDialog({
   const post = usePostMoneyEntry(companyId);
   const [date, setDate] = useState(today);
   const [amount, setAmount] = useState("");
+  const [accountId, setAccountId] = useState("");
   const [error, setError] = useState<string | undefined>();
 
   function close() {
@@ -72,6 +77,8 @@ function EntryDialog({
         staffId: null,
         expenseCategoryId: null,
         allocation: null,
+        // D52: a deposit leaves an account; the company's money incentive touches none.
+        cashAccountId: kind === "supplierDeposit" && accountId ? accountId : null,
       });
       close();
     } catch (e) {
@@ -104,11 +111,22 @@ function EntryDialog({
           className={inputClass}
         />
       </Field>
+      {kind === "supplierDeposit" ? (
+        <AccountSelect id={`${id}-account`} value={accountId} onChange={setAccountId} />
+      ) : null}
     </FormDialog>
   );
 }
 
-function Account({ companyId, range }: { companyId: string; range: ReportRange }) {
+function Account({
+  companyId,
+  range,
+  allTime,
+}: {
+  companyId: string;
+  range: ReportRange;
+  allTime: boolean;
+}) {
   const query = useReport(companyId, "company-account", range);
   if (range.from > range.to)
     return <StatePanel tone="error" title={t("validation.period.endBeforeStart")} />;
@@ -137,21 +155,35 @@ function Account({ companyId, range }: { companyId: string; range: ReportRange }
   const cells = summary.rows[0]?.cells ?? {};
   return (
     <div className="flex flex-col gap-6">
-      {data.from !== range.from ? (
+      {allTime || data.from !== range.from ? (
         <p className="text-xs text-text-muted">
           {t("report.coversFrom")} {formatBusinessDate(data.from)} – {formatBusinessDate(data.to)}
         </p>
       ) : null}
       <PageWarnings warnings={data.warnings} />
       <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {summary.columns.map((c) => (
-          <StatTile
-            key={c.key}
-            label={labelOf(c.label)}
-            value={money(cells[c.key] ?? null)}
-            emphasis={c.key === "closing"}
-          />
-        ))}
+        {summary.columns
+          .filter((c) => c.key !== "undeliveredPieces")
+          .map((c) => {
+            const current = c.key === "balance";
+            return (
+              <div key={c.key} className={current ? "sm:col-span-2 lg:col-span-3" : undefined}>
+                <StatTile
+                  label={labelOf(c.label)}
+                  value={money(cells[c.key] ?? null)}
+                  emphasis={current}
+                  large={current}
+                  {...(current
+                    ? { hint: t("companyAccount.balanceHint") }
+                    : c.key === "undeliveredValue"
+                      ? {
+                          hint: `${formatCount(cells.undeliveredPieces ?? "0")} ${t("common.pieces")} · ${t("companyAccount.undeliveredHint")}`,
+                        }
+                      : {})}
+                />
+              </div>
+            );
+          })}
       </dl>
       <ReportTableView table={statement} />
     </div>
@@ -159,13 +191,16 @@ function Account({ companyId, range }: { companyId: string; range: ReportRange }
 }
 
 /**
- * Everything settled with the company in one place (D33): goods received raise what we owe;
- * bank deposits, money incentives and damage money returns lower it.
+ * The company account (D33, D48): money deposited with the company. An order is billed at once and
+ * lowers the balance; deposits, money incentives and damage money returns raise it. Receiving
+ * ordered goods moves no money; goods ordered and not yet received are shown as undelivered.
  */
 export function CompanyAccountPage() {
   const { company, permissions } = useCurrentWorkspace();
   const today = useToday();
-  const [range, setRange] = useState(() => presetRange("thisMonth", today));
+  const [picked, setRange] = useState(() => presetRange("thisMonth", today));
+  const [allTime, setAllTime] = useState(false);
+  const range = allTime ? { from: ALL_TIME_FROM, to: today } : picked;
   const [entry, setEntry] = useState<EntryKind | null>(null);
   const allowed = ENTRY_KINDS.filter((k) => permissions.includes(moneyKindPermission[k]));
   return (
@@ -175,7 +210,26 @@ export function CompanyAccountPage() {
         description={t("companyAccount.description")}
         actions={
           <>
-            <DateRangePicker value={range} onChange={setRange} max={today} />
+            <button
+              type="button"
+              aria-pressed={allTime}
+              onClick={() => setAllTime((on) => !on)}
+              className={`inline-flex min-h-(--touch-target) items-center justify-center rounded-lg border px-4 text-sm font-medium transition-colors ${
+                allTime
+                  ? "border-brand bg-brand font-semibold text-brand-foreground shadow-card"
+                  : "border-border bg-surface text-text shadow-card hover:border-border-strong hover:bg-surface-hover"
+              }`}
+            >
+              {t("companyAccount.period.allTime")}
+            </button>
+            <DateRangePicker
+              value={picked}
+              onChange={(next) => {
+                setAllTime(false);
+                setRange(next);
+              }}
+              max={today}
+            />
             <PrintButton />
           </>
         }
@@ -194,7 +248,7 @@ export function CompanyAccountPage() {
           {t("companyAccount.damageLink")}
         </Link>
       </div>
-      <Account companyId={company.id} range={range} />
+      <Account companyId={company.id} range={range} allTime={allTime} />
       <EntryDialog companyId={company.id} kind={entry} onClose={() => setEntry(null)} />
     </NavGate>
   );

@@ -80,9 +80,32 @@ export function formatCount(value: number | string): string {
   return toBengaliDigits(String(value));
 }
 
-/** Money for display; `null` (hidden or unknown) shows a dash. */
+/**
+ * A decimal string cut to 2 places, half away from zero like the engine's ROUND_HALF_UP; values
+ * with 2 places or fewer are returned unchanged. Display only: the value itself stays exact.
+ */
+function toMoneyPlaces(value: string): string {
+  const negative = value.startsWith("-");
+  const [integer = "0", fraction = ""] = (negative ? value.slice(1) : value).split(".");
+  if (fraction.length <= 2) return value;
+  const digits = (integer + fraction.slice(0, 2)).split("").map(Number);
+  if (Number(fraction[2]) >= 5) {
+    let i = digits.length - 1;
+    while (i >= 0 && digits[i] === 9) {
+      digits[i] = 0;
+      i -= 1;
+    }
+    if (i < 0) digits.unshift(1);
+    else digits[i] = (digits[i] ?? 0) + 1;
+  }
+  const text = digits.join("");
+  const rounded = `${text.slice(0, -2)}.${text.slice(-2)}`;
+  return negative && /[1-9]/.test(rounded) ? `-${rounded}` : rounded;
+}
+
+/** Money for display, at most 2 decimal places; `null` (hidden or unknown) shows a dash. */
 export function formatMoney(value: string | null): string {
-  return value === null ? "—" : formatAmount(value);
+  return value === null ? "—" : formatAmount(toMoneyPlaces(value));
 }
 
 // Mirrors ENTITY_TIMEZONE in @bsd/domain (the owner, D08); i18n does not depend on domain.

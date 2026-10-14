@@ -48,10 +48,18 @@ describe.skipIf(!workbookPath)("workbook verification (local only)", () => {
         `\n=== ${sheet}: ${read.input.days.length} days, ${read.products.length} products, persons ${read.persons.join(", ")} ===`,
       ];
       for (const r of results) {
-        const status = r.unexplained.length ? "DIFF " : r.known.length ? "KNOWN" : "MATCH";
+        const status = r.unexplained.length
+          ? "DIFF "
+          : r.known.length
+            ? "KNOWN"
+            : r.intended.length
+              ? "DESIGN"
+              : "MATCH";
         lines.push(
-          `${status} ${r.check}: ${r.matched}/${r.compared}${r.known.length ? ` (+${r.known.length} known Excel mistakes)` : ""}`,
+          `${status} ${r.check}: ${r.matched}/${r.compared}${r.known.length ? ` (+${r.known.length} known Excel mistakes)` : ""}${r.intended.length ? ` (+${r.intended.length} intended differences)` : ""}`,
         );
+        for (const d of r.intended.slice(0, 1))
+          lines.push(`      intended: ${d.where}: ${d.knownMistake}`);
         for (const d of r.unexplained.slice(0, 3))
           lines.push(`      ${d.where}: engine ${d.engine} vs excel ${d.excel}`);
         for (const d of r.known.slice(0, 2))

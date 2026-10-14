@@ -151,6 +151,8 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
   const company = (companyId: string) => `/companies/${id(companyId)}`;
   const product = (companyId: string, productId: string) =>
     `${company(companyId)}/products/${id(productId)}`;
+  /** A DELETE carries an empty JSON body (the API only accepts JSON writes); not retried by key. */
+  const remove = (): Call => ({ method: "DELETE", body: {} });
   const write = (method: "POST" | "PUT", body: unknown): Call => ({
     method,
     body,
@@ -199,6 +201,8 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
         idempotent: true,
       }),
 
+    deleteProduct: (companyId, productId) =>
+      request(z.undefined(), `${product(companyId, productId)}`, remove()),
     listStaff: (companyId, options) =>
       request(z.array(staffMemberSchema), `${company(companyId)}/staff-members`, options),
     getDashboardSummary: (companyId, range, options) =>
@@ -282,6 +286,8 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
       request(staffRecordSchema, `${company(companyId)}/staff`, write("POST", input)),
     updateStaff: (companyId, staffId, input) =>
       request(staffRecordSchema, `${company(companyId)}/staff/${id(staffId)}`, write("PUT", input)),
+    deleteStaff: (companyId, staffId) =>
+      request(z.undefined(), `${company(companyId)}/staff/${id(staffId)}`, remove()),
     addStaffAssignment: (companyId, staffId, input) =>
       request(
         staffRecordSchema,
@@ -300,6 +306,8 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
       request(shopSchema, `${company(companyId)}/shops`, write("POST", input)),
     updateShop: (companyId, shopId, input) =>
       request(shopSchema, `${company(companyId)}/shops/${id(shopId)}`, write("PUT", input)),
+    deleteShop: (companyId, shopId) =>
+      request(z.undefined(), `${company(companyId)}/shops/${id(shopId)}`, remove()),
     getShopStatement: (companyId, shopId, range, options) => {
       const params = new URLSearchParams();
       if (range.from) params.set("from", range.from);

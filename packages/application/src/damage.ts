@@ -313,6 +313,11 @@ export async function postDamageEvent(
         throw invalid("date", "validation.damage.beforeCase");
       const line = row.lines.find((l) => l.id === request.lineId);
       if (!line) throw invalid("lineId", "validation.daily.notFound");
+      // D53: pieces of a DSR-day case were handed out on the sheet already; giving them again
+      // from the godown would count them twice.
+      if (request.fromStock && row.dsrDayId) {
+        throw invalid("fromStock", "validation.damage.fromStockDsrDay");
+      }
       const origin = row.origin as DamageOrigin;
       const legs = row.events
         .filter((e) => e.status === "posted" && e.lineId === line.id)

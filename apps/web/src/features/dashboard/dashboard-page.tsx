@@ -191,6 +191,13 @@ function Summary({ range }: { range: ReportRange }) {
           hint={t("dashboard.stockValueHint")}
         />
       ) : null}
+      {(d.cashAccounts ?? []).map((a) => (
+        <StatTile
+          key={a.accountId}
+          label={`${t("dashboard.cashAccounts")} · ${a.accountName || t("cashBook.noAccount")}`}
+          value={money(a.balance)}
+        />
+      ))}
     </dl>
   );
 }
@@ -227,7 +234,7 @@ function entryStatus(path: string, view: DayView): Status {
       const rows = products("received");
       return {
         done: rows.length > 0,
-        detail: `${formatCount(rows.length)} ${t("dashboard.work.productCount")} · ${money(sum(rows.map((r) => r.receiptBill)))}`,
+        detail: `${formatCount(rows.length)} ${t("dashboard.work.productCount")} · ${money(sum(rows.map((r) => r.receiptValue)))}`,
       };
     }
     case "purchases/orders": {
@@ -427,7 +434,12 @@ const REPORT_SECTIONS: readonly ReportSectionSpec[] = [
     reports: ["sales", "profit"],
     defaultOpen: true,
   },
-  { id: "cash", titleKey: "dashboard.section.cash", reports: ["daily-cash"], defaultOpen: false },
+  {
+    id: "cash",
+    titleKey: "dashboard.section.cash",
+    reports: ["daily-cash", "cash-book"],
+    defaultOpen: false,
+  },
   {
     id: "stock",
     titleKey: "dashboard.section.stock",

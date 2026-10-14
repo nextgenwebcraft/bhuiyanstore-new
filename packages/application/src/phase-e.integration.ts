@@ -24,11 +24,13 @@ import {
   postMoneyEntry,
   postStockEntries,
   reverseDsrDay,
+  reverseStockEntry,
   reverseMoneyEntry,
   saveDsrDay,
 } from "./daily";
 import { AppError } from "./errors";
 import { runLedger } from "./ledger";
+import { getReport } from "./month";
 import { getOpening } from "./opening";
 import { createProduct } from "./products";
 import { createShop, getShopStatement, listShops } from "./shops";
@@ -188,7 +190,8 @@ function facts(): DayFacts[] {
   ];
 }
 
-const ENGINE_FIELD = { order: "ordered", receipt: "received", damage: "damaged" } as const;
+// D53: a godown damage entry is the engine's `godownDamaged` input, not product-level `damaged`.
+const ENGINE_FIELD = { order: "ordered", receipt: "received", damage: "godownDamaged" } as const;
 const ENGINE_PRICE = { order: "orderPrice", cost: "costPrice", sale: "salePrice" } as const;
 /** The same facts as engine input, written independently of the ledger. */
 function toEngineDay(day: DayFacts): DayInput {
@@ -307,6 +310,10 @@ function expectedOpening(): MonthOpening {
         orderPrice: "9.5",
         costPrice: "9.5",
         salePrice: "11",
+        // D49: each opening stock line is batch 1, dated at the cutoff (hand-written, not derived).
+        batches: [
+          { seq: 1, startDate: "2026-08-30", costPrice: "9.5", salePrice: "11", quantity: "100" },
+        ],
       },
       [id.beta]: {
         stock: "50",
@@ -314,6 +321,9 @@ function expectedOpening(): MonthOpening {
         orderPrice: "19",
         costPrice: "19",
         salePrice: "22.5",
+        batches: [
+          { seq: 1, startDate: "2026-08-30", costPrice: "19", salePrice: "22.5", quantity: "50" },
+        ],
       },
     },
     marketDue: { [id.mamun]: "500", "": "75" },
@@ -339,7 +349,9 @@ beforeAll(async () => {
   };
   ctx = contextFor(db, admin);
   const theme = { primary: "#0F766E", primaryForeground: "#FFFFFF" };
-  company = (await createCompany(ctx, { name: "Drinko", theme, modules: ["sales"] })).company.id;
+  company = (
+    await createCompany(ctx, { name: "Drinko", theme, modules: ["sales"], starterData: false })
+  ).company.id;
   const product = async (sku: string, name: string, piecesPerCarton: string) =>
     (
       await createProduct(ctx, company, {
@@ -594,24 +606,41 @@ describe("Phase E: daily entry", () => {
     );
     const posted = must(sheet);
     expect(posted.status).toBe("posted");
+    // D56: saving a posted sheet corrects it: the old one is reversed, the edit posted in its place.
+    const sameLines = posted.lines.map(({ productId, issued, returned, damaged, commission }) => ({
+      productId,
+      issued,
+      returned,
+      damaged,
+      commission,
+    }));
+    const edited = await saveDsrDay(ctx, company, {
+      date: "2026-09-02",
+      staffId: id.mamun,
+      version: posted.version,
+      lines: sameLines,
+    });
+    expect(edited.status).toBe("posted");
+    expect(edited.id).not.toBe(posted.id);
+    const afterEdit = await listDsrDays(ctx, company, "2026-09-02");
+    expect(afterEdit.find((s) => s.id === posted.id)?.status).toBe("reversed");
+    expect((await getDayView(ctx, company, "2026-09-02")).money).toEqual(before.money);
     await expectField(
       saveDsrDay(ctx, company, {
         date: "2026-09-02",
         staffId: id.mamun,
         version: posted.version,
-        marketDueNew: "0",
-        marketDueCollected: "0",
-        lines: [],
+        lines: sameLines,
       }),
-      "",
-      "validation.daily.posted",
-    );
-    await expectField(
-      postDsrDay(ctx, company, posted.id, { version: posted.version }),
       "version",
       "validation.daily.stale",
     );
-    const reversed = await reverseDsrDay(ctx, company, posted.id, { version: posted.version });
+    await expectField(
+      postDsrDay(ctx, company, edited.id, { version: edited.version }),
+      "version",
+      "validation.daily.stale",
+    );
+    const reversed = await reverseDsrDay(ctx, company, edited.id, { version: edited.version });
     expect(reversed.status).toBe("reversed");
     const redo = await saveDsrDay(ctx, company, {
       date: "2026-09-02",
@@ -623,6 +652,65 @@ describe("Phase E: daily entry", () => {
     });
     await postDsrDay(ctx, company, redo.id, { version: redo.version });
     expect((await getDayView(ctx, company, "2026-09-02")).money).toEqual(before.money);
+  });
+
+  it("D48: an order lowers the company balance at once and its reversal restores it", async () => {
+    const date = "2026-09-02";
+    const companyOf = async () => {
+      const account = (await getDayView(ctx, company, date)).company;
+      if (!account) throw new Error("expected the company account");
+      return account;
+    };
+    const before = await companyOf();
+    const [entry] = await postStockEntries(ctx, company, {
+      date,
+      lines: [{ kind: "order", productId: id.alpha, pieces: "10" }],
+      prices: [],
+    });
+    const price = must(
+      (await getDayView(ctx, company, date)).products.find((p) => p.productId === id.alpha)
+        ?.orderPrice,
+    );
+    const bill = toDecimal(price ?? "0").mul(10);
+    expect(bill.gt(0)).toBe(true);
+
+    const after = await companyOf();
+    expect(toDecimal(after.balance).toString()).toBe(
+      toDecimal(before.balance).sub(bill).toString(),
+    );
+    expect(toDecimal(after.undeliveredValue).toString()).toBe(
+      toDecimal(before.undeliveredValue).add(bill).toString(),
+    );
+    expect(toDecimal(after.undeliveredPieces).toString()).toBe(
+      toDecimal(before.undeliveredPieces).add(10).toString(),
+    );
+
+    // The statement's closing row is the current balance; its undelivered value is the company-due total.
+    const range = { from: "2026-08-01", to: date };
+    const account = await getReport(ctx, company, "company-account", range);
+    const statement = must(account.tables[1]).rows;
+    const last = must(statement.at(-1)).cells;
+    expect(toDecimal(last.balance ?? "0").toString()).toBe(toDecimal(after.balance).toString());
+    expect(toDecimal(last.undelivered ?? "0").toString()).toBe(
+      toDecimal(after.undeliveredValue).toString(),
+    );
+    const due = await getReport(ctx, company, "company-due", range);
+    const dueRows = must(due.tables[0]).rows;
+    const dueTotal = dueRows.reduce(
+      (total, r) => total.add(r.cells.dueFromCompanyValue ?? "0"),
+      toDecimal("0"),
+    );
+    expect(dueTotal.toString()).toBe(toDecimal(after.undeliveredValue).toString());
+
+    // All time is not blocked by the one-year limit.
+    const allTime = await getReport(ctx, company, "company-account", {
+      from: "2000-01-01",
+      to: date,
+    });
+    expect(allTime.from).toBe(account.from);
+
+    await reverseStockEntry(ctx, company, must(entry).id);
+    expect(await companyOf()).toEqual(before);
   });
 
   it("D41: shop commission is stored per line and lowers sales and cash left", async () => {

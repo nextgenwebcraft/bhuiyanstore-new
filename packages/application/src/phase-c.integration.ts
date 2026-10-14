@@ -82,8 +82,12 @@ beforeAll(async () => {
   };
   const ctx = contextFor(db, admin);
   const theme = { primary: "#0F766E", primaryForeground: "#FFFFFF" };
-  drinko = (await createCompany(ctx, { name: "Drinko", theme, modules: ["sales"] })).company.id;
-  snacks = (await createCompany(ctx, { name: "Snacks", theme, modules: ["sales"] })).company.id;
+  drinko = (
+    await createCompany(ctx, { name: "Drinko", theme, modules: ["sales"], starterData: false })
+  ).company.id;
+  snacks = (
+    await createCompany(ctx, { name: "Snacks", theme, modules: ["sales"], starterData: false })
+  ).company.id;
 });
 
 afterAll(async () => {

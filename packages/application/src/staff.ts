@@ -15,7 +15,7 @@ import { recordAudit } from "./audit";
 import type { AppContext, Tx } from "./context";
 import { fromDbDate, toDbDate } from "./dates";
 import { invalid, parseInput } from "./errors";
-import { runIdempotent } from "./idempotency";
+import { isForeignKeyViolation, runIdempotent } from "./idempotency";
 import { plain } from "./numeric";
 
 const withAssignments = {
@@ -371,6 +371,49 @@ async function writeAssignment(
     });
     return record;
   });
+}
+
+/**
+ * Hard delete of a person nothing refers to (D51): no opening balance, DSR sheet, field visit,
+ * money entry, payroll line, damage case or shop added by them, no login, and no assignment in
+ * another company. Their own assignments in this company go with them (cascade).
+ */
+export async function deleteStaff(
+  ctx: AppContext,
+  companyId: string,
+  staffId: string,
+): Promise<void> {
+  await requirePermission(ctx, companyId, "staff.manage", { write: true });
+  const visible = await visibleCompanyIds(ctx);
+  try {
+    await ctx.db.$transaction(async (tx) => {
+      const before = await loadCompanyStaff(tx, ctx, companyId, staffId);
+      const refs = await Promise.all([
+        tx.openingBalanceLine.count({ where: { staffId } }),
+        tx.dsrDay.count({ where: { staffId } }),
+        tx.fieldVisit.count({ where: { staffId } }),
+        tx.moneyEntry.count({ where: { staffId } }),
+        tx.payrollLine.count({ where: { staffId } }),
+        tx.damageCase.count({ where: { staffId } }),
+        tx.shop.count({ where: { addedByStaffId: staffId } }),
+      ]);
+      const elsewhere = before.assignments.some((a) => a.companyId !== companyId);
+      if (refs.some((n) => n > 0) || elsewhere || before.user !== null) {
+        throw invalid("id", "validation.staff.inUse");
+      }
+      await tx.staff.delete({ where: { id: staffId } });
+      await recordAudit(tx, ctx, {
+        companyId,
+        action: "staff.delete",
+        resourceType: "staff",
+        resourceId: staffId,
+        before: toRecord(before, visible),
+      });
+    });
+  } catch (error) {
+    if (isForeignKeyViolation(error)) throw invalid("id", "validation.staff.inUse");
+    throw error;
+  }
 }
 
 /** Assigns any person of the tenant to this company (one DSR may serve several brands, D09). */

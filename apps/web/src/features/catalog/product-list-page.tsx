@@ -4,11 +4,12 @@ import type { Product } from "@bsd/contracts";
 import { t, toBengaliDigits, formatCount, matchesSearch } from "@bsd/i18n";
 import { useDeferredValue, useId, useRef, useState } from "react";
 import { Button } from "@/components/button";
+import { DeleteButton } from "@/components/delete-button";
 import { PageHeader } from "@/components/page-header";
 import { TableSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
 import { errorCodeOf } from "@/data/ports/service-error";
-import { useProducts } from "@/data/queries";
+import { useDeleteProduct, useProducts } from "@/data/queries";
 import { NavGate } from "@/features/shell/nav-gate";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 import { ProductForm, type ProductFormHandle } from "./product-form";
@@ -29,11 +30,13 @@ function ProductResults({
   canEdit,
   onEdit,
   onHistory,
+  onDelete,
 }: {
   products: Product[];
   canEdit: boolean;
   onEdit: (product: Product) => void;
   onHistory: (product: Product) => void;
+  onDelete: (product: Product) => Promise<unknown>;
 }) {
   return (
     <>
@@ -76,6 +79,13 @@ function ProductResults({
                   {canEdit ? (
                     <Button onClick={() => onEdit(product)}>{t("product.edit")}</Button>
                   ) : null}
+                  {canEdit ? (
+                    <DeleteButton
+                      name={product.name}
+                      message={t("product.delete.confirm")}
+                      onDelete={() => onDelete(product)}
+                    />
+                  ) : null}
                 </div>
               </td>
             </tr>
@@ -111,6 +121,14 @@ function ProductResults({
                   {t("product.edit")}
                 </Button>
               ) : null}
+              {canEdit ? (
+                <DeleteButton
+                  className="flex-1"
+                  name={product.name}
+                  message={t("product.delete.confirm")}
+                  onDelete={() => onDelete(product)}
+                />
+              ) : null}
             </div>
           </li>
         ))}
@@ -122,6 +140,7 @@ function ProductResults({
 function ProductList() {
   const { company, permissions } = useCurrentWorkspace();
   const products = useProducts(company.id);
+  const deleteProduct = useDeleteProduct(company.id);
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
   const searchId = useId();
@@ -160,6 +179,7 @@ function ProductList() {
             canEdit={canEdit}
             onEdit={(product) => formRef.current?.openEdit(product)}
             onHistory={setHistoryOf}
+            onDelete={(product) => deleteProduct.mutateAsync(product.id)}
           />
         )}
       </>

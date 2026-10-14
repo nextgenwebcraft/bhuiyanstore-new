@@ -63,7 +63,12 @@ function productTable(view: MonthView): ReportTable {
     ],
     view.products.map((p) => ({
       piecesPerCarton: p.piecesPerCarton,
-      cells: { ...p, product: p.productName },
+      cells: {
+        ...(Object.fromEntries(
+          Object.entries(p).filter(([, v]) => typeof v === "string" || v === null),
+        ) as Record<string, string | null>),
+        product: p.productName,
+      },
     })),
     {
       salesTotal: view.totals.salesTotal,
@@ -177,10 +182,12 @@ function payableTable(view: MonthView): ReportTable {
   return lineTable(
     "companyPayable",
     [
-      ["report.line.payableOpening", c.opening],
+      ["report.line.balanceOpening", c.balanceOpening],
+      ["report.line.payableOrders", c.orders],
       ["report.line.payableReceipts", c.receipts],
       ["report.line.payableDeposits", c.deposits],
-      ["report.line.payableClosing", c.closing],
+      ["report.line.balanceClosing", c.balanceClosing],
+      ["report.line.undeliveredClosing", c.undeliveredClosing],
     ],
     view,
   );
@@ -232,8 +239,8 @@ function MonthBody({ view }: { view: MonthView }) {
         <StatTile label={t("report.column.cashLeft")} value={money(view.cashLeftTotal)} />
         <StatTile label={t("month.tile.marketDue")} value={money(view.marketDue.closing)} />
         <StatTile
-          label={t("report.line.payableClosing")}
-          value={money(view.companyPayable.closing)}
+          label={t("report.line.balanceClosing")}
+          value={money(view.companyPayable.balanceClosing)}
         />
         {view.canSeeCost ? (
           <StatTile

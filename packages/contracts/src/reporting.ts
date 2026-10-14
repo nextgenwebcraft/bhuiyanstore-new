@@ -44,6 +44,12 @@ export const dashboardSummarySchema = z.object({
   receivedValue: decimalStringSchema.optional(),
   /** Cost-based saleable inventory value at the end of the range; requires `inventory.cost_view`. */
   stockValue: decimalStringSchema.optional(),
+  /** Each cash and bank account's balance at the end of the range (D52); requires `finance.view`. */
+  cashAccounts: z
+    .array(
+      z.object({ accountId: z.string(), accountName: z.string(), balance: decimalStringSchema }),
+    )
+    .optional(),
 });
 
 export type DashboardSummary = z.infer<typeof dashboardSummarySchema>;

@@ -1,0 +1,20 @@
+id: 2026-10-14-damage-cost-company-ledger
+reason: D47 and D48 (owner change request 2026-10-14) - damaged pieces collected by a DSR are charged at cost and damage money/goods recovered from the company is net-profit income; a company order is billed at once against the money deposited with the company, and the company account statement shows the balance and the undelivered goods.
+owners: [domain, contracts, application, i18n, web, importer, docs]
+changes:
+  - packages/domain - compute-month.ts cost = (delivered + replacedFromStock) x cost price; damageRecovery (refunds + replacement value) in product totals, month totals and profit (net and netWithoutIncentive include it); order bill on the order day, receipt bills only excess over due + ordered, per-product dueValue (proportional release, exactly 0 when the due clears) carried in closing and opening (opening defaults to due x order price); company entries order/receipt (one per product per day)/replacement with running undelivered value; companyPayable summary gains orders, undeliveredOpening, undeliveredClosing; day-summary uses receiptValue and adds damageRecovery; golden month recomputed by hand, new company-ledger.test.ts
+  - packages/contracts - month view companyPayable (orders, undelivered, balanceOpening/Closing), totals.damageRecovery, profit.damageRecovery; day product rows (receiptValue, damageRecovery, dueFromCompanyValue); day view company {balance, undeliveredValue, undeliveredPieces}; dashboard damageRecovery
+  - packages/application - report tables company-account (summary tiles, statement in/out/balance/undelivered/memo), company-due, profit, damage; all-time range for company-account (report-range.ts allTime); ledger.ts upgradeClosing for month-close snapshots stored before D48; seed-demo-plan adds due x order price to the seeded payable; day view and dashboard expose the company account and damage recovery; integration test for order -> balance -> reversal
+  - apps/web - company account page rebuilt (large current balance, undelivered tile, period selector with all time); godown order page balance, undelivered value and non-blocking warning; dashboard damage recovery tile; month page payable and profit lines; StatTile large option
+  - packages/i18n - Bangla labels for balance (কোম্পানিতে জমা), order bill, undelivered goods, damage recovery, all time; opening card company hint says the balance is after the undelivered goods were billed
+  - packages/importer - verify:workbook labels the D47 profit difference (engine = Excel - cost of damaged and replaced pieces) and the D48 receipt-bill timing (0 <= engine <= Excel) as intended; quantity comparisons unchanged and strict
+  - docs - D47 and D48 added, D31/D33/D46 marked amended in decisions.md; PLAN.md 2.3 (cost, receipt bill, due value, damage recovery), 2.5 (profit, company payable) and 6 (company-due, company-account); implementation-status row
+affectedActionIds: []
+financialImpact: gross profit falls by the cost of damaged pieces and replaced-from-stock pieces; net profit adds company damage refunds and replacement value; company payable moves at order time instead of receipt time (closing payable is lower by the undelivered billed value while goods are outstanding). Month-close snapshots stored before this change are upgraded on read (payable + due x order price). No stored figure changes - everything is recalculated from posted facts.
+backfill: none needed in the database (month_close.closing is JSON; snapshots without dueFromCompanyValue are upgraded when read). Demo company - re-run db:seed-demo or add due x order price to its opening company payable.
+tests:
+  - pnpm check (format, lint, types, unit tests; the .claude worktree folder of another agent excluded from prettier/eslint)
+  - pnpm test:integration
+  - pnpm verify:workbook (needs NODE_OPTIONS=--max-old-space-size=8192 on this machine)
+rollout: deploy the app (no migration)
+recovery: revert the commit

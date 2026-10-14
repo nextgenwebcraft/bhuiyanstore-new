@@ -13,6 +13,11 @@ export type MoneyKindEffect = {
   expense?: "category" | "salary" | "srIncentive";
   /** Lowers what we owe the company: a bank deposit (D19) or a cash incentive (D33). */
   company?: "deposit" | "incentive";
+  /**
+   * Cash and bank book (D52) for kinds that do not move the daily cash left: a supplier deposit
+   * leaves an account (-1); a transfer leaves one account and enters another.
+   */
+  book?: -1 | "transfer";
   requiresStaff: boolean;
 };
 
@@ -54,7 +59,14 @@ export const MONEY_KIND_EFFECTS: Readonly<Record<MoneyKind, MoneyKindEffect>> = 
   salaryPaid: { cash: -1, staff: { balance: "salaryPayable", direction: -1 }, requiresStaff: true },
   srLoan: { cash: -1, staff: { balance: "srLoan", direction: 1 }, requiresStaff: true },
   srRepayment: { cash: 1, staff: { balance: "srLoan", direction: -1 }, requiresStaff: true },
-  srOwed: { cash: 0, staff: { balance: "owedToSr", direction: 1 }, requiresStaff: true },
+  /** D55: incentive the SR earned and we have not paid yet: an expense now, no cash. */
+  srOwed: {
+    cash: 0,
+    staff: { balance: "owedToSr", direction: 1 },
+    expense: "srIncentive",
+    requiresStaff: true,
+  },
+  /** D55: paying what is owed lowers it with no expense (it was accrued by `srOwed`). */
   srPayment: { cash: -1, staff: { balance: "owedToSr", direction: -1 }, requiresStaff: true },
   /** Explicit offset of staff credit against what the person owes; never automatic (D27). */
   staffOffset: {
@@ -70,7 +82,24 @@ export const MONEY_KIND_EFFECTS: Readonly<Record<MoneyKind, MoneyKindEffect>> = 
     staffAlso: { balance: "owedToSr", direction: -1 },
     requiresStaff: true,
   },
-  supplierDeposit: { cash: 0, company: "deposit", requiresStaff: false },
+  /** D52: leaves an account in the cash book but stays outside the daily cash left. */
+  supplierDeposit: { cash: 0, company: "deposit", book: -1, requiresStaff: false },
+  /** D52: moves money between two accounts; no cash left, profit, staff or company effect. */
+  cashTransfer: { cash: 0, book: "transfer", requiresStaff: false },
   /** Incentive the company credits to our account in money (D33): no cash, no profit effect. */
   companyIncentive: { cash: 0, company: "incentive", requiresStaff: false },
 };
+
+/**
+ * How a kind moves the cash book (D52): +1 into its account, -1 out of it, "transfer" between two
+ * accounts, 0 when it never touches an account.
+ */
+export function cashBookEffect(kind: MoneyKind): 1 | -1 | "transfer" | 0 {
+  const effect = MONEY_KIND_EFFECTS[kind];
+  return effect.cash !== 0 ? effect.cash : (effect.book ?? 0);
+}
+
+/** The kinds that name a cash account on entry: everything that moves one. */
+export const moneyKindsWithAccount: readonly MoneyKind[] = (
+  Object.keys(MONEY_KIND_EFFECTS) as MoneyKind[]
+).filter((kind) => cashBookEffect(kind) !== 0);

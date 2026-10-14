@@ -1,8 +1,9 @@
 "use client";
 
-import type { DayProductRow, DayView } from "@bsd/contracts";
-import { sumAmounts } from "@bsd/domain";
-import { formatRate, t, type TranslationKey } from "@bsd/i18n";
+import type { BatchRow, DayProductRow, DayView } from "@bsd/contracts";
+import { sumAmounts, toDecimal } from "@bsd/domain";
+import { formatBusinessDate, formatCount, formatRate, t, type TranslationKey } from "@bsd/i18n";
+import { Fragment, useState } from "react";
 import { PageHeader } from "@/components/page-header";
 import { StatePanel } from "@/components/state-panel";
 import { TableSummary, type SummaryItem } from "@/components/table-summary";
@@ -55,7 +56,54 @@ function visible(columns: Column[], view: DayView) {
   return columns.filter((c) => columnVisible(c.needs, view));
 }
 
-function ProductTable({ view, columns }: { view: DayView; columns: Column[] }) {
+/** Batches worth showing: the newest batch may be empty (D49). */
+export const visibleBatches = (row: DayProductRow): BatchRow[] =>
+  row.batches.filter((b) => !toDecimal(b.quantity).isZero());
+
+/** The batch cell under each stock column; columns a batch has no value for stay empty. */
+const BATCH_CELLS: Partial<
+  Record<TranslationKey, (b: BatchRow, row: DayProductRow) => React.ReactNode>
+> = {
+  "day.column.stock": (b, row) => (
+    <CartonQty pieces={b.quantity} piecesPerCarton={row.piecesPerCarton} />
+  ),
+  "day.column.costPrice": (b) => (b.costPrice === null ? "—" : formatRate(b.costPrice)),
+  "day.column.salePrice": (b) => formatRate(b.salePrice),
+  "day.column.stockValue": (b) => money(b.value),
+};
+
+function BatchRows({ row, shown }: { row: DayProductRow; shown: Column[] }) {
+  return visibleBatches(row).map((b) => (
+    <tr key={`${row.productId}-${b.seq}`} className="border-t border-border/50 text-text-muted">
+      <th scope="row" className={`${tdClass} ${stickyCell} pl-6 text-left text-xs font-normal`}>
+        <span className="font-medium">
+          {t("batch.label")} {formatCount(b.seq)}
+        </span>
+        {b.costPrice !== null && toDecimal(b.costPrice).isZero() ? (
+          <span className="ml-1 rounded bg-success/10 px-1 text-success">{t("batch.free")}</span>
+        ) : null}
+        <div>
+          {b.startDate === "opening" ? t("batch.openingStart") : formatBusinessDate(b.startDate)}
+        </div>
+      </th>
+      {shown.map((c) => (
+        <td key={c.key} className={`${tdNum} text-xs whitespace-nowrap`}>
+          {BATCH_CELLS[c.key]?.(b, row) ?? null}
+        </td>
+      ))}
+    </tr>
+  ));
+}
+
+function ProductTable({
+  view,
+  columns,
+  batches = false,
+}: {
+  view: DayView;
+  columns: Column[];
+  batches?: boolean;
+}) {
   const shown = visible(columns, view);
   if (view.products.length === 0) return <StatePanel title={t("product.empty")} />;
   const summary: SummaryItem[] = [
@@ -71,12 +119,20 @@ function ProductTable({ view, columns }: { view: DayView; columns: Column[] }) {
   return (
     <>
       <TableSummary label={t("table.summary")} items={summary} />
-      <ProductGrid view={view} shown={shown} />
+      <ProductGrid view={view} shown={shown} batches={batches} />
     </>
   );
 }
 
-function ProductGrid({ view, shown }: { view: DayView; shown: Column[] }) {
+function ProductGrid({
+  view,
+  shown,
+  batches,
+}: {
+  view: DayView;
+  shown: Column[];
+  batches: boolean;
+}) {
   return (
     <TableScroller>
       <table className={tableClass}>
@@ -92,17 +148,20 @@ function ProductGrid({ view, shown }: { view: DayView; shown: Column[] }) {
         </thead>
         <tbody>
           {view.products.map((row) => (
-            <tr key={row.productId} className="border-t border-border">
-              <th scope="row" className={`${tdClass} ${stickyCell} text-left font-medium`}>
-                {row.productName}
-                <div className="text-xs font-normal text-text-muted">{row.sku}</div>
-              </th>
-              {shown.map((c) => (
-                <td key={c.key} className={`${tdNum} whitespace-nowrap`}>
-                  {c.cell(row)}
-                </td>
-              ))}
-            </tr>
+            <Fragment key={row.productId}>
+              <tr className="border-t border-border">
+                <th scope="row" className={`${tdClass} ${stickyCell} text-left font-medium`}>
+                  {row.productName}
+                  <div className="text-xs font-normal text-text-muted">{row.sku}</div>
+                </th>
+                {shown.map((c) => (
+                  <td key={c.key} className={`${tdNum} whitespace-nowrap`}>
+                    {c.cell(row)}
+                  </td>
+                ))}
+              </tr>
+              {batches ? <BatchRows row={row} shown={shown} /> : null}
+            </Fragment>
           ))}
         </tbody>
       </table>
@@ -147,18 +206,29 @@ function DayPage({
 const STOCK_COLUMNS: Column[] = [
   qty("day.column.stock", "stock"),
   qty("day.column.dueFromCompany", "dueFromCompany"),
+  qty("day.column.damagedStock", "damagedStock"),
+  qty("day.column.damageAtCompany", "damageAtCompany"),
   { key: "day.column.costPrice", cell: rate("costPrice"), needs: "cost" },
   { key: "day.column.salePrice", cell: rate("salePrice") },
   { key: "day.column.stockValue", cell: amount("stockValue"), needs: "cost", total: "stockValue" },
 ];
 
 export function StockPage() {
+  const [batches, setBatches] = useState(true);
   return (
     <DayPage path="inventory/stock" title="nav.inventory.stock" description="stock.description">
       {(view) => (
         <div className="flex flex-col gap-4">
           <PageWarnings warnings={view.warnings} />
-          <ProductTable view={view} columns={STOCK_COLUMNS} />
+          <label className="flex items-center gap-2 text-sm print:hidden">
+            <input
+              type="checkbox"
+              checked={batches}
+              onChange={(e) => setBatches(e.target.checked)}
+            />
+            {t("stock.batches.toggle")}
+          </label>
+          <ProductTable view={view} columns={STOCK_COLUMNS} batches={batches} />
         </div>
       )}
     </DayPage>

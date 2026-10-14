@@ -248,6 +248,8 @@ export function buildSeedPlan(read: SheetReadResult, options: SeedPlanOptions): 
   const stock: PlanOpeningStock[] = [];
   const runPrices = new Map<string, Partial<Record<PriceKindName, string>>>();
   let costFallbacks = 0;
+  // D48: the opening company balance is the balance after the undelivered goods were billed.
+  let undeliveredBilled = new Decimal(0);
   for (const product of products) {
     const c = closing.products[product.key];
     const pcs = whole(c?.stock);
@@ -262,6 +264,7 @@ export function buildSeedPlan(read: SheetReadResult, options: SeedPlanOptions): 
     }
     // D46: goods due is never negative (the excess receipt is already in the company payable).
     const due = Decimal.max(0, dec(c?.dueFromCompany).toDecimalPlaces(0));
+    undeliveredBilled = undeliveredBilled.add(due.mul(order ?? 0));
     stock.push({
       productKey: product.key,
       pieces: pieces(pcs),
@@ -348,7 +351,7 @@ export function buildSeedPlan(read: SheetReadResult, options: SeedPlanOptions): 
     staff.push(line("sr_loan", new Decimal("5000"), { personKey: sr.key }, SAMPLE_NOTE));
   staff.push(line("owed_to_sr", new Decimal("1000"), { personKey: firstSr.key }, SAMPLE_NOTE));
 
-  const payable = dec(closing.companyPayable);
+  const payable = dec(closing.companyPayable).add(undeliveredBilled);
   const company: PlanOpeningBalance[] = [];
   if (payable.gt(0)) company.push(line("company_payable", payable, {}));
   else if (payable.lt(0)) company.push(line("company_advance", payable.abs(), {}));

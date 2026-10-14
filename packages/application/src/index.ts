@@ -51,6 +51,7 @@ export { getOpening, saveOpeningCutoff, saveOpeningSection } from "./opening";
 export {
   addProductPack,
   createProduct,
+  deleteProduct,
   getProductHistory,
   listProducts,
   setProductPrice,
@@ -66,10 +67,17 @@ export {
   saveFieldVisit,
 } from "./field";
 export { getSetupStatus } from "./setup";
-export { createShop, getShopStatement, listShops, updateShop } from "./shops";
+export { createShop, deleteShop, getShopStatement, listShops, updateShop } from "./shops";
+export {
+  STANDARD_CASH_ACCOUNTS,
+  STANDARD_EXPENSE_CATEGORIES,
+  STANDARD_STAFF_ROLES,
+  type StarterSummary,
+} from "./starter-dataset";
 export {
   addStaffAssignment,
   createStaff,
+  deleteStaff,
   getStaffRecord,
   listAllStaff,
   listStaffMembers,

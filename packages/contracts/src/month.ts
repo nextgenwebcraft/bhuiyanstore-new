@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { engineWarningSchema } from "./daily";
+import { batchRowSchema, engineWarningSchema } from "./daily";
 import type { PermissionId } from "./definitions/permissions";
 import { businessDateSchema, decimalStringSchema, idSchema } from "./primitives";
 
@@ -40,6 +40,11 @@ export const monthProductRowSchema = z.object({
   profitTotal: costMoney,
   returnValue: money,
   damageValue: costMoney,
+  /** Pieces found damaged in the godown (D53); stock and cost fall, sales do not. */
+  godownDamaged: money,
+  /** Damaged goods stock in the godown, and damaged pieces at the company (D53). */
+  damagedStock: money,
+  damageAtCompany: money,
   /** Pieces given to buyers from the godown for damaged ones (D17); part of the damage value. */
   replacedFromStock: money,
   /** Company replacement pieces received for damage claims (D17); no bill, no payable. */
@@ -52,7 +57,10 @@ export const monthProductRowSchema = z.object({
   closingValue: costMoney,
   closingAtSale: money,
   closingCartons: money,
+  /** The batches at the end of the range, oldest first (D49). */
+  closingBatches: z.array(batchRowSchema),
   dueFromCompany: money,
+  /** Billed value of the goods not yet received (D48). */
   dueFromCompanyValue: money,
 });
 
@@ -122,6 +130,8 @@ export const monthViewSchema = z.object({
     costTotal: costMoney,
     profitTotal: costMoney,
     damageValue: costMoney,
+    /** Damage refunds + replacement goods (D47 memo): not profit. */
+    damageRecovery: costMoney,
     replacementValue: costMoney,
     closingValue: costMoney,
   }),
@@ -145,11 +155,20 @@ export const monthViewSchema = z.object({
   staff: z.array(monthStaffRowSchema),
   companyPayable: z.object({
     opening: money,
+    /** Order bills (D48): an order is billed on its day. */
+    orders: money,
+    /** Goods received beyond what was ordered, billed at once. */
     receipts: money,
     deposits: money,
     incentives: money,
     damageRefunds: money,
     closing: money,
+    /** Billed value of goods ordered and not yet received, at the start and end. */
+    undeliveredOpening: money,
+    undeliveredClosing: money,
+    /** Display sign (D48): money with the company = -payable. */
+    balanceOpening: money,
+    balanceClosing: money,
   }),
   /** Requires `report.profit_view` (and cost view). */
   profit: z
@@ -196,6 +215,7 @@ export const reportIds = [
   "staff-balances",
   "daily-cash",
   "dsr-daily",
+  "cash-book",
 ] as const;
 export type ReportId = (typeof reportIds)[number];
 
@@ -206,6 +226,7 @@ export type ReportId = (typeof reportIds)[number];
 export const reportPermissions: Partial<Record<ReportId, readonly PermissionId[]>> = {
   profit: ["inventory.cost_view", "report.profit_view"],
   "staff-balances": ["finance.view"],
+  "cash-book": ["finance.view"],
 };
 
 /** Whether `permissions` allow the report: `report.view` plus its own permissions. */

@@ -1,0 +1,23 @@
+id: 2026-10-14-shop-combobox-inline-create
+reason: >-
+  D50 (owner decision 2026-10-14) - on the shop due page (দোকানের বাকি আদায়) typing a shop name that is not in the list creates that shop and posts the entry in one atomic, idempotent request. Amends D35. Decision wording for docs/decisions.md - "D50 | New shop from the due page | The money entry request accepts newShop {name} (mutually exclusive with shopId; only marketDueNew/marketDueCollected). The kind's own posting permission (sale.post / collection.post) is enough to create the shop this way; the shop is active and audited (shop.create). An exact trimmed-name match reuses the existing active shop; an inactive shop of that name is refused with a message (names are unique per company). The shop picker is a reusable accessible Combobox: role=combobox + listbox, aria-activedescendant, Up/Down/Home/End/Enter/Esc, Bangla/Latin-digit-insensitive search via @bsd/i18n, option = name + owner - area + current due (red over limit), last row create-new when there is no exact match. Amends D35."
+owners: [contracts, application, i18n, web]
+changes:
+  - >-
+    packages/contracts - moneyEntryPostRequestSchema gains newShop {name} (trimmed, 1..120), nullable default null; superRefine refuses shopId together with newShop (validation.shop.newShopExclusive) and newShop on any kind other than marketDueNew/marketDueCollected (validation.shop.notForKind); exports newShopKinds and newShopSchema; contract tests for the exclusivity
+  - packages/application - shop-rows.ts holds toShop and insertShop (row + shop.create audit) so createShop and postMoneyEntry write the same shop; postMoneyEntry resolves newShop inside the money.post transaction (exact name reused, inactive name refused with validation.shop.inactiveName, otherwise created), so shop and entry commit or roll back together and a retry with the same request key replays; a concurrent duplicate name maps to validation.shop.duplicate; permission stays moneyKindPermission[kind]; integration tests in phase-i.integration.ts
+  - apps/web - components/combobox.tsx (generic, tokens only, works at 360px, dark mode; options with label/secondary/trailing/tone, optional create row via createLabel) and combobox-logic.ts (pure filtering, exact match, create row, highlight and wrap logic, unit tested); shop-due-page.tsx uses it and sends shopId for a picked or exactly typed shop and newShop otherwise; the money posting effects already invalidate the shop list
+  - packages/i18n - shop.combobox.* keys, validation.shop.newShopExclusive and validation.shop.inactiveName
+affectedActionIds: [money.post, shop.create]
+financialImpact: >-
+  none - the entry amount, kind and effect are unchanged; the only new write is an active shop with no due limit
+backfill: >-
+  none
+tests:
+  - pnpm check
+  - pnpm build
+  - pnpm test:integration (phase-i.integration.ts: atomic and idempotent create, exact name reuse, inactive refusal, sale.post / collection.post suffice, exclusivity)
+rollout: >-
+  deploy the app (no migration)
+recovery: >-
+  revert the commit

@@ -88,35 +88,74 @@ issued        = Σ over DSRs (issue pieces)                     Excel K = M45+F4
 returned      = Σ over DSRs (return pieces)                    Excel L
 delivered     = issued − returned                              Excel M = K−L
 sold          = delivered − damaged                            (inside P, Q, S)
-sales         = sold × sale_price − commission                 Excel P = (M−N)×O; commission D41 (no Excel column)
-cost          = sold × cost_price                              Excel Q = (M−N)×H   (D29)
+sales         = Σ sold pieces × their batch sale price         Excel P = (M−N)×O; with one batch this is sold × sale_price; − commission D41, D49
+cost          = Σ (delivered + replaced from stock + godown damaged) pieces × their batch cost (FIFO, D49; one batch = × cost_price)  Excel Q = (M−N)×H on sold only; the engine charges every delivered piece (D47) and every piece found damaged in the godown (D53)
 gross_profit  = sales − cost                                   Excel S
 return_value  = returned × sale_price                          Excel R (report only)
-order_value   = ordered × order_price                          Excel F
-receipt_bill  = received × order_price                         Excel I
+order_value   = ordered × order_price                          Excel F; billed on the order day (D48)
+receipt_bill  = excess × order_price                           Excel I bills every received piece; D48 bills only excess = received − min(received, due + ordered)
+due_value     = Σ order bills − value released on receipt      D48: billed value of goods not yet received (proportional; 0 when due is 0)
 receipt_sale  = received × sale_price                          Excel J (report only)
 due_from_co   = max(0, previous due_from_co + ordered − received)  Excel D (W7 = D7+V7−Z7), floored at 0 (D46)
 stock         = previous stock + received − delivered          Excel T (AM7 = T7+Z7−AF7)
-                + company replacements − replaced from stock   (D17; no Excel column)
-stock_value   = stock × cost_price                             Excel U
+                + company replacements + free goods            (D17, D16; no Excel column)
+                − replaced from stock − godown damaged         (D17, D53)
+damaged_stock = previous + sheet damaged + godown damaged      D53: damaged goods held here, not saleable
+                + buyer pieces taken in at the godown (replaced from stock)
+                − dispatched to the company + rejected back − written off
+damage_at_co  = previous + dispatched − rejected               D53: pieces the company holds awaiting its decision
+                − company replacement pieces − company refund pieces
+stock_value   = Σ batch quantity × batch cost                  Excel U = stock × cost_price (identical while one batch exists)
 person_net    = person issue − person return                   Excel J45, Q45 (the software uses subtraction, always)
 person_amount = person_net × sale_price − commission           Excel C45, R45 (report only)
 commission    = Σ over DSR lines (taka given to shops, D41)     lowers sales, the DSR's expected cash and profit
 ```
 
-Damaged pieces leave saleable stock as part of `delivered` and earn no revenue. A damaged item
+**Batches, FIFO (D49).** Stock is a list of batches per product, oldest first, derived from posted
+facts (no table): `{seq, startDate, costPrice, salePrice, quantity}`.
+
+- A receipt with a cost or sale price different from the newest batch is a new batch (seq + 1); the
+  same prices merge into the newest batch; a negative newest batch (deficit) is filled first. A
+  price change on a day without a receipt re-prices the newest batch only. Free goods and company
+  replacements are zero-cost batches at the current sale price (merged only into a newest batch with
+  cost 0 and the same sale price).
+- Inflows come before outflows. Each DSR line (input order) takes its net pieces from the oldest
+  batches: allocation `[{seq, quantity, costPrice, salePrice}]`. Sold pieces are the first
+  `sold` allocated ones, damaged pieces the rest; price-split pieces are the first sold pieces and
+  adjust against the batch sale price they replace. When all batches are used up the newest batch
+  goes negative (NEGATIVE_STOCK warning, valued at its prices); a negative net returns pieces to the
+  oldest batch. Then replaced-from-stock and godown damage take FIFO too.
+- `stock` = Σ batch quantity; zero older batches disappear (the newest stays for merging, hidden
+  at 0). The current product prices (display, MISSING_PRICE) are the carry-forward prices = the
+  newest batch; the order price is a company bill price, not part of a batch.
+
+Damaged pieces leave saleable stock as part of `delivered` and earn no revenue, but their cost is
+charged like any delivered piece, so profit falls by their full sale value (D47). The good piece
+handed to a buyer from the godown also charges its cost to the day. A damaged item
 received from a buyer goes to damaged stock, and the company replacement is tracked separately
 (D17). It never adds back to saleable stock silently.
 
-Damage cases (D17) feed the engine only through two posted legs:
+**Godown damage (D53).** A godown stock entry of kind `damage` (pieces found damaged in the
+godown) is the engine input `godownDamaged`: saleable stock falls, the cost (quantity × cost price)
+is charged so gross profit falls, `damage_value` rises, damaged stock rises, and there is no sales
+effect. The product-level `damaged` input (Excel N) remains only for the workbook reader
+(`verify:workbook`).
+
+Damage cases (D17, D53) feed the engine through their posted legs:
 
 - **Replaced from stock:** a good piece handed to a buyer straight from the godown (not on a DSR
-  sheet). It leaves stock, counts in the damage value, and is not a sale.
+  sheet). It leaves stock, counts in the damage value, is not a sale, and the buyer's damaged piece
+  enters damaged stock. It is refused on a case linked to a DSR day: those pieces were handed out on
+  the sheet already.
 - **Company replacement:** pieces the company sends back for accepted damage. They add to stock
-  with no bill, no due from the company and no payable. `replacement_value` = quantity × the
-  reviewed unit cost, reported apart from profit.
-
-Dispatch, acceptance, rejection and write-off move damaged custody only.
+  with no bill, no due from the company and no payable, as their own batch at cost 0 (the D49 batch
+  task). `replacement_value` = quantity × the reviewed unit cost, a memo.
+- **Company damage money refund:** lowers what we owe the company only. It is **not profit**
+  (D47 amendment): the figure stays a memo ("ড্যামেজ বাবদ ফেরত") on the company account page and in
+  the damage report.
+- **Dispatch, reject, write-off:** damaged-goods custody (`damaged_stock`, `damage_at_co`) only; no
+  money or profit effect, because the loss was charged when the damage happened. A company reject
+  returns the pieces to the case's still-here quantity.
 
 ### 2.4 Daily money calculations (per day)
 
@@ -135,20 +174,47 @@ an approved shortage reduces it: that sales money never reached the cash box (Ex
 Sort columns). A business cost paid personally by staff is an expense and staff credit, with no
 cash effect. Deposits to the company are reported as "banked", outside `cash_left`, as in Excel.
 
+**Cash and bank book (D52).** `cash_left` is a daily view; the authoritative balance of each cash,
+bank and mobile account is the book. Every money entry whose kind moves cash (`cash` ≠ 0 in
+`MONEY_KIND_EFFECTS`), a supplier deposit and the new `cashTransfer` carry an optional account
+(`money_entry.cash_account_id`; a transfer also `to_cash_account_id`). When omitted, the entry gets
+the company's default account: the first `cash`-kind account among the opening's cash lines, else
+the tenant's first active one (a supplier deposit: the tenant's first bank account, else that
+default); with no account at all the engine uses the bucket `""` ("হিসাব নির্ধারিত নয়"). Movements:
+the entry's amount in or out by its direction; each day's `day_sales` into the default cash account
+(market due given and collected and the handover difference are money entries, so the account ends
+at the real cash); a supplier deposit out of its account while `cash_left` still ignores it; a
+transfer out of one account and into another with no other effect. Opening balances come from the
+opening's cash lines; the month close stores each account's closing balance
+(`closing.cashAccounts`). A snapshot stored before the book has none: the engine starts the accounts
+at 0 and warns `CASH_SNAPSHOT_MISSING` once (reopening and closing again fixes it).
+
+**DSR cash handover (D54, replaces D39 "display only").** Posting a DSR day sheet with the cash
+handed over entered settles `difference = handed over − expected` (expected = sales − new due +
+collected − DSR expenses): below 0 posts a `staffShortage` of the difference, above 0 a
+`staffExcess`, both on the DSR, dated the sheet's day, linked to the day (`dsr_day_id`) and in the
+default cash account. They are owned by the day: individual reversal is refused and reversing the
+day reverses them.
+
+**SR owed (D55).** `srOwed` is an incentive the SR earned and we have not paid: it adds to the
+month's SR incentive expense on its entry date (no cash) and raises what we owe the SR. `srPayment`
+lowers it with cash out and no expense. `srIncentive` (paid in cash at once) is unchanged.
+
 ### 2.5 Month calculations
 
 ```text
-per product: receipt_total = Σ receipt_bill           Excel "Total Receive amount in Tk"
+per product: receipt_total = Σ receipt_bill (excess only, D48)  Excel "Total Receive amount in Tk" (every received piece)
              sales_total   = Σ sales                  "Total sale in Tk"
              profit_total  = Σ gross_profit           "Total Profit"
              closing_stock = stock on the last day    "present stock Per Pice"
-             closing_value = closing_stock × last cost_price          "present stock Amount"
-             closing_at_sale = closing_stock × last sale_price        "total product Sale price"
-             due_from_co_value = due_from_co × last order_price        "Balance Quantity amount"
-             order_total   = Σ order_value            "Total du Product amount"
+             closing_value = Σ batch quantity × batch cost (D49)         "present stock Amount"
+             closing_at_sale = Σ batch quantity × batch sale price (D49)      "total product Sale price"
+             due_from_co_value = due_value (billed value of the undelivered goods, D48)   "Balance Quantity amount"
+             order_total   = Σ order_value (billed on the order day, D48)   "Total du Product amount"
              closing_cartons = closing_stock ÷ carton size             "present Stock Per Caton"
              sales_cartons = Σ delivered ÷ carton size                 "Total sales per Product"
-             damage_value  = Σ (damaged + replaced_from_stock) × cost_price   "Dmage Product Amount"
+             damage_value  = Σ (damaged + replaced_from_stock + godown_damaged) × cost_price   "Dmage Product Amount"
+             damaged_stock, damage_at_co = the last day's values (D53)
              replacement_value = Σ company replacement quantity × unit cost (D17, report only)
 per person:  month_net = Σ person_net; cartons = month_net ÷ carton size; amount = Σ daily person_amount
 market due:  closing = opening + Σ new market due − Σ credit           Excel "Total Due" (row 42)
@@ -156,8 +222,15 @@ staff:       per person, owes us / we owe (D27); Excel net = Σ Sort − Σ Over
              statement line per money entry = its change to each balance + the balances after it
              payroll: recovery = advance → loan → shortage, capped at salary; Cash Pabe = salary − recovery
 profit:      gross = Σ gross_profit
-             net   = gross − salaries − operating cost − month expenses − D:Comition (D20)
-cash book:   per account, opening + inflows − outflows (not Excel's cash_left, which is a daily view)
+             net   = gross − salaries − operating cost − month expenses − D:Comition (D20; D55 adds srOwed)
+             damage refunds and replacement goods are not profit (D47 amendment); the company's
+             money incentive (D33) changes the company balance only, never profit
+company:     payable closing = opening + Σ order bills + Σ excess receipt bills − deposits
+                               − money incentives − damage refunds     (negative = money with the company, D48)
+             balance shown = −payable ("কোম্পানিতে জমা"); undelivered value = Σ due_value
+             Σ order bills + Σ excess bills = Σ goods received at bill + closing undelivered − opening undelivered
+cash book:   per account (D52), closing = opening + inflows − outflows, where inflows include the
+             day's sales cash and transfers in (not Excel's cash_left, which is a daily view)
 ```
 
 The software's net profit is lower than Excel's `VV42` by the D:Comition paid, because Excel leaves
@@ -216,11 +289,11 @@ computeMonth(input: {
 }) → {
   days:    per date per product (all §2.3 values), per date money (§2.4)
   month:   per product / per person / market due / staff / profit (§2.5)
-  closing: next month's opening (same shape as input.opening)
+  closing: next month's opening (same shape as input.opening; per product also the FIFO batches, D49)
 }
 ```
 
-- It is pure and deterministic: no database or I/O.
+- It is pure and deterministic: no database or I/O. Batches (D49) are engine state carried in the closing; no table stores them.
 - The closing of month N is the opening of month N+1. Opening balances entered at go-live are
   simply the first opening.
 - Posted documents are converted into `days` by the application layer. Reports call the engine
@@ -264,7 +337,7 @@ All rows carry `tenant_id`, and company-owned rows carry `company_id`.
   | `expense`                                      | Operating cost and month expenses by category                                                                                                                   |
   | `sr_entry`                                     | Loan, repayment, owed, payment, incentive (D:Comition) (D18, D20)                                                                                               |
   | `staff_money_entry` + `staff_money_allocation` | D27                                                                                                                                                             |
-  | `supplier_deposit`                             | Banking (D19)                                                                                                                                                   |
+  | `supplier_deposit`                             | Banking (D19); leaves its cash/bank account (D52). `cashTransfer` moves money between two accounts (D52)                                                        |
   | `damage_case` legs                             | D17                                                                                                                                                             |
   | `field_visit` / lines (DSR, shop, date; D40)   | None until the DSR day is posted; posting writes per-shop due/collection entries and exchange custody, and locks the visits                                     |
   | `payroll_run` / lines                          | D24, D25                                                                                                                                                        |
@@ -280,20 +353,20 @@ All rows carry `tenant_id`, and company-owned rows carry `company_id`.
 All write endpoints take a `requestKey`, are idempotent, check membership, module and permission,
 and return contract DTOs. Errors use the existing `ServiceError` codes.
 
-| Area          | Endpoints                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Session       | `/api/auth/*` (Better Auth), `GET /me`, `GET /companies`, `GET /companies/{c}`                                                                                                                                                                                                                                                                                                                                                                                                        |
-| Masters       | `products` (+ `packs`, `prices`), `suppliers`, `staff`, `staff-assignments`, `roles`, `expense-categories`, `cash-accounts`, `settings` (CRUD; deactivate, never delete once used)                                                                                                                                                                                                                                                                                                    |
-| Opening       | `GET /companies/{c}/opening`, `PUT …/opening/cutoff` (go-live date), `PUT …/opening/section` (one section: `stock`, `marketDue`, `shopDue`, `staff`, `company` or `cash`; D43)                                                                                                                                                                                                                                                                                                        |
-| Daily entry   | `purchase-orders`, `goods-receipts`, `dsr-days` (`GET ?date=`, `PUT` draft, `POST …/post`, `POST …/reverse`), `collections`, `expenses`, `sr-entries`, `staff-money-entries`, `supplier-deposits`, `damage-cases`                                                                                                                                                                                                                                                                     |
-| Day and month | `GET /companies/{c}/days/{date}` (the workbook day block with every §2.3–2.4 value), `GET /companies/{c}/months/{yyyy-mm}` (§2.5), `POST …/months/{m}/close`, `POST …/months/{m}/reopen`                                                                                                                                                                                                                                                                                              |
-| Reports       | `stock`, `sales`, `profit` (gross and net), `market-due`, `company-due` (pieces ordered but not yet received and their order-price value; never negative, floored at 0, D46), `staff-statement/{staffId}`, `sr-statement/{srId}`, `cash-book`, `damage`, `cartons`, `person-sales`, `dsr-daily` (D39), `company-account` (the supplier ledger: opening row, bills, deposits, incentives, refunds, free-goods memo, running payable) (all with date range; export CSV/XLSX; printable) |
-| Dashboard     | `GET /companies/{c}/dashboard?from&to` (D44): the totals summed over the range (sales, gross profit and received/stock value only with their permissions, cash collected, market due new/collected/closing, per-DSR rows) from one engine run; same range rules as reports (`to` stops at today, at most a year); needs `company.view`                                                                                                                                                |
-| Setup         | `GET /companies/{c}/setup` (the go-live steps, computed on the server; shown on the opening page, D43)                                                                                                                                                                                                                                                                                                                                                                                |
-| Field (D40)   | `GET /companies/{c}/field/day` (own day; `?staffId=` for the office), `POST …/field/visits`, `PUT/DELETE …/field/visits/{id}`, `POST …/field/shops`, `POST …/staff/{s}/login`                                                                                                                                                                                                                                                                                                         |
-| Payroll       | `payroll-runs` (create, review recovery, approve, pay)                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| Import        | `POST /companies/{c}/imports` (upload + sheet), `GET …/imports/{id}` (mapping, preview, comparison), `POST …/imports/{id}/commit`                                                                                                                                                                                                                                                                                                                                                     |
-| Admin         | `users`, `memberships`, `roles`, `audit`                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Area          | Endpoints                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Session       | `/api/auth/*` (Better Auth), `GET /me`, `GET /companies`, `GET /companies/{c}`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Masters       | `products` (+ `packs`, `prices`), `suppliers`, `staff`, `staff-assignments`, `roles`, `expense-categories`, `cash-accounts`, `settings` (CRUD; DELETE only when unused, otherwise deactivate; company creation seeds a synthetic starter dataset and the standard lists, D51)                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Opening       | `GET /companies/{c}/opening`, `PUT …/opening/cutoff` (go-live date), `PUT …/opening/section` (one section: `stock`, `marketDue`, `shopDue`, `staff`, `company` or `cash`; D43)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Daily entry   | `purchase-orders`, `goods-receipts`, `dsr-days` (`GET ?date=`, `PUT` draft, `POST …/post`, `POST …/reverse`), `collections`, `expenses`, `sr-entries`, `staff-money-entries`, `supplier-deposits`, `damage-cases`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Day and month | `GET /companies/{c}/days/{date}` (the workbook day block with every §2.3–2.4 value), `GET /companies/{c}/months/{yyyy-mm}` (§2.5), `POST …/months/{m}/close`, `POST …/months/{m}/reopen`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Reports       | `stock`, `sales`, `profit` (gross and net), `market-due`, `company-due` (pieces ordered but not yet received and their billed value; never negative, floored at 0, D46; the order is billed at once, D48), `staff-statement/{staffId}`, `sr-statement/{srId}`, `cash-book`, `damage`, `cartons`, `person-sales`, `dsr-daily` (D39), `company-account` (D48: the money deposited with the company: opening row, order bills, receipts (pieces, excess bill), deposits, money incentives and damage money returns in, free-goods and replacement memos, with the running balance (−payable) and undelivered value; any range or all time from the go-live cutoff, no 365-day limit) (all with date range; export CSV/XLSX; printable) |
+| Dashboard     | `GET /companies/{c}/dashboard?from&to` (D44): the totals summed over the range (sales, gross profit and received/stock value only with their permissions, cash collected, market due new/collected/closing, per-DSR rows) from one engine run; same range rules as reports (`to` stops at today, at most a year); needs `company.view`                                                                                                                                                                                                                                                                                                                                                                                              |
+| Setup         | `GET /companies/{c}/setup` (the go-live steps, computed on the server; shown on the opening page, D43)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Field (D40)   | `GET /companies/{c}/field/day` (own day; `?staffId=` for the office), `POST …/field/visits`, `PUT/DELETE …/field/visits/{id}`, `POST …/field/shops`, `POST …/staff/{s}/login`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Payroll       | `payroll-runs` (create, review recovery, approve, pay)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Import        | `POST /companies/{c}/imports` (upload + sheet), `GET …/imports/{id}` (mapping, preview, comparison), `POST …/imports/{id}/commit`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Admin         | `users`, `memberships`, `roles`, `audit`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 
 ### 6.1 Navigation and dashboard (D44)
 

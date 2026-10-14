@@ -1,4 +1,5 @@
 import {
+  Decimal,
   computeMonth,
   datesBetween,
   firstOfMonth,
@@ -39,15 +40,47 @@ const ENGINE_PRICE: Record<string, PriceKind> = {
   sale: "salePrice",
 };
 
+/** D53: godown damage is its own engine input (stock and cost fall, no sales), not product-level damaged. */
 const STOCK_FIELD: Record<
   StockEntryKind,
-  "ordered" | "received" | "damaged" | "incentiveReceived"
+  "ordered" | "received" | "godownDamaged" | "incentiveReceived"
 > = {
   order: "ordered",
   receipt: "received",
-  damage: "damaged",
+  damage: "godownDamaged",
   incentive: "incentiveReceived",
 };
+
+/**
+ * The accounts that take money when none is named (D52): the default cash account is the first
+ * active `cash` account of the company's opening cash lines, else the tenant's first active one;
+ * a supplier deposit goes to the tenant's first active bank account, else the cash default.
+ * `""` = no account exists, the engine's "no account" bucket.
+ */
+export type CashDefaults = { cash: string; deposit: string };
+
+export async function cashDefaults(
+  db: Db,
+  tenantId: string,
+  companyId: string,
+): Promise<CashDefaults> {
+  const [accounts, lines] = await Promise.all([
+    db.cashAccount.findMany({
+      where: { tenantId, active: true },
+      select: { id: true, kind: true },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    }),
+    db.openingBalanceLine.findMany({
+      where: { kind: "cash", cashAccountId: { not: null }, session: { companyId } },
+      select: { cashAccountId: true },
+    }),
+  ]);
+  const opened = new Set(lines.map((l) => l.cashAccountId));
+  const cashKind = accounts.filter((a) => a.kind === "cash");
+  const cash = cashKind.find((a) => opened.has(a.id)) ?? cashKind[0];
+  const bank = accounts.find((a) => a.kind === "bank");
+  return { cash: cash?.id ?? "", deposit: bank?.id ?? cash?.id ?? "" };
+}
 
 type DecimalColumn = Parameters<typeof plain>[0];
 
@@ -64,6 +97,48 @@ export function allocationOf(entry: {
     advance: plain(entry.allocAdvance),
     loan: plain(entry.allocLoan),
     shortage: plain(entry.allocShortage),
+  };
+}
+
+/**
+ * A month-close snapshot stored before D48 has no billed undelivered value and its payable leaves
+ * the undelivered goods out. As an opening it gets `due × order price` per product, added to the
+ * payable, so it means what D48 says: the balance after the undelivered goods were billed.
+ */
+export function upgradeClosing(snapshot: MonthClosing): MonthClosing {
+  const entries = Object.entries(snapshot.products);
+  if (entries.every(([, p]) => p.dueFromCompanyValue !== undefined && p.batches !== undefined)) {
+    return snapshot;
+  }
+  let billed = new Decimal(0);
+  const products = Object.fromEntries(
+    entries.map(([id, original]) => {
+      let p = original;
+      // D49: a snapshot stored before batches holds its stock as one batch at the closing prices.
+      if (p.batches === undefined && !new Decimal(p.stock).isZero()) {
+        p = {
+          ...p,
+          batches: [
+            {
+              seq: 1,
+              startDate: "opening",
+              costPrice: p.costPrice ?? "0",
+              salePrice: p.salePrice ?? "0",
+              quantity: p.stock,
+            },
+          ],
+        };
+      }
+      if (p.dueFromCompanyValue !== undefined) return [id, p];
+      const value = Decimal.max(0, new Decimal(p.dueFromCompany)).mul(p.orderPrice ?? "0");
+      billed = billed.add(value);
+      return [id, { ...p, dueFromCompanyValue: value.toString() }];
+    }),
+  );
+  return {
+    ...snapshot,
+    products,
+    companyPayable: new Decimal(snapshot.companyPayable).add(billed).toString(),
   };
 }
 
@@ -104,13 +179,14 @@ export async function liveOpening(db: Db, companyId: string): Promise<ActiveOpen
 /** Engine input for [from, to] (one month at most), starting from `opening`. */
 async function rangeInput(
   db: Db,
+  tenantId: string,
   companyId: string,
   from: string,
   to: string,
   opening: MonthOpening,
 ) {
   const range = { gte: toDbDate(from), lte: toDbDate(to) };
-  const [products, prices, stock, dsrDays, money, damage] = await Promise.all([
+  const [products, prices, stock, dsrDays, money, damage, defaults] = await Promise.all([
     db.product.findMany({
       where: { companyId },
       include: { packs: true },
@@ -132,7 +208,9 @@ async function rangeInput(
       where: { companyId, status: "posted", date: range },
       orderBy: { createdAt: "asc" },
     }),
-    // Only these damage legs reach the engine: stock (D17) or money back from the company (D33).
+    // Only these damage legs reach the engine: stock (D17), money back from the company (D33)
+    // and the damaged-goods custody legs (D53). A buyer replacement from the DSR's samari is on
+    // the sheet already.
     db.damageEvent.findMany({
       where: {
         companyId,
@@ -140,21 +218,39 @@ async function rangeInput(
         date: range,
         OR: [
           { kind: "buyerReplacement", fromStock: true },
-          { kind: { in: ["companyReplacement", "companyRefund"] } },
+          {
+            kind: {
+              in: [
+                "companyReplacement",
+                "companyRefund",
+                "companyDispatch",
+                "companyReject",
+                "writeOff",
+              ],
+            },
+          },
         ],
       },
       include: { line: { select: { productId: true } } },
       orderBy: { createdAt: "asc" },
     }),
+    cashDefaults(db, tenantId, companyId),
   ]);
 
-  // Prices on or before `from` open the range (latest wins); later ones change on their day.
+  // D49: prices strictly before `from` open the range (latest wins); a price effective on a day
+  // inside the range, `from` included, is that day's input, so a receipt that day can start a new
+  // batch. The opening's own prices (written at the cutoff, `source = 'opening'`) equal the opening
+  // batch, so on the cutoff day they change nothing and never create a batch.
   const openingProducts: Record<string, MonthOpening["products"][string]> = {
     ...opening.products,
   };
   const days = new Map<string, Required<Pick<DayInput, "products" | "dsrLines" | "money">>>(
     datesBetween(from, to).map((date) => [date, { products: {}, dsrLines: [], money: [] }]),
   );
+  const dayDefaults = {
+    defaultCashAccount: defaults.cash,
+    defaultDepositAccount: defaults.deposit,
+  };
   const dayOf = (date: string) => {
     const day = days.get(date);
     if (!day) throw new Error(`ledger: ${date} is outside ${from}..${to}`);
@@ -170,7 +266,7 @@ async function rangeInput(
     if (!kind) continue;
     const date = fromDbDate(change.effectiveFrom);
     const price = plain(change.price);
-    if (date <= from) {
+    if (date < from) {
       const current = openingProducts[change.productId] ?? { stock: "0", dueFromCompany: "0" };
       openingProducts[change.productId] = { ...current, [kind]: price };
     } else {
@@ -180,7 +276,7 @@ async function rangeInput(
 
   for (const entry of stock) {
     const target = dayProduct(fromDbDate(entry.date), entry.productId) as Record<string, string>;
-    const field = STOCK_FIELD[entry.kind as StockEntryKind] ?? "damaged";
+    const field = STOCK_FIELD[entry.kind as StockEntryKind] ?? "godownDamaged";
     target[field] = sumQuantities([target[field] ?? "0", plain(entry.pieces)]);
   }
 
@@ -218,6 +314,12 @@ async function rangeInput(
         ...(target.companyRefunds ?? []),
         { quantity, unitCost: event.unitCost ? plain(event.unitCost) : "0", ref: event.id },
       ];
+    } else if (event.kind === "companyDispatch") {
+      target.companyDispatched = sumQuantities([target.companyDispatched ?? "0", quantity]);
+    } else if (event.kind === "companyReject") {
+      target.companyRejected = sumQuantities([target.companyRejected ?? "0", quantity]);
+    } else if (event.kind === "writeOff") {
+      target.writtenOff = sumQuantities([target.writtenOff ?? "0", quantity]);
     } else {
       target.replacements = [
         ...(target.replacements ?? []),
@@ -237,6 +339,8 @@ async function rangeInput(
       ...(entry.shopId ? { shopId: entry.shopId } : {}),
       ...(entry.expenseCategoryId ? { category: entry.expenseCategoryId } : {}),
       ...(allocation ? { allocation } : {}),
+      ...(entry.cashAccountId ? { account: entry.cashAccountId } : {}),
+      ...(entry.toCashAccountId ? { toAccount: entry.toCashAccountId } : {}),
     });
   }
 
@@ -246,7 +350,7 @@ async function rangeInput(
       piecesPerCarton: String(packOn(p.packs, from)?.piecesPerCarton ?? 1),
     })),
     opening: { ...opening, products: openingProducts },
-    days: [...days].map(([date, day]) => ({ date, ...day })),
+    days: [...days].map(([date, day]) => ({ date, ...dayDefaults, ...day })),
   };
 }
 
@@ -271,6 +375,7 @@ export async function runLedger(
   known?: ActiveOpening | null,
 ): Promise<LedgerRun | null> {
   const companyId = access.company.id;
+  const tenantId = access.company.tenantId;
   const active = known === undefined ? await liveOpening(db, companyId) : known;
   if (!active || to < active.cutoffDate) return null;
 
@@ -285,15 +390,20 @@ export async function runLedger(
   for (let month = monthOf(start); month < monthOf(to); month = shiftMonth(month, 1)) {
     const snapshot = closed.get(month);
     if (snapshot) {
-      opening = snapshot;
+      // A snapshot stored before the cash book has no account balances (D52): the engine
+      // starts the accounts at 0 and warns once; reopening and closing again fixes it.
+      opening = {
+        ...upgradeClosing(snapshot),
+        ...(snapshot.cashAccounts ? {} : { cashSnapshotMissing: true }),
+      };
     } else {
       opening = computeMonth(
-        await rangeInput(db, companyId, start, lastOfMonth(month), opening),
+        await rangeInput(db, tenantId, companyId, start, lastOfMonth(month), opening),
       ).closing;
     }
     start = firstOfMonth(shiftMonth(month, 1));
   }
-  const input = await rangeInput(db, companyId, start, to, opening);
+  const input = await rangeInput(db, tenantId, companyId, start, to, opening);
   return {
     cutoffDate: active.cutoffDate,
     from: start,
@@ -323,7 +433,14 @@ export async function rangeRun(
     const before = await runLedger(db, access, shiftBusinessDate(start, -1), active);
     if (before) opening = before.output.closing;
   }
-  const input = await rangeInput(db, access.company.id, start, to, opening);
+  const input = await rangeInput(
+    db,
+    access.company.tenantId,
+    access.company.id,
+    start,
+    to,
+    opening,
+  );
   return {
     cutoffDate: active.cutoffDate,
     from: start,
@@ -335,7 +452,7 @@ export async function rangeRun(
 
 /** Product names and carton sizes on `date`, and every tenant staff name, for engine rows. */
 export async function namesFor(db: Db, access: CompanyAccess, date: string) {
-  const [products, staff] = await Promise.all([
+  const [products, staff, accounts] = await Promise.all([
     db.product.findMany({
       where: { companyId: access.company.id },
       include: { packs: true },
@@ -344,6 +461,11 @@ export async function namesFor(db: Db, access: CompanyAccess, date: string) {
     db.staff.findMany({
       where: { tenantId: access.company.tenantId },
       select: { id: true, name: true },
+    }),
+    db.cashAccount.findMany({
+      where: { tenantId: access.company.tenantId },
+      select: { id: true, name: true, active: true },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     }),
   ]);
   return {
@@ -354,5 +476,7 @@ export async function namesFor(db: Db, access: CompanyAccess, date: string) {
       piecesPerCarton: String(packOn(p.packs, date)?.piecesPerCarton ?? 1),
     })),
     staff: new Map(staff.map((s) => [s.id, s.name])),
+    /** Cash and bank accounts (D52), in creation order. */
+    accounts,
   };
 }

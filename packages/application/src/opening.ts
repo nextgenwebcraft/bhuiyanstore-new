@@ -364,6 +364,11 @@ async function writeOpeningPrices(
       const key = {
         productId_kind_effectiveFrom: { productId: line.productId, kind, effectiveFrom },
       };
+      // The owner's opening price replaces the starter sample price of the same product and kind
+      // (D51), whatever its date, so a sample price never overrides it later.
+      await tx.priceChange.deleteMany({
+        where: { productId: line.productId, kind, source: "starter" },
+      });
       // A daily/manual price on the go-live date always wins over the opening price.
       const existing = await tx.priceChange.findUnique({ where: key });
       if (existing?.source === "manual") continue;

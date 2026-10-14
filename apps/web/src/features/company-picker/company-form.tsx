@@ -16,6 +16,7 @@ export function CompanyForm({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState("");
   const [primary, setPrimary] = useState<string>(DEFAULT_COMPANY_THEME.primary);
   const [foreground, setForeground] = useState<string>(DEFAULT_COMPANY_THEME.primaryForeground);
+  const [starterData, setStarterData] = useState(true);
   const [modules, setModules] = useState<WorkspaceModuleId[]>([...workspaceModuleIds]);
   const [errors, setErrors] = useState<DescribedError>({ fields: {} });
   const lowContrast = contrastRatio(foreground, primary) < MIN_TEXT_CONTRAST;
@@ -40,6 +41,7 @@ export function CompanyForm({ onClose }: { onClose: () => void }) {
         theme: { primary, primaryForeground: foreground },
         modules,
         blockNegativeStock: false,
+        starterData,
       });
       onClose();
     } catch (error) {
@@ -103,6 +105,18 @@ export function CompanyForm({ onClose }: { onClose: () => void }) {
           {t("company.lowContrast")}
         </p>
       ) : null}
+      <label className="flex min-h-(--touch-target) items-start gap-2">
+        <input
+          type="checkbox"
+          checked={starterData}
+          onChange={(event) => setStarterData(event.target.checked)}
+          className="mt-1"
+        />
+        <span>
+          <span className="block font-medium">{t("company.starterData")}</span>
+          <span className="block text-sm text-text-muted">{t("company.starterDataHint")}</span>
+        </span>
+      </label>
       <fieldset>
         <legend className="mb-1 text-sm font-medium">{t("company.modules")}</legend>
         <p className="mb-2 text-sm text-text-muted">{t("company.modulesHint")}</p>
