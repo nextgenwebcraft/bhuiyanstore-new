@@ -22,6 +22,12 @@ import {
   textOf,
 } from "./cells";
 
+/** See `Expectation.intended`. */
+export type IntendedDifference = {
+  reason: string;
+  accepts: (engine: Decimal, out: MonthOutput) => boolean;
+};
+
 /** A saved Excel value and how to find the same figure in the engine output. */
 export type Expectation = {
   check: string;
@@ -30,6 +36,12 @@ export type Expectation = {
   engine: (out: MonthOutput) => string | null | undefined;
   /** Set when the workbook cell itself is known to be wrong (PLAN §2.6). */
   knownMistake?: string;
+  /**
+   * A money figure that differs from Excel by an owner decision, not by a mistake (D47 damaged
+   * pieces cost, D48 order billing). The engine value must still satisfy `accepts`; any other
+   * difference stays unexplained. Quantity checks never carry this.
+   */
+  intended?: IntendedDifference;
   /** Day of the month (1-based) for a day cell; absent for month-level cells. */
   day?: number;
 };
@@ -307,6 +319,25 @@ export function readMonthSheet(
     return lines;
   };
 
+  /**
+   * D47: cost is charged on every delivered piece, so profit is Excel's profit minus the cost of
+   * the damaged and replaced pieces (the engine's `damageValue`).
+   */
+  const costOfDamaged = (
+    excel: Decimal,
+    damageValue: (out: MonthOutput) => string | null | undefined,
+  ): IntendedDifference => ({
+    reason: "D47: cost of damaged and replaced pieces is charged to profit",
+    accepts: (engine, out) => withinTolerance(engine, excel.sub(damageValue(out) ?? "0")),
+  });
+  /**
+   * D48: ordered goods are billed with the order, so a receipt bills only what exceeds the order.
+   * The engine's receipt bill is therefore never more than Excel's (every received piece billed).
+   */
+  const orderBilledAtOnce = (excel: Decimal): IntendedDifference => ({
+    reason: "D48: ordered goods are billed with the order, a receipt bills only the excess",
+    accepts: (engine) => engine.gte(0) && engine.lte(excel),
+  });
   const days: (DayInput & { money: MoneyEntryInput[] })[] = [];
   /**
    * D46: the engine floors goods due at 0 (an excess receipt offsets no later order), but Excel's
@@ -353,6 +384,7 @@ export function readMonthSheet(
         check: string,
         field: BlockField,
         pick: (out: MonthOutput) => string | null | undefined,
+        intended?: (excel: Decimal) => IntendedDifference,
       ) => {
         const col = cols[field];
         if (col === undefined) return;
@@ -364,6 +396,7 @@ export function readMonthSheet(
             excel: saved,
             engine: pick,
             day: index + 1,
+            ...(intended ? { intended: intended(saved) } : {}),
           });
       };
       const dayOf = (out: MonthOutput) =>
@@ -371,7 +404,12 @@ export function readMonthSheet(
       expect("Samari", "samari", (o) => dayOf(o)?.issued);
       expect("Firot", "firot", (o) => dayOf(o)?.returned);
       expect("Sales amount", "salesTotal", (o) => dayOf(o)?.sales);
-      expect("Gross profit", "profit", (o) => dayOf(o)?.grossProfit);
+      expect(
+        "Gross profit",
+        "profit",
+        (o) => dayOf(o)?.grossProfit,
+        (excel) => costOfDamaged(excel, (o) => dayOf(o)?.damageValue),
+      );
       if (index === 0 && firstBlock) {
         const openingDue = openingFrom(p.row, firstBlock.cols.balance);
         if (openingDue?.isNegative() && !openingDue.isZero()) dueNegative.add(p.id);
@@ -553,6 +591,11 @@ export function readMonthSheet(
         where: `${sheetName} ${p.name} (${cell.address})`,
         excel: saved,
         engine: (o) => pick(o)?.[key],
+        ...(key === "profitTotal"
+          ? { intended: costOfDamaged(saved, (o) => pick(o)?.damageValue) }
+          : key === "receiptTotal"
+            ? { intended: orderBilledAtOnce(saved) }
+            : {}),
         ...monthMistake,
         ...sizeMistake,
       });
@@ -570,6 +613,9 @@ export function readMonthSheet(
         where: `${sheetName} row ${totalsRow}`,
         excel: saved,
         engine: (o) => o.month.totals[key],
+        ...(key === "profitTotal"
+          ? { intended: costOfDamaged(saved, (o) => o.month.totals.damageValue) }
+          : {}),
         ...monthMistake,
       });
   }

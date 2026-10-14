@@ -27,6 +27,7 @@ import {
   MONEY_KIND_EFFECTS,
   monthOf,
   sumAmounts,
+  sumQuantities,
   summarizeDay,
   toDecimal,
   todayBusinessDate,
@@ -863,6 +864,7 @@ export async function getDayView(
               cost: cost(row.cost),
               grossProfit: canSeeProfit ? row.grossProfit : null,
               damageValue: cost(row.damageValue),
+              damageRecovery: cost(row.damageRecovery),
               stockValue: cost(row.stockValue),
             },
           ];
@@ -873,6 +875,17 @@ export async function getDayView(
       staffName: names.staff.get(p.staffId) ?? "",
     })),
     money: day?.money ?? ZERO_MONEY,
+    company:
+      canSeeCost && run
+        ? {
+            balance: toDecimal(run.output.month.companyPayable.closing).neg().toString(),
+            undeliveredValue: run.output.month.companyPayable.undeliveredClosing,
+            undeliveredPieces: sumQuantities([
+              "0",
+              ...run.output.month.products.map((p) => p.dueFromCompany),
+            ]),
+          }
+        : null,
     marketDueOutstanding: run?.output.month.marketDue.closing ?? "0",
     marketDueByDsr: (run?.output.month.marketDue.byDsr ?? [])
       .filter((d) => d.closing !== "0" && d.closing !== "0.00")
@@ -949,7 +962,12 @@ export async function getDashboardSummary(
     postedSummaryCount: sheets,
     postedReceiptCount: receipts,
     byDsr,
-    ...(canSeeProfit && run ? { grossProfit: total((s) => s.grossProfit) } : {}),
+    ...(canSeeProfit && run
+      ? {
+          grossProfit: total((s) => s.grossProfit),
+          damageRecovery: total((s) => s.damageRecovery),
+        }
+      : {}),
     ...(canSeeCost && run
       ? {
           receivedValue: total((s) => s.receivedValue),

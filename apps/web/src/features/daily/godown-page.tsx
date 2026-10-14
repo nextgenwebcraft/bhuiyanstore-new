@@ -4,13 +4,14 @@ import type { DayView, PriceKind, StockEntryKind, StockEntryPostRequest } from "
 import { EmptyListNote } from "@/components/empty-list-note";
 import { ReverseCell } from "@/components/reverse-cell";
 import { useAsyncAction } from "@/lib/async-action";
-import { sumQuantities, toBaseQuantity } from "@bsd/domain";
+import { sumQuantities, toBaseQuantity, toDecimal } from "@bsd/domain";
 import { formatRate, t, type TranslationKey } from "@bsd/i18n";
 import { useState } from "react";
 import { Button } from "@/components/button";
 import { PageHeader } from "@/components/page-header";
 import { TableSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
+import { StatTile } from "@/components/stat-tile";
 import { TableSummary, type SummaryItem } from "@/components/table-summary";
 import { describeError } from "@/data/ports/service-error";
 import {
@@ -37,6 +38,7 @@ import {
   quantity,
   stickyCell,
   stickyHead,
+  money,
   tableClass,
   tdClass,
   tdNum,
@@ -148,6 +150,18 @@ function GodownForm({
   if (view.products.length === 0) return <StatePanel title={t("product.empty")} />;
   const draft = request();
   const entering = typeof draft === "string" ? [] : (draft.lines ?? []);
+  // D48: an order is billed at once; warn (never block) when its bill exceeds the company balance.
+  const company = kind === "order" ? view.company : null;
+  const orderBill = company
+    ? view.products.reduce((total, product) => {
+        const line = entering.find((l) => l.productId === product.productId);
+        if (!line) return total;
+        const typed = clean(rows[product.productId]?.order ?? "");
+        const price = /^\d+(\.\d+)?$/.test(typed) ? typed : (product.orderPrice ?? "0");
+        return total.add(toDecimal(line.pieces).mul(price));
+      }, toDecimal("0"))
+    : null;
+  const overBalance = company && orderBill ? orderBill.gt(toDecimal(company.balance)) : false;
   const summary: SummaryItem[] = [
     { label: t("table.summary.products"), value: quantity(String(view.products.length)) },
     { label: t("godown.summary.entering"), value: quantity(String(entering.length)) },
@@ -163,6 +177,33 @@ function GodownForm({
   ];
   return (
     <div className="flex flex-col gap-4">
+      {company ? (
+        <dl className="grid gap-3 sm:grid-cols-2">
+          <StatTile
+            label={t("godown.company.balance")}
+            value={money(company.balance)}
+            hint={t("companyAccount.balanceHint")}
+            emphasis
+            large
+          />
+          <StatTile
+            label={t("godown.company.undelivered")}
+            value={money(company.undeliveredValue)}
+            hint={`${quantity(company.undeliveredPieces)} ${t("common.pieces")}`}
+          />
+        </dl>
+      ) : null}
+      {company && orderBill && orderBill.gt(0) ? (
+        <p
+          role={overBalance ? "alert" : undefined}
+          className={`rounded-lg border px-4 py-3 text-sm ${
+            overBalance ? "border-warning/40 bg-warning/10" : "border-border bg-surface"
+          }`}
+        >
+          {t("godown.company.orderTotal")}: <strong>{money(orderBill.toString())}</strong>
+          {overBalance ? ` — ${t("godown.company.warning")}` : ""}
+        </p>
+      ) : null}
       <TableSummary label={t("table.summary")} items={summary} />
       {kind === "receipt" && prices.length ? (
         <p className="rounded-lg border border-info/30 bg-info/5 px-4 py-3 text-sm">

@@ -53,6 +53,7 @@ export const monthProductRowSchema = z.object({
   closingAtSale: money,
   closingCartons: money,
   dueFromCompany: money,
+  /** Billed value of the goods not yet received (D48). */
   dueFromCompanyValue: money,
 });
 
@@ -122,6 +123,8 @@ export const monthViewSchema = z.object({
     costTotal: costMoney,
     profitTotal: costMoney,
     damageValue: costMoney,
+    /** Damage refunds + replacement goods (D47): income in net profit. */
+    damageRecovery: costMoney,
     replacementValue: costMoney,
     closingValue: costMoney,
   }),
@@ -145,16 +148,27 @@ export const monthViewSchema = z.object({
   staff: z.array(monthStaffRowSchema),
   companyPayable: z.object({
     opening: money,
+    /** Order bills (D48): an order is billed on its day. */
+    orders: money,
+    /** Goods received beyond what was ordered, billed at once. */
     receipts: money,
     deposits: money,
     incentives: money,
     damageRefunds: money,
     closing: money,
+    /** Billed value of goods ordered and not yet received, at the start and end. */
+    undeliveredOpening: money,
+    undeliveredClosing: money,
+    /** Display sign (D48): money with the company = -payable. */
+    balanceOpening: money,
+    balanceClosing: money,
   }),
   /** Requires `report.profit_view` (and cost view). */
   profit: z
     .object({
       gross: money,
+      /** Damage refunds + replacement goods (D47). */
+      damageRecovery: money,
       salaries: money,
       expenses: money,
       expensesByCategory: z.array(z.object({ name: z.string(), amount: money })),

@@ -24,11 +24,13 @@ import {
   postMoneyEntry,
   postStockEntries,
   reverseDsrDay,
+  reverseStockEntry,
   reverseMoneyEntry,
   saveDsrDay,
 } from "./daily";
 import { AppError } from "./errors";
 import { runLedger } from "./ledger";
+import { getReport } from "./month";
 import { getOpening } from "./opening";
 import { createProduct } from "./products";
 import { createShop, getShopStatement, listShops } from "./shops";
@@ -623,6 +625,65 @@ describe("Phase E: daily entry", () => {
     });
     await postDsrDay(ctx, company, redo.id, { version: redo.version });
     expect((await getDayView(ctx, company, "2026-09-02")).money).toEqual(before.money);
+  });
+
+  it("D48: an order lowers the company balance at once and its reversal restores it", async () => {
+    const date = "2026-09-02";
+    const companyOf = async () => {
+      const account = (await getDayView(ctx, company, date)).company;
+      if (!account) throw new Error("expected the company account");
+      return account;
+    };
+    const before = await companyOf();
+    const [entry] = await postStockEntries(ctx, company, {
+      date,
+      lines: [{ kind: "order", productId: id.alpha, pieces: "10" }],
+      prices: [],
+    });
+    const price = must(
+      (await getDayView(ctx, company, date)).products.find((p) => p.productId === id.alpha)
+        ?.orderPrice,
+    );
+    const bill = toDecimal(price ?? "0").mul(10);
+    expect(bill.gt(0)).toBe(true);
+
+    const after = await companyOf();
+    expect(toDecimal(after.balance).toString()).toBe(
+      toDecimal(before.balance).sub(bill).toString(),
+    );
+    expect(toDecimal(after.undeliveredValue).toString()).toBe(
+      toDecimal(before.undeliveredValue).add(bill).toString(),
+    );
+    expect(toDecimal(after.undeliveredPieces).toString()).toBe(
+      toDecimal(before.undeliveredPieces).add(10).toString(),
+    );
+
+    // The statement's closing row is the current balance; its undelivered value is the company-due total.
+    const range = { from: "2026-08-01", to: date };
+    const account = await getReport(ctx, company, "company-account", range);
+    const statement = must(account.tables[1]).rows;
+    const last = must(statement.at(-1)).cells;
+    expect(toDecimal(last.balance ?? "0").toString()).toBe(toDecimal(after.balance).toString());
+    expect(toDecimal(last.undelivered ?? "0").toString()).toBe(
+      toDecimal(after.undeliveredValue).toString(),
+    );
+    const due = await getReport(ctx, company, "company-due", range);
+    const dueRows = must(due.tables[0]).rows;
+    const dueTotal = dueRows.reduce(
+      (total, r) => total.add(r.cells.dueFromCompanyValue ?? "0"),
+      toDecimal("0"),
+    );
+    expect(dueTotal.toString()).toBe(toDecimal(after.undeliveredValue).toString());
+
+    // All time is not blocked by the one-year limit.
+    const allTime = await getReport(ctx, company, "company-account", {
+      from: "2000-01-01",
+      to: date,
+    });
+    expect(allTime.from).toBe(account.from);
+
+    await reverseStockEntry(ctx, company, must(entry).id);
+    expect(await companyOf()).toEqual(before);
   });
 
   it("D41: shop commission is stored per line and lowers sales and cash left", async () => {

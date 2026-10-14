@@ -74,6 +74,8 @@ function balanceStrings(b: Balances): StaffBalanceValues {
 type ProductState = {
   stock: Decimal;
   dueFromCompany: Decimal;
+  /** Billed value of the goods ordered and not yet received (D48), at their order prices. */
+  dueValue: Decimal;
   prices: Record<PriceKind, Decimal | null>;
 };
 
@@ -97,6 +99,10 @@ type ProductTotals = {
   replacedFromStock: Decimal;
   replacementReceived: Decimal;
   replacementValue: Decimal;
+  /** Company damage refunds + replacement goods at unit cost (D47): income in net profit. */
+  damageRecovery: Decimal;
+  orderBill: Decimal;
+  excessBill: Decimal;
   incentiveReceived: Decimal;
 };
 
@@ -121,6 +127,9 @@ function emptyProductTotals(): ProductTotals {
     replacedFromStock: ZERO,
     replacementReceived: ZERO,
     replacementValue: ZERO,
+    damageRecovery: ZERO,
+    orderBill: ZERO,
+    excessBill: ZERO,
     incentiveReceived: ZERO,
   };
 }
@@ -158,9 +167,16 @@ export function computeMonth(input: MonthInput): MonthOutput {
   const products = new Map<ProductId, ProductState>();
   for (const p of input.products) {
     const o = input.opening.products[p.id];
+    const openingDue = Decimal.max(ZERO, dec(o?.dueFromCompany)); // D46: never negative
     products.set(p.id, {
       stock: dec(o?.stock),
-      dueFromCompany: Decimal.max(ZERO, dec(o?.dueFromCompany)), // D46: never negative
+      dueFromCompany: openingDue,
+      // D48: billed value of the undelivered goods; defaults to opening due × opening order price.
+      dueValue: openingDue.isZero()
+        ? ZERO
+        : o?.dueFromCompanyValue === undefined
+          ? openingDue.mul(o?.orderPrice === undefined ? ZERO : toDecimal(o.orderPrice))
+          : toDecimal(o.dueFromCompanyValue),
       prices: {
         orderPrice: o?.orderPrice === undefined ? null : toDecimal(o.orderPrice),
         costPrice: o?.costPrice === undefined ? null : toDecimal(o.costPrice),
@@ -208,11 +224,14 @@ export function computeMonth(input: MonthInput): MonthOutput {
 
   const companyPayableOpening = dec(input.opening.companyPayable);
   let companyPayable = companyPayableOpening;
-  let companyReceipts = ZERO;
+  let companyOrders = ZERO;
+  let companyReceipts = ZERO; // excess receipts billed at once (D48)
   let companyDeposits = ZERO;
   let companyIncentives = ZERO;
   let companyRefunds = ZERO;
   const companyEntries: CompanyEntryResult[] = [];
+  const totalDueValue = (): Decimal => sum([...products.values()].map((s) => s.dueValue));
+  const undeliveredOpening = totalDueValue();
 
   const totals = new Map<ProductId, ProductTotals>(
     input.products.map((p) => [p.id, emptyProductTotals()]),
@@ -326,9 +345,9 @@ export function computeMonth(input: MonthInput): MonthOutput {
     const productResults: ProductDayResult[] = [];
     let daySales = ZERO;
     let dayCommission = ZERO;
-    let dayReceipts = ZERO;
     const dayRefunds: CompanyEntryResult[] = [];
     const dayFreeGoods: CompanyEntryResult[] = [];
+    const dayReplacements: CompanyEntryResult[] = [];
     for (const [id, state] of products) {
       const p = dayProducts[id];
       const agg = lineAggregates.get(id);
@@ -344,6 +363,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
           productId: id,
           quantity: str(incentiveReceived),
           balance: "",
+          undelivered: "",
         });
       }
       const replacements = (p?.replacements ?? []).map((r) => ({
@@ -357,6 +377,18 @@ export function computeMonth(input: MonthInput): MonthOutput {
       }
       const replacementReceived = sum(replacements.map((r) => r.quantity));
       const replacementValue = sum(replacements.map((r) => r.quantity.mul(r.unitCost)));
+      if (!replacementReceived.isZero()) {
+        dayReplacements.push({
+          date: day.date,
+          kind: "replacement",
+          amount: str(replacementValue),
+          productId: id,
+          quantity: str(replacementReceived),
+          balance: "",
+          undelivered: "",
+        });
+      }
+      let refundValue = ZERO;
       for (const refund of p?.companyRefunds ?? []) {
         const quantity = toDecimal(refund.quantity);
         const unitCost = toDecimal(refund.unitCost);
@@ -365,6 +397,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
         }
         const amount = quantity.mul(unitCost);
         companyRefunds = companyRefunds.add(amount);
+        refundValue = refundValue.add(amount);
         dayRefunds.push({
           date: day.date,
           kind: "damageRefund",
@@ -372,8 +405,10 @@ export function computeMonth(input: MonthInput): MonthOutput {
           ...(refund.ref === undefined ? {} : { ref: refund.ref }),
           productId: id,
           balance: "",
+          undelivered: "",
         });
       }
+      const damageRecovery = refundValue.add(replacementValue);
       const issued = agg?.issued ?? ZERO;
       const returned = agg?.returned ?? ZERO;
       const delivered = issued.sub(returned);
@@ -392,7 +427,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
       const orderPrice = priceFor("orderPrice", ordered.abs().add(received.abs()));
       const costPrice = priceFor(
         "costPrice",
-        sold.abs().add(damaged.abs()).add(replacedFromStock.abs()),
+        delivered.abs().add(damaged.abs()).add(replacedFromStock.abs()),
       );
       const salePrice = priceFor("salePrice", sold.abs().add(returned.abs()));
 
@@ -401,10 +436,54 @@ export function computeMonth(input: MonthInput): MonthOutput {
         .mul(salePrice)
         .add(agg?.splitAdjustment ?? ZERO)
         .sub(commission);
-      const cost = sold.mul(costPrice);
+      // D47: cost of every delivered piece (damaged ones included) and of the good pieces handed out
+      // of the godown for buyers' damaged ones; sales already fall by the damaged pieces.
+      const cost = delivered.add(replacedFromStock).mul(costPrice);
       const grossProfit = sales.sub(cost);
-      // D46: goods due is never negative; an excess receipt (billed in money) offsets no later order.
-      state.dueFromCompany = Decimal.max(ZERO, state.dueFromCompany.add(ordered).sub(received));
+
+      // D48: an order is billed at once; receiving ordered goods moves no money, only excess is billed.
+      const orderBill = ordered.mul(orderPrice);
+      state.dueFromCompany = state.dueFromCompany.add(ordered);
+      state.dueValue = state.dueValue.add(orderBill);
+      companyOrders = companyOrders.add(orderBill);
+      companyPayable = companyPayable.add(orderBill);
+      if (ordered.gt(0)) {
+        companyEntries.push({
+          date: day.date,
+          kind: "order",
+          amount: str(orderBill),
+          productId: id,
+          quantity: str(ordered),
+          balance: str(companyPayable),
+          undelivered: str(totalDueValue()),
+        });
+      }
+      // D46: goods due is never negative; an excess receipt offsets no later order.
+      const dueBeforeReceipt = state.dueFromCompany;
+      const covered = Decimal.min(Decimal.max(received, ZERO), dueBeforeReceipt);
+      const excess = Decimal.max(received, ZERO).sub(covered);
+      const valueBefore = state.dueValue;
+      state.dueFromCompany = Decimal.max(ZERO, dueBeforeReceipt.sub(received));
+      const released = state.dueFromCompany.isZero()
+        ? valueBefore // exactly 0 when the due clears
+        : valueBefore.mul(covered).div(dueBeforeReceipt);
+      state.dueValue = valueBefore.sub(released);
+      const excessBill = excess.mul(orderPrice);
+      companyPayable = companyPayable.add(excessBill);
+      companyReceipts = companyReceipts.add(excessBill);
+      // Billed value of the goods received: undelivered value released + excess billed now.
+      const receiptValue = released.add(excessBill);
+      if (received.gt(0)) {
+        companyEntries.push({
+          date: day.date,
+          kind: "receipt",
+          amount: str(excessBill),
+          productId: id,
+          quantity: str(received),
+          balance: str(companyPayable),
+          undelivered: str(totalDueValue()),
+        });
+      }
       state.stock = state.stock
         .add(received)
         .add(replacementReceived)
@@ -417,8 +496,8 @@ export function computeMonth(input: MonthInput): MonthOutput {
       const stockValue = state.stock.mul(state.prices.costPrice ?? ZERO);
 
       const t = totals.get(id) as ProductTotals;
-      const orderValue = ordered.mul(orderPrice);
-      const receiptBill = received.mul(orderPrice);
+      const orderValue = orderBill;
+      const receiptBill = excessBill;
       const receiptSale = received.mul(state.prices.salePrice ?? ZERO);
       const returnValue = returned.mul(state.prices.salePrice ?? ZERO);
       const damageValue = damaged.add(replacedFromStock).mul(costPrice);
@@ -441,10 +520,8 @@ export function computeMonth(input: MonthInput): MonthOutput {
       t.replacedFromStock = t.replacedFromStock.add(replacedFromStock);
       t.replacementReceived = t.replacementReceived.add(replacementReceived);
       t.replacementValue = t.replacementValue.add(replacementValue);
+      t.damageRecovery = t.damageRecovery.add(damageRecovery);
       t.incentiveReceived = t.incentiveReceived.add(incentiveReceived);
-      companyReceipts = companyReceipts.add(receiptBill);
-      companyPayable = companyPayable.add(receiptBill);
-      dayReceipts = dayReceipts.add(receiptBill);
       daySales = daySales.add(sales);
       dayCommission = dayCommission.add(commission);
 
@@ -471,31 +548,34 @@ export function computeMonth(input: MonthInput): MonthOutput {
         returnValue: str(returnValue),
         orderValue: str(orderValue),
         receiptBill: str(receiptBill),
+        receiptValue: str(receiptValue),
         receiptSale: str(receiptSale),
         damageValue: str(damageValue),
+        damageRecovery: str(damageRecovery),
         replacedFromStock: str(replacedFromStock),
         replacementReceived: str(replacementReceived),
         incentiveReceived: str(incentiveReceived),
         dueFromCompany: str(state.dueFromCompany),
+        dueFromCompanyValue: str(state.dueValue),
         stock: str(state.stock),
         stockValue: str(stockValue),
       });
     }
 
-    if (!dayReceipts.isZero()) {
-      companyEntries.push({
-        date: day.date,
-        kind: "receipt",
-        amount: str(dayReceipts),
-        balance: str(companyPayable),
-      });
-    }
     for (const refund of dayRefunds) {
       companyPayable = companyPayable.sub(toDecimal(refund.amount));
-      companyEntries.push({ ...refund, balance: str(companyPayable) });
+      companyEntries.push({
+        ...refund,
+        balance: str(companyPayable),
+        undelivered: str(totalDueValue()),
+      });
     }
-    for (const memo of dayFreeGoods) {
-      companyEntries.push({ ...memo, balance: str(companyPayable) });
+    for (const memo of [...dayFreeGoods, ...dayReplacements]) {
+      companyEntries.push({
+        ...memo,
+        balance: str(companyPayable),
+        undelivered: str(totalDueValue()),
+      });
     }
 
     let cashIn = ZERO;
@@ -574,6 +654,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
           amount: str(amount),
           ...(entry.ref === undefined ? {} : { ref: entry.ref }),
           balance: str(companyPayable),
+          undelivered: str(totalDueValue()),
         });
       }
 
@@ -677,6 +758,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
       profitTotal: str(t.profitTotal),
       returnValue: str(t.returnValue),
       damageValue: str(t.damageValue),
+      damageRecovery: str(t.damageRecovery),
       replacedFromStock: str(t.replacedFromStock),
       replacementReceived: str(t.replacementReceived),
       replacementValue: str(t.replacementValue),
@@ -687,7 +769,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
       closingAtSale: str(s.stock.mul(s.prices.salePrice ?? ZERO)),
       closingCartons: cartons(s.stock, p.id),
       dueFromCompany: str(s.dueFromCompany),
-      dueFromCompanyValue: str(s.dueFromCompany.mul(s.prices.orderPrice ?? ZERO)),
+      dueFromCompanyValue: str(s.dueValue),
     };
   });
   const allTotals = [...totals.values()];
@@ -733,7 +815,8 @@ export function computeMonth(input: MonthInput): MonthOutput {
 
   const gross = sum(allTotals.map((t) => t.profitTotal));
   const expenses = sum(expensesByCategory.values());
-  const netWithoutIncentive = gross.sub(salaries).sub(expenses);
+  const damageRecovery = sum(allTotals.map((t) => t.damageRecovery));
+  const netWithoutIncentive = gross.sub(salaries).sub(expenses).add(damageRecovery);
 
   const closing: MonthClosing = {
     products: Object.fromEntries(
@@ -743,7 +826,15 @@ export function computeMonth(input: MonthInput): MonthOutput {
           const price = s.prices[kind];
           if (price !== null) prices[kind] = str(price);
         }
-        return [id, { stock: str(s.stock), dueFromCompany: str(s.dueFromCompany), ...prices }];
+        return [
+          id,
+          {
+            stock: str(s.stock),
+            dueFromCompany: str(s.dueFromCompany),
+            dueFromCompanyValue: str(s.dueValue),
+            ...prices,
+          },
+        ];
       }),
     ),
     marketDue: Object.fromEntries([...marketDue].map(([k, v]) => [k, str(v)])),
@@ -764,6 +855,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
         costTotal: str(sum(allTotals.map((t) => t.costTotal))),
         profitTotal: str(gross),
         damageValue: str(sum(allTotals.map((t) => t.damageValue))),
+        damageRecovery: str(damageRecovery),
         replacementValue: str(sum(allTotals.map((t) => t.replacementValue))),
         closingValue: str(closingValue),
       },
@@ -779,14 +871,18 @@ export function computeMonth(input: MonthInput): MonthOutput {
       staff: staffMonth,
       companyPayable: {
         opening: str(companyPayableOpening),
+        orders: str(companyOrders),
         receipts: str(companyReceipts),
         deposits: str(companyDeposits),
         incentives: str(companyIncentives),
         damageRefunds: str(companyRefunds),
         closing: str(companyPayable),
+        undeliveredOpening: str(undeliveredOpening),
+        undeliveredClosing: str(totalDueValue()),
       },
       profit: {
         gross: str(gross),
+        damageRecovery: str(damageRecovery),
         salaries: str(salaries),
         expenses: str(expenses),
         expensesByCategory: Object.fromEntries(

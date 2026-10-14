@@ -9,6 +9,8 @@ export type CheckResult = {
   matched: number;
   /** Differences explained by a known workbook mistake (PLAN §2.6). */
   known: Difference[];
+  /** Differences that are owner decisions (D47, D48), not mistakes; the reason is in `knownMistake`. */
+  intended: Difference[];
   unexplained: Difference[];
 };
 
@@ -24,6 +26,7 @@ export function compareWithSaved(
       compared: 0,
       matched: 0,
       known: [],
+      intended: [],
       unexplained: [],
     };
     results.set(e.check, result);
@@ -32,6 +35,15 @@ export function compareWithSaved(
     const engine = new Decimal(raw ?? "0");
     if (withinTolerance(engine, e.excel)) {
       result.matched++;
+      continue;
+    }
+    if (e.intended?.accepts(engine, out)) {
+      result.intended.push({
+        where: e.where,
+        engine: engine.toString(),
+        excel: e.excel.toString(),
+        knownMistake: e.intended.reason,
+      });
       continue;
     }
     const diff: Difference = {

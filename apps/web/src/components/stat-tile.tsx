@@ -4,11 +4,14 @@ export function StatTile({
   value,
   hint,
   emphasis = false,
+  large = false,
 }: {
   label: string;
   value: string;
   hint?: string;
   emphasis?: boolean;
+  /** A bigger value for the one figure the page is about. */
+  large?: boolean;
 }) {
   return (
     <div
@@ -17,7 +20,11 @@ export function StatTile({
       }`}
     >
       <dt className="text-xs text-text-muted">{label}</dt>
-      <dd className="mt-1.5 text-xl font-semibold tracking-tight tabular-nums">{value}</dd>
+      <dd
+        className={`mt-1.5 font-semibold tracking-tight tabular-nums ${large ? "text-3xl" : "text-xl"}`}
+      >
+        {value}
+      </dd>
       {hint ? <dd className="mt-1 text-xs text-text-subtle">{hint}</dd> : null}
     </div>
   );

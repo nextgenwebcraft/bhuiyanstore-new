@@ -317,10 +317,17 @@ export const dayProductRowSchema = z.object({
   grossProfit: costMoney,
   returnValue: money,
   orderValue: money,
+  /** Excess receipt billed at once (D48); ordered goods were billed with the order. */
   receiptBill: money,
+  /** Billed value of the goods received that day (D48). */
+  receiptValue: money,
   receiptSale: money,
   damageValue: costMoney,
+  /** Damage refunds + replacement goods at unit cost (D47): net profit income. */
+  damageRecovery: costMoney,
   dueFromCompany: money,
+  /** Billed value of the goods not yet received (D48). */
+  dueFromCompanyValue: money,
   stock: money,
   stockValue: costMoney,
 });
@@ -372,6 +379,13 @@ export const dayViewSchema = z.object({
   /** All market due still open at the end of the date. */
   marketDueOutstanding: money,
   marketDueByDsr: z.array(z.object({ staffId: z.string(), staffName: z.string(), amount: money })),
+  /**
+   * The company account at the end of the date (D48): money with the company (negative = we owe
+   * it) and the billed value / pieces of goods ordered and not yet received. Needs cost view.
+   */
+  company: z
+    .object({ balance: money, undeliveredValue: money, undeliveredPieces: money })
+    .nullable(),
   warnings: z.array(engineWarningSchema),
   canSeeCost: z.boolean(),
   canSeeProfit: z.boolean(),

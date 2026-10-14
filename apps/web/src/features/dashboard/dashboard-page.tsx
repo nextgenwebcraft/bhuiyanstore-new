@@ -173,6 +173,13 @@ function Summary({ range }: { range: ReportRange }) {
       {d.grossProfit !== undefined ? (
         <StatTile label={t("dashboard.grossProfit")} value={money(d.grossProfit)} />
       ) : null}
+      {d.damageRecovery !== undefined ? (
+        <StatTile
+          label={t("dashboard.damageRecovery")}
+          value={money(d.damageRecovery)}
+          hint={t("dashboard.damageRecoveryHint")}
+        />
+      ) : null}
       <StatTile label={t("dashboard.cashCollected")} value={money(d.cashCollected)} emphasis />
       <StatTile label={t("dashboard.marketDueCreated")} value={money(d.marketDueCreated)} />
       <StatTile label={t("dashboard.oldDuesCollected")} value={money(d.oldDuesCollected)} />
@@ -227,7 +234,7 @@ function entryStatus(path: string, view: DayView): Status {
       const rows = products("received");
       return {
         done: rows.length > 0,
-        detail: `${formatCount(rows.length)} ${t("dashboard.work.productCount")} · ${money(sum(rows.map((r) => r.receiptBill)))}`,
+        detail: `${formatCount(rows.length)} ${t("dashboard.work.productCount")} · ${money(sum(rows.map((r) => r.receiptValue)))}`,
       };
     }
     case "purchases/orders": {

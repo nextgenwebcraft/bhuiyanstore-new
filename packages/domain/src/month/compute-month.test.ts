@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 import { computeMonth } from "./compute-month";
 import type { MonthInput } from "./types";
 
-/** Synthetic golden month; every expected value below was worked out by hand from PLAN §2. */
+/**
+ * Synthetic golden month; every expected value below was worked out by hand from PLAN §2.
+ * D47: cost is charged on every delivered piece (damaged ones too), so cost and gross profit
+ * differ from the pre-D47 month by the damaged pieces × cost price (day 1: 2 × 9.5, day 2: 1 × 9.5).
+ * D48: orders are billed on their day; a receipt only bills pieces beyond the order, so the day
+ * receipts below bill nothing (B's order is billed on day 1 instead of day 2).
+ */
 const golden: MonthInput = {
   products: [
     { id: "A", piecesPerCarton: "24" },
@@ -95,23 +101,32 @@ describe("computeMonth golden month", () => {
       damaged: "2",
       sold: "70",
       sales: "770",
-      cost: "665",
-      grossProfit: "105",
+      // D47: 72 delivered × 9.5 = 684 (was 70 sold × 9.5 = 665); profit 770 − 684 = 86.
+      cost: "684",
+      grossProfit: "86",
       dueFromCompany: "2",
+      // D48: 50 undelivered billed at 10 = 500; the 48 received release 500 × 48/50 = 480.
+      dueFromCompanyValue: "20",
       stock: "76",
       stockValue: "722",
-      receiptBill: "480",
+      receiptBill: "0",
+      receiptValue: "480",
       returnValue: "132",
       damageValue: "19",
     });
-    expect(day1?.products[1]).toMatchObject({ dueFromCompany: "24", orderValue: "480" });
+    expect(day1?.products[1]).toMatchObject({
+      dueFromCompany: "24",
+      dueFromCompanyValue: "480",
+      orderValue: "480",
+    });
     expect(day2?.products[0]).toMatchObject({
       salePrice: "12",
       costPrice: "9.5",
       sold: "19",
       sales: "228",
-      cost: "180.5",
-      grossProfit: "47.5",
+      // D47: 20 delivered × 9.5 = 190 (was 19 × 9.5 = 180.5); profit 228 − 190 = 38.
+      cost: "190",
+      grossProfit: "38",
       stock: "56",
       dueFromCompany: "2",
     });
@@ -121,7 +136,10 @@ describe("computeMonth golden month", () => {
       sales: "265",
       cost: "228",
       grossProfit: "37",
-      receiptBill: "480",
+      // D48: the 24 received were ordered on day 1 (billed then): nothing new to bill.
+      receiptBill: "0",
+      receiptValue: "480",
+      dueFromCompanyValue: "0",
     });
   });
 
@@ -156,8 +174,8 @@ describe("computeMonth golden month", () => {
   it("calculates month totals, profit and balances", () => {
     expect(out.month.products[0]).toMatchObject({
       salesTotal: "998",
-      costTotal: "845.5",
-      profitTotal: "152.5",
+      costTotal: "874", // 684 + 190
+      profitTotal: "124", // 998 − 874
       salesCartons: "3.833333",
       closingStock: "56",
       closingValue: "532",
@@ -165,13 +183,15 @@ describe("computeMonth golden month", () => {
       closingCartons: "2.333333",
     });
     expect(out.month.profit).toEqual({
-      gross: "189.5",
+      // gross: A 124 + B 37 = 161 (was 189.5: 28.5 = 3 damaged pieces × 9.5).
+      gross: "161",
+      damageRecovery: "0",
       salaries: "1000",
       expenses: "30",
       expensesByCategory: { operating: "30" },
       srIncentive: "20",
-      net: "-860.5",
-      netWithoutIncentive: "-840.5",
+      net: "-889", // 161 − 1000 − 30 − 20
+      netWithoutIncentive: "-869",
     });
     expect(out.month.marketDue).toMatchObject({
       opening: "200",
@@ -181,11 +201,14 @@ describe("computeMonth golden month", () => {
     });
     expect(out.month.companyPayable).toEqual({
       opening: "1000",
-      receipts: "960",
+      orders: "480", // B's order, billed on day 1
+      receipts: "0", // nothing received beyond what was ordered
       deposits: "500",
       incentives: "0",
       damageRefunds: "0",
-      closing: "1460",
+      closing: "980", // 1000 + 480 − 500
+      undeliveredOpening: "500", // A: 50 × 10
+      undeliveredClosing: "20", // A: 2 × 10
     });
     const staff = Object.fromEntries(out.month.staff.map((s) => [s.staffId, s]));
     expect(staff.d1?.closing.shortage).toBe("20");
@@ -232,6 +255,7 @@ describe("computeMonth golden month", () => {
     expect(out.closing.products.A).toEqual({
       stock: "56",
       dueFromCompany: "2",
+      dueFromCompanyValue: "20",
       orderPrice: "10",
       costPrice: "9.5",
       salePrice: "12",
@@ -269,33 +293,62 @@ describe("computeMonth company account (D33)", () => {
   it("lowers what we owe by deposits, cash incentives and damage money returns", () => {
     expect(out.month.companyPayable).toEqual({
       opening: "1000",
-      receipts: "480",
+      orders: "0",
+      receipts: "0", // the 48 received were all ordered before: already in the opening balance
       deposits: "300",
       incentives: "120",
       damageRefunds: "47.5",
-      closing: "1012.5",
+      closing: "532.5", // 1000 − 300 − 120 − 47.5
+      undeliveredOpening: "480",
+      undeliveredClosing: "0",
     });
-    expect(out.closing.companyPayable).toBe("1012.5");
+    expect(out.closing.companyPayable).toBe("532.5");
   });
 
-  it("keeps cash, banked, stock and profit out of incentives and refunds", () => {
+  it("keeps cash, banked, stock and gross profit out of incentives and refunds", () => {
     expect(out.days[0]?.money).toMatchObject({ cashIn: "0", cashOut: "0", banked: "300" });
     expect(out.days[0]?.products[0]).toMatchObject({ stock: "58", grossProfit: "0" });
     expect(out.month.profit.gross).toBe("0");
+    // D47: the damage money return is damage recovery income in net profit.
+    expect(out.month.profit.damageRecovery).toBe("47.5");
+    expect(out.month.profit.net).toBe("47.5");
   });
 
   it("lists every movement with the balance after it", () => {
     expect(out.companyEntries).toEqual([
-      { date: "2026-11-01", kind: "receipt", amount: "480", balance: "1480" },
+      {
+        date: "2026-11-01",
+        kind: "receipt",
+        amount: "0",
+        productId: "A",
+        quantity: "48",
+        balance: "1000",
+        undelivered: "0",
+      },
       {
         date: "2026-11-01",
         kind: "damageRefund",
         amount: "47.5",
         productId: "A",
-        balance: "1432.5",
+        balance: "952.5",
+        undelivered: "0",
       },
-      { date: "2026-11-01", kind: "deposit", amount: "300", ref: "dep", balance: "1132.5" },
-      { date: "2026-11-01", kind: "incentive", amount: "120", ref: "inc", balance: "1012.5" },
+      {
+        date: "2026-11-01",
+        kind: "deposit",
+        amount: "300",
+        ref: "dep",
+        balance: "652.5",
+        undelivered: "0",
+      },
+      {
+        date: "2026-11-01",
+        kind: "incentive",
+        amount: "120",
+        ref: "inc",
+        balance: "532.5",
+        undelivered: "0",
+      },
     ]);
   });
 });
@@ -331,6 +384,7 @@ describe("computeMonth free goods (D16)", () => {
         productId: "A",
         quantity: "24",
         balance: "1000",
+        undelivered: "480",
       },
     ]);
   });
@@ -507,9 +561,11 @@ describe("computeMonth goods due floors at 0 (D46)", () => {
     const out = run("10", [{ date: "2026-11-01", products: { A: { received: "30" } } }]);
     expect(out.days[0]?.products[0]?.dueFromCompany).toBe("0");
     expect(out.closing.products.A?.dueFromCompany).toBe("0");
-    expect(out.month.totals.receiptTotal).toBe("300");
-    expect(out.month.companyPayable.receipts).toBe("300");
-    expect(out.month.companyPayable.closing).toBe("300");
+    // D48: only the 20 pieces beyond the 10 ordered are billed now; the 10 were billed in the opening.
+    expect(out.month.totals.receiptTotal).toBe("200");
+    expect(out.month.companyPayable.receipts).toBe("200");
+    expect(out.month.companyPayable.closing).toBe("200");
+    expect(out.closing.products.A?.dueFromCompanyValue).toBe("0");
   });
 
   it("does not let an excess receipt offset a later order", () => {

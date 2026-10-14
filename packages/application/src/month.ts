@@ -191,6 +191,7 @@ export async function getMonthView(
       costTotal: cost(totals?.costTotal ?? "0"),
       profitTotal: profit(totals?.profitTotal ?? "0"),
       damageValue: cost(totals?.damageValue ?? "0"),
+      damageRecovery: cost(totals?.damageRecovery ?? "0"),
       replacementValue: cost(totals?.replacementValue ?? "0"),
       closingValue: cost(totals?.closingValue ?? "0"),
     },
@@ -208,13 +209,20 @@ export async function getMonthView(
     staff: seen.canSeeStaff
       ? (output?.month.staff ?? []).map((s) => ({ ...s, staffName: staffName(s.staffId) }))
       : [],
-    companyPayable: output?.month.companyPayable ?? {
-      opening: "0",
-      receipts: "0",
-      deposits: "0",
-      incentives: "0",
-      damageRefunds: "0",
-      closing: "0",
+    companyPayable: {
+      ...(output?.month.companyPayable ?? {
+        opening: "0",
+        orders: "0",
+        receipts: "0",
+        deposits: "0",
+        incentives: "0",
+        damageRefunds: "0",
+        closing: "0",
+        undeliveredOpening: "0",
+        undeliveredClosing: "0",
+      }),
+      balanceOpening: balanceOf(output?.month.companyPayable.opening ?? "0"),
+      balanceClosing: balanceOf(output?.month.companyPayable.closing ?? "0"),
     },
     profit:
       seen.canSeeProfit && output
@@ -337,6 +345,9 @@ export async function reopenMonth(
 type Column = { key: string; kind: ReportColumnKind; needs?: "cost" | "profit" };
 type Cells = Record<string, string | null>;
 type Names = Awaited<ReturnType<typeof namesFor>>;
+
+/** Display sign of the company balance (D48): positive = money with the company. */
+const balanceOf = (payable: string): string => toDecimal(payable).neg().toString();
 
 const col = (key: string, kind: ReportColumnKind, needs?: Column["needs"]): Column =>
   needs ? { key, kind, needs } : { key, kind };
@@ -475,6 +486,7 @@ function buildTables(
           [col("line", "label"), col("amount", "money")],
           [
             line("report.line.gross", p.gross),
+            line("report.line.damageRecovery", p.damageRecovery),
             line("report.line.salaries", p.salaries),
             ...Object.entries(p.expensesByCategory).map(([cid, amount]) =>
               line("", amount, categories.get(cid) ?? "report.line.uncategorized"),
@@ -548,12 +560,14 @@ function buildTables(
           "companyPayable",
           [col("line", "label"), col("amount", "money")],
           [
-            { cells: { line: "report.line.payableOpening", amount: c.opening } },
+            { cells: { line: "report.line.balanceOpening", amount: balanceOf(c.opening) } },
+            { cells: { line: "report.line.payableOrders", amount: c.orders } },
             { cells: { line: "report.line.payableReceipts", amount: c.receipts } },
             { cells: { line: "report.line.payableDeposits", amount: c.deposits } },
             { cells: { line: "report.line.payableIncentives", amount: c.incentives } },
             { cells: { line: "report.line.payableDamageRefunds", amount: c.damageRefunds } },
-            { cells: { line: "report.line.payableClosing", amount: c.closing } },
+            { cells: { line: "report.line.balanceClosing", amount: balanceOf(c.closing) } },
+            { cells: { line: "report.line.undeliveredClosing", amount: c.undeliveredClosing } },
           ],
           null,
           seen,
@@ -564,18 +578,33 @@ function buildTables(
       const c = m.companyPayable;
       const productNames = new Map(names.products.map((p) => [p.id, p.name]));
       const sizes = new Map(names.products.map((p) => [p.id, p.piecesPerCarton]));
+      const undeliveredPieces = sumQuantities(["0", ...m.products.map((p) => p.dueFromCompany)]);
+      const blank = { quantity: null, moneyIn: null, moneyOut: null, memoValue: null };
       return [
         table(
           "companyAccountSummary",
           [
-            col("opening", "money"),
-            col("receipts", "money"),
+            col("balance", "money"),
+            col("undeliveredValue", "money"),
+            col("undeliveredPieces", "quantity"),
             col("deposits", "money"),
+            col("orders", "money"),
             col("incentives", "money"),
             col("damageRefunds", "money"),
-            col("closing", "money"),
           ],
-          [{ cells: { ...c } }],
+          [
+            {
+              cells: {
+                balance: balanceOf(c.closing),
+                undeliveredValue: c.undeliveredClosing,
+                undeliveredPieces,
+                deposits: c.deposits,
+                orders: c.orders,
+                incentives: c.incentives,
+                damageRefunds: c.damageRefunds,
+              },
+            },
+          ],
           null,
           seen,
         ),
@@ -586,35 +615,42 @@ function buildTables(
             col("line", "label"),
             col("product", "text"),
             col("quantity", "quantity"),
-            col("increase", "money"),
-            col("decrease", "money"),
+            col("moneyIn", "money"),
+            col("moneyOut", "money"),
             col("balance", "money"),
+            col("undelivered", "money"),
+            col("memoValue", "money"),
           ],
           [
             {
               cells: {
+                ...blank,
                 date: from,
                 line: "report.line.company.opening",
                 product: "",
-                quantity: null,
-                increase: null,
-                decrease: null,
-                balance: c.opening,
+                balance: balanceOf(c.opening),
+                undelivered: c.undeliveredOpening,
               },
             },
             ...output.companyEntries.map((e) => {
-              const increase = e.kind === "receipt";
-              const memo = e.kind === "freeGoods";
+              // Money in (deposit, incentive, damage refund) and out (order bill, excess receipt
+              // bill); free goods and replacement goods are memos that move no balance.
+              const isIn =
+                e.kind === "deposit" || e.kind === "incentive" || e.kind === "damageRefund";
+              const isOut = e.kind === "order" || (e.kind === "receipt" && e.amount !== "0");
               return {
                 ...(e.productId ? { piecesPerCarton: sizes.get(e.productId) ?? "1" } : {}),
                 cells: {
+                  ...blank,
                   date: e.date,
                   line: `report.line.company.${e.kind}`,
                   product: e.productId ? (productNames.get(e.productId) ?? "") : "",
                   quantity: e.quantity ?? null,
-                  increase: increase && !memo ? e.amount : null,
-                  decrease: increase || memo ? null : e.amount,
-                  balance: e.balance,
+                  moneyIn: isIn ? e.amount : null,
+                  moneyOut: isOut ? e.amount : null,
+                  memoValue: e.kind === "replacement" ? e.amount : null,
+                  balance: balanceOf(e.balance),
+                  undelivered: e.undelivered,
                 },
               };
             }),
@@ -635,6 +671,7 @@ function buildTables(
             col("damageValue", "money", "cost"),
             col("replacementReceived", "quantity"),
             col("replacementValue", "money", "cost"),
+            col("damageRecovery", "money", "cost"),
           ],
           productRows(output, names, [
             "damaged",
@@ -642,8 +679,13 @@ function buildTables(
             "damageValue",
             "replacementReceived",
             "replacementValue",
+            "damageRecovery",
           ]),
-          { damageValue: m.totals.damageValue, replacementValue: m.totals.replacementValue },
+          {
+            damageValue: m.totals.damageValue,
+            replacementValue: m.totals.replacementValue,
+            damageRecovery: m.totals.damageRecovery,
+          },
           seen,
         ),
       ];
@@ -904,7 +946,7 @@ export async function getReport(
   if (!id) throw invalid("report", "validation.report.unknown");
   const seen = visibility(access);
   if (!canViewReport(id, access.permissions)) throw new AppError("FORBIDDEN");
-  const range = parseReportRange(query);
+  const range = parseReportRange(query, { allTime: id === "company-account" });
   const to = range.to;
 
   const active = await liveOpening(ctx.db, companyId);

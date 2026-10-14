@@ -18,6 +18,11 @@ export type OpeningProduct = {
   stock: DecimalInput;
   /** Goods ordered from the company and not yet received (Excel "Balance Quantity"). */
   dueFromCompany: DecimalInput;
+  /**
+   * Billed value of the undelivered goods (D48). Defaults to `dueFromCompany` × `orderPrice`.
+   * The opening company payable already includes it (it is the balance after that billing).
+   */
+  dueFromCompanyValue?: DecimalInput;
   /** The previous month's last prices; day 1 carries them forward until changed. */
   orderPrice?: DecimalInput;
   costPrice?: DecimalInput;
@@ -43,7 +48,10 @@ export type MonthOpening = {
   /** The same market due by shop, for due entered against a shop (D35); a subset of `marketDue`. */
   shopDue?: Readonly<Record<ShopId, DecimalInput>>;
   staff?: Readonly<Record<StaffId, StaffBalances>>;
-  /** Positive = we owe the company for goods; negative = advance with the company. */
+  /**
+   * Positive = we owe the company; negative = money deposited with it. The balance after the
+   * undelivered opening goods were billed (D48).
+   */
   companyPayable?: DecimalInput;
 };
 
@@ -70,7 +78,8 @@ export type ProductDayInput = {
   incentiveReceived?: DecimalInput;
   /**
    * Money the company returned for damaged goods sent to it (D33). Quantity × price per piece
-   * lowers what we owe the company; stock and profit are unchanged.
+   * lowers what we owe the company and is damage recovery income in net profit (D47); stock and
+   * gross profit are unchanged.
    */
   companyRefunds?: readonly { quantity: DecimalInput; unitCost: DecimalInput; ref?: string }[];
   /** A price present here changes it from this day on (carry-forward). */
@@ -186,13 +195,20 @@ export type ProductDayResult = {
   grossProfit: string;
   returnValue: string;
   orderValue: string;
+  /** Excess receipt billed at once (D48): pieces received beyond what was ordered. */
   receiptBill: string;
+  /** Billed value of the goods received: released undelivered value + `receiptBill`. */
+  receiptValue: string;
   receiptSale: string;
   damageValue: string;
+  /** Damage money refund + company replacement goods at unit cost (D47). */
+  damageRecovery: string;
   replacedFromStock: string;
   replacementReceived: string;
   incentiveReceived: string;
   dueFromCompany: string;
+  /** Billed value of the goods not yet received (D48). */
+  dueFromCompanyValue: string;
   stock: string;
   stockValue: string;
 };
@@ -265,6 +281,7 @@ export type ProductMonthResult = {
   profitTotal: string;
   returnValue: string;
   damageValue: string;
+  damageRecovery: string;
   replacedFromStock: string;
   replacementReceived: string;
   replacementValue: string;
@@ -304,6 +321,7 @@ export type MonthResult = {
     costTotal: string;
     profitTotal: string;
     damageValue: string;
+    damageRecovery: string;
     replacementValue: string;
     closingValue: string;
   };
@@ -331,21 +349,29 @@ export type MonthResult = {
   staff: StaffMonthResult[];
   companyPayable: {
     opening: string;
+    /** Σ order bills (D48): an order is billed on its day. */
+    orders: string;
+    /** Σ excess receipt bills: goods received beyond what was ordered. */
     receipts: string;
     deposits: string;
     incentives: string;
     damageRefunds: string;
     closing: string;
+    /** Billed value of goods ordered and not yet received, at the start and end of the range. */
+    undeliveredOpening: string;
+    undeliveredClosing: string;
   };
   profit: {
     gross: string;
+    /** Damage refunds + replacement goods (D47): income added to net profit. */
+    damageRecovery: string;
     salaries: string;
     expenses: string;
     expensesByCategory: Record<string, string>;
     srIncentive: string;
-    /** gross − salaries − expenses − SR incentive (D20). */
+    /** gross − salaries − expenses + damage recovery − SR incentive (D20, D47). */
     net: string;
-    /** Excel's monthly profit, which leaves out the SR incentive (PLAN §2.5). */
+    /** Net before the SR incentive (Excel's monthly profit, PLAN §2.5), with damage recovery. */
     netWithoutIncentive: string;
   };
   cashLeftTotal: string;
@@ -357,7 +383,9 @@ export type StaffBalanceValues = Required<Record<keyof StaffBalances, string>>;
 export type MonthClosing = {
   products: Record<
     ProductId,
-    { stock: string; dueFromCompany: string } & Partial<Record<PriceKind, string>>
+    { stock: string; dueFromCompany: string; dueFromCompanyValue: string } & Partial<
+      Record<PriceKind, string>
+    >
   >;
   marketDue: Record<StaffId, string>;
   shopDue: Record<ShopId, string>;
@@ -389,24 +417,28 @@ export type StaffEntryResult = {
   balances: StaffBalanceValues;
 };
 
-export type CompanyEntryKind = "receipt" | "deposit" | "incentive" | "damageRefund" | "freeGoods";
+export type CompanyEntryKind =
+  "order" | "receipt" | "deposit" | "incentive" | "damageRefund" | "freeGoods" | "replacement";
 
 /**
- * One movement of what we owe the company, in posting order: a day's receipt bills (raises it),
- * a deposit, a cash incentive or a damage money return (lower it). `freeGoods` is a memo with
- * amount 0 (D16).
+ * One movement of what we owe the company, in posting order (D48): an order bill and the bill of
+ * goods received beyond the order (`receipt`, amount may be 0) raise it; a deposit, a cash
+ * incentive or a damage money return lower it. `freeGoods` (amount 0) and `replacement` (amount
+ * = quantity × unit cost) are memos that do not move the balance.
  */
 export type CompanyEntryResult = {
   date: string;
   kind: CompanyEntryKind;
   amount: string;
   ref?: string;
-  /** The product of a damage money return or free goods. */
+  /** The product of an order, receipt, damage money return, free goods or replacement. */
   productId?: ProductId;
-  /** Pieces of free goods (memo only). */
+  /** Pieces ordered, received, given free or replaced. */
   quantity?: string;
-  /** What we owe the company after this entry (negative = our advance with it). */
+  /** What we owe the company after this entry (negative = money deposited with it). */
   balance: string;
+  /** Billed value of goods ordered and not yet received, after this entry. */
+  undelivered: string;
 };
 
 export type MonthOutput = {

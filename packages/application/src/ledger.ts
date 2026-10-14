@@ -1,4 +1,5 @@
 import {
+  Decimal,
   computeMonth,
   datesBetween,
   firstOfMonth,
@@ -64,6 +65,30 @@ export function allocationOf(entry: {
     advance: plain(entry.allocAdvance),
     loan: plain(entry.allocLoan),
     shortage: plain(entry.allocShortage),
+  };
+}
+
+/**
+ * A month-close snapshot stored before D48 has no billed undelivered value and its payable leaves
+ * the undelivered goods out. As an opening it gets `due × order price` per product, added to the
+ * payable, so it means what D48 says: the balance after the undelivered goods were billed.
+ */
+export function upgradeClosing(snapshot: MonthClosing): MonthClosing {
+  const entries = Object.entries(snapshot.products);
+  if (entries.every(([, p]) => p.dueFromCompanyValue !== undefined)) return snapshot;
+  let billed = new Decimal(0);
+  const products = Object.fromEntries(
+    entries.map(([id, p]) => {
+      if (p.dueFromCompanyValue !== undefined) return [id, p];
+      const value = Decimal.max(0, new Decimal(p.dueFromCompany)).mul(p.orderPrice ?? "0");
+      billed = billed.add(value);
+      return [id, { ...p, dueFromCompanyValue: value.toString() }];
+    }),
+  );
+  return {
+    ...snapshot,
+    products,
+    companyPayable: new Decimal(snapshot.companyPayable).add(billed).toString(),
   };
 }
 
@@ -285,7 +310,7 @@ export async function runLedger(
   for (let month = monthOf(start); month < monthOf(to); month = shiftMonth(month, 1)) {
     const snapshot = closed.get(month);
     if (snapshot) {
-      opening = snapshot;
+      opening = upgradeClosing(snapshot);
     } else {
       opening = computeMonth(
         await rangeInput(db, companyId, start, lastOfMonth(month), opening),
