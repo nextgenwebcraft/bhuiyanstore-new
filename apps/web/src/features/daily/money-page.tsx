@@ -23,6 +23,7 @@ import { Field, inputClass } from "@/components/field";
 import { PageHeader } from "@/components/page-header";
 import { FormSkeleton, TableSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
+import { StatTile } from "@/components/stat-tile";
 import { describeError } from "@/data/ports/service-error";
 import { useConfigList, usePostMoneyEntry, useStaffRecords } from "@/data/queries";
 import { NavGate } from "@/features/shell/nav-gate";
@@ -342,5 +343,30 @@ export function MoneyEntriesPage({
         )}
       </DayGate>
     </NavGate>
+  );
+}
+
+/** Deposits with the company, headed by the company balance at the end of the chosen date (D48). */
+export function SupplierDepositsPage() {
+  return (
+    <MoneyEntriesPage
+      path="finance/supplier-deposits"
+      title="finance.supplierDeposit"
+      description="money.description.supplierDeposit"
+      kinds={["supplierDeposit", "companyIncentive"]}
+      aside={(view) =>
+        view.company ? (
+          <dl className="mb-4 grid gap-3 sm:grid-cols-2">
+            <StatTile
+              label={t("godown.company.balance")}
+              value={money(view.company.balance)}
+              hint={t("companyAccount.balanceHint")}
+              emphasis
+              large
+            />
+          </dl>
+        ) : null
+      }
+    />
   );
 }

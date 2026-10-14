@@ -606,24 +606,41 @@ describe("Phase E: daily entry", () => {
     );
     const posted = must(sheet);
     expect(posted.status).toBe("posted");
+    // D56: saving a posted sheet corrects it: the old one is reversed, the edit posted in its place.
+    const sameLines = posted.lines.map(({ productId, issued, returned, damaged, commission }) => ({
+      productId,
+      issued,
+      returned,
+      damaged,
+      commission,
+    }));
+    const edited = await saveDsrDay(ctx, company, {
+      date: "2026-09-02",
+      staffId: id.mamun,
+      version: posted.version,
+      lines: sameLines,
+    });
+    expect(edited.status).toBe("posted");
+    expect(edited.id).not.toBe(posted.id);
+    const afterEdit = await listDsrDays(ctx, company, "2026-09-02");
+    expect(afterEdit.find((s) => s.id === posted.id)?.status).toBe("reversed");
+    expect((await getDayView(ctx, company, "2026-09-02")).money).toEqual(before.money);
     await expectField(
       saveDsrDay(ctx, company, {
         date: "2026-09-02",
         staffId: id.mamun,
         version: posted.version,
-        marketDueNew: "0",
-        marketDueCollected: "0",
-        lines: [],
+        lines: sameLines,
       }),
-      "",
-      "validation.daily.posted",
-    );
-    await expectField(
-      postDsrDay(ctx, company, posted.id, { version: posted.version }),
       "version",
       "validation.daily.stale",
     );
-    const reversed = await reverseDsrDay(ctx, company, posted.id, { version: posted.version });
+    await expectField(
+      postDsrDay(ctx, company, edited.id, { version: edited.version }),
+      "version",
+      "validation.daily.stale",
+    );
+    const reversed = await reverseDsrDay(ctx, company, edited.id, { version: edited.version });
     expect(reversed.status).toBe("reversed");
     const redo = await saveDsrDay(ctx, company, {
       date: "2026-09-02",

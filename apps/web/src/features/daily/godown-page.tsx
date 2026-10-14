@@ -332,6 +332,39 @@ function GodownForm({
   );
 }
 
+/** The day's posted entries of a kind as cards, shown above the entry form. */
+function PostedSummary({
+  companyId,
+  date,
+  kind,
+}: {
+  companyId: string;
+  date: string;
+  kind: StockEntryKind;
+}) {
+  const entries = useStockEntries(companyId, date);
+  const rows = (entries.data ?? []).filter((e) => e.kind === kind);
+  if (rows.length === 0) return null;
+  return (
+    <div className="mb-4 flex flex-col gap-2">
+      <h3 className="text-sm font-semibold text-text-muted">{t("godown.posted.title")}</h3>
+      <TableSummary
+        label={t("godown.posted.title")}
+        items={[
+          { label: t("table.summary.rows"), value: quantity(String(rows.length)) },
+          {
+            label: `${t("godown.summary.postedPieces")} (${t("godown.column.pieces")})`,
+            value: quantity(
+              sumQuantities(rows.filter((e) => e.status === "posted").map((e) => e.pieces)),
+            ),
+            emphasis: true,
+          },
+        ]}
+      />
+    </div>
+  );
+}
+
 function PostedEntries({
   companyId,
   date,
@@ -361,18 +394,6 @@ function PostedEntries({
         <EmptyListNote textKey="godown.posted.empty" />
       ) : (
         <>
-          <TableSummary
-            label={t("table.summary")}
-            items={[
-              { label: t("table.summary.rows"), value: quantity(String(rows.length)) },
-              {
-                label: `${t("godown.summary.postedPieces")} (${t("godown.column.pieces")})`,
-                value: quantity(
-                  sumQuantities(rows.filter((e) => e.status === "posted").map((e) => e.pieces)),
-                ),
-              },
-            ]}
-          />
           <TableScroller>
             <table className={tableClass}>
               <thead className={theadClass}>
@@ -491,12 +512,14 @@ export function GodownPage({ path, kind }: { path: string; kind: StockEntryKind 
       <DayGate companyId={company.id} date={date}>
         {(view) => (
           <>
+            <PostedSummary companyId={company.id} date={date} kind={kind} />
             <GodownForm key={date} companyId={company.id} date={date} kind={kind} view={view} />
             <PostedEntries companyId={company.id} date={date} kind={kind} view={view} />
             {kind === "receipt" ? (
               <section className="mt-10 flex flex-col gap-2">
                 <h2 className="text-base font-semibold">{t(TITLES.incentive.title)}</h2>
                 <p className="text-sm text-text-muted">{t(TITLES.incentive.description)}</p>
+                <PostedSummary companyId={company.id} date={date} kind="incentive" />
                 <GodownForm
                   key={`incentive-${date}`}
                   companyId={company.id}

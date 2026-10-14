@@ -382,9 +382,20 @@ export async function saveDsrDay(
       const live = await tx.dsrDay.findFirst({
         where: { companyId, staffId: request.staffId, date, status: { not: "reversed" } },
       });
-      if (live?.status === "posted") throw invalid("", "validation.daily.posted");
       if ((live?.version ?? 0) !== request.version) {
         throw invalid("version", "validation.daily.stale");
+      }
+      // D56: saving a posted sheet corrects it; the posted one is reversed with all it owns and
+      // the edited sheet is posted in its place, in this transaction.
+      const corrected = live?.status === "posted" ? await loadDsrDay(tx, companyId, live.id) : null;
+      if (corrected) {
+        if (
+          !access.permissions.includes("sale.post") ||
+          !access.permissions.includes("sale.reverse")
+        ) {
+          throw new AppError("FORBIDDEN");
+        }
+        await moveDsrDay(tx, ctx, access, corrected, "reversed");
       }
       const data = {
         ...(request.marketDueNew === undefined ? {} : { marketDueNew: request.marketDueNew }),
@@ -394,7 +405,7 @@ export async function saveDsrDay(
         ...(request.cashHandedOver === undefined ? {} : { cashHandedOver: request.cashHandedOver }),
       };
       let id: string;
-      if (live) {
+      if (live && !corrected) {
         const updated = await tx.dsrDay.updateMany({
           where: { id: live.id, version: live.version, status: "draft" },
           data: { ...data, version: { increment: 1 } },
@@ -407,6 +418,15 @@ export async function saveDsrDay(
           id = (
             await tx.dsrDay.create({
               data: {
+                ...(corrected
+                  ? {
+                      // Above the corrected sheet's, so a screen still holding it is stale.
+                      version: corrected.version + 1,
+                      marketDueNew: corrected.marketDueNew,
+                      marketDueCollected: corrected.marketDueCollected,
+                      cashHandedOver: corrected.cashHandedOver,
+                    }
+                  : {}),
                 ...data,
                 tenantId: access.company.tenantId,
                 companyId,
@@ -436,11 +456,19 @@ export async function saveDsrDay(
           },
         });
       }
+      if (corrected) {
+        const draft = await loadDsrDay(tx, companyId, id);
+        await moveDsrDay(tx, ctx, access, draft, "posted");
+        await ensureStockCovers(tx, access, request.date, [
+          ...new Set([...stockTakenOut(corrected, "reversed"), ...stockTakenOut(draft, "posted")]),
+        ]);
+      }
       await recordAudit(tx, ctx, {
         companyId,
-        action: "dsr_day.save",
+        action: corrected ? "dsr_day.correct" : "dsr_day.save",
         resourceType: "dsr_day",
         resourceId: id,
+        ...(corrected ? { before: { id: corrected.id, version: corrected.version } } : {}),
         after: { ...data, staffId: request.staffId, date: request.date, lines },
       });
       return toDsrDay(await loadDsrDay(tx, companyId, id));
@@ -490,6 +518,46 @@ async function settleHandover(
   });
 }
 
+/**
+ * Posts or reverses a sheet with everything it owns: the field visits' dues and exchange case (D40)
+ * and the handover settlement (D54). The stock check is left to the caller.
+ */
+async function moveDsrDay(
+  tx: Tx,
+  ctx: AppContext,
+  access: CompanyAccess,
+  row: DsrRow,
+  to: "posted" | "reversed",
+): Promise<void> {
+  const now = new Date();
+  const stamp =
+    to === "posted"
+      ? { postedAt: now, postedById: ctx.actor.userId }
+      : { reversedAt: now, reversedById: ctx.actor.userId };
+  const updated = await tx.dsrDay.updateMany({
+    where: { id: row.id, version: row.version, status: to === "posted" ? "draft" : "posted" },
+    data: { status: to, version: { increment: 1 }, ...stamp },
+  });
+  if (updated.count !== 1) throw invalid("version", "validation.daily.stale");
+  const day = { id: row.id, staffId: row.staffId, date: fromDbDate(row.date) };
+  if (to === "posted") {
+    await postFieldVisits(tx, ctx, access, { ...row, ...day });
+    await settleHandover(tx, ctx, access, { ...day, cashHandedOver: row.cashHandedOver });
+  } else {
+    await reverseFieldVisits(tx, ctx, access.company.id, day);
+  }
+}
+
+/** Products whose stock a move takes out: posting takes issued − returned, reversing gives it back. */
+function stockTakenOut(row: DsrRow, to: "posted" | "reversed"): string[] {
+  return row.lines
+    .filter((line) => {
+      const net = toDecimal(line.issued).sub(toDecimal(line.returned));
+      return to === "posted" ? net.gt(0) : net.lt(0);
+    })
+    .map((line) => line.productId);
+}
+
 async function transitionDsrDay(
   ctx: AppContext,
   companyId: string,
@@ -510,33 +578,12 @@ async function transitionDsrDay(
         throw invalid("version", "validation.daily.stale");
       }
       await postingGuard(tx, companyId, fromDbDate(row.date));
-      const now = new Date();
-      const stamp =
-        move.to === "posted"
-          ? { postedAt: now, postedById: ctx.actor.userId }
-          : { reversedAt: now, reversedById: ctx.actor.userId };
-      const updated = await tx.dsrDay.updateMany({
-        where: { id, version, status: move.from },
-        data: { status: move.to, version: { increment: 1 }, ...stamp },
-      });
-      if (updated.count !== 1) throw invalid("version", "validation.daily.stale");
-      const day = { id, staffId: row.staffId, date: fromDbDate(row.date) };
-      if (move.to === "posted") {
-        await postFieldVisits(tx, ctx, access, { ...row, ...day });
-        await settleHandover(tx, ctx, access, { ...day, cashHandedOver: row.cashHandedOver });
-      } else {
-        await reverseFieldVisits(tx, ctx, companyId, day);
-      }
-      // Posting takes out issued − returned; reversing gives it back.
-      const takesOut = row.lines.filter((line) => {
-        const net = toDecimal(line.issued).sub(toDecimal(line.returned));
-        return move.to === "posted" ? net.gt(0) : net.lt(0);
-      });
+      await moveDsrDay(tx, ctx, access, row, move.to as "posted" | "reversed");
       await ensureStockCovers(
         tx,
         access,
         fromDbDate(row.date),
-        takesOut.map((line) => line.productId),
+        stockTakenOut(row, move.to as "posted" | "reversed"),
       );
       await recordAudit(tx, ctx, {
         companyId,
