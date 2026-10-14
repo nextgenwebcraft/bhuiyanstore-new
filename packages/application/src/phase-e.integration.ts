@@ -310,6 +310,10 @@ function expectedOpening(): MonthOpening {
         orderPrice: "9.5",
         costPrice: "9.5",
         salePrice: "11",
+        // D49: each opening stock line is batch 1, dated at the cutoff (hand-written, not derived).
+        batches: [
+          { seq: 1, startDate: "2026-08-30", costPrice: "9.5", salePrice: "11", quantity: "100" },
+        ],
       },
       [id.beta]: {
         stock: "50",
@@ -317,6 +321,9 @@ function expectedOpening(): MonthOpening {
         orderPrice: "19",
         costPrice: "19",
         salePrice: "22.5",
+        batches: [
+          { seq: 1, startDate: "2026-08-30", costPrice: "19", salePrice: "22.5", quantity: "50" },
+        ],
       },
     },
     marketDue: { [id.mamun]: "500", "": "75" },
