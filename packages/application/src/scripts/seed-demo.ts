@@ -263,6 +263,7 @@ async function seed(db: ReturnType<typeof createDatabase>, plan: SeedPlan): Prom
             kind: l.kind,
             productId: need(productId, l.productKey, "product"),
             pieces: l.pieces,
+            ...(l.cartonRate === undefined ? {} : { cartonRate: l.cartonRate }),
           })),
           prices: day.prices.map((p) => ({
             productId: need(productId, p.productKey, "product"),

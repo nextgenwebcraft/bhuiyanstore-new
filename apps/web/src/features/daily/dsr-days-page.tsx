@@ -35,6 +35,7 @@ import {
   useSaveDsrDay,
   useStaffRecords,
 } from "@/data/queries";
+import { ShopDueEntry } from "@/features/shops/shop-due-entry";
 import { NavGate } from "@/features/shell/nav-gate";
 import { PrintButton, PrintHeader } from "@/features/shell/print";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
@@ -723,6 +724,12 @@ function SheetEditor({
           onPrefill={prefillFromField}
         />
       ) : null}
+      <ShopDueEntry
+        companyId={companyId}
+        staffId={staff.id}
+        date={date}
+        fieldOwned={field !== null}
+      />
       <CashCheck
         {...cash}
         handedOver={draft.handedOver}

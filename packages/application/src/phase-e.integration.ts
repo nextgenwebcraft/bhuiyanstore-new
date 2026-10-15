@@ -7,6 +7,7 @@ import {
   type DayInput,
   type MonthOpening,
   type MonthResult,
+  type OrderInput,
   type ProductDayInput,
 } from "@bsd/domain";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -79,7 +80,13 @@ async function expectField(promise: Promise<unknown>, path: string, code: string
 
 // ---------------------------------------------------------------- the raw facts
 
-type StockFact = { kind: "order" | "receipt" | "damage"; product: string; pieces: string };
+type StockFact = {
+  kind: "order" | "receipt" | "damage";
+  product: string;
+  pieces: string;
+  /** D57: taka per carton of an order. */
+  rate?: string;
+};
 type PriceFact = { product: string; kind: "order" | "cost" | "sale"; price: string };
 type DsrFact = {
   staff: string;
@@ -108,7 +115,8 @@ function facts(): DayFacts[] {
     {
       date: "2026-08-30",
       stock: [
-        { kind: "order", product: id.alpha, pieces: "48" },
+        // D57: 228 per carton of 24 = 9.5 a piece, the product's order price.
+        { kind: "order", product: id.alpha, pieces: "48", rate: "228" },
         { kind: "receipt", product: id.alpha, pieces: "48" },
         { kind: "receipt", product: id.beta, pieces: "10" },
         { kind: "damage", product: id.beta, pieces: "1" },
@@ -196,7 +204,17 @@ const ENGINE_PRICE = { order: "orderPrice", cost: "costPrice", sale: "salePrice"
 /** The same facts as engine input, written independently of the ledger. */
 function toEngineDay(day: DayFacts): DayInput {
   const products: Record<string, Record<string, string>> = {};
+  const orders: Record<string, OrderInput[]> = {};
   for (const line of day.stock ?? []) {
+    if (line.kind === "order" && line.rate !== undefined) {
+      (orders[line.product] ??= []).push({
+        pieces: line.pieces,
+        freePieces: "0",
+        cartonRate: line.rate,
+        piecesPerCarton: line.product === id.alpha ? "24" : "12",
+      });
+      continue;
+    }
     const row = (products[line.product] ??= {});
     const field = ENGINE_FIELD[line.kind];
     row[field] = String(Number(row[field] ?? 0) + Number(line.pieces));
@@ -204,9 +222,13 @@ function toEngineDay(day: DayFacts): DayInput {
   for (const price of day.prices ?? []) {
     (products[price.product] ??= {})[ENGINE_PRICE[price.kind]] = price.price;
   }
+  const withOrders = products as Record<string, ProductDayInput>;
+  for (const [productId, list] of Object.entries(orders)) {
+    withOrders[productId] = { ...(withOrders[productId] ?? {}), orders: list };
+  }
   return {
     date: day.date,
-    products: products as Record<string, ProductDayInput>,
+    products: withOrders,
     dsrLines: (day.dsr ?? []).flatMap((sheet) =>
       sheet.lines.map((l) => ({
         staffId: sheet.staff,
@@ -252,6 +274,7 @@ async function enterDay(day: DayFacts): Promise<void> {
         kind: l.kind,
         productId: l.product,
         pieces: l.pieces,
+        ...(l.rate === undefined ? {} : { cartonRate: l.rate }),
       })),
       prices: (day.prices ?? []).map((p) => ({
         productId: p.product,
@@ -664,7 +687,8 @@ describe("Phase E: daily entry", () => {
     const before = await companyOf();
     const [entry] = await postStockEntries(ctx, company, {
       date,
-      lines: [{ kind: "order", productId: id.alpha, pieces: "10" }],
+      // D57: 228 per carton of 24 = 9.5 a piece, so the bill is 10 × 9.5 as before.
+      lines: [{ kind: "order", productId: id.alpha, pieces: "10", cartonRate: "228" }],
       prices: [],
     });
     const price = must(

@@ -3,6 +3,11 @@ import { computeMonth } from "./compute-month";
 import type { MonthInput } from "./types";
 
 /**
+ * D57 (hand-changed numbers below): day 1's 48 received pieces of A are billed at the order price
+ * 10 (released 480 ÷ 48), so they form a second batch (cost 10) next to the opening batch (9.5);
+ * day 2's sale price change re-prices only that newest batch, so day 2's 20 delivered pieces come
+ * from the opening batch at 11 (not 12): sales −20 (−19 net of the damaged piece), cost unchanged.
+ *
  * Synthetic golden month; every expected value below was worked out by hand from PLAN §2.
  * D47: cost is charged on every delivered piece (damaged ones too), so cost and gross profit
  * differ from the pre-D47 month by the damaged pieces × cost price (day 1: 2 × 9.5, day 2: 1 × 9.5).
@@ -83,12 +88,12 @@ describe("computeMonth golden month", () => {
     ]);
     // Day 2: B 12 sold at 22.5 with 2 at 20 (−5); A 24 − 4 − 1 = 19 at 12.
     expect(day2?.dsrs).toEqual([
-      { staffId: "d1", sales: "493", marketDueNew: "0", marketDueCollected: "0", costPaid: "0" },
+      { staffId: "d1", sales: "474", marketDueNew: "0", marketDueCollected: "0", costPaid: "0" },
     ]);
     expect(day2?.persons.find((p) => p.productId === "A")).toMatchObject({
       sold: "19",
-      soldValue: "228",
-      amount: "240",
+      soldValue: "209", // D57: 8 + 11 pieces at 11 = 209 (was 19 at 12)
+      amount: "220", // 20 × 11
     });
   });
 
@@ -108,11 +113,11 @@ describe("computeMonth golden month", () => {
       // D48: 50 undelivered billed at 10 = 500; the 48 received release 500 × 48/50 = 480.
       dueFromCompanyValue: "20",
       stock: "76",
-      stockValue: "722",
+      stockValue: "746",
       receiptBill: "0",
       receiptValue: "480",
       returnValue: "132",
-      damageValue: "19",
+      damageValue: "20", // D57: the product-level damaged 2 are valued at the current cost 10 (was 9.5)
     });
     expect(day1?.products[1]).toMatchObject({
       dueFromCompany: "24",
@@ -121,12 +126,12 @@ describe("computeMonth golden month", () => {
     });
     expect(day2?.products[0]).toMatchObject({
       salePrice: "12",
-      costPrice: "9.5",
+      costPrice: "10", // D57: the current cost follows the newest batch (the day-1 receipt, 10)
       sold: "19",
-      sales: "228",
-      // D47: 20 delivered × 9.5 = 190 (was 19 × 9.5 = 180.5); profit 228 − 190 = 38.
+      sales: "209", // D57: 19 sold from the opening batch at 11 (was 228 at 12)
+      // D47: 20 delivered × 9.5 = 190 (was 19 × 9.5 = 180.5); profit 209 − 190 = 19.
       cost: "190",
-      grossProfit: "38",
+      grossProfit: "19",
       stock: "56",
       dueFromCompany: "2",
     });
@@ -134,8 +139,8 @@ describe("computeMonth golden month", () => {
       dueFromCompany: "0",
       stock: "12",
       sales: "265",
-      cost: "228",
-      grossProfit: "37",
+      cost: "240", // D57: the 24 received cost 480 ÷ 24 = 20 each (was the day-1 cost price 19)
+      grossProfit: "25", // 265 − 240
       // D48: the 24 received were ordered on day 1 (billed then): nothing new to bill.
       receiptBill: "0",
       receiptValue: "480",
@@ -150,12 +155,12 @@ describe("computeMonth golden month", () => {
     ]);
     expect(day2?.persons[0]).toMatchObject({ staffId: "d1", productId: "B", amount: "265" });
     const d1 = out.month.persons.find((p) => p.staffId === "d1");
-    expect(d1?.amount).toBe("1033");
+    expect(d1?.amount).toBe("1013");
     expect(d1?.products).toContainEqual({
       productId: "A",
       net: "68",
       cartons: "2.833333",
-      amount: "768",
+      amount: "748", // D57: 20 pieces at 11 not 12
     });
   });
 
@@ -167,31 +172,31 @@ describe("computeMonth golden month", () => {
       cashLeft: "640",
       banked: "0",
     });
-    expect(day2?.money).toMatchObject({ sales: "493", cashLeft: "483", banked: "500" });
-    expect(out.month.cashLeftTotal).toBe("1123");
+    expect(day2?.money).toMatchObject({ sales: "474", cashLeft: "464", banked: "500" });
+    expect(out.month.cashLeftTotal).toBe("1104");
   });
 
   it("calculates month totals, profit and balances", () => {
     expect(out.month.products[0]).toMatchObject({
-      salesTotal: "998",
+      salesTotal: "979",
       costTotal: "874", // 684 + 190
-      profitTotal: "124", // 998 − 874
+      profitTotal: "105", // 979 − 874
       salesCartons: "3.833333",
       closingStock: "56",
-      closingValue: "532",
-      closingAtSale: "672",
+      closingValue: "556",
+      closingAtSale: "664",
       closingCartons: "2.333333",
     });
     expect(out.month.profit).toEqual({
-      // gross: A 124 + B 37 = 161 (was 189.5: 28.5 = 3 damaged pieces × 9.5).
-      gross: "161",
+      // gross: A 105 + B 25 = 130 (D57: was 161; −19 sold at 11 not 12, −12 B cost 20 not 19).
+      gross: "130",
       // D47 amendment: `damageRecovery` is no longer part of the profit figures.
       salaries: "1000",
       expenses: "30",
       expensesByCategory: { operating: "30" },
       srIncentive: "20",
-      net: "-889", // 161 − 1000 − 30 − 20
-      netWithoutIncentive: "-869",
+      net: "-920", // 130 − 1000 − 30 − 20
+      netWithoutIncentive: "-900",
     });
     expect(out.month.marketDue).toMatchObject({
       opening: "200",
@@ -254,10 +259,11 @@ describe("computeMonth golden month", () => {
   it("produces a closing that is the next month's opening", () => {
     expect(out.closing.products.A).toEqual({
       stock: "56",
-      // D49: the golden month's prices never change mid-month, so every receipt merges into the one
-      // opening batch; the closing now carries it (the only golden number that changes).
+      // D49/D57: day 1's receipt costs 480 ÷ 48 = 10 (not the opening 9.5), so it is batch 2; 8 of
+      // the opening batch are left (day 2 sold 20 from it at 11).
       batches: [
-        { seq: 1, startDate: "opening", costPrice: "9.5", salePrice: "12", quantity: "56" },
+        { seq: 1, startDate: "opening", costPrice: "9.5", salePrice: "11", quantity: "8" },
+        { seq: 2, startDate: "2026-11-01", costPrice: "10", salePrice: "12", quantity: "48" },
       ],
       dueFromCompany: "2",
       dueFromCompanyValue: "20",
@@ -266,7 +272,7 @@ describe("computeMonth golden month", () => {
       damagedStock: "1",
       damageAtCompany: "0",
       orderPrice: "10",
-      costPrice: "9.5",
+      costPrice: "10", // D57: the newest batch's cost
       salePrice: "12",
     });
     const [first, second] = golden.days;

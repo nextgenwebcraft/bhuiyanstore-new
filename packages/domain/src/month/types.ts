@@ -88,8 +88,25 @@ export type MonthOpening = {
   cashSnapshotMissing?: boolean;
 };
 
+/**
+ * One order placed with the company (D57): paid pieces at a carton rate plus free pieces. The
+ * bill is `pieces × cartonRate ÷ piecesPerCarton`; free pieces add to the undelivered quantity.
+ */
+export type OrderInput = {
+  pieces: DecimalInput;
+  freePieces?: DecimalInput;
+  /** Taka per carton. */
+  cartonRate: DecimalInput;
+  piecesPerCarton: DecimalInput;
+  /** Caller's reference (e.g. the posted entry's id), echoed on the company ledger line. */
+  ref?: string;
+};
+
 export type ProductDayInput = {
+  /** Pieces ordered at the current order price (importer/history); see `orders` (D57). */
   ordered?: DecimalInput;
+  /** Orders with a carton rate and free goods (D57); each is billed on its day. */
+  orders?: readonly OrderInput[];
   received?: DecimalInput;
   /** Damage recorded at product level (Excel column N); DSR lines may add their own. */
   damaged?: DecimalInput;
@@ -555,8 +572,11 @@ export type CompanyEntryResult = {
   ref?: string;
   /** The product of an order, receipt, damage money return, free goods or replacement. */
   productId?: ProductId;
-  /** Pieces ordered, received, given free or replaced. */
+  /** Pieces ordered (paid), received, given free or replaced. */
   quantity?: string;
+  /** Order only (D57): free pieces ordered with it, and the carton rate. */
+  freeQuantity?: string;
+  cartonRate?: string;
   /** What we owe the company after this entry (negative = money deposited with it). */
   balance: string;
   /** Billed value of goods ordered and not yet received, after this entry. */

@@ -135,6 +135,9 @@ function toStockEntry(row: StockRow): StockEntry {
     sku: row.product.sku,
     productName: row.product.name,
     pieces: plain(row.pieces),
+    freePieces: row.freePieces === null ? null : plain(row.freePieces),
+    cartonRate: row.cartonRate === null ? null : plain(row.cartonRate),
+    piecesPerCarton: row.piecesPerCarton,
     status: row.status,
     createdAt: row.createdAt.toISOString(),
     reversedAt: iso(row.reversedAt),
@@ -190,28 +193,67 @@ export async function postStockEntries(
       const productIds = [
         ...new Set([...request.lines, ...request.prices].map((l) => l.productId)),
       ];
-      const known = await tx.product.count({ where: { companyId, id: { in: productIds } } });
-      if (known !== productIds.length) throw invalid("lines", "validation.daily.unknownProduct");
+      const known = await tx.product.findMany({
+        where: { companyId, id: { in: productIds } },
+        include: { packs: true },
+      });
+      if (known.length !== productIds.length) {
+        throw invalid("lines", "validation.daily.unknownProduct");
+      }
+      const packOf = (productId: string) =>
+        packOn(known.find((p) => p.id === productId)?.packs ?? [], request.date)?.piecesPerCarton ??
+        1;
 
       const date = toDbDate(request.date);
+      // D57: an order's per-piece price (carton rate ÷ carton size) becomes the current order
+      // price, so excess receipts and the order price display follow the latest order.
+      const orderPrices = new Map<string, string>();
       if (request.lines.length) {
         await tx.stockEntry.createMany({
-          data: request.lines.map((line) => ({
-            tenantId: access.company.tenantId,
-            companyId,
-            date,
-            kind: line.kind,
-            productId: line.productId,
-            pieces: line.pieces,
-            createdById: ctx.actor.userId,
-          })),
+          data: request.lines.map((line) => {
+            if (line.kind !== "order") {
+              return {
+                tenantId: access.company.tenantId,
+                companyId,
+                date,
+                kind: line.kind,
+                productId: line.productId,
+                pieces: line.pieces,
+                createdById: ctx.actor.userId,
+              };
+            }
+            const piecesPerCarton = packOf(line.productId);
+            const cartonRate = line.cartonRate ?? "0";
+            if (line.pieces !== "0") {
+              orderPrices.set(
+                line.productId,
+                toDecimal(cartonRate).div(piecesPerCarton).toDecimalPlaces(6).toFixed(),
+              );
+            }
+            return {
+              tenantId: access.company.tenantId,
+              companyId,
+              date,
+              kind: line.kind,
+              productId: line.productId,
+              pieces: line.pieces,
+              freePieces: line.freePieces ?? "0",
+              cartonRate,
+              piecesPerCarton,
+              createdById: ctx.actor.userId,
+            };
+          }),
         });
       }
       // D53: pieces found damaged in the godown leave saleable stock.
       const damaged = request.lines.filter((l) => l.kind === "damage").map((l) => l.productId);
       await ensureStockCovers(tx, access, request.date, damaged);
       const before: Record<string, string> = {};
-      for (const price of request.prices) {
+      const explicit = new Set(request.prices.map((p) => `${p.productId}|${p.kind}`));
+      const derived = [...orderPrices]
+        .filter(([productId]) => !explicit.has(`${productId}|order`))
+        .map(([productId, price]) => ({ productId, kind: "order" as const, price }));
+      for (const price of [...derived, ...request.prices]) {
         const key = { productId: price.productId, kind: price.kind, effectiveFrom: date };
         const existing = await tx.priceChange.findUnique({
           where: { productId_kind_effectiveFrom: key },

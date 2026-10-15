@@ -1,6 +1,12 @@
 "use client";
 
-import type { DayView, PriceKind, StockEntryKind, StockEntryPostRequest } from "@bsd/contracts";
+import type {
+  DayView,
+  PriceKind,
+  StockEntry,
+  StockEntryKind,
+  StockEntryPostRequest,
+} from "@bsd/contracts";
 import { EmptyListNote } from "@/components/empty-list-note";
 import { ReverseCell } from "@/components/reverse-cell";
 import { useAsyncAction } from "@/lib/async-action";
@@ -11,7 +17,6 @@ import { Button } from "@/components/button";
 import { PageHeader } from "@/components/page-header";
 import { TableSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
-import { StatTile } from "@/components/stat-tile";
 import { TableSummary, type SummaryItem } from "@/components/table-summary";
 import { describeError } from "@/data/ports/service-error";
 import {
@@ -48,11 +53,13 @@ import {
 } from "@/components/data-table";
 import { TableScroller } from "@/components/table-scroller";
 import { visibleBatches } from "./day-report-page";
+import { OrderForm } from "./order-form";
 
 /** Which price each godown screen can change from its date (Excel's carry-forward columns). */
 const PRICES: Record<StockEntryKind, PriceKind[]> = {
-  order: ["order"],
-  receipt: ["cost", "sale"],
+  // D57: an order sets its carton rate on the order line; a receipt's cost comes from the order.
+  order: [],
+  receipt: ["sale"],
   damage: [],
   incentive: [],
 };
@@ -61,7 +68,7 @@ const PRICE_FIELD = { order: "orderPrice", cost: "costPrice", sale: "salePrice" 
 /** A receipt is one batch: its purchase and sale price apply from that day (D29). */
 const PRICE_LABEL: Record<StockEntryKind, Partial<Record<PriceKind, TranslationKey>>> = {
   order: { order: "godown.column.orderPrice" },
-  receipt: { cost: "godown.column.batchCostPrice", sale: "godown.column.batchSalePrice" },
+  receipt: { sale: "godown.column.batchSalePrice" },
   damage: {},
   incentive: {},
 };
@@ -82,6 +89,18 @@ const POSTED_LABEL: Record<StockEntryKind, TranslationKey> = {
 
 type Row = { cartons: string; pieces: string } & Partial<Record<PriceKind, string>>;
 const emptyRow: Row = { cartons: "", pieces: "" };
+
+/**
+ * D57: the receipt's cost per piece is the average of the goods still due (their billed value ÷
+ * pieces, free pieces counted); shown read-only. Blank when nothing is due.
+ */
+function orderCost(product: DayView["products"][number]): string {
+  const due = toDecimal(product.dueFromCompany);
+  if (due.lte(0)) return "";
+  return `${t("batch.currency")}${formatRate(
+    toDecimal(product.dueFromCompanyValue).div(due).toDecimalPlaces(4).toString(),
+  )}`;
+}
 
 /** The product's live batches, one line each, collapsed under the product name (D49). */
 function CurrentBatches({ product }: { product: DayView["products"][number] }) {
@@ -175,18 +194,6 @@ function GodownForm({
   if (view.products.length === 0) return <StatePanel title={t("product.empty")} />;
   const draft = request();
   const entering = typeof draft === "string" ? [] : (draft.lines ?? []);
-  // D48: an order is billed at once; warn (never block) when its bill exceeds the company balance.
-  const company = kind === "order" ? view.company : null;
-  const orderBill = company
-    ? view.products.reduce((total, product) => {
-        const line = entering.find((l) => l.productId === product.productId);
-        if (!line) return total;
-        const typed = clean(rows[product.productId]?.order ?? "");
-        const price = /^\d+(\.\d+)?$/.test(typed) ? typed : (product.orderPrice ?? "0");
-        return total.add(toDecimal(line.pieces).mul(price));
-      }, toDecimal("0"))
-    : null;
-  const overBalance = company && orderBill ? orderBill.gt(toDecimal(company.balance)) : false;
   const summary: SummaryItem[] = [
     { label: t("table.summary.products"), value: quantity(String(view.products.length)) },
     { label: t("godown.summary.entering"), value: quantity(String(entering.length)) },
@@ -202,37 +209,10 @@ function GodownForm({
   ];
   return (
     <div className="flex flex-col gap-4">
-      {company ? (
-        <dl className="grid gap-3 sm:grid-cols-2">
-          <StatTile
-            label={t("godown.company.balance")}
-            value={money(company.balance)}
-            hint={t("companyAccount.balanceHint")}
-            emphasis
-            large
-          />
-          <StatTile
-            label={t("godown.company.undelivered")}
-            value={money(company.undeliveredValue)}
-            hint={`${quantity(company.undeliveredPieces)} ${t("common.pieces")}`}
-          />
-        </dl>
-      ) : null}
-      {company && orderBill && orderBill.gt(0) ? (
-        <p
-          role={overBalance ? "alert" : undefined}
-          className={`rounded-lg border px-4 py-3 text-sm ${
-            overBalance ? "border-warning/40 bg-warning/10" : "border-border bg-surface"
-          }`}
-        >
-          {t("godown.company.orderTotal")}: <strong>{money(orderBill.toString())}</strong>
-          {overBalance ? ` — ${t("godown.company.warning")}` : ""}
-        </p>
-      ) : null}
       <TableSummary label={t("table.summary")} items={summary} />
       {kind === "receipt" && prices.length ? (
         <p className="rounded-lg border border-info/30 bg-info/5 px-4 py-3 text-sm">
-          {t("godown.batchHint")}
+          {t("godown.receipt.costHint")}
           <span className="mt-1 block text-text-muted">{t("batch.receiptHint")}</span>
         </p>
       ) : null}
@@ -254,10 +234,10 @@ function GodownForm({
                   {t(PRICE_LABEL[kind][p] ?? (`godown.column.${p}Price` as TranslationKey))}
                 </th>
               ))}
-              <ColumnHead
-                label={t(kind === "order" ? "godown.column.due" : "godown.column.stock")}
-                quantity
-              />
+              {kind === "receipt" ? (
+                <ColumnHead label={t("godown.receipt.costByOrder")} quantity />
+              ) : null}
+              <ColumnHead label={t("godown.column.stock")} quantity />
             </tr>
           </thead>
           <tbody>
@@ -305,11 +285,9 @@ function GodownForm({
                         </td>
                       );
                     })}
+                    {kind === "receipt" ? <td className={tdNum}>{orderCost(product)}</td> : null}
                     <td className={tdNum}>
-                      <CartonQty
-                        pieces={kind === "order" ? product.dueFromCompany : product.stock}
-                        piecesPerCarton={product.piecesPerCarton}
-                      />
+                      <CartonQty pieces={product.stock} piecesPerCarton={product.piecesPerCarton} />
                     </td>
                   </tr>
                 </Fragment>
@@ -330,6 +308,16 @@ function GodownForm({
       </div>
     </div>
   );
+}
+
+/** An order's bill: paid pieces × carton rate ÷ the carton size at posting (D57). */
+function orderBill(entry: StockEntry): string {
+  if (entry.cartonRate === null || entry.piecesPerCarton === null) return "0";
+  return toDecimal(entry.pieces)
+    .mul(entry.cartonRate)
+    .div(entry.piecesPerCarton)
+    .toDecimalPlaces(2)
+    .toString();
 }
 
 /** The day's posted entries of a kind as cards, shown above the entry form. */
@@ -402,6 +390,13 @@ function PostedEntries({
                     {t("godown.column.product")}
                   </th>
                   <ColumnHead label={t("godown.column.quantity")} quantity />
+                  {kind === "order" ? (
+                    <>
+                      <ColumnHead label={t("godown.posted.free")} quantity />
+                      <ColumnHead label={t("godown.posted.rate")} quantity />
+                      <ColumnHead label={t("godown.posted.bill")} quantity />
+                    </>
+                  ) : null}
                   <th scope="col" className={thClass}>
                     {t("common.status")}
                   </th>
@@ -420,6 +415,20 @@ function PostedEntries({
                         piecesPerCarton={sizes.get(entry.productId) ?? "1"}
                       />
                     </td>
+                    {kind === "order" ? (
+                      <>
+                        <td className={tdNum}>
+                          <CartonQty
+                            pieces={entry.freePieces ?? "0"}
+                            piecesPerCarton={sizes.get(entry.productId) ?? "1"}
+                          />
+                        </td>
+                        <td className={tdNum}>
+                          {entry.cartonRate === null ? "" : money(entry.cartonRate)}
+                        </td>
+                        <td className={tdNum}>{money(orderBill(entry))}</td>
+                      </>
+                    ) : null}
                     <td className={tdClass}>
                       <StatusChip status={entry.status} />
                     </td>
@@ -513,23 +522,12 @@ export function GodownPage({ path, kind }: { path: string; kind: StockEntryKind 
         {(view) => (
           <>
             <PostedSummary companyId={company.id} date={date} kind={kind} />
-            <GodownForm key={date} companyId={company.id} date={date} kind={kind} view={view} />
+            {kind === "order" ? (
+              <OrderForm key={date} companyId={company.id} date={date} view={view} />
+            ) : (
+              <GodownForm key={date} companyId={company.id} date={date} kind={kind} view={view} />
+            )}
             <PostedEntries companyId={company.id} date={date} kind={kind} view={view} />
-            {kind === "receipt" ? (
-              <section className="mt-10 flex flex-col gap-2">
-                <h2 className="text-base font-semibold">{t(TITLES.incentive.title)}</h2>
-                <p className="text-sm text-text-muted">{t(TITLES.incentive.description)}</p>
-                <PostedSummary companyId={company.id} date={date} kind="incentive" />
-                <GodownForm
-                  key={`incentive-${date}`}
-                  companyId={company.id}
-                  date={date}
-                  kind="incentive"
-                  view={view}
-                />
-                <PostedEntries companyId={company.id} date={date} kind="incentive" view={view} />
-              </section>
-            ) : null}
           </>
         )}
       </DayGate>

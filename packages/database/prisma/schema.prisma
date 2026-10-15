@@ -505,26 +505,30 @@ model OpeningBalanceLine {
 
 /// Godown facts per product and date: order (Excel C), receipt (G) or damage (N), in pieces.
 model StockEntry {
-  id           String    @id @default(cuid())
-  tenantId     String    @map("tenant_id")
-  companyId    String    @map("company_id")
-  date         DateTime  @db.Date
-  kind         String
-  productId    String    @map("product_id")
-  pieces       Decimal   @db.Decimal(20, 6)
-  supplierId   String?   @map("supplier_id")
-  reference    String    @default("")
-  lot          String?
-  expiry       DateTime? @db.Date
-  note         String    @default("")
-  status       String    @default("posted")
-  createdById  String    @map("created_by_id")
-  createdAt    DateTime  @default(now()) @map("created_at")
-  reversedById String?   @map("reversed_by_id")
-  reversedAt   DateTime? @map("reversed_at")
-  company      Company   @relation(fields: [companyId], references: [id])
-  product      Product   @relation(fields: [productId], references: [id])
-  supplier     Supplier? @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  id              String    @id @default(cuid())
+  tenantId        String    @map("tenant_id")
+  companyId       String    @map("company_id")
+  date            DateTime  @db.Date
+  kind            String
+  productId       String    @map("product_id")
+  pieces          Decimal   @db.Decimal(20, 6)
+  /// D57 (kind order only): free pieces, taka per carton and the carton size at posting.
+  freePieces      Decimal?  @map("free_pieces") @db.Decimal(20, 6)
+  cartonRate      Decimal?  @map("carton_rate") @db.Decimal(20, 2)
+  piecesPerCarton Int?      @map("pieces_per_carton")
+  supplierId      String?   @map("supplier_id")
+  reference       String    @default("")
+  lot             String?
+  expiry          DateTime? @db.Date
+  note            String    @default("")
+  status          String    @default("posted")
+  createdById     String    @map("created_by_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  reversedById    String?   @map("reversed_by_id")
+  reversedAt      DateTime? @map("reversed_at")
+  company         Company   @relation(fields: [companyId], references: [id])
+  product         Product   @relation(fields: [productId], references: [id])
+  supplier        Supplier? @relation(fields: [supplierId], references: [id], onDelete: Restrict)
 
   @@index([companyId, date])
   @@map("stock_entry")

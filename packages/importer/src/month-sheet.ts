@@ -340,16 +340,34 @@ export function readMonthSheet(
    * at a changed price) on or before the day (`upTo`, 0-based; all days when absent). `productId`
    * absent = any product (day and month totals). Quantity checks never carry this.
    */
+  /**
+   * D57: a receipt's batch costs its billed value per piece (order bill ÷ pieces), not the
+   * purchase price Excel keeps in column H, so cost, profit, stock value and cash differ from the
+   * first receipt whose billed value per piece is not that price.
+   */
+  /** The purchase price Excel carries (column H) for a product on a day: the last typed one. */
+  const excelCost = (productId: string, index: number): Decimal | null => {
+    let cost: Decimal | null = null;
+    for (const d of days.slice(0, index + 1)) {
+      const typed = d.products?.[productId]?.costPrice;
+      if (typed !== undefined) cost = new Decimal(typed);
+    }
+    return cost;
+  };
   const batchPricing = (productId?: string, upTo?: number): IntendedDifference => ({
-    reason: "D49: FIFO batches — older stock keeps its own price, Excel re-prices all stock",
+    reason:
+      "D49: FIFO batches — older stock keeps its own price, Excel re-prices all stock; D57: a receipt batch costs its order bill per piece, not the typed purchase price",
     accepts: (_engine, out) =>
-      out.days
-        .slice(0, upTo === undefined ? undefined : upTo + 1)
-        .some((d) =>
-          d.products.some(
-            (x) => (productId === undefined || x.productId === productId) && x.batches.length > 1,
-          ),
-        ),
+      out.days.slice(0, upTo === undefined ? undefined : upTo + 1).some((d, index) =>
+        d.products.some((x) => {
+          if (productId !== undefined && x.productId !== productId) return false;
+          if (x.batches.length > 1) return true;
+          const received = new Decimal(x.received);
+          if (!received.gt(0)) return false;
+          const typed = excelCost(x.productId, index);
+          return typed === null || !new Decimal(x.receiptValue).div(received).eq(typed);
+        }),
+      ),
   });
   const either = (a: IntendedDifference, b: IntendedDifference): IntendedDifference => ({
     reason: `${a.reason}; ${b.reason}`,

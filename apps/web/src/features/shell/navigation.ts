@@ -43,7 +43,6 @@ export const navigation: readonly NavSection[] = [
     module: "sales",
     items: [
       item("sales/daily-summaries", "nav.sales.dailySummaries", "sale.view"),
-      item("sales/old-dues-collection", "sales.oldDuesCollection", "sale.view"),
       item("sales/shops", "nav.sales.shops", "company.view"),
       item("sales/field", "nav.sales.field", "field.entry"),
     ],
@@ -163,8 +162,8 @@ const hubDefinitions: readonly Omit<Hub, "shortcut">[] = [
     labelKey: "nav.hub.goods",
     icon: "inventory",
     tabs: [
-      { path: "purchases/receipts", labelKey: "nav.flow.receipts" },
       { path: "purchases/orders", labelKey: "nav.flow.orders" },
+      { path: "purchases/receipts", labelKey: "nav.flow.receipts" },
       { path: "inventory/stock" },
       { path: "inventory/damage" },
       { path: "inventory/claims" },
@@ -174,18 +173,15 @@ const hubDefinitions: readonly Omit<Hub, "shortcut">[] = [
     id: "shops",
     labelKey: "nav.hub.shops",
     icon: "srAccounts",
-    tabs: [
-      { path: "sales/old-dues-collection", labelKey: "nav.flow.marketDue" },
-      { path: "sales/shops" },
-    ],
+    tabs: [{ path: "sales/shops" }],
   },
   {
     id: "money",
     labelKey: "nav.hub.money",
     icon: "finance",
     tabs: [
-      { path: "finance/expenses" },
       { path: "finance/supplier-deposits" },
+      { path: "finance/expenses" },
       { path: "dsr/settlements", labelKey: "nav.flow.staffCash" },
       { path: "sr-accounts/settlements" },
       { path: "sr-accounts/incentives" },

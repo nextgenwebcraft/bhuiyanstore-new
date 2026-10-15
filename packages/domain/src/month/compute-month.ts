@@ -28,6 +28,7 @@ import type {
   MoneyKind,
   MonthClosing,
   MonthInput,
+  ProductDayInput,
   MonthOutput,
   OwedBucket,
   PersonDayResult,
@@ -110,6 +111,91 @@ type ProductState = {
   /** Damaged pieces at the company awaiting its decision (D53). */
   damageAtCompany: Decimal;
 };
+
+/** Paid pieces of the day's `orders` (D57). */
+const stage0Pieces = (p: ProductDayInput | undefined): Decimal =>
+  sum((p?.orders ?? []).map((o) => toDecimal(o.pieces)));
+
+type OrderStageEntry = {
+  pieces: Decimal;
+  freePieces: Decimal;
+  /** null for an order at the current order price (importer/history). */
+  cartonRate: Decimal | null;
+  bill: Decimal;
+  ref?: string;
+};
+
+/** The day's orders and receipt of one product against its undelivered pool (D48, D57). */
+type OrderStage = {
+  entries: OrderStageEntry[];
+  orderBill: Decimal;
+  dueQtyAfter: Decimal;
+  dueValueAfter: Decimal;
+  excessBill: Decimal;
+  /** Billed value of the goods received: released undelivered value + excess billed now. */
+  receiptValue: Decimal;
+};
+
+function orderStage(
+  state: ProductState,
+  p: ProductDayInput | undefined,
+  received: Decimal,
+): OrderStage {
+  const entries: OrderStageEntry[] = [];
+  const orderPrice = state.prices.orderPrice ?? ZERO;
+  const legacy = dec(p?.ordered);
+  if (!legacy.isZero()) {
+    entries.push({
+      pieces: legacy,
+      freePieces: ZERO,
+      cartonRate: null,
+      bill: legacy.mul(orderPrice),
+    });
+  }
+  for (const o of p?.orders ?? []) {
+    const pieces = toDecimal(o.pieces);
+    const freePieces = dec(o.freePieces);
+    const cartonRate = toDecimal(o.cartonRate);
+    const perCarton = toDecimal(o.piecesPerCarton);
+    if (pieces.isNegative() || freePieces.isNegative() || cartonRate.isNegative()) {
+      throw new RangeError("invalid order");
+    }
+    if (perCarton.lte(0)) throw new RangeError("invalid order: carton size");
+    entries.push({
+      pieces,
+      freePieces,
+      cartonRate,
+      bill: pieces.mul(cartonRate).div(perCarton),
+      ...(o.ref === undefined ? {} : { ref: o.ref }),
+    });
+  }
+  let dueQty = state.dueFromCompany;
+  let dueValue = state.dueValue;
+  let orderBill = ZERO;
+  for (const e of entries) {
+    dueQty = dueQty.add(e.pieces).add(e.freePieces);
+    dueValue = dueValue.add(e.bill);
+    orderBill = orderBill.add(e.bill);
+  }
+  // D46: goods due is never negative; an excess receipt offsets no later order.
+  const covered = Decimal.min(Decimal.max(received, ZERO), dueQty);
+  const excess = Decimal.max(received, ZERO).sub(covered);
+  const dueQtyAfter = Decimal.max(ZERO, dueQty.sub(received));
+  const released = dueQtyAfter.isZero()
+    ? dueValue // exactly 0 when the due clears
+    : covered.isZero()
+      ? ZERO
+      : dueValue.mul(covered).div(dueQty);
+  const excessBill = excess.mul(orderPrice);
+  return {
+    entries,
+    orderBill,
+    dueQtyAfter,
+    dueValueAfter: dueValue.sub(released),
+    excessBill,
+    receiptValue: released.add(excessBill),
+  };
+}
 
 type ProductTotals = {
   ordered: Decimal;
@@ -379,6 +465,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
 
     const dayProducts = day.products ?? {};
     for (const id of Object.keys(dayProducts)) requireProduct(id);
+    const orderStages = new Map<ProductId, OrderStage>();
 
     // Prices for the day: carry forward, changed by today's values. D49: the day's stock inflows
     // come first. A receipt's pieces take the day's cost and sale price (merging into the newest
@@ -391,10 +478,18 @@ export function computeMonth(input: MonthInput): MonthOutput {
         if (v !== undefined) state.prices[kind] = toDecimal(v);
       }
       const received = dec(p?.received);
-      const cost = state.prices.costPrice ?? ZERO;
       const sale = state.prices.salePrice ?? ZERO;
-      if (received.gt(0)) receiveInto(state.batches, received, cost, sale, day.date);
-      else {
+      // D57: the order/receipt pool decides the receipt batch's cost per piece.
+      const stage = orderStage(state, p, received);
+      orderStages.set(id, stage);
+      // The cost price the day's other pieces fall back on (deficit batches, history).
+      const cost = state.prices.costPrice ?? ZERO;
+      if (received.gt(0)) {
+        const receiptCost = stage.receiptValue.div(received);
+        receiveInto(state.batches, received, receiptCost, sale, day.date);
+        // The current cost price follows the newest batch (display, carried into the closing).
+        state.prices.costPrice = receiptCost;
+      } else {
         repriceNewest(state.batches, {
           costPrice: p?.costPrice === undefined ? undefined : toDecimal(p.costPrice),
           salePrice: p?.salePrice === undefined ? undefined : toDecimal(p.salePrice),
@@ -534,7 +629,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
     for (const [id, state] of products) {
       const p = dayProducts[id];
       const agg = lineAggregates.get(id);
-      const ordered = dec(p?.ordered);
+      const ordered = dec(p?.ordered).add(stage0Pieces(p));
       const received = dec(p?.received);
       const incentiveReceived = dec(p?.incentiveReceived);
       if (incentiveReceived.isNegative()) throw new RangeError(`invalid free goods: ${id}`);
@@ -615,7 +710,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
         }
         return price;
       };
-      const orderPrice = priceFor("orderPrice", ordered.abs().add(received.abs()));
+      priceFor("orderPrice", ordered.abs().add(received.abs()).add(stage0Pieces(p)));
       const costPrice = priceFor(
         "costPrice",
         delivered.abs().add(damaged.abs()).add(replacedFromStock.abs()).add(godownDamaged),
@@ -648,38 +743,33 @@ export function computeMonth(input: MonthInput): MonthOutput {
       const cost = (agg?.cost ?? ZERO).add(replacedCost).add(godownCost);
       const grossProfit = sales.sub(cost);
 
-      // D48: an order is billed at once; receiving ordered goods moves no money, only excess is billed.
-      const orderBill = ordered.mul(orderPrice);
-      state.dueFromCompany = state.dueFromCompany.add(ordered);
-      state.dueValue = state.dueValue.add(orderBill);
-      companyOrders = companyOrders.add(orderBill);
-      companyPayable = companyPayable.add(orderBill);
-      if (ordered.gt(0)) {
+      // D48/D57: an order is billed at once; receiving ordered goods moves no money, only excess
+      // is billed. The pool was computed with the day's stock inflows above.
+      const stage = orderStages.get(id) as OrderStage;
+      state.dueFromCompany = stage.dueQtyAfter;
+      state.dueValue = stage.dueValueAfter;
+      for (const o of stage.entries) {
+        companyOrders = companyOrders.add(o.bill);
+        companyPayable = companyPayable.add(o.bill);
         companyEntries.push({
           date: day.date,
           kind: "order",
-          amount: str(orderBill),
+          amount: str(o.bill),
+          ...(o.ref === undefined ? {} : { ref: o.ref }),
           productId: id,
-          quantity: str(ordered),
+          quantity: str(o.pieces),
+          ...(o.cartonRate === null
+            ? {}
+            : { freeQuantity: str(o.freePieces), cartonRate: str(o.cartonRate) }),
           balance: str(companyPayable),
           undelivered: str(totalDueValue()),
         });
       }
-      // D46: goods due is never negative; an excess receipt offsets no later order.
-      const dueBeforeReceipt = state.dueFromCompany;
-      const covered = Decimal.min(Decimal.max(received, ZERO), dueBeforeReceipt);
-      const excess = Decimal.max(received, ZERO).sub(covered);
-      const valueBefore = state.dueValue;
-      state.dueFromCompany = Decimal.max(ZERO, dueBeforeReceipt.sub(received));
-      const released = state.dueFromCompany.isZero()
-        ? valueBefore // exactly 0 when the due clears
-        : valueBefore.mul(covered).div(dueBeforeReceipt);
-      state.dueValue = valueBefore.sub(released);
-      const excessBill = excess.mul(orderPrice);
+      const orderBill = stage.orderBill;
+      const excessBill = stage.excessBill;
       companyPayable = companyPayable.add(excessBill);
       companyReceipts = companyReceipts.add(excessBill);
-      // Billed value of the goods received: undelivered value released + excess billed now.
-      const receiptValue = released.add(excessBill);
+      const receiptValue = stage.receiptValue;
       if (received.gt(0)) {
         companyEntries.push({
           date: day.date,

@@ -208,7 +208,6 @@ function Summary({ range }: { range: ReportRange }) {
 const DAILY_ENTRY_PATHS = [
   "sales/daily-summaries",
   "purchases/receipts",
-  "sales/old-dues-collection",
   "finance/expenses",
   "dsr/settlements",
   "finance/supplier-deposits",
@@ -251,11 +250,6 @@ function entryStatus(path: string, view: DayView): Status {
         detail: `${formatCount(rows.length)} ${t("dashboard.work.productCount")}`,
       };
     }
-    case "sales/old-dues-collection":
-      return {
-        done: nonZero(view.money.marketDueNew) || nonZero(view.money.marketDueCollected),
-        detail: `${t("day.money.marketDueCollected")} ${money(view.money.marketDueCollected)}`,
-      };
     case "finance/expenses":
       return { done: nonZero(view.money.expenses), detail: money(view.money.expenses) };
     case "finance/supplier-deposits":

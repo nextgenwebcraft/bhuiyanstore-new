@@ -619,7 +619,14 @@ function buildTables(
       const productNames = new Map(names.products.map((p) => [p.id, p.name]));
       const sizes = new Map(names.products.map((p) => [p.id, p.piecesPerCarton]));
       const undeliveredPieces = sumQuantities(["0", ...m.products.map((p) => p.dueFromCompany)]);
-      const blank = { quantity: null, moneyIn: null, moneyOut: null, memoValue: null };
+      const blank = {
+        quantity: null,
+        freeQuantity: null,
+        cartonRate: null,
+        moneyIn: null,
+        moneyOut: null,
+        memoValue: null,
+      };
       return [
         table(
           "companyAccountSummary",
@@ -655,6 +662,8 @@ function buildTables(
             col("line", "label"),
             col("product", "text"),
             col("quantity", "quantity"),
+            col("freeQuantity", "quantity"),
+            col("cartonRate", "money"),
             col("moneyIn", "money"),
             col("moneyOut", "money"),
             col("balance", "money"),
@@ -686,6 +695,9 @@ function buildTables(
                   line: `report.line.company.${e.kind}`,
                   product: e.productId ? (productNames.get(e.productId) ?? "") : "",
                   quantity: e.quantity ?? null,
+                  // D57: free pieces and the carton rate of an order.
+                  freeQuantity: e.freeQuantity ?? null,
+                  cartonRate: e.cartonRate ?? null,
                   moneyIn: isIn ? e.amount : null,
                   moneyOut: isOut ? e.amount : null,
                   memoValue: e.kind === "replacement" ? e.amount : null,

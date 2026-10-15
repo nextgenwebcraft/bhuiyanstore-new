@@ -64,7 +64,7 @@ is complete and is the reference month.
 
 | Input                               | Excel column                                    | Rule                                                                                                                                                      |
 | ----------------------------------- | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Pieces ordered from the company     | `C` Due Quantity                                | Per product                                                                                                                                               |
+| Pieces ordered from the company     | `C` Due Quantity                                | Per product; D57: carton rate (taka per carton) and free pieces on the order line                                                                         |
 | Order (bill) price                  | `E` Due price                                   | Per product. **Carries forward** from the previous day until changed; day 1 takes the previous month's last price                                         |
 | Pieces received                     | `G` Receive                                     | Per product; optional batch/lot and expiry (D29)                                                                                                          |
 | Purchase (cost) price               | `H` Purchase Unit Price                         | Carries forward like `E`                                                                                                                                  |
@@ -93,6 +93,7 @@ cost          = Σ (delivered + replaced from stock + godown damaged) pieces × 
 gross_profit  = sales − cost                                   Excel S
 return_value  = returned × sale_price                          Excel R (report only)
 order_value   = ordered × order_price                          Excel F; billed on the order day (D48)
+              (D57: with a carton rate, order_value = Σ order pieces × carton_rate ÷ pieces_per_carton; free pieces add to the undelivered quantity only)
 receipt_bill  = excess × order_price                           Excel I bills every received piece; D48 bills only excess = received − min(received, due + ordered)
 due_value     = Σ order bills − value released on receipt      D48: billed value of goods not yet received (proportional; 0 when due is 0)
 receipt_sale  = received × sale_price                          Excel J (report only)
@@ -119,6 +120,11 @@ facts (no table): `{seq, startDate, costPrice, salePrice, quantity}`.
   price change on a day without a receipt re-prices the newest batch only. Free goods and company
   replacements are zero-cost batches at the current sale price (merged only into a newest batch with
   cost 0 and the same sale price).
+- **Receipt cost (D57).** The cost of a receipt's batch is its billed value per piece:
+  `receiptValue ÷ received`, where `receiptValue` = the undelivered value released (orders' bills,
+  free pieces counted in the quantity, so free goods lower the cost) + the excess billed at the
+  current order price. The cost price typed at a receipt no longer decides the batch. The sale price
+  is still the receipt day's price.
 - Inflows come before outflows. Each DSR line (input order) takes its net pieces from the oldest
   batches: allocation `[{seq, quantity, costPrice, salePrice}]`. Sold pieces are the first
   `sold` allocated ones, damaged pieces the rest; price-split pieces are the first sold pieces and
@@ -379,7 +385,8 @@ staff report screens and no samari/firot screens: the dashboard shows every repo
 `?period=`). It opens with the summary (the range summary above), today's work checklist (today only), then the
 reports by DSR, sales and profit; cash, stock, market due, company account, damage and staff balances open on demand
 and fetch only then. The month screen stays under মাস শেষে for closing and reopening and links to the dashboard
-for that month.
+for that month. Shop due and collection (দোকানের বাকি ও আদায়) has no tab of its own: it is entered inside each DSR's
+day sheet, before the cash reconciliation card (D58).
 
 ## 7. Opening balances
 
