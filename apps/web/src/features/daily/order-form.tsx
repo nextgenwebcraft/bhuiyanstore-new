@@ -7,7 +7,6 @@ import { useState } from "react";
 import { Button } from "@/components/button";
 import {
   CartonQty,
-  ColumnHead,
   money,
   quantity,
   stickyCell,
@@ -39,6 +38,9 @@ type Row = {
   freeCartons: string;
   freePieces: string;
 };
+const thCenter = `${thClass} text-center`;
+const tdCenter = `${tdClass} text-center`;
+const freeTint = "bg-surface-muted/50";
 const emptyRow: Row = { cartons: "", pieces: "", freeCartons: "", freePieces: "" };
 const whole = /^\d+$/;
 const amount = /^\d+(\.\d{1,2})?$/;
@@ -197,25 +199,44 @@ export function OrderForm({
         <table className={tableClass}>
           <thead className={theadClass}>
             <tr>
-              <th scope="col" className={`${thClass} ${stickyHead}`}>
+              <th scope="col" rowSpan={2} className={`${thClass} ${stickyHead}`}>
                 {t("godown.column.product")}
               </th>
-              <th scope="col" className={thNum} colSpan={2}>
-                {t("godown.order.paid")}
+              <th scope="col" colSpan={2} className={`${thCenter} border-b border-l border-border`}>
+                {t("godown.order.paidGroup")}
               </th>
-              <th scope="col" className={thNum}>
+              <th scope="col" rowSpan={2} className={`${thCenter} border-l border-border`}>
                 {t("godown.order.cartonRate")}
               </th>
-              <th scope="col" className={thNum} colSpan={2}>
-                {t("godown.order.free")}
+              <th scope="col" colSpan={2} className={`${thCenter} border-b border-l border-border`}>
+                {t("godown.order.freeGroup")}
               </th>
-              <th scope="col" className={thNum}>
+              <th scope="col" rowSpan={2} className={`${thNum} border-l border-border`}>
                 {t("godown.order.bill")}
               </th>
-              <th scope="col" className={thNum}>
+              <th scope="col" rowSpan={2} className={thNum}>
                 {t("godown.order.unitCost")}
               </th>
-              <ColumnHead label={t("godown.order.due")} quantity />
+              <th scope="col" rowSpan={2} className={`${thNum} whitespace-nowrap`}>
+                {t("godown.order.due")}
+                <span className="block text-[10.5px] font-normal text-text-subtle">
+                  {t("common.cartonPiece")}
+                </span>
+              </th>
+            </tr>
+            <tr>
+              <th scope="col" className={`${thCenter} border-l border-border`}>
+                {t("godown.column.cartons")}
+              </th>
+              <th scope="col" className={thCenter}>
+                {t("godown.column.pieces")}
+              </th>
+              <th scope="col" className={`${thCenter} border-l border-border`}>
+                {t("godown.column.cartons")}
+              </th>
+              <th scope="col" className={thCenter}>
+                {t("godown.column.pieces")}
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -231,50 +252,65 @@ export function OrderForm({
                       {product.sku} · {t("godown.column.size")} {quantity(product.piecesPerCarton)}
                     </div>
                   </th>
-                  <td className={tdNum}>
+                  <td className={`${tdCenter} border-l border-border`}>
                     <CellInput
                       label={`${label} ${t("godown.column.cartons")}`}
+                      placeholder={t("godown.column.cartons")}
                       value={row.cartons}
                       onChange={(cartons) => set(product.productId, { cartons })}
                       width="w-16"
                     />
                   </td>
-                  <td className={tdNum}>
+                  <td className={`${tdCenter}`}>
                     <CellInput
                       label={`${label} ${t("godown.column.pieces")}`}
+                      placeholder={t("godown.column.pieces")}
                       value={row.pieces}
                       onChange={(pieces) => set(product.productId, { pieces })}
                       width="w-16"
                     />
                   </td>
-                  <td className={tdNum}>
+                  <td className={`${tdCenter} border-l border-border`}>
                     <CellInput
                       label={`${label} ${t("godown.order.cartonRate")}`}
+                      placeholder="৳"
                       value={row.rate ?? defaultRate(product)}
                       onChange={(rate) => set(product.productId, { rate })}
                       mode="decimal"
                       width="w-24"
                     />
                   </td>
-                  <td className={tdNum}>
+                  <td className={`${tdCenter} ${freeTint} border-l border-border`}>
                     <CellInput
                       label={`${label} ${t("godown.order.free")} ${t("godown.column.cartons")}`}
+                      placeholder={t("godown.column.cartons")}
                       value={row.freeCartons}
                       onChange={(freeCartons) => set(product.productId, { freeCartons })}
                       width="w-16"
                     />
                   </td>
-                  <td className={tdNum}>
+                  <td className={`${tdCenter} ${freeTint}`}>
                     <CellInput
                       label={`${label} ${t("godown.order.free")} ${t("godown.column.pieces")}`}
+                      placeholder={t("godown.column.pieces")}
                       value={row.freePieces}
                       onChange={(freePieces) => set(product.productId, { freePieces })}
                       width="w-16"
                     />
                   </td>
-                  <td className={tdNum}>{preview ? money(preview.bill.toString()) : ""}</td>
+                  <td className={`${tdNum} border-l border-border`}>
+                    {preview ? (
+                      money(preview.bill.toString())
+                    ) : (
+                      <span className="text-text-muted">—</span>
+                    )}
+                  </td>
                   <td className={tdNum}>
-                    {preview ? formatRate(preview.unitCost.toDecimalPlaces(4).toString()) : ""}
+                    {preview ? (
+                      formatRate(preview.unitCost.toDecimalPlaces(4).toString())
+                    ) : (
+                      <span className="text-text-muted">—</span>
+                    )}
                   </td>
                   <td className={tdNum}>
                     <CartonQty

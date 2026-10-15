@@ -207,8 +207,7 @@ export const bn = {
   "shop.statement.closing": "শেষের বাকি",
   "shop.statement.balance": "বাকি থাকল",
   "shop.statement.empty": "এই সময়ে কোনো বাকি দেওয়া বা আদায় নেই।",
-  "shop.due.description":
-    "দোকান ও ডিএসআর বেছে বাকি দেওয়া বা আদায় লিখুন। এটি দিনের হাতে টাকা ও বাজারের মোট বাকিতে যোগ হয়।",
+  "shopDue.title": "দোকানের বাকি ও আদায়",
   "validation.staff.srSalary": "এসআরের বেতন কোম্পানি দেয়, এখানে বেতন দেওয়া যায় না",
   "validation.staff.employerRole":
     "এসআর কোম্পানির (সরবরাহকারীর) কর্মী এবং ডিএসআর ডিস্ট্রিবিউটরের কর্মী হতে হবে",
@@ -337,7 +336,6 @@ export const bn = {
   "nav.flow.monthEnd": "মাস শেষে",
   "nav.flow.accounts": "খাতা ও ব্যালান্স",
   "nav.flow.receipts": "মাল গ্রহণ",
-  "nav.flow.marketDue": "দোকানের বাকি ও আদায়",
   "nav.flow.staffCash": "কর্মীর শর্ট / ওভার / অগ্রিম",
   "nav.flow.orders": "কোম্পানিতে অর্ডার",
   "nav.flow.payroll": "বেতন ও সমন্বয়",
@@ -793,7 +791,6 @@ export const bn = {
   "finance.supplierDeposit": "কোম্পানিতে জমা",
   "common.due": "বাকি",
 
-  "sales.oldDuesCollection": "দোকানের বাকি দেওয়া ও আদায়",
   "sales.totalVsCashRemaining": "মোট বিক্রয় / হাতে অবশিষ্ট টাকা",
   "sales.marketDue": "বাজারের বকেয়া",
   "sales.marketOldDuesCollection": "বাজারের আগের বকেয়া আদায়",
@@ -1411,6 +1408,8 @@ export const bn = {
   "godown.company.orderTotal": "এই অর্ডারের বিল",
   "validation.daily.orderOnly": "ফ্রি মাল ও কার্টুন রেট শুধু অর্ডারে দেওয়া যায়",
   "validation.daily.rateRequired": "মূল্য দেওয়া পিসের জন্য কার্টুন রেট দিন",
+  "godown.order.paidGroup": "অর্ডার",
+  "godown.order.freeGroup": "ফ্রি মাল",
   "godown.order.paid": "অর্ডার (কার্টুন + পিস)",
   "godown.order.cartonRate": "কার্টুন রেট (৳)",
   "godown.order.free": "ফ্রি মাল (কার্টুন + পিস)",

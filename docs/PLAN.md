@@ -385,7 +385,8 @@ staff report screens and no samari/firot screens: the dashboard shows every repo
 `?period=`). It opens with the summary (the range summary above), today's work checklist (today only), then the
 reports by DSR, sales and profit; cash, stock, market due, company account, damage and staff balances open on demand
 and fetch only then. The month screen stays under মাস শেষে for closing and reopening and links to the dashboard
-for that month.
+for that month. Shop due and collection (দোকানের বাকি ও আদায়) has no tab of its own: it is entered inside each DSR's
+day sheet, before the cash reconciliation card (D58).
 
 ## 7. Opening balances
 

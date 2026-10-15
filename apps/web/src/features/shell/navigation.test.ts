@@ -80,13 +80,13 @@ describe("hubs", () => {
     const paths = (id: string) => hubs.find((h) => h.id === id)?.tabs.map((tab) => tab.path);
     expect(paths("sales")).toEqual(["sales/daily-summaries", "sales/field"]);
     expect(paths("goods")).toEqual([
-      "purchases/receipts",
       "purchases/orders",
+      "purchases/receipts",
       "inventory/stock",
       "inventory/damage",
       "inventory/claims",
     ]);
-    expect(paths("shops")).toEqual(["sales/old-dues-collection", "sales/shops"]);
+    expect(paths("shops")).toEqual(["sales/shops"]);
     expect(paths("monthEnd")).toEqual(["dsr/salary-recovery", "finance/period-close"]);
     expect(paths("opening")).toEqual(["admin/opening"]);
   });
