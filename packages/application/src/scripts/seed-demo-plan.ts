@@ -66,7 +66,13 @@ export type PlanOpeningBalance = {
   note: string;
 };
 
-export type PlanStockLine = { kind: StockEntryKind; productKey: string; pieces: string };
+/** `cartonRate` (D57) is set on order lines only: the current order price × the carton size. */
+export type PlanStockLine = {
+  kind: StockEntryKind;
+  productKey: string;
+  pieces: string;
+  cartonRate?: string;
+};
 export type PlanPrice = { productKey: string; kind: "order" | "cost" | "sale"; price: string };
 export type PlanDsrSheet = {
   dsrKey: string;
@@ -411,6 +417,13 @@ export function buildSeedPlan(read: SheetReadResult, options: SeedPlanOptions): 
       lines.push({ kind: "receipt", productKey: firstProduct.key, pieces: "48" });
     if (!has("incentive"))
       lines.push({ kind: "incentive", productKey: firstProduct.key, pieces: "24" });
+    // D57: an order needs its carton rate; the workbook has the per-piece order price.
+    for (const l of lines) {
+      if (l.kind !== "order") continue;
+      const size = products.find((x) => x.key === l.productKey)?.piecesPerCarton ?? DEFAULT_CARTON;
+      const price = runPrices.get(l.productKey)?.order ?? "0";
+      l.cartonRate = new Decimal(price).mul(size).toDecimalPlaces(2).toString();
+    }
     if (dayIndex === 1 && !has("damage")) {
       lines.push({ kind: "damage", productKey: firstProduct.key, pieces: "1" });
     }

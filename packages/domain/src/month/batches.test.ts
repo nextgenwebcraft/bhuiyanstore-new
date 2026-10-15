@@ -8,6 +8,8 @@ import type { DayInput, MonthInput, MonthOpening } from "./types";
  * own prices; zero-cost batches hold free goods and company replacements.
  */
 
+// D57: a receipt batch costs its billed value per piece (order price here), so cases that receive
+// goods at a cost set the order price equal to that cost; the expected numbers stay as worked out.
 const catalog = [{ id: "A", piecesPerCarton: "12" }];
 const run = (opening: MonthOpening, days: DayInput[]) =>
   computeMonth({ products: catalog, opening, days } satisfies MonthInput);
@@ -37,16 +39,26 @@ describe("batches: receipt rules", () => {
   // day 2 receives 40 at 12/18 (new batch), day 3 sells across all of them, day 4 receives 20 at
   // the unchanged 12/18 (merges).
   const out = run(
-    { products: { A: { stock: "100", dueFromCompany: "0", costPrice: "10", salePrice: "15" } } },
+    {
+      products: {
+        A: {
+          stock: "100",
+          dueFromCompany: "0",
+          orderPrice: "10",
+          costPrice: "10",
+          salePrice: "15",
+        },
+      },
+    },
     [
       {
         date: "2026-11-01",
-        products: { A: { received: "50", costPrice: "11", salePrice: "16" } },
+        products: { A: { received: "50", orderPrice: "11", costPrice: "11", salePrice: "16" } },
         dsrLines: [{ staffId: "d1", productId: "A", issued: "30" }],
       },
       {
         date: "2026-11-02",
-        products: { A: { received: "40", costPrice: "12", salePrice: "18" } },
+        products: { A: { received: "40", orderPrice: "12", costPrice: "12", salePrice: "18" } },
         dsrLines: [{ staffId: "d1", productId: "A", issued: "10" }],
       },
       { date: "2026-11-03", dsrLines: [{ staffId: "d1", productId: "A", issued: "120" }] },
@@ -99,7 +111,17 @@ describe("batches: receipt rules", () => {
 
   it("starts a new batch when only the sale price (or only the cost) differs", () => {
     const sale = run(
-      { products: { A: { stock: "10", dueFromCompany: "0", costPrice: "10", salePrice: "15" } } },
+      {
+        products: {
+          A: {
+            stock: "10",
+            dueFromCompany: "0",
+            orderPrice: "10",
+            costPrice: "10",
+            salePrice: "15",
+          },
+        },
+      },
       [{ date: "2026-11-01", products: { A: { received: "5", salePrice: "16" } } }],
     );
     expect(shown(view(sale, 0))).toEqual([
@@ -107,8 +129,18 @@ describe("batches: receipt rules", () => {
       [2, "2026-11-01", "10", "16", "5"],
     ]);
     const cost = run(
-      { products: { A: { stock: "10", dueFromCompany: "0", costPrice: "10", salePrice: "15" } } },
-      [{ date: "2026-11-01", products: { A: { received: "5", costPrice: "9" } } }],
+      {
+        products: {
+          A: {
+            stock: "10",
+            dueFromCompany: "0",
+            orderPrice: "10",
+            costPrice: "10",
+            salePrice: "15",
+          },
+        },
+      },
+      [{ date: "2026-11-01", products: { A: { received: "5", orderPrice: "9", costPrice: "9" } } }],
     );
     expect(shown(view(cost, 0))).toEqual([
       [1, "opening", "10", "15", "10"],
@@ -203,7 +235,17 @@ describe("batches: damaged pieces and price splits", () => {
 
   it("D47 pin: the damaged count does not lower saleable stock by itself", () => {
     const plain = run(
-      { products: { A: { stock: "50", dueFromCompany: "0", costPrice: "10", salePrice: "15" } } },
+      {
+        products: {
+          A: {
+            stock: "50",
+            dueFromCompany: "0",
+            orderPrice: "10",
+            costPrice: "10",
+            salePrice: "15",
+          },
+        },
+      },
       [
         {
           date: "2026-11-01",
@@ -239,14 +281,19 @@ describe("batches: damaged pieces and price splits", () => {
 
 describe("batches: deficit and returns", () => {
   const opening: MonthOpening = {
-    products: { A: { stock: "10", dueFromCompany: "0", costPrice: "10", salePrice: "15" } },
+    products: {
+      A: { stock: "10", dueFromCompany: "0", orderPrice: "10", costPrice: "10", salePrice: "15" },
+    },
   };
 
   it("makes the newest batch negative when stock runs out, and the next receipt fills it first", () => {
     const out = run(opening, [
       { date: "2026-11-01", dsrLines: [{ staffId: "d1", productId: "A", issued: "25" }] },
       // 40 received at new prices: 15 fill the deficit (batch 1 stays priced 10/15), 25 are batch 2.
-      { date: "2026-11-02", products: { A: { received: "40", costPrice: "11", salePrice: "16" } } },
+      {
+        date: "2026-11-02",
+        products: { A: { received: "40", orderPrice: "11", costPrice: "11", salePrice: "16" } },
+      },
       // 40 more at the unchanged prices: nothing to fill, merges into batch 2.
       { date: "2026-11-03", products: { A: { received: "40" } } },
     ]);
@@ -303,7 +350,9 @@ describe("batches: deficit and returns", () => {
 
 describe("batches: zero-cost goods and godown outflows", () => {
   const opening: MonthOpening = {
-    products: { A: { stock: "10", dueFromCompany: "0", costPrice: "10", salePrice: "15" } },
+    products: {
+      A: { stock: "10", dueFromCompany: "0", orderPrice: "10", costPrice: "10", salePrice: "15" },
+    },
   };
 
   it("puts free goods in a zero-cost batch at the current sale price; selling them is all profit", () => {
@@ -379,22 +428,24 @@ describe("batches: carry between months and fallback", () => {
   const days: DayInput[] = [
     {
       date: "2026-11-01",
-      products: { A: { received: "50", costPrice: "11", salePrice: "16" } },
+      products: { A: { received: "50", orderPrice: "11", costPrice: "11", salePrice: "16" } },
       dsrLines: [{ staffId: "d1", productId: "A", issued: "30" }],
     },
     {
       date: "2026-11-02",
-      products: { A: { received: "40", costPrice: "12", salePrice: "18" } },
+      products: { A: { received: "40", orderPrice: "12", costPrice: "12", salePrice: "18" } },
       dsrLines: [{ staffId: "d1", productId: "A", issued: "10" }],
     },
     {
       date: "2026-12-01",
-      products: { A: { received: "5", costPrice: "13", salePrice: "19" } },
+      products: { A: { received: "5", orderPrice: "13", costPrice: "13", salePrice: "19" } },
       dsrLines: [{ staffId: "d1", productId: "A", issued: "100" }],
     },
   ];
   const opening: MonthOpening = {
-    products: { A: { stock: "100", dueFromCompany: "0", costPrice: "10", salePrice: "15" } },
+    products: {
+      A: { stock: "100", dueFromCompany: "0", orderPrice: "10", costPrice: "10", salePrice: "15" },
+    },
   };
 
   it("carries the batches with their seq into the next opening and continues the numbering", () => {

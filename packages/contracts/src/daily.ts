@@ -42,7 +42,12 @@ export const stockEntrySchema = z.object({
   productId: idSchema,
   sku: z.string(),
   productName: z.string(),
-  pieces: positivePiecesSchema,
+  /** Paid pieces; 0 only for a free-only order (D57). */
+  pieces: wholePiecesSchema,
+  /** D57, orders only: free pieces, taka per carton and the carton size at posting. */
+  freePieces: wholePiecesSchema.nullable(),
+  cartonRate: decimalStringSchema.nullable(),
+  piecesPerCarton: z.number().int().positive().nullable(),
   status: z.enum(documentStatuses),
   createdAt: z.string(),
   reversedAt: z.string().nullable(),
@@ -50,11 +55,33 @@ export const stockEntrySchema = z.object({
 
 export type StockEntry = z.infer<typeof stockEntrySchema>;
 
-export const stockEntryLineRequestSchema = z.object({
-  kind: z.enum(stockEntryKinds),
-  productId: idSchema,
-  pieces: positivePiecesSchema,
-});
+/**
+ * One godown line. An `order` (D57) carries paid pieces, optional free pieces and the taka per
+ * carton (required with paid pieces); paid pieces may be 0 only with free pieces. Other kinds
+ * carry whole pieces > 0 and nothing else.
+ */
+export const stockEntryLineRequestSchema = z
+  .object({
+    kind: z.enum(stockEntryKinds),
+    productId: idSchema,
+    pieces: wholePiecesSchema,
+    freePieces: wholePiecesSchema.optional(),
+    cartonRate: amountSchema.optional(),
+  })
+  .superRefine((line, ctx) => {
+    const issue = (path: string, message: string) =>
+      ctx.addIssue({ code: "custom", path: [path], message });
+    const paid = line.pieces !== "0";
+    if (line.kind !== "order") {
+      if (!paid) issue("pieces", "validation.quantityPositive");
+      if (line.freePieces !== undefined) issue("freePieces", "validation.daily.orderOnly");
+      if (line.cartonRate !== undefined) issue("cartonRate", "validation.daily.orderOnly");
+      return;
+    }
+    const free = line.freePieces !== undefined && line.freePieces !== "0";
+    if (!paid && !free) issue("pieces", "validation.quantityPositive");
+    if (paid && line.cartonRate === undefined) issue("cartonRate", "validation.daily.rateRequired");
+  });
 
 /**
  * A price present here applies from `date` on (Excel's carry-forward, PLAN §2.2). Prices posted

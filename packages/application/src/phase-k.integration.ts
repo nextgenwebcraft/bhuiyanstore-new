@@ -118,11 +118,13 @@ beforeAll(async () => {
 
   await postStockEntries(ctx, company, {
     date: "2026-08-02",
-    lines: [{ kind: "receipt", productId: alpha, pieces: "50" }],
-    prices: [
-      { productId: alpha, kind: "cost", price: "11" },
-      { productId: alpha, kind: "sale", price: "14" },
+    // D57: the receipt batch costs its order bill per piece. 50 pieces ordered at 264 a carton of
+    // 24 (= 11 a piece, bill 550) and received the same day cost 550 / 50 = 11, as before.
+    lines: [
+      { kind: "order", productId: alpha, pieces: "50", freePieces: "0", cartonRate: "264" },
+      { kind: "receipt", productId: alpha, pieces: "50" },
     ],
+    prices: [{ productId: alpha, kind: "sale", price: "14" }],
   });
   const draft = await saveDsrDay(ctx, company, {
     date: "2026-08-03",

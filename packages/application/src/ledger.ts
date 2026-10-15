@@ -196,7 +196,10 @@ async function rangeInput(
       where: { product: { companyId }, effectiveFrom: { lte: toDbDate(to) } },
       orderBy: { effectiveFrom: "asc" },
     }),
-    db.stockEntry.findMany({ where: { companyId, status: "posted", date: range } }),
+    db.stockEntry.findMany({
+      where: { companyId, status: "posted", date: range },
+      orderBy: { createdAt: "asc" },
+    }),
     db.dsrDay.findMany({
       where: { companyId, status: "posted", date: range },
       include: {
@@ -275,6 +278,21 @@ async function rangeInput(
   }
 
   for (const entry of stock) {
+    if (entry.kind === "order" && entry.cartonRate !== null && entry.piecesPerCarton !== null) {
+      // D57: an order with a carton rate and free goods; older rows (no rate) stay `ordered`.
+      const product = dayProduct(fromDbDate(entry.date), entry.productId);
+      product.orders = [
+        ...(product.orders ?? []),
+        {
+          pieces: plain(entry.pieces),
+          freePieces: entry.freePieces === null ? "0" : plain(entry.freePieces),
+          cartonRate: plain(entry.cartonRate),
+          piecesPerCarton: String(entry.piecesPerCarton),
+          ref: entry.id,
+        },
+      ];
+      continue;
+    }
     const target = dayProduct(fromDbDate(entry.date), entry.productId) as Record<string, string>;
     const field = STOCK_FIELD[entry.kind as StockEntryKind] ?? "godownDamaged";
     target[field] = sumQuantities([target[field] ?? "0", plain(entry.pieces)]);

@@ -889,7 +889,8 @@ export const bn = {
   "daily.status.reversed": "বাতিল",
   "daily.status.none": "শুরু হয়নি",
 
-  "godown.description.order": "কোম্পানিতে দেওয়া অর্ডার (পাওনা পণ্য) এবং অর্ডার দাম।",
+  "godown.description.order":
+    "কোম্পানিতে দেওয়া অর্ডার: কার্টুন রেট ও ফ্রি মাল সহ। মাল এলে বিল ÷ (মূল্য দেওয়া + ফ্রি পিস) হয় প্রতি পিস ক্রয় মূল্য।",
   "godown.description.receipt": "কোম্পানি থেকে আসা পণ্য, ক্রয় ও বিক্রয় দাম, লট ও মেয়াদ।",
   "godown.description.damage": "গুদামের ড্যামেজ পণ্য।",
   "godown.freeGoods.title": "ফ্রি মাল (কোম্পানির ইনসেনটিভ)",
@@ -1408,6 +1409,26 @@ export const bn = {
   "godown.company.warning":
     "এই অর্ডারের বিল কোম্পানিতে জমা ব্যালান্সের চেয়ে বেশি; তবুও অর্ডার করা যাবে, ব্যালান্স ঋণাত্মক (কোম্পানির পাওনা) হবে।",
   "godown.company.orderTotal": "এই অর্ডারের বিল",
+  "validation.daily.orderOnly": "ফ্রি মাল ও কার্টুন রেট শুধু অর্ডারে দেওয়া যায়",
+  "validation.daily.rateRequired": "মূল্য দেওয়া পিসের জন্য কার্টুন রেট দিন",
+  "godown.order.paid": "অর্ডার (কার্টুন + পিস)",
+  "godown.order.cartonRate": "কার্টুন রেট (৳)",
+  "godown.order.free": "ফ্রি মাল (কার্টুন + পিস)",
+  "godown.order.bill": "বিল",
+  "godown.order.unitCost": "প্রতি পিস ক্রয় মূল্য",
+  "godown.order.due": "কোম্পানির কাছে পাওনা",
+  "godown.order.hint":
+    "বিল = অর্ডারের পিস × কার্টুন রেট ÷ কার্টুনে পিস। ফ্রি মাল বিলে ধরা হয় না, কিন্তু প্রতি পিস ক্রয় মূল্য কমিয়ে দেয়। কার্টুন রেট আগের অর্ডার দাম থেকে বসানো আছে; বদলাতে পারেন।",
+  "godown.order.rateMissing": "কার্টুন রেট দিন",
+  "godown.order.freeOnly": "শুধু ফ্রি মাল",
+  "godown.posted.free": "ফ্রি মাল",
+  "godown.posted.rate": "কার্টুন রেট",
+  "godown.posted.bill": "বিল",
+  "godown.receipt.costByOrder": "অর্ডার অনুযায়ী ক্রয় মূল্য",
+  "godown.receipt.costHint":
+    "ক্রয় মূল্য অর্ডার থেকে আসে (অর্ডারের বিল ÷ পিস, ফ্রি মাল ধরে); এখানে বদলানো যায় না। শুধু বিক্রয় দাম দিন।",
+  "report.column.freeQuantity": "ফ্রি পরিমাণ",
+  "report.column.cartonRate": "কার্টুন রেট",
 } as const;
 
 export type TranslationKey = keyof typeof bn;
