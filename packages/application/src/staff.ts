@@ -16,6 +16,7 @@ import type { AppContext, Tx } from "./context";
 import { fromDbDate, toDbDate } from "./dates";
 import { invalid, parseInput } from "./errors";
 import { isForeignKeyViolation, runIdempotent } from "./idempotency";
+import { masterCompanyId, staffCompanyIds } from "./master";
 import { plain } from "./numeric";
 import { releaseOpeningLines } from "./opening-lock";
 
@@ -136,20 +137,44 @@ async function loadStaff(tx: Tx, ctx: AppContext, staffId: string) {
   return staff;
 }
 
-/** The person must work (or have worked) for this company, so other companies' staff stay hidden. */
+/**
+ * The person must work (or have worked) for this company or be global staff (D65), so other
+ * companies' SRs stay hidden.
+ */
 async function loadCompanyStaff(tx: Tx, ctx: AppContext, companyId: string, staffId: string) {
   const staff = await loadStaff(tx, ctx, staffId);
-  if (!staff.assignments.some((a) => a.companyId === companyId)) {
+  const companyIds = await staffCompanyIds(tx, companyId);
+  if (!staff.assignments.some((a) => companyIds.includes(a.companyId))) {
     throw invalid("id", "validation.staff.unknown");
   }
   return staff;
 }
 
+/**
+ * D65: the master company takes global (non-SR) staff only; once a tenant has its master, a
+ * company takes SRs only.
+ */
+async function checkRoleScope(tx: Tx, companyId: string, kind: string, path: string) {
+  const company = await tx.company.findUnique({
+    where: { id: companyId },
+    select: { isMaster: true, tenantId: true },
+  });
+  if (!company) return;
+  if (company.isMaster && kind === "sr") throw invalid(path, "validation.staff.masterNoSr");
+  if (!company.isMaster && kind !== "sr" && (await masterCompanyId(tx, company.tenantId))) {
+    throw invalid(path, "validation.staff.globalOnly");
+  }
+}
+
 export async function listStaffRecords(ctx: AppContext, companyId: string): Promise<StaffRecord[]> {
   await requirePermission(ctx, companyId, "company.view");
+  const companyIds = await staffCompanyIds(ctx.db, companyId);
   const [rows, visible] = await Promise.all([
     ctx.db.staff.findMany({
-      where: { tenantId: ctx.actor.tenantId, assignments: { some: { companyId } } },
+      where: {
+        tenantId: ctx.actor.tenantId,
+        assignments: { some: { companyId: { in: companyIds } } },
+      },
       include: withAssignments,
       orderBy: { name: "asc" },
     }),
@@ -192,12 +217,13 @@ export async function listAllStaff(ctx: AppContext): Promise<StaffRecord[]> {
 export async function listStaffMembers(ctx: AppContext, companyId: string): Promise<StaffMember[]> {
   await requirePermission(ctx, companyId, "company.view");
   const today = todayBusinessDate();
+  const companyIds = await staffCompanyIds(ctx.db, companyId);
   const [rows, visible] = await Promise.all([
     ctx.db.staff.findMany({
       where: {
         tenantId: ctx.actor.tenantId,
         status: "active",
-        assignments: { some: { companyId } },
+        assignments: { some: { companyId: { in: companyIds } } },
       },
       include: withAssignments,
       orderBy: { name: "asc" },
@@ -207,7 +233,9 @@ export async function listStaffMembers(ctx: AppContext, companyId: string): Prom
   const members: StaffMember[] = [];
   for (const row of rows) {
     const current = row.assignments.filter((a) => coversDate(a, today));
-    const here = current.find((a) => a.companyId === companyId);
+    const here =
+      current.find((a) => a.companyId === companyId) ??
+      current.find((a) => companyIds.includes(a.companyId));
     if (!here) continue;
     members.push(
       staffMemberSchema.parse({
@@ -237,6 +265,7 @@ export async function createStaff(
     data,
     async (tx) => {
       const role = await activeRole(tx, ctx, data.assignment.roleId, "assignment.roleId");
+      await checkRoleScope(tx, companyId, role.kind, "assignment.roleId");
       if (employerMismatch(role.kind, data.employer)) {
         throw invalid("employer", "validation.staff.employerRole");
       }
@@ -343,6 +372,7 @@ async function writeAssignment(
       throw invalid("id", "validation.staffAssignment.unknown");
     }
     const role = await activeRole(tx, ctx, data.roleId, "roleId");
+    await checkRoleScope(tx, companyId, role.kind, "roleId");
     if (employerMismatch(role.kind, staff.employer as StaffEmployer)) {
       throw invalid("roleId", "validation.staff.employerRole");
     }

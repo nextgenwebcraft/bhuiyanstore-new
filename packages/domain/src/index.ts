@@ -54,6 +54,17 @@ export {
   type FieldVisitTotals,
 } from "./field";
 export { computeMonth } from "./month/compute-month";
+export {
+  depositInvestment,
+  depositInvestmentPreview,
+  fundOrder,
+  orderFundingPreview,
+} from "./month/order-funding";
+export {
+  companyStatement,
+  type CompanyStatementKind,
+  type CompanyStatementLine,
+} from "./month/company-statement";
 export { summarizeDay, type DaySummary, type DsrDaySummary } from "./month/day-summary";
 export {
   MONEY_KIND_EFFECTS,
@@ -84,4 +95,4 @@ export {
   type DamageOrigin,
 } from "./month/damage-case";
 export type * from "./month/types";
-export { owedBuckets } from "./month/types";
+export { companyFunds, owedBuckets } from "./month/types";

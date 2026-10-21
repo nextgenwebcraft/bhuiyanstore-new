@@ -516,22 +516,34 @@ function Staff() {
   const [assignment, setAssignment] = useState<AssignmentDraft | null>(null);
   const [login, setLogin] = useState<StaffRecord | null>(null);
 
-  const roleList = roles.data ?? [];
-  const dsrRoles = new Set(roleList.filter((role) => role.kind === "dsr").map((role) => role.id));
-  const isDsrHere = (record: StaffRecord) =>
-    record.assignments.some((a) => a.companyId === company.id && dsrRoles.has(a.roleId));
-  const here = new Set(records.data?.map((r) => r.id));
-  const candidates = (allStaff.data ?? []).filter((r) => !here.has(r.id) && r.status === "active");
+  // D65: the master panel holds the global staff (no SR); a company holds its SRs only.
+  const roleList = (roles.data ?? []).filter((role) =>
+    company.isMaster ? role.kind !== "sr" : role.kind === "sr",
+  );
+  const dsrRoles = new Set(
+    (roles.data ?? []).filter((role) => role.kind === "dsr").map((role) => role.id),
+  );
+  const isDsrHere = (record: StaffRecord) => record.assignments.some((a) => dsrRoles.has(a.roleId));
+  const own = (records.data ?? []).filter((r) =>
+    r.assignments.some((a) => a.companyId === company.id),
+  );
+  const here = new Set(own.map((r) => r.id));
+  const candidates = (allStaff.data ?? []).filter(
+    (r) =>
+      !here.has(r.id) &&
+      r.status === "active" &&
+      r.employer === (company.isMaster ? "distributor" : "supplier"),
+  );
 
   let body: React.ReactNode;
   if (records.isPending) body = <ListSkeleton rows={5} detail action />;
   else if (records.isError) {
     body = <QueryError error={records.error} onRetry={() => void records.refetch()} />;
-  } else if (records.data.length === 0) body = <StatePanel title={t("staff.empty")} />;
+  } else if (own.length === 0) body = <StatePanel title={t("staff.empty")} />;
   else {
     body = (
       <ul className="flex flex-col gap-3">
-        {records.data.map((record) => (
+        {own.map((record) => (
           <li key={record.id} className="rounded-lg border border-border bg-surface p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
@@ -602,7 +614,13 @@ function Staff() {
               ) : null}
               <Button
                 variant="primary"
-                onClick={() => setPerson({ name: "", employer: "distributor", status: "active" })}
+                onClick={() =>
+                  setPerson({
+                    name: "",
+                    employer: company.isMaster ? "distributor" : "supplier",
+                    status: "active",
+                  })
+                }
               >
                 {t("staff.new")}
               </Button>
@@ -610,6 +628,9 @@ function Staff() {
           ) : null
         }
       />
+      <p className="mb-4 text-sm text-text-muted">
+        {t(company.isMaster ? "staff.globalHint" : "staff.companyHint")}
+      </p>
       {person ? (
         <PersonDialog
           companyId={company.id}

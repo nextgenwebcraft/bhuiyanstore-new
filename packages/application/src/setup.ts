@@ -9,6 +9,7 @@ import {
 import { requirePermission } from "./access";
 import type { AppContext } from "./context";
 import { fromDbDate } from "./dates";
+import { staffCompanyIds } from "./master";
 import { openingView } from "./opening";
 
 /**
@@ -49,7 +50,10 @@ export async function getSetupStatus(ctx: AppContext, companyId: string): Promis
       select: { id: true, packs: { select: { piecesPerCarton: true } } },
     }),
     ctx.db.staffAssignment.findMany({
-      where: { companyId, staff: { status: "active" } },
+      where: {
+        companyId: { in: await staffCompanyIds(ctx.db, companyId) },
+        staff: { status: "active" },
+      },
       select: {
         staffId: true,
         from: true,

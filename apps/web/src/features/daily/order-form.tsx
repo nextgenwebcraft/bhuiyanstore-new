@@ -1,7 +1,7 @@
 "use client";
 
-import type { DayView, StockEntryPostRequest } from "@bsd/contracts";
-import { sumQuantities, toBaseQuantity, toDecimal } from "@bsd/domain";
+import type { DayView, OrderFund, StockEntryPostRequest } from "@bsd/contracts";
+import { orderFundingPreview, sumQuantities, toBaseQuantity, toDecimal } from "@bsd/domain";
 import { formatRate, t } from "@bsd/i18n";
 import { useState } from "react";
 import { Button } from "@/components/button";
@@ -67,10 +67,15 @@ export function OrderForm({
   companyId,
   date,
   view,
+  fundFrom,
+  setFundFrom,
 }: {
   companyId: string;
   date: string;
   view: DayView;
+  /** The balances that pay the order first; chosen in the page header (D63). */
+  fundFrom: OrderFund[];
+  setFundFrom: (value: OrderFund[]) => void;
 }) {
   const post = usePostStockEntries(companyId);
   const [rows, setRows] = useState<Record<string, Row>>({});
@@ -130,7 +135,7 @@ export function OrderForm({
       });
     }
     if (lines.length === 0) return t("godown.nothing");
-    return { date, lines, prices: [] };
+    return { date, lines, prices: [], fundFrom };
   }
 
   async function submit() {
@@ -143,6 +148,7 @@ export function OrderForm({
     try {
       await post.mutateAsync(built);
       setRows({});
+      setFundFrom([]);
       setDone(true);
     } catch (e) {
       setError(describeError(e, []).form);
@@ -155,6 +161,12 @@ export function OrderForm({
   // D48: an order is billed at once; warn (never block) when its bill exceeds the company balance.
   const company = view.company;
   const overBalance = company ? orderBill.gt(toDecimal(company.balance)) : false;
+  const split = company
+    ? orderFundingPreview(orderBill.toString(), fundFrom, {
+        damage: company.damageBalance,
+        incentive: company.incentiveBalance,
+      })
+    : null;
   const summary: SummaryItem[] = [
     { label: t("table.summary.products"), value: quantity(String(view.products.length)) },
     { label: t("godown.summary.entering"), value: quantity(String(entering.length)) },
@@ -184,15 +196,24 @@ export function OrderForm({
         </dl>
       ) : null}
       {company && orderBill.gt(0) ? (
-        <p
+        <div
           role={overBalance ? "alert" : undefined}
-          className={`rounded-lg border px-4 py-3 text-sm ${
+          className={`flex flex-col gap-1 rounded-lg border px-4 py-3 text-sm ${
             overBalance ? "border-warning/40 bg-warning/10" : "border-border bg-surface"
           }`}
         >
-          {t("godown.company.orderTotal")}: <strong>{money(orderBill.toString())}</strong>
-          {overBalance ? ` — ${t("godown.company.warning")}` : ""}
-        </p>
+          <p>
+            {t("godown.company.orderTotal")}: <strong>{money(orderBill.toString())}</strong>
+            {overBalance ? ` — ${t("godown.company.warning")}` : ""}
+          </p>
+          {split && fundFrom.length ? (
+            <p className="text-text-muted">
+              {t("report.line.company.orderFromDamage")}: {money(split.damage)} ·{" "}
+              {t("report.line.company.orderFromIncentive")}: {money(split.incentive)} ·{" "}
+              {t("report.line.company.orderFromDeposit")}: {money(split.deposit)}
+            </p>
+          ) : null}
+        </div>
       ) : null}
       <TableSummary label={t("table.summary")} items={summary} />
       <TableScroller>

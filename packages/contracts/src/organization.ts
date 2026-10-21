@@ -23,6 +23,8 @@ export const companySchema = z.object({
   modules: z.array(z.enum(workspaceModuleIds)),
   /** D34: postings that would take a product's stock below zero are refused. */
   blockNegativeStock: z.boolean().default(false),
+  /** D66: the tenant's hidden master company (global staff, payroll, all-company summary). */
+  isMaster: z.boolean().default(false),
 });
 
 export type Company = z.infer<typeof companySchema>;

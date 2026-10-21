@@ -23,6 +23,7 @@ import type { AppContext, Tx } from "./context";
 import { fromDbDate, toDbDate } from "./dates";
 import { AppError, invalid, parseInput, type FieldError } from "./errors";
 import { runIdempotent } from "./idempotency";
+import { staffCompanyIds } from "./master";
 import { plain } from "./numeric";
 import { isLocked } from "./opening-lock";
 import { summarizeSections } from "./opening-summary";
@@ -58,6 +59,8 @@ async function loadCatalog(
 ): Promise<Catalog> {
   const companyId = access.company.id;
   const onDate = cutoffDate ?? todayBusinessDate();
+  // D65: global staff (the master's) count in every company, e.g. a DSR's market due.
+  const companyIds = await staffCompanyIds(db, companyId);
   const [products, staff, cashAccounts, shops] = await Promise.all([
     db.product.findMany({
       where: { companyId },
@@ -65,8 +68,13 @@ async function loadCatalog(
       orderBy: { sku: "asc" },
     }),
     db.staff.findMany({
-      where: { tenantId: access.company.tenantId, assignments: { some: { companyId } } },
-      include: { assignments: { where: { companyId }, include: { role: true } } },
+      where: {
+        tenantId: access.company.tenantId,
+        assignments: { some: { companyId: { in: companyIds } } },
+      },
+      include: {
+        assignments: { where: { companyId: { in: companyIds } }, include: { role: true } },
+      },
       orderBy: { name: "asc" },
     }),
     db.cashAccount.findMany({

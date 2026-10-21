@@ -28,8 +28,8 @@ process.env.BETTER_AUTH_SECRET ??= "integration-test-secret-integration-test-sec
 process.env.BETTER_AUTH_URL ??= "http://localhost:3000";
 
 /**
- * Audit fixes (D52 cash and bank book, D53 godown damage and damaged stock, D54 DSR handover
- * settlement, D55 SR owed, D47 amendment). Every expected number is worked out by hand in the
+ * Audit fixes (D52 cash and bank book, D53 godown damage and damaged stock, D62 DSR handover
+ * check, D55 SR owed, D47 amendment). Every expected number is worked out by hand in the
  * comments; nothing is derived from the code under test.
  */
 
@@ -273,84 +273,51 @@ describe("D52: the account of a money entry", () => {
   });
 });
 
-describe("D54: the DSR cash handover settles the difference", () => {
+describe("D62: the DSR cash handover is checked, never posted", () => {
   const entriesOf = async (date: string) =>
     (await listMoneyEntries(ctx, company, { from: date })).filter((e) => e.dsrDayId !== null);
 
-  it("a short handover posts a staff shortage owned by the day; reversing the day removes it", async () => {
-    // Mamun sold 24 - 4 = 20 pieces x 12 = 240 and was expected to hand over 240.
+  it("a short handover posts no staff entry and leaves the DSR's account alone", async () => {
+    // Mamun sold 24 - 4 = 20 pieces x 12 = 240 and handed over 230 (10 short).
     const draft = await sheet(DAY1, "230");
-    const key = "key-j-post-0001";
-    const posted = await postDsrDay(ctx, company, draft.id, { version: draft.version }, key);
-    // The same request replayed (same key) creates nothing more.
-    await postDsrDay(ctx, company, draft.id, { version: draft.version }, key);
-    const owned = await entriesOf(DAY1);
-    expect(owned).toHaveLength(1);
-    expect(owned[0]).toMatchObject({
-      kind: "staffShortage",
-      staffId: id.mamun,
-      dsrDayId: posted.id,
-      status: "posted",
-      cashAccountId: id.cashB,
-    });
-    expect(toDecimal(owned[0]?.amount ?? "0").eq(10)).toBe(true); // 230 - 240
-
-    // The shortage is on Mamun's account and out of the day's cash left (240 sales - 10).
+    const posted = await postDsrDay(ctx, company, draft.id, { version: draft.version });
+    expect(posted.cashHandedOver).toBe("230");
+    expect(await entriesOf(DAY1)).toEqual([]);
     const view = await getDayView(ctx, company, DAY1);
     expect(toDecimal(view.money.sales).eq(240)).toBe(true);
     const access = await loadCompanyAccess(ctx, company);
     const run = must(await runLedger(db, access, DAY1));
-    expect(run.output.closing.staff[id.mamun]?.shortage).toBe("10");
+    expect(run.output.closing.staff[id.mamun]?.shortage ?? "0").toBe("0");
 
-    // Individual reversal is refused; the day reverses it with itself.
-    await expectField(
-      reverseMoneyEntry(ctx, company, must(owned[0]).id),
-      "",
-      "validation.money.dsrDayOwned",
-    );
+    // Reversed and posted again: still nothing posted for the difference.
     await reverseDsrDay(ctx, company, posted.id, { version: posted.version });
-    expect((await entriesOf(DAY1)).map((e) => e.status)).toEqual(["reversed"]);
-    expect(
-      must(await runLedger(db, access, DAY1)).output.closing.staff[id.mamun]?.shortage ?? "0",
-    ).toBe("0");
-
-    // Post it again: the sheet's shortage comes back (a new entry owned by the new day).
     const again = await sheet(DAY1, "230");
     await postDsrDay(ctx, company, again.id, { version: again.version });
-    expect((await entriesOf(DAY1)).map((e) => [e.kind, e.status])).toEqual([
-      ["staffShortage", "reversed"],
-      ["staffShortage", "posted"],
-    ]);
+    expect(await entriesOf(DAY1)).toEqual([]);
   });
 
-  it("an over handover posts a staff excess; an exact one or none posts nothing", async () => {
-    const over = await sheet("2026-09-02", "250"); // expected 240, over by 10
-    const postedOver = await postDsrDay(ctx, company, over.id, { version: over.version });
-    const [excess] = await entriesOf("2026-09-02");
-    expect(excess).toMatchObject({
-      kind: "staffExcess",
-      staffId: id.mamun,
-      dsrDayId: postedOver.id,
-    });
-    expect(toDecimal(excess?.amount ?? "0").eq(10)).toBe(true);
+  it("an over, exact or missing handover posts nothing either", async () => {
+    for (const [date, handed] of [
+      ["2026-09-02", "250"],
+      ["2026-09-03", "240"],
+      ["2026-09-04", null],
+    ] as const) {
+      const draft = await sheet(date, handed);
+      await postDsrDay(ctx, company, draft.id, { version: draft.version });
+      expect(await entriesOf(date)).toEqual([]);
+    }
     const access = await loadCompanyAccess(ctx, company);
     expect(
-      must(await runLedger(db, access, "2026-09-02")).output.closing.staff[id.mamun]?.credit,
-    ).toBe("10");
-
-    const exact = await sheet("2026-09-03", "240");
-    await postDsrDay(ctx, company, exact.id, { version: exact.version });
-    expect(await entriesOf("2026-09-03")).toEqual([]);
-    const none = await sheet("2026-09-04", null);
-    await postDsrDay(ctx, company, none.id, { version: none.version });
-    expect(await entriesOf("2026-09-04")).toEqual([]);
+      must(await runLedger(db, access, "2026-09-02")).output.closing.staff[id.mamun]?.credit ?? "0",
+    ).toBe("0");
   });
 });
 
 describe("D52: the cash book report", () => {
   it("opens from the opening cash lines and ends at opening + movements, by hand", async () => {
     // Day 1 only. Cash B: 5000 opening + 240 sales cash - 40 expense - 500 and 100 transferred out
-    // - 10 handover shortage = 4590. Bank: 20000 - 1000 deposit + 500 transferred in = 19500.
+    // = 4600 (D62: the handover difference is not posted). Bank: 20000 - 1000 deposit + 500
+    // transferred in = 19500.
     // bKash: +100 transferred in - 25 expense = 75.
     const report = await getReport(ctx, company, "cash-book", { from: DAY1, to: DAY1 });
     const [summary, statement] = report.tables;
@@ -358,8 +325,8 @@ describe("D52: the cash book report", () => {
     expect(row("Cash B")).toMatchObject({
       opening: "5000",
       cashIn: "240",
-      cashOut: "650",
-      closing: "4590",
+      cashOut: "640",
+      closing: "4600",
     });
     expect(row("Bank")).toMatchObject({
       opening: "20000",
@@ -387,7 +354,7 @@ describe("D52: the cash book report", () => {
     // The statement: each account's last balance is its closing; the transfer lists both sides.
     const lastOf = (name: string) =>
       must(statement?.rows.filter((r) => r.cells.account === name).at(-1)).cells.cashBalance;
-    expect(lastOf("Cash B")).toBe("4590");
+    expect(lastOf("Cash B")).toBe("4600");
     expect(lastOf("Bank")).toBe("19500");
     expect(lastOf("bKash")).toBe("75");
     expect(statement?.rows.filter((r) => r.cells.line === "money.kind.cashTransfer")).toHaveLength(
@@ -405,7 +372,7 @@ describe("D52: the cash book report", () => {
     const dash = await getDashboardSummary(ctx, company, { from: DAY1, to: DAY1 });
     const balance = (name: string) =>
       dash.cashAccounts?.find((a) => a.accountName === name)?.balance;
-    expect(balance("Cash B")).toBe("4590");
+    expect(balance("Cash B")).toBe("4600");
     expect(balance("Bank")).toBe("19500");
     expect(balance("Cash A")).toBe("0");
     expect(dash.cashAccounts?.some((a) => a.accountName === "Closed box")).toBe(false);

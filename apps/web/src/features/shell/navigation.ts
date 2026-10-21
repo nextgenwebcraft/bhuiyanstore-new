@@ -62,8 +62,7 @@ export const navigation: readonly NavSection[] = [
     module: "inventory",
     items: [
       item("inventory/stock", "nav.inventory.stock", "inventory.view"),
-      item("inventory/damage", "nav.inventory.damage", "damage.report"),
-      item("inventory/claims", "nav.inventory.claims", "damage.report"),
+      item("inventory/undelivered", "nav.inventory.undelivered", "inventory.view"),
     ],
   },
   {
@@ -99,7 +98,6 @@ export const navigation: readonly NavSection[] = [
       item("finance/expenses", "nav.finance.expenses", "finance.view"),
       item("finance/receivables", "nav.finance.receivables", "finance.view"),
       item("finance/payables", "nav.finance.payables", "finance.view"),
-      item("finance/period-close", "nav.finance.periodClose", "period.close"),
     ],
   },
   {
@@ -121,6 +119,11 @@ export const navigation: readonly NavSection[] = [
       item("admin/opening", "nav.administration.opening", "opening.prepare"),
     ],
   },
+  {
+    id: "master",
+    labelKey: "nav.master",
+    items: [item("master/month-close", "nav.flow.monthClose", "period.close")],
+  },
 ];
 
 export type HubId =
@@ -132,7 +135,8 @@ export type HubId =
   | "ledgers"
   | "monthEnd"
   | "opening"
-  | "setup";
+  | "setup"
+  | "staff";
 
 type HubTab = {
   path: string;
@@ -165,8 +169,7 @@ const hubDefinitions: readonly Omit<Hub, "shortcut">[] = [
       { path: "purchases/orders", labelKey: "nav.flow.orders" },
       { path: "purchases/receipts", labelKey: "nav.flow.receipts" },
       { path: "inventory/stock" },
-      { path: "inventory/damage" },
-      { path: "inventory/claims" },
+      { path: "inventory/undelivered" },
     ],
   },
   {
@@ -181,8 +184,8 @@ const hubDefinitions: readonly Omit<Hub, "shortcut">[] = [
     icon: "finance",
     tabs: [
       { path: "finance/supplier-deposits" },
+      { path: "finance/company-account" },
       { path: "finance/expenses" },
-      { path: "dsr/settlements", labelKey: "nav.flow.staffCash" },
       { path: "sr-accounts/settlements" },
       { path: "sr-accounts/incentives" },
     ],
@@ -192,23 +195,11 @@ const hubDefinitions: readonly Omit<Hub, "shortcut">[] = [
     labelKey: "nav.flow.accounts",
     icon: "reports",
     tabs: [
-      { path: "finance/company-account" },
       { path: "finance/cash-book" },
       { path: "finance/receivables" },
       { path: "finance/payables" },
-      { path: "dsr/accounts" },
-      { path: "dsr/statement" },
       { path: "sr-accounts/representatives" },
       { path: "sr-accounts/statement" },
-    ],
-  },
-  {
-    id: "monthEnd",
-    labelKey: "nav.flow.monthEnd",
-    icon: "calendar",
-    tabs: [
-      { path: "dsr/salary-recovery", labelKey: "nav.flow.payroll" },
-      { path: "finance/period-close", labelKey: "nav.flow.monthClose" },
     ],
   },
   {
@@ -233,13 +224,63 @@ const hubDefinitions: readonly Omit<Hub, "shortcut">[] = [
 ];
 
 /**
- * The sidebar: exactly these nine hubs in this order (Alt+1…9), each a row of tabs. Every built
- * screen is a tab of exactly one hub; access still comes from `navigation`. Presentation only.
+ * The master panel's hubs (D66): the all-company dashboard, global staff, their money and
+ * accounts, salary and month close for every company, the master's opening and tenant setup.
  */
-export const hubs: readonly Hub[] = hubDefinitions.map((hub, index) => ({
-  ...hub,
-  shortcut: index + 1,
-}));
+const masterHubDefinitions: readonly Omit<Hub, "shortcut">[] = [
+  { id: "dashboard", labelKey: "nav.master.dashboard", icon: "dashboard", tabs: [{ path: "" }] },
+  {
+    id: "staff",
+    labelKey: "nav.master.staff",
+    icon: "srAccounts",
+    tabs: [{ path: "masters/staff" }, { path: "dsr/accounts" }, { path: "dsr/statement" }],
+  },
+  {
+    id: "money",
+    labelKey: "nav.hub.money",
+    icon: "finance",
+    tabs: [
+      { path: "dsr/settlements", labelKey: "nav.flow.staffCash" },
+      { path: "finance/expenses" },
+      { path: "finance/cash-book" },
+    ],
+  },
+  {
+    id: "monthEnd",
+    labelKey: "nav.flow.monthEnd",
+    icon: "calendar",
+    tabs: [
+      { path: "dsr/salary-recovery", labelKey: "nav.flow.payroll" },
+      { path: "master/month-close" },
+    ],
+  },
+  {
+    id: "opening",
+    labelKey: "nav.administration.opening",
+    icon: "administration",
+    tabs: [{ path: "admin/opening" }],
+  },
+  {
+    id: "setup",
+    labelKey: "nav.hub.setup",
+    icon: "masters",
+    tabs: [{ path: "masters/lists" }, { path: "admin/users" }, { path: "admin/roles" }],
+  },
+];
+
+const withShortcuts = (definitions: readonly Omit<Hub, "shortcut">[]): readonly Hub[] =>
+  definitions.map((hub, index) => ({ ...hub, shortcut: index + 1 }));
+
+/**
+ * The sidebar: exactly these hubs in this order (Alt+1…n), each a row of tabs. Every built
+ * company screen is a tab of exactly one hub; access still comes from `navigation`. Presentation
+ * only. The master company has its own set (`masterHubs`).
+ */
+export const hubs: readonly Hub[] = withShortcuts(hubDefinitions);
+
+export const masterHubs: readonly Hub[] = withShortcuts(masterHubDefinitions);
+
+const hubsFor = (master: boolean) => (master ? masterHubs : hubs);
 
 export type VisibleTab = { path: string; labelKey: TranslationKey };
 
@@ -253,14 +294,14 @@ export type VisibleHub = {
   tabs: VisibleTab[];
 };
 
-/** The hub whose tabs include this path. */
-export function hubOfPath(path: string): Hub | undefined {
-  return hubs.find((hub) => hub.tabs.some((tab) => tab.path === path));
+/** The hub whose tabs include this path (in the master panel's hubs when `master`). */
+export function hubOfPath(path: string, master = false): Hub | undefined {
+  return hubsFor(master).find((hub) => hub.tabs.some((tab) => tab.path === path));
 }
 
 /** The hubs with at least one screen this person may open in this company, tabs cut down too. */
 export function visibleHubs(workspace: CompanyWorkspace): VisibleHub[] {
-  return hubs.flatMap((hub): VisibleHub[] => {
+  return hubsFor(workspace.company.isMaster).flatMap((hub): VisibleHub[] => {
     const tabs = hub.tabs.flatMap((tab): VisibleTab[] => {
       const found = findNavEntry(tab.path);
       if (!found || navAccess(workspace, found.section, found.item) !== "ok") return [];
@@ -293,13 +334,15 @@ export function findNavEntry(path: string): { section: NavSection; item: NavItem
 
 /**
  * Effective visibility = enabled module ∩ authorized permission (guide section 4.3); a
- * super-admin opens every module (D59).
+ * super-admin opens every module (D59). A company opens only company screens and the master
+ * company only its own (D66).
  */
 export function navAccess(
   workspace: CompanyWorkspace,
   section: NavSection,
   navItem: NavItem,
 ): NavAccess {
+  if (!hubOfPath(navItem.path, workspace.company.isMaster)) return "forbidden";
   if (
     section.module &&
     !workspace.allModules &&

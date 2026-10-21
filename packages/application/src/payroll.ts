@@ -27,8 +27,9 @@ import { postingGuard, requireAll } from "./daily";
 import { fromDbDate, toDbDate } from "./dates";
 import { AppError, invalid, parseInput } from "./errors";
 import { runIdempotent } from "./idempotency";
-import { liveOpening, runLedger } from "./ledger";
+import { liveOpening } from "./ledger";
 import { plain } from "./numeric";
+import { staffRun } from "./staff-ledger";
 
 /**
  * Payroll runs (D11, D24, D25, guide §11.6, §11.9): one run per company and month for every
@@ -68,9 +69,9 @@ function defaultDate(month: string): string {
   return last < today ? last : today < firstOfMonth(month) ? firstOfMonth(month) : today;
 }
 
-/** What each person owes at the end of `date` (engine closing balances). */
+/** What each person owes at the end of `date` (the tenant-wide staff run's closing, D65). */
 async function owedOn(db: Db, access: CompanyAccess, date: string): Promise<Map<string, Owed>> {
-  const run = await runLedger(db, access, date);
+  const run = await staffRun(db, access.company.tenantId, date);
   const owed = new Map<string, Owed>();
   for (const [staffId, b] of Object.entries(run?.output.closing.staff ?? {})) {
     owed.set(staffId, { advance: b.advance, loan: b.loan, shortage: b.shortage });

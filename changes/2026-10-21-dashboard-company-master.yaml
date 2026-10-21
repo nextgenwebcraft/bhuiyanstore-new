@@ -1,0 +1,27 @@
+id: 2026-10-21-dashboard-company-master
+reason: >-
+  D60-D66 (owner change request 2026-10-21) - dashboard picker, sections and 12 cards; DSR sheet
+  staff money card; company deposits with damage/incentive balances, investment, statement and
+  order funding; undelivered goods tab; 2-decimal display; master panel with global staff, salary,
+  month close for all and a P&L after salaries.
+owners: [domain, contracts, database, application, i18n, web]
+changes:
+  - packages/database - migration 20261021010000_company_funds_master (stock_entry unit_price / fund_from / order_group, company.is_master)
+  - packages/domain - company damage and incentive balances, order funding (damage first), depositInvestment / depositInvestmentPreview, damage deposit, D60 day summary fields, dsrCashSettlement staffMoney, MonthInput.staffWarnings (D65)
+  - packages/contracts - dashboard summary fields, damageDeposit stock kind, order fundFrom, companySchema.isMaster, masterSummarySchema, masterMonthSchema
+  - packages/application - master.ts (hidden master company, staffCompanyIds), staff-ledger.ts (tenant-wide staff run), master-panel.ts (summary, month, close/reopen all); staff, accounts, payroll, daily, field, setup, opening and month use global staff; DSR day post no longer settles the handover (D62); seed-demo puts DSRs and managers in the master and falls back to the built-in demo-sheet.ts
+  - packages/i18n - deposit.*, order.fund.*, master.*, staffCash.*, staff.globalHint / companyHint, validation.staff.masterNoSr / globalOnly
+  - apps/web - dashboard rebuild, DSR staff money card, company deposit page and statement tab, order funding dropdown, undelivered tab, master dashboard / month close / links, navigation hubs for the master, /api/v1 master routes
+affectedActionIds: [payment.post, stock.order, sale.post, period.close, staff.create, staff.assign]
+financialImpact: >-
+  Damage deposits and company incentives build named balances that pay orders first; a deposit
+  above the total cash posts an investment for the excess. A DSR handover difference is no longer
+  posted as a shortage or excess. Staff balances are computed once per tenant across companies.
+  Master P&L = sum of company net profit minus master salaries and expenses.
+backfill: none - demo data wiped and reseeded (Drinko (ডেমো) + master panel)
+tests:
+  - pnpm check (format, lint, types, 299 unit tests)
+  - pnpm build
+  - pnpm test:integration (11 files, 102/103 passed; phase-e engine reproduction timed out at 60 s on the remote database, passes with a 180 s timeout; phase-j D54 tests replaced by D62 tests)
+rollout: pnpm db:migrate, deploy the app
+recovery: revert the commit and the migration; company data stays readable

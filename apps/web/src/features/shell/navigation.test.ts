@@ -7,6 +7,7 @@ import {
   findNavEntry,
   hubOfPath,
   hubs,
+  masterHubs,
   navigation,
   visibleHubs,
 } from "./navigation";
@@ -49,14 +50,16 @@ describe("navigation", () => {
 });
 
 describe("hubs", () => {
-  it("lists every built screen in exactly one hub tab", () => {
-    const tabPaths = hubs.flatMap((hub) => hub.tabs.map((tab) => tab.path));
+  it("lists every built screen in a company or master hub tab, once per hub set", () => {
+    const companyTabs = hubs.flatMap((hub) => hub.tabs.map((tab) => tab.path));
+    const masterTabs = masterHubs.flatMap((hub) => hub.tabs.map((tab) => tab.path));
     const built = navigation.flatMap((s) => s.items).map((i) => i.path);
-    expect(new Set(tabPaths).size).toBe(tabPaths.length);
-    expect([...tabPaths].sort()).toEqual([...built].sort());
+    expect(new Set(companyTabs).size).toBe(companyTabs.length);
+    expect(new Set(masterTabs).size).toBe(masterTabs.length);
+    expect([...new Set([...companyTabs, ...masterTabs])].sort()).toEqual([...built].sort());
   });
 
-  it("is the nine hubs in sidebar order, Alt+1…9 by position, dashboard first", () => {
+  it("is the company hubs in sidebar order, Alt+1…7 by position, dashboard first", () => {
     expect(hubs.map((h) => h.id)).toEqual([
       "dashboard",
       "sales",
@@ -64,13 +67,12 @@ describe("hubs", () => {
       "shops",
       "money",
       "ledgers",
-      "monthEnd",
       "opening",
       "setup",
     ]);
-    expect(hubs.map((h) => h.shortcut)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    expect(hubs.map((h) => h.shortcut)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
     expect(hubs[0]?.tabs.map((tab) => tab.path)).toEqual([""]);
-    for (const hub of hubs) {
+    for (const hub of [...hubs, ...masterHubs]) {
       expect(bn[hub.labelKey]).toBeTruthy();
       hub.tabs.forEach((tab) => tab.labelKey && expect(bn[tab.labelKey]).toBeTruthy());
     }
@@ -83,19 +85,51 @@ describe("hubs", () => {
       "purchases/orders",
       "purchases/receipts",
       "inventory/stock",
-      "inventory/damage",
-      "inventory/claims",
+      "inventory/undelivered",
     ]);
     expect(paths("shops")).toEqual(["sales/shops"]);
-    expect(paths("monthEnd")).toEqual(["dsr/salary-recovery", "finance/period-close"]);
+    expect(paths("money")).toEqual([
+      "finance/supplier-deposits",
+      "finance/company-account",
+      "finance/expenses",
+      "sr-accounts/settlements",
+      "sr-accounts/incentives",
+    ]);
     expect(paths("opening")).toEqual(["admin/opening"]);
+  });
+
+  it("gives the master panel global staff, salary and month close (D66)", () => {
+    const paths = (id: string) => masterHubs.find((h) => h.id === id)?.tabs.map((tab) => tab.path);
+    expect(masterHubs.map((h) => h.id)).toEqual([
+      "dashboard",
+      "staff",
+      "money",
+      "monthEnd",
+      "opening",
+      "setup",
+    ]);
+    expect(paths("staff")).toEqual(["masters/staff", "dsr/accounts", "dsr/statement"]);
+    expect(paths("monthEnd")).toEqual(["dsr/salary-recovery", "master/month-close"]);
+    for (const path of ["dsr/settlements", "dsr/salary-recovery", "master/month-close"]) {
+      expect(hubOfPath(path)).toBeUndefined();
+    }
   });
 
   it("finds the hub of a path", () => {
     expect(hubOfPath("")?.id).toBe("dashboard");
-    expect(hubOfPath("inventory/claims")?.id).toBe("goods");
+    expect(hubOfPath("inventory/undelivered")?.id).toBe("goods");
     expect(hubOfPath("admin/roles")?.id).toBe("setup");
+    expect(hubOfPath("dsr/accounts", true)?.id).toBe("staff");
     expect(hubOfPath("unknown/path")).toBeUndefined();
+  });
+
+  it("opens company screens in a company and master screens in the master only", async () => {
+    const owner = await workspace("user-owner", "drinko");
+    const master = { ...owner, company: { ...owner.company, isMaster: true } };
+    expect(equivalentPath("dsr/accounts", owner)).toBe("");
+    expect(equivalentPath("dsr/accounts", master)).toBe("dsr/accounts");
+    expect(equivalentPath("purchases/orders", master)).toBe("");
+    expect(visibleHubs(master).map((h) => h.id)).toContain("staff");
   });
 
   it("shows a hub only when a tab is visible, and links to its first visible tab", async () => {

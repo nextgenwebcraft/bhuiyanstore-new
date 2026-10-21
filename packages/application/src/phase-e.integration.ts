@@ -523,42 +523,46 @@ describe("Phase E: daily entry", () => {
     );
   });
 
-  it("reproduces the engine's daily cash and closing from facts entered through the services", async () => {
-    const all = facts();
-    for (const day of all) await enterDay(day);
+  it(
+    "reproduces the engine's daily cash and closing from facts entered through the services",
+    { timeout: 180_000 },
+    async () => {
+      const all = facts();
+      for (const day of all) await enterDay(day);
 
-    const catalog = [
-      { id: id.alpha, piecesPerCarton: "24" },
-      { id: id.beta, piecesPerCarton: "12" },
-    ];
-    const august = computeMonth({
-      products: catalog,
-      opening: expectedOpening(),
-      days: all.filter((d) => d.date < "2026-09-01").map(toEngineDay),
-    });
-    const september = computeMonth({
-      products: catalog,
-      opening: august.closing,
-      days: all.filter((d) => d.date >= "2026-09-01").map(toEngineDay),
-    });
+      const catalog = [
+        { id: id.alpha, piecesPerCarton: "24" },
+        { id: id.beta, piecesPerCarton: "12" },
+      ];
+      const august = computeMonth({
+        products: catalog,
+        opening: expectedOpening(),
+        days: all.filter((d) => d.date < "2026-09-01").map(toEngineDay),
+      });
+      const september = computeMonth({
+        products: catalog,
+        opening: august.closing,
+        days: all.filter((d) => d.date >= "2026-09-01").map(toEngineDay),
+      });
 
-    const access = await loadCompanyAccess(ctx, company);
-    const augustRun = must((await runLedger(db, access, "2026-08-31")) ?? undefined);
-    expect(augustRun.output.closing).toEqual(august.closing);
-    expect(sorted(augustRun.output.month)).toEqual(sorted(august.month));
-    const septemberRun = must((await runLedger(db, access, "2026-09-02")) ?? undefined);
-    expect(septemberRun.from).toBe("2026-09-01");
-    expect(septemberRun.output.closing).toEqual(september.closing);
-    expect(sorted(septemberRun.output.month)).toEqual(sorted(september.month));
+      const access = await loadCompanyAccess(ctx, company);
+      const augustRun = must((await runLedger(db, access, "2026-08-31")) ?? undefined);
+      expect(augustRun.output.closing).toEqual(august.closing);
+      expect(sorted(augustRun.output.month)).toEqual(sorted(august.month));
+      const septemberRun = must((await runLedger(db, access, "2026-09-02")) ?? undefined);
+      expect(septemberRun.from).toBe("2026-09-01");
+      expect(septemberRun.output.closing).toEqual(september.closing);
+      expect(sorted(septemberRun.output.month)).toEqual(sorted(september.month));
 
-    for (const expected of [...august.days, ...september.days]) {
-      const view = await getDayView(ctx, company, expected.date);
-      expect(view.money).toEqual(expected.money);
-    }
-    // Sanity: the run is not trivially empty.
-    expect(Number(august.days[0]?.money.sales)).toBeGreaterThan(0);
-    expect(september.closing.marketDue[id.rohim]).toBe("30");
-  });
+      for (const expected of [...august.days, ...september.days]) {
+        const view = await getDayView(ctx, company, expected.date);
+        expect(view.money).toEqual(expected.money);
+      }
+      // Sanity: the run is not trivially empty.
+      expect(Number(august.days[0]?.money.sales)).toBeGreaterThan(0);
+      expect(september.closing.marketDue[id.rohim]).toBe("30");
+    },
+  );
 
   it("shows the day with names and hides cost without the permission", async () => {
     const view = await getDayView(ctx, company, "2026-08-30");

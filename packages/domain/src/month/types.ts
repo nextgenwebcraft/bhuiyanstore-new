@@ -76,6 +76,9 @@ export type MonthOpening = {
    * undelivered opening goods were billed (D48).
    */
   companyPayable?: DecimalInput;
+  /** D63: the damage and incentive parts of the money deposited with the company; default 0. */
+  companyDamageBalance?: DecimalInput;
+  companyIncentiveBalance?: DecimalInput;
   /**
    * Cash and bank book opening balance by account (D52), from the opening's cash lines. The key
    * `""` is the "no account" bucket.
@@ -100,7 +103,18 @@ export type OrderInput = {
   piecesPerCarton: DecimalInput;
   /** Caller's reference (e.g. the posted entry's id), echoed on the company ledger line. */
   ref?: string;
+  /**
+   * D63: the named balance parts that pay the bill first, always damage before incentive, each up
+   * to what it holds; the rest comes from মোট জমা.
+   */
+  fundFrom?: readonly CompanyFund[];
+  /** D63: orders posted together share a group, echoed on their ledger lines. */
+  group?: string;
 };
+
+/** D63: the named parts of the company balance an order may be paid from. */
+export const companyFunds = ["damage", "incentive"] as const;
+export type CompanyFund = (typeof companyFunds)[number];
 
 export type ProductDayInput = {
   /** Pieces ordered at the current order price (importer/history); see `orders` (D57). */
@@ -232,6 +246,11 @@ export type MonthInput = {
   products: readonly CatalogProduct[];
   opening: MonthOpening;
   days: readonly DayInput[];
+  /**
+   * D65: false in a company run, whose staff balances only see that company's entries; the
+   * tenant-wide staff run owns staff balances and their warnings. Default true.
+   */
+  staffWarnings?: boolean;
 };
 
 export type WarningCode =
@@ -269,6 +288,8 @@ export type ProductDayResult = {
   sales: string;
   cost: string;
   grossProfit: string;
+  /** D60: samari value, issued × the day's sale price. */
+  issuedValue: string;
   returnValue: string;
   orderValue: string;
   /** Excess receipt billed at once (D48): pieces received beyond what was ordered. */
@@ -342,6 +363,8 @@ export type DsrDayMoneyResult = {
   marketDueCollected: string;
   /** `staffCostPaid` entries: business costs the DSR paid personally. */
   costPaid: string;
+  /** D62: repayments − advances − shortages of the DSR that day (signed, adds to expected cash). */
+  staffMoney: string;
 };
 
 export type DayMoneyResult = {
@@ -467,7 +490,14 @@ export type MonthResult = {
     deposits: string;
     incentives: string;
     damageRefunds: string;
+    /** D63: money put in so a deposit never takes the cash book below zero. */
+    investments: string;
     closing: string;
+    /** D63: the damage and incentive parts of the deposited money at the start and end. */
+    damageBalanceOpening: string;
+    incentiveBalanceOpening: string;
+    damageBalance: string;
+    incentiveBalance: string;
     /** Billed value of goods ordered and not yet received, at the start and end of the range. */
     undeliveredOpening: string;
     undeliveredClosing: string;
@@ -528,6 +558,9 @@ export type MonthClosing = {
   shopDue: Record<ShopId, string>;
   staff: Record<StaffId, StaffBalanceValues>;
   companyPayable: string;
+  /** D63: absent in snapshots stored before the balance parts; read as 0. */
+  companyDamageBalance?: string;
+  companyIncentiveBalance?: string;
   /** Cash and bank book balances by account (D52); absent in snapshots stored before it. */
   cashAccounts?: Record<string, string>;
 };
@@ -557,13 +590,21 @@ export type StaffEntryResult = {
 };
 
 export type CompanyEntryKind =
-  "order" | "receipt" | "deposit" | "incentive" | "damageRefund" | "freeGoods" | "replacement";
+  | "order"
+  | "receipt"
+  | "deposit"
+  | "incentive"
+  | "damageRefund"
+  | "freeGoods"
+  | "replacement"
+  | "investment";
 
 /**
  * One movement of what we owe the company, in posting order (D48): an order bill and the bill of
  * goods received beyond the order (`receipt`, amount may be 0) raise it; a deposit, a cash
- * incentive or a damage money return lower it. `freeGoods` (amount 0) and `replacement` (amount
- * = quantity × unit cost) are memos that do not move the balance.
+ * incentive or a damage money return lower it. `freeGoods` (amount 0), `replacement` (amount
+ * = quantity × unit cost) and `investment` (D63, money put in before a deposit) are memos that do
+ * not move the balance.
  */
 export type CompanyEntryResult = {
   date: string;
@@ -577,11 +618,22 @@ export type CompanyEntryResult = {
   /** Order only (D57): free pieces ordered with it, and the carton rate. */
   freeQuantity?: string;
   cartonRate?: string;
+  /** Order only (D63): the bill paid from the damage part, the incentive part and মোট জমা. */
+  fromDamage?: string;
+  fromIncentive?: string;
+  fromDeposit?: string;
+  /** Order only (D63): the group of orders posted together. */
+  group?: string;
   /** What we owe the company after this entry (negative = money deposited with it). */
   balance: string;
+  /** D63: the damage and incentive parts of the deposited money after this entry. */
+  damageBalance: string;
+  incentiveBalance: string;
   /** Billed value of goods ordered and not yet received, after this entry. */
   undelivered: string;
 };
+
+export type CashEntryType = "sales" | "investment" | MoneyKind;
 
 /**
  * One movement of a cash book account (D52): a day's sales cash, a money entry or one side of a
@@ -590,8 +642,8 @@ export type CompanyEntryResult = {
 export type CashEntryResult = {
   date: string;
   ref?: string;
-  /** `sales` (the day's sales cash) or the money kind. */
-  type: "sales" | MoneyKind;
+  /** `sales` (the day's sales cash), `investment` (D63) or the money kind. */
+  type: CashEntryType;
   account: string;
   in: string;
   out: string;

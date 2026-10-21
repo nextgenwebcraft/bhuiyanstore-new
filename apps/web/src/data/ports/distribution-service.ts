@@ -20,6 +20,8 @@ import type {
   FieldVisitDeleteRequest,
   FieldVisitSaveRequest,
   StaffLoginCreateRequest,
+  MasterMonth,
+  MasterSummary,
   MoneyEntry,
   MoneyEntryPostRequest,
   MonthCloseResult,
@@ -159,6 +161,25 @@ export interface DistributionService {
   closeMonth(companyId: string, month: string): Promise<MonthCloseResult>;
   /** Requires `period.close`; only the latest closed month. */
   reopenMonth(companyId: string, month: string): Promise<MonthCloseResult>;
+
+  // Master panel (D66), super-admin only; `companyId` is the master company.
+
+  /** The tenant's master company, created on first open. */
+  getMasterWorkspace(options?: RequestOptions): Promise<CompanyWorkspace>;
+  /** Every company's summary, their total and the business's profit and loss. */
+  getMasterSummary(
+    companyId: string,
+    range: ReportRange,
+    options?: RequestOptions,
+  ): Promise<MasterSummary>;
+  /** Each company's and the master's close state for the month. */
+  getMasterMonth(companyId: string, month: string, options?: RequestOptions): Promise<MasterMonth>;
+  /** Closes (or reopens) the month for every company and the master together. */
+  masterMonthCommand(
+    companyId: string,
+    month: string,
+    action: "close" | "reopen",
+  ): Promise<MasterMonth>;
   /** Requires `report.view` (profit also `report.profit_view`, staff balances `finance.view`). */
   getReport(
     companyId: string,

@@ -18,7 +18,15 @@ export {
   updateRole,
   updateUser,
 } from "./administration";
-export { createCompany, getWorkspace, listWorkspaces, updateCompany } from "./companies";
+export {
+  createCompany,
+  getMasterWorkspace,
+  getWorkspace,
+  listWorkspaces,
+  updateCompany,
+} from "./companies";
+export { MASTER_COMPANY_NAME, ensureMasterCompany } from "./master";
+export { closeMonthAll, getMasterMonth, getMasterSummary, reopenMonthAll } from "./master-panel";
 export { cashAccounts, expenseCategories, staffRoles } from "./configuration";
 export type { AppContext, Tx } from "./context";
 export {

@@ -32,8 +32,19 @@ export type DocumentStatus = (typeof documentStatuses)[number];
 
 /** Excel `C` Due Quantity (order), `G` Receive (receipt) and `N` DAMAGE PRODUCT (damage). */
 /** `incentive`: free goods from the company (D16), stock without a bill or payable. */
-export const stockEntryKinds = ["order", "receipt", "damage", "incentive"] as const;
+/** `damageDeposit` (D63): damaged pieces returned to the company as money at a rate per piece. */
+export const stockEntryKinds = [
+  "order",
+  "receipt",
+  "damage",
+  "incentive",
+  "damageDeposit",
+] as const;
 export type StockEntryKind = (typeof stockEntryKinds)[number];
+
+/** D63: the company balance parts an order may be paid from first (damage before incentive). */
+export const orderFunds = ["damage", "incentive"] as const;
+export type OrderFund = (typeof orderFunds)[number];
 
 export const stockEntrySchema = z.object({
   id: idSchema,
@@ -48,6 +59,11 @@ export const stockEntrySchema = z.object({
   freePieces: wholePiecesSchema.nullable(),
   cartonRate: decimalStringSchema.nullable(),
   piecesPerCarton: z.number().int().positive().nullable(),
+  /** D63, damage deposits only: taka per piece. */
+  unitPrice: decimalStringSchema.nullable(),
+  /** D63, orders only: the balance parts named to pay it, and the group posted together. */
+  fundFrom: z.array(z.enum(orderFunds)),
+  orderGroup: z.string().nullable(),
   status: z.enum(documentStatuses),
   createdAt: z.string(),
   reversedAt: z.string().nullable(),
@@ -57,8 +73,9 @@ export type StockEntry = z.infer<typeof stockEntrySchema>;
 
 /**
  * One godown line. An `order` (D57) carries paid pieces, optional free pieces and the taka per
- * carton (required with paid pieces); paid pieces may be 0 only with free pieces. Other kinds
- * carry whole pieces > 0 and nothing else.
+ * carton (required with paid pieces); paid pieces may be 0 only with free pieces. A damage
+ * deposit (D63) carries whole pieces > 0 and the taka per piece. Other kinds carry whole pieces > 0
+ * and nothing else.
  */
 export const stockEntryLineRequestSchema = z
   .object({
@@ -67,11 +84,17 @@ export const stockEntryLineRequestSchema = z
     pieces: wholePiecesSchema,
     freePieces: wholePiecesSchema.optional(),
     cartonRate: amountSchema.optional(),
+    unitPrice: unitPriceSchema.optional(),
   })
   .superRefine((line, ctx) => {
     const issue = (path: string, message: string) =>
       ctx.addIssue({ code: "custom", path: [path], message });
     const paid = line.pieces !== "0";
+    if (line.kind === "damageDeposit") {
+      if (line.unitPrice === undefined) issue("unitPrice", "validation.daily.rateRequired");
+    } else if (line.unitPrice !== undefined) {
+      issue("unitPrice", "validation.daily.orderOnly");
+    }
     if (line.kind !== "order") {
       if (!paid) issue("pieces", "validation.quantityPositive");
       if (line.freePieces !== undefined) issue("freePieces", "validation.daily.orderOnly");
@@ -98,10 +121,16 @@ export const stockEntryPostRequestSchema = z
     date: businessDateSchema,
     lines: z.array(stockEntryLineRequestSchema).max(500).default([]),
     prices: z.array(dayPriceRequestSchema).max(1500).default([]),
+    /** D63: the balance parts that pay this request's orders first. */
+    fundFrom: z.array(z.enum(orderFunds)).max(2).default([]),
   })
   .refine((v) => v.lines.length + v.prices.length > 0, {
     message: "validation.daily.empty",
     path: ["lines"],
+  })
+  .refine((v) => v.fundFrom.length === 0 || v.lines.some((l) => l.kind === "order"), {
+    message: "validation.daily.orderOnly",
+    path: ["fundFrom"],
   });
 
 export type StockEntryPostRequest = z.input<typeof stockEntryPostRequestSchema>;
@@ -551,7 +580,15 @@ export const dayViewSchema = z.object({
    * it) and the billed value / pieces of goods ordered and not yet received. Needs cost view.
    */
   company: z
-    .object({ balance: money, undeliveredValue: money, undeliveredPieces: money })
+    .object({
+      balance: money,
+      undeliveredValue: money,
+      undeliveredPieces: money,
+      /** D63: the damage and incentive parts of the balance, and the total cash and bank. */
+      damageBalance: money,
+      incentiveBalance: money,
+      totalCash: money,
+    })
     .nullable(),
   warnings: z.array(engineWarningSchema),
   canSeeCost: z.boolean(),

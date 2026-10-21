@@ -52,7 +52,7 @@ export function StatusChip({ status }: { status: "draft" | "posted" | "reversed"
 /** Pieces as "cartons/pieces" for the product's carton size (display only). */
 export function cartonText(pieces: string, piecesPerCarton: string): string {
   if (!/^-?\d+$/.test(pieces) || !/^[1-9]\d*$/.test(piecesPerCarton) || piecesPerCarton === "1") {
-    return toBengaliDigits(pieces);
+    return formatCount(pieces);
   }
   const negative = pieces.startsWith("-");
   const { cartons, loosePieces } = toCartonDisplay(
@@ -71,7 +71,7 @@ export function CartonQty({
   piecesPerCarton: string;
 }) {
   const text = cartonText(pieces, piecesPerCarton);
-  if (text === toBengaliDigits(pieces)) return text;
+  if (text === formatCount(pieces)) return text;
   const hint = `${t("common.totalPieces")}: ${formatAmount(pieces)} (${t("common.perCarton")} ${toBengaliDigits(piecesPerCarton)})`;
   return (
     <span title={hint} className="cursor-help">

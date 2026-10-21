@@ -9,6 +9,7 @@ import {
   formatBusinessDate,
   formatCount,
   formatRate,
+  roundForDisplay,
 } from "@bsd/i18n";
 import { EmptyListNote } from "@/components/empty-list-note";
 import { useState } from "react";
@@ -53,11 +54,11 @@ function cellText(
     case "quantity":
       return <CartonQty pieces={value} piecesPerCarton={piecesPerCarton ?? "1"} />;
     case "cartons":
-      return toBengaliDigits(value);
+      return formatCount(value);
     case "label":
       return labelOf(value);
     case "text":
-      return key === "date" ? formatBusinessDate(value) : toBengaliDigits(value);
+      return key === "date" ? formatBusinessDate(value) : toBengaliDigits(roundForDisplay(value));
   }
 }
 
@@ -616,10 +617,13 @@ export function SalesProfitBody({
   companyId,
   range,
   withProfit,
+  productOnly = false,
 }: {
   companyId: string;
   range: ReportRange;
   withProfit: boolean;
+  /** Only the sales and profit by product table (D60 dashboard): no profit statement or by day. */
+  productOnly?: boolean;
 }) {
   const salesQuery = useReport(companyId, "sales", range);
   const profitQuery = useReport(companyId, "profit", range, withProfit);
@@ -638,8 +642,10 @@ export function SalesProfitBody({
           table={salesWithProfit(byProduct, findTable(profit?.data, "profitByProduct"))}
         />
       ) : null}
-      {statement ? <ReportTableView table={statement} /> : null}
-      {byDay && byDay.rows.length > 1 ? <ReportTableView table={byDay} summary={false} /> : null}
+      {statement && !productOnly ? <ReportTableView table={statement} /> : null}
+      {byDay && byDay.rows.length > 1 && !productOnly ? (
+        <ReportTableView table={byDay} summary={false} />
+      ) : null}
     </div>
   );
 }

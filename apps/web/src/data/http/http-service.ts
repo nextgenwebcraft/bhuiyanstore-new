@@ -12,6 +12,8 @@ import {
   fieldVisitSchema,
   meSchema,
   moneyEntrySchema,
+  masterMonthSchema,
+  masterSummarySchema,
   monthCloseResultSchema,
   monthViewSchema,
   openingSchema,
@@ -388,6 +390,21 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
       request(
         monthCloseResultSchema,
         `${company(companyId)}/months/${id(month)}/reopen`,
+        write("POST", {}),
+      ),
+    getMasterWorkspace: (options) => request(companyWorkspaceSchema, "/master", options),
+    getMasterSummary: (companyId, range, options) =>
+      request(
+        masterSummarySchema,
+        `${company(companyId)}/master-summary?${new URLSearchParams(range).toString()}`,
+        options,
+      ),
+    getMasterMonth: (companyId, month, options) =>
+      request(masterMonthSchema, `${company(companyId)}/master-months/${id(month)}`, options),
+    masterMonthCommand: (companyId, month, action) =>
+      request(
+        masterMonthSchema,
+        `${company(companyId)}/master-months/${id(month)}/${action}`,
         write("POST", {}),
       ),
     getReport: (companyId, report, range, options) =>

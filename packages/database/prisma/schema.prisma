@@ -53,6 +53,8 @@ model Company {
   logoRef                String?           @map("logo_ref")
   /// D34: refuse postings that take a product's stock below zero.
   blockNegativeStock     Boolean           @default(false) @map("block_negative_stock")
+  /// D66: the tenant's hidden master company (one per tenant, partial unique index in SQL).
+  isMaster               Boolean           @default(false) @map("is_master")
   status                 String            @default("active")
   createdAt              DateTime          @default(now()) @map("created_at")
   updatedAt              DateTime          @updatedAt @map("updated_at")
@@ -516,6 +518,12 @@ model StockEntry {
   freePieces      Decimal?  @map("free_pieces") @db.Decimal(20, 6)
   cartonRate      Decimal?  @map("carton_rate") @db.Decimal(20, 2)
   piecesPerCarton Int?      @map("pieces_per_carton")
+  /// D63 (kind damageDeposit only): taka per piece returned to the company as money.
+  unitPrice       Decimal?  @map("unit_price") @db.Decimal(20, 6)
+  /// D63 (kind order only): balance parts that pay the bill first ('damage', 'incentive').
+  fundFrom        String[]  @default([]) @map("fund_from")
+  /// D63 (kind order only): orders posted together.
+  orderGroup      String?   @map("order_group")
   supplierId      String?   @map("supplier_id")
   reference       String    @default("")
   lot             String?

@@ -665,7 +665,6 @@ function FieldDayView({ staffId }: { staffId?: string }) {
 /** A super-admin has no DSR login of their own: they pick the DSR to enter for (D59). */
 function ActForDsr() {
   const { company } = useCurrentWorkspace();
-  const [date] = useWorkingDate();
   const records = useStaffRecords(company.id);
   const [chosen, setChosen] = useState("");
   const id = useId();
@@ -680,7 +679,7 @@ function ActForDsr() {
       />
     );
   }
-  const dsrs = dsrsOn(records.data, company.id, date);
+  const dsrs = dsrsOn(records.data);
   const staffId = dsrs.some((d) => d.id === chosen) ? chosen : dsrs[0]?.id;
 
   return (

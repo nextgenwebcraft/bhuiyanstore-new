@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
-  earlierMonths,
   parsePeriod,
   periodForMonth,
   periodMonth,
   periodParam,
   periodRange,
-  periodYears,
+  pickedMonth,
+  pickerYears,
+  validYear,
 } from "./period";
 
 const today = "2026-10-11";
@@ -20,7 +21,7 @@ describe("dashboard period", () => {
     expect(parsePeriod("2026-10", today)).toEqual({ kind: "this-month" });
     expect(parsePeriod("2026-09", today)).toEqual({ kind: "last-month" });
     expect(parsePeriod("2025", today)).toEqual({ kind: "year", year: "2025" });
-    for (const bad of ["", "x", "2026-13", "2026-00", "2026-11", "2027", "20261", "2026-1"]) {
+    for (const bad of ["", "x", "2026-13", "2026-00", "20261", "2026-1"]) {
       expect(parsePeriod(bad, today)).toEqual({ kind: "today" });
     }
   });
@@ -82,39 +83,26 @@ describe("dashboard period", () => {
     expect(periodForMonth("2026-04", today)).toEqual({ kind: "month", month: "2026-04" });
   });
 
-  it("lists earlier months from January of the cutoff year to the month before last", () => {
-    expect(earlierMonths("2026-09-01", today)).toEqual(earlierMonths(null, today));
-    expect(earlierMonths("2025-11-01", "2026-02-10")).toEqual([
-      "2025-12",
-      "2025-11",
-      "2025-10",
-      "2025-09",
-      "2025-08",
-      "2025-07",
-      "2025-06",
-      "2025-05",
-      "2025-04",
-      "2025-03",
-      "2025-02",
-      "2025-01",
-    ]);
+  it("lists 5 future years, 15 years back, further when the cutoff is older, newest first (D60)", () => {
+    const years = pickerYears("2024-05-01", today);
+    expect(years[0]).toBe("2031");
+    expect(years.at(-1)).toBe("2011");
+    expect(years).toHaveLength(21);
+    expect(pickerYears("2005-01-01", today).at(-1)).toBe("2005");
+    expect(pickerYears(null, today)).toEqual(years);
   });
 
-  it("falls back to January of this year without a cutoff", () => {
-    expect(earlierMonths(null, today)).toEqual([
-      "2026-08",
-      "2026-07",
-      "2026-06",
-      "2026-05",
-      "2026-04",
-      "2026-03",
-      "2026-02",
-      "2026-01",
-    ]);
+  it("accepts any typed four-digit year, future included", () => {
+    expect(validYear("1999")).toBe("1999");
+    expect(validYear("2026")).toBe("2026");
+    expect(validYear("2040")).toBe("2040");
+    for (const bad of ["3000", "199", "abcd", "1899", ""]) expect(validYear(bad)).toBeNull();
   });
 
-  it("lists years from the cutoff year to this year, newest first", () => {
-    expect(periodYears("2024-05-01", today)).toEqual(["2026", "2025", "2024"]);
-    expect(periodYears(null, today)).toEqual(["2026"]);
+  it("names the picked month of a period", () => {
+    expect(pickedMonth({ kind: "today" }, today)).toBeNull();
+    expect(pickedMonth({ kind: "year", year: "2025" }, today)).toBeNull();
+    expect(pickedMonth({ kind: "last-month" }, today)).toBe("2026-09");
+    expect(pickedMonth({ kind: "month", month: "2019-04" }, today)).toBe("2019-04");
   });
 });

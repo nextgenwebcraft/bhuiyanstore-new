@@ -6,6 +6,7 @@ import type {
   StockEntry,
   StockEntryKind,
   StockEntryPostRequest,
+  OrderFund,
 } from "@bsd/contracts";
 import { EmptyListNote } from "@/components/empty-list-note";
 import { ReverseCell } from "@/components/reverse-cell";
@@ -24,18 +25,11 @@ import {
   useReverseStockEntry,
   useStockEntries,
   useUpdateCompany,
+  useDayView,
 } from "@/data/queries";
 import { NavGate } from "@/features/shell/nav-gate";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
-import {
-  CellInput,
-  DateBar,
-  DateHeading,
-  DayGate,
-  SectionTitle,
-  clean,
-  useWorkingDate,
-} from "./daily-kit";
+import { CellInput, DateBar, DayGate, SectionTitle, clean, useWorkingDate } from "./daily-kit";
 import {
   CartonQty,
   ColumnHead,
@@ -54,9 +48,13 @@ import {
 import { TableScroller } from "@/components/table-scroller";
 import { visibleBatches } from "./day-report-page";
 import { OrderForm } from "./order-form";
+import { OrderFunding } from "./order-funding";
+
+/** D63: damage deposits are entered on the company deposit page, not here. */
+type GodownKind = Exclude<StockEntryKind, "damageDeposit">;
 
 /** Which price each godown screen can change from its date (Excel's carry-forward columns). */
-const PRICES: Record<StockEntryKind, PriceKind[]> = {
+const PRICES: Record<GodownKind, PriceKind[]> = {
   // D57: an order sets its carton rate on the order line; a receipt's cost comes from the order.
   order: [],
   receipt: ["sale"],
@@ -66,7 +64,7 @@ const PRICES: Record<StockEntryKind, PriceKind[]> = {
 const PRICE_FIELD = { order: "orderPrice", cost: "costPrice", sale: "salePrice" } as const;
 
 /** A receipt is one batch: its purchase and sale price apply from that day (D29). */
-const PRICE_LABEL: Record<StockEntryKind, Partial<Record<PriceKind, TranslationKey>>> = {
+const PRICE_LABEL: Record<GodownKind, Partial<Record<PriceKind, TranslationKey>>> = {
   order: { order: "godown.column.orderPrice" },
   receipt: { sale: "godown.column.batchSalePrice" },
   damage: {},
@@ -79,8 +77,8 @@ const POSTED_FIELD = {
   receipt: "received",
   damage: "damaged",
   incentive: "incentiveReceived",
-} as const satisfies Record<StockEntryKind, string>;
-const POSTED_LABEL: Record<StockEntryKind, TranslationKey> = {
+} as const satisfies Record<GodownKind, string>;
+const POSTED_LABEL: Record<GodownKind, TranslationKey> = {
   order: "day.column.ordered",
   receipt: "day.column.received",
   damage: "day.column.damaged",
@@ -91,7 +89,7 @@ type Row = { cartons: string; pieces: string } & Partial<Record<PriceKind, strin
 const emptyRow: Row = { cartons: "", pieces: "" };
 
 /**
- * D57: the receipt's cost per piece is the average of the goods still due (their billed value ÷
+ * D57: the receipt's cost per piece is the average of the goods still due (their billed value Ã·
  * pieces, free pieces counted); shown read-only. Blank when nothing is due.
  */
 function orderCost(product: DayView["products"][number]): string {
@@ -112,8 +110,8 @@ function CurrentBatches({ product }: { product: DayView["products"][number] }) {
       <ul className="mt-1 flex flex-col gap-0.5">
         {batches.map((b) => (
           <li key={b.seq}>
-            {t("batch.label")} {formatCount(b.seq)} · {formatCount(b.quantity)} {t("common.pieces")}{" "}
-            @{" "}
+            {t("batch.label")} {formatCount(b.seq)} Â· {formatCount(b.quantity)}{" "}
+            {t("common.pieces")} @{" "}
             {b.costPrice === null
               ? ""
               : `${t("batch.costShort")} ${t("batch.currency")}${formatRate(b.costPrice)} / `}
@@ -134,7 +132,7 @@ function GodownForm({
 }: {
   companyId: string;
   date: string;
-  kind: StockEntryKind;
+  kind: GodownKind;
   view: DayView;
 }) {
   const { permissions } = useCurrentWorkspace();
@@ -249,7 +247,7 @@ function GodownForm({
                     <th scope="row" className={`${tdClass} ${stickyCell} text-left font-medium`}>
                       <div>{product.productName}</div>
                       <div className="text-xs font-normal text-text-muted">
-                        {product.sku} · {t("godown.column.size")}{" "}
+                        {product.sku} Â· {t("godown.column.size")}{" "}
                         {quantity(product.piecesPerCarton)}
                       </div>
                       {kind === "receipt" ? <CurrentBatches product={product} /> : null}
@@ -310,7 +308,7 @@ function GodownForm({
   );
 }
 
-/** An order's bill: paid pieces × carton rate ÷ the carton size at posting (D57). */
+/** An order's bill: paid pieces Ã— carton rate Ã· the carton size at posting (D57). */
 function orderBill(entry: StockEntry): string {
   if (entry.cartonRate === null || entry.piecesPerCarton === null) return "0";
   return toDecimal(entry.pieces)
@@ -328,7 +326,7 @@ function PostedSummary({
 }: {
   companyId: string;
   date: string;
-  kind: StockEntryKind;
+  kind: GodownKind;
 }) {
   const entries = useStockEntries(companyId, date);
   const rows = (entries.data ?? []).filter((e) => e.kind === kind);
@@ -361,7 +359,7 @@ function PostedEntries({
 }: {
   companyId: string;
   date: string;
-  kind: StockEntryKind;
+  kind: GodownKind;
   view: DayView;
 }) {
   const { permissions } = useCurrentWorkspace();
@@ -453,7 +451,7 @@ function PostedEntries({
   );
 }
 
-const TITLES: Record<StockEntryKind, { title: TranslationKey; description: TranslationKey }> = {
+const TITLES: Record<GodownKind, { title: TranslationKey; description: TranslationKey }> = {
   order: { title: "nav.purchases.orders", description: "godown.description.order" },
   receipt: { title: "nav.purchases.receipts", description: "godown.description.receipt" },
   damage: { title: "nav.inventory.damage", description: "godown.description.damage" },
@@ -506,24 +504,44 @@ function StockBlockSwitch() {
   );
 }
 
-export function GodownPage({ path, kind }: { path: string; kind: StockEntryKind }) {
+export function GodownPage({ path, kind }: { path: string; kind: GodownKind }) {
   const { company } = useCurrentWorkspace();
   const [date, setDate] = useWorkingDate();
+  const [fundFrom, setFundFrom] = useState<OrderFund[]>([]);
+  const day = useDayView(company.id, date);
+  const funding = kind === "order" ? day.data?.company : undefined;
   return (
     <NavGate path={path}>
       <PageHeader
         title={t(TITLES[kind].title)}
         description={t(TITLES[kind].description)}
-        actions={<DateBar date={date} onChange={setDate} />}
+        actions={
+          <>
+            <DateBar date={date} onChange={setDate} />
+            {funding ? (
+              <OrderFunding
+                value={fundFrom}
+                balances={{ damage: funding.damageBalance, incentive: funding.incentiveBalance }}
+                onChange={setFundFrom}
+              />
+            ) : null}
+          </>
+        }
       />
       {kind === "receipt" ? <StockBlockSwitch /> : null}
-      <DateHeading date={date} />
       <DayGate companyId={company.id} date={date}>
         {(view) => (
           <>
             <PostedSummary companyId={company.id} date={date} kind={kind} />
             {kind === "order" ? (
-              <OrderForm key={date} companyId={company.id} date={date} view={view} />
+              <OrderForm
+                key={date}
+                companyId={company.id}
+                date={date}
+                view={view}
+                fundFrom={fundFrom}
+                setFundFrom={setFundFrom}
+              />
             ) : (
               <GodownForm key={date} companyId={company.id} date={date} kind={kind} view={view} />
             )}

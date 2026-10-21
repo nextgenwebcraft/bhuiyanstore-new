@@ -1,5 +1,6 @@
 import { Decimal, toDecimal, type DecimalInput } from "../decimal";
 import { MONEY_KIND_EFFECTS, cashBookEffect } from "./money-kinds";
+import { depositInvestment, fundOrder } from "./order-funding";
 import {
   consumeFifo,
   firstPieces,
@@ -21,7 +22,9 @@ import type {
   BatchResult,
   CashBookAccountResult,
   CashEntryResult,
+  CashEntryType,
   CompanyEntryResult,
+  CompanyFund,
   DayResult,
   EngineWarning,
   LineAllocationResult,
@@ -112,6 +115,12 @@ type ProductState = {
   damageAtCompany: Decimal;
 };
 
+/** A company ledger line before the balances after it are known. */
+type CompanyMemo = Omit<
+  CompanyEntryResult,
+  "balance" | "undelivered" | "damageBalance" | "incentiveBalance"
+>;
+
 /** Paid pieces of the day's `orders` (D57). */
 const stage0Pieces = (p: ProductDayInput | undefined): Decimal =>
   sum((p?.orders ?? []).map((o) => toDecimal(o.pieces)));
@@ -123,6 +132,8 @@ type OrderStageEntry = {
   cartonRate: Decimal | null;
   bill: Decimal;
   ref?: string;
+  fundFrom: readonly CompanyFund[];
+  group?: string;
 };
 
 /** The day's orders and receipt of one product against its undelivered pool (D48, D57). */
@@ -150,6 +161,7 @@ function orderStage(
       freePieces: ZERO,
       cartonRate: null,
       bill: legacy.mul(orderPrice),
+      fundFrom: [],
     });
   }
   for (const o of p?.orders ?? []) {
@@ -167,6 +179,8 @@ function orderStage(
       cartonRate,
       bill: pieces.mul(cartonRate).div(perCarton),
       ...(o.ref === undefined ? {} : { ref: o.ref }),
+      fundFrom: o.fundFrom ?? [],
+      ...(o.group === undefined ? {} : { group: o.group }),
     });
   }
   let dueQty = state.dueFromCompany;
@@ -260,9 +274,9 @@ type LineAggregate = {
   damaged: Decimal;
   /** Shop commission (D41), already taken out of `soldValue`. */
   commission: Decimal;
-  /** Σ line soldValue (batch sale prices, price splits, commission) (D49). */
+  /** Î£ line soldValue (batch sale prices, price splits, commission) (D49). */
   soldValue: Decimal;
-  /** Σ line cost: every delivered piece at its batch cost (D47, D49). */
+  /** Î£ line cost: every delivered piece at its batch cost (D47, D49). */
   cost: Decimal;
   /** Batch cost of the damaged (exchanged) pieces of the lines (D49). */
   damagedCost: Decimal;
@@ -291,7 +305,7 @@ const toAllocationResult = (a: LayerAllocation): LineAllocationResult => ({
 });
 
 /**
- * The month engine (PLAN §2, §4): pure and deterministic. It never rounds; settlement rounding
+ * The month engine (PLAN Â§2, Â§4): pure and deterministic. It never rounds; settlement rounding
  * stays at presentation boundaries until P01 is decided. Data problems (negative stock, missing
  * prices, over-repayment) become warnings so an imperfect month can still be calculated and
  * reviewed; malformed input (unknown IDs, unordered dates, missing staff) throws.
@@ -340,7 +354,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
     products.set(p.id, {
       batches: openingBatches,
       dueFromCompany: openingDue,
-      // D48: billed value of the undelivered goods; defaults to opening due × opening order price.
+      // D48: billed value of the undelivered goods; defaults to opening due Ã— opening order price.
       dueValue: openingDue.isZero()
         ? ZERO
         : o?.dueFromCompanyValue === undefined
@@ -393,6 +407,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
     }
     return b;
   };
+  const staffWarnings = input.staffWarnings ?? true;
 
   const companyPayableOpening = dec(input.opening.companyPayable);
   let companyPayable = companyPayableOpening;
@@ -401,6 +416,11 @@ export function computeMonth(input: MonthInput): MonthOutput {
   let companyDeposits = ZERO;
   let companyIncentives = ZERO;
   let companyRefunds = ZERO;
+  let companyInvestments = ZERO;
+  // D63: the damage and incentive parts of the money deposited with the company.
+  let damageFund = dec(input.opening.companyDamageBalance);
+  let incentiveFund = dec(input.opening.companyIncentiveBalance);
+  const funds = () => ({ damageBalance: str(damageFund), incentiveBalance: str(incentiveFund) });
   const companyEntries: CompanyEntryResult[] = [];
   const totalDueValue = (): Decimal => sum([...products.values()].map((s) => s.dueValue));
   const undeliveredOpening = totalDueValue();
@@ -425,7 +445,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
   const cashEntries: CashEntryResult[] = [];
   const bookMove = (
     date: string,
-    type: "sales" | MoneyKind,
+    type: CashEntryType,
     account: string,
     direction: 1 | -1,
     amount: Decimal,
@@ -521,6 +541,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
     };
     /** Only reported for staff that are DSRs that day (sheet lines or market due). */
     const costPaid = new Map<StaffId, Decimal>();
+    const staffMoney = new Map<StaffId, Decimal>();
     for (const line of day.dsrLines ?? []) {
       requireProduct(line.productId);
       if (!line.staffId) throw new RangeError("DSR line without staffId");
@@ -620,12 +641,27 @@ export function computeMonth(input: MonthInput): MonthOutput {
       personTotals.set(line.staffId, byProduct);
     }
 
+    // D63: the day's damage money returns and money incentives, posted after the orders, can
+    // already pay that day's orders.
+    let pendingDamage = ZERO;
+    let pendingIncentive = ZERO;
+    for (const p of Object.values(dayProducts)) {
+      for (const r of p.companyRefunds ?? []) {
+        pendingDamage = pendingDamage.add(toDecimal(r.quantity).mul(toDecimal(r.unitCost)));
+      }
+    }
+    for (const entry of day.money ?? []) {
+      if (MONEY_KIND_EFFECTS[entry.kind]?.company === "incentive") {
+        pendingIncentive = pendingIncentive.add(toDecimal(entry.amount));
+      }
+    }
+
     const productResults: ProductDayResult[] = [];
     let daySales = ZERO;
     let dayCommission = ZERO;
-    const dayRefunds: CompanyEntryResult[] = [];
-    const dayFreeGoods: CompanyEntryResult[] = [];
-    const dayReplacements: CompanyEntryResult[] = [];
+    const dayRefunds: CompanyMemo[] = [];
+    const dayFreeGoods: CompanyMemo[] = [];
+    const dayReplacements: CompanyMemo[] = [];
     for (const [id, state] of products) {
       const p = dayProducts[id];
       const agg = lineAggregates.get(id);
@@ -640,8 +676,6 @@ export function computeMonth(input: MonthInput): MonthOutput {
           amount: "0",
           productId: id,
           quantity: str(incentiveReceived),
-          balance: "",
-          undelivered: "",
         });
       }
       const replacements = (p?.replacements ?? []).map((r) => ({
@@ -662,8 +696,6 @@ export function computeMonth(input: MonthInput): MonthOutput {
           amount: str(replacementValue),
           productId: id,
           quantity: str(replacementReceived),
-          balance: "",
-          undelivered: "",
         });
       }
       let refundValue = ZERO;
@@ -682,8 +714,6 @@ export function computeMonth(input: MonthInput): MonthOutput {
           amount: str(amount),
           ...(refund.ref === undefined ? {} : { ref: refund.ref }),
           productId: id,
-          balance: "",
-          undelivered: "",
         });
       }
       const damageRecovery = refundValue.add(replacementValue);
@@ -751,6 +781,12 @@ export function computeMonth(input: MonthInput): MonthOutput {
       for (const o of stage.entries) {
         companyOrders = companyOrders.add(o.bill);
         companyPayable = companyPayable.add(o.bill);
+        const { fromDamage, fromIncentive, fromDeposit } = fundOrder(o.bill, o.fundFrom, {
+          damage: damageFund.add(pendingDamage),
+          incentive: incentiveFund.add(pendingIncentive),
+        });
+        damageFund = damageFund.sub(fromDamage);
+        incentiveFund = incentiveFund.sub(fromIncentive);
         companyEntries.push({
           date: day.date,
           kind: "order",
@@ -761,7 +797,12 @@ export function computeMonth(input: MonthInput): MonthOutput {
           ...(o.cartonRate === null
             ? {}
             : { freeQuantity: str(o.freePieces), cartonRate: str(o.cartonRate) }),
+          fromDamage: str(fromDamage),
+          fromIncentive: str(fromIncentive),
+          fromDeposit: str(fromDeposit),
+          ...(o.group === undefined ? {} : { group: o.group }),
           balance: str(companyPayable),
+          ...funds(),
           undelivered: str(totalDueValue()),
         });
       }
@@ -778,6 +819,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
           productId: id,
           quantity: str(received),
           balance: str(companyPayable),
+          ...funds(),
           undelivered: str(totalDueValue()),
         });
       }
@@ -806,6 +848,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
       const receiptBill = excessBill;
       const receiptSale = received.mul(state.prices.salePrice ?? ZERO);
       const returnValue = returned.mul(state.prices.salePrice ?? ZERO);
+      const issuedValue = issued.mul(state.prices.salePrice ?? ZERO);
       // D49: the damaged pieces' batch cost, plus replaced and godown-damaged pieces at theirs;
       // product-level damaged (importer only) at the current cost.
       const damageValue = (agg?.damagedCost ?? ZERO)
@@ -858,6 +901,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
         sales: str(sales),
         cost: str(cost),
         grossProfit: str(grossProfit),
+        issuedValue: str(issuedValue),
         returnValue: str(returnValue),
         orderValue: str(orderValue),
         receiptBill: str(receiptBill),
@@ -880,9 +924,11 @@ export function computeMonth(input: MonthInput): MonthOutput {
 
     for (const refund of dayRefunds) {
       companyPayable = companyPayable.sub(toDecimal(refund.amount));
+      damageFund = damageFund.add(toDecimal(refund.amount));
       companyEntries.push({
         ...refund,
         balance: str(companyPayable),
+        ...funds(),
         undelivered: str(totalDueValue()),
       });
     }
@@ -890,6 +936,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
       companyEntries.push({
         ...memo,
         balance: str(companyPayable),
+        ...funds(),
         undelivered: str(totalDueValue()),
       });
     }
@@ -931,7 +978,25 @@ export function computeMonth(input: MonthInput): MonthOutput {
           entry.kind === "supplierDeposit"
             ? (day.defaultDepositAccount ?? defaultCash)
             : defaultCash;
-        bookMove(day.date, entry.kind, entry.account ?? fallback, book, amount, { ref: entry.ref });
+        const account = entry.account ?? fallback;
+        if (effect.company === "deposit") {
+          // D63: a deposit beyond the total cash and bank balance is money put in first.
+          const investment = depositInvestment(amount, sum([...cashBalance.values()]));
+          if (investment.gt(0)) {
+            bookMove(day.date, "investment", account, 1, investment, { ref: entry.ref });
+            companyInvestments = companyInvestments.add(investment);
+            companyEntries.push({
+              date: day.date,
+              kind: "investment",
+              amount: str(investment),
+              ...(entry.ref === undefined ? {} : { ref: entry.ref }),
+              balance: str(companyPayable),
+              ...funds(),
+              undelivered: str(totalDueValue()),
+            });
+          }
+        }
+        bookMove(day.date, entry.kind, account, book, amount, { ref: entry.ref });
       }
 
       if (effect.marketDue) {
@@ -985,6 +1050,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
           banked = banked.add(amount);
         } else {
           companyIncentives = companyIncentives.add(amount);
+          incentiveFund = incentiveFund.add(amount);
         }
         companyEntries.push({
           date: day.date,
@@ -992,12 +1058,18 @@ export function computeMonth(input: MonthInput): MonthOutput {
           amount: str(amount),
           ...(entry.ref === undefined ? {} : { ref: entry.ref }),
           balance: str(companyPayable),
+          ...funds(),
           undelivered: str(totalDueValue()),
         });
       }
 
       if (entry.kind === "staffCostPaid" && entry.staffId) {
         costPaid.set(entry.staffId, (costPaid.get(entry.staffId) ?? ZERO).add(amount));
+      }
+      const staffCash = STAFF_CASH[entry.kind];
+      if (staffCash && entry.staffId) {
+        const prior = staffMoney.get(entry.staffId) ?? ZERO;
+        staffMoney.set(entry.staffId, staffCash === 1 ? prior.add(amount) : prior.sub(amount));
       }
 
       if (effect.staff && entry.staffId) {
@@ -1007,19 +1079,21 @@ export function computeMonth(input: MonthInput): MonthOutput {
           const left = reduceOwed(b, amount, entry.allocation);
           if (left.gt(0)) {
             b.credit = b.credit.add(left);
-            warn({ code: "REPAYMENT_EXCEEDS_DUE", staffId: entry.staffId, detail: str(left) });
+            if (staffWarnings) {
+              warn({ code: "REPAYMENT_EXCEEDS_DUE", staffId: entry.staffId, detail: str(left) });
+            }
           }
         } else {
           const key = effect.staff.balance;
           b[key] = b[key].add(effect.staff.direction === 1 ? amount : amount.neg());
-          if (b[key].isNegative()) {
+          if (staffWarnings && b[key].isNegative()) {
             warn({ code: "NEGATIVE_BALANCE", staffId: entry.staffId, detail: key });
           }
         }
         if (effect.staffAlso) {
           const key = effect.staffAlso.balance;
           b[key] = b[key].add(effect.staffAlso.direction === 1 ? amount : amount.neg());
-          if (b[key].isNegative()) {
+          if (staffWarnings && b[key].isNegative()) {
             warn({ code: "NEGATIVE_BALANCE", staffId: entry.staffId, detail: key });
           }
         }
@@ -1054,6 +1128,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
         marketDueNew: str(d.marketDueNew),
         marketDueCollected: str(d.marketDueCollected),
         costPaid: str(costPaid.get(staffId) ?? ZERO),
+        staffMoney: str(staffMoney.get(staffId) ?? ZERO),
       })),
       money: {
         sales: str(daySales),
@@ -1193,6 +1268,8 @@ export function computeMonth(input: MonthInput): MonthOutput {
     shopDue: Object.fromEntries([...shopDue].map(([k, v]) => [k, str(v)])),
     staff: Object.fromEntries([...staff].map(([k, b]) => [k, balanceStrings(b)])),
     companyPayable: str(companyPayable),
+    companyDamageBalance: str(damageFund),
+    companyIncentiveBalance: str(incentiveFund),
     cashAccounts: Object.fromEntries([...cashBalance].map(([k, v]) => [k, str(v)])),
   };
 
@@ -1229,7 +1306,12 @@ export function computeMonth(input: MonthInput): MonthOutput {
         deposits: str(companyDeposits),
         incentives: str(companyIncentives),
         damageRefunds: str(companyRefunds),
+        investments: str(companyInvestments),
         closing: str(companyPayable),
+        damageBalanceOpening: str(dec(input.opening.companyDamageBalance)),
+        incentiveBalanceOpening: str(dec(input.opening.companyIncentiveBalance)),
+        damageBalance: str(damageFund),
+        incentiveBalance: str(incentiveFund),
         undeliveredOpening: str(undeliveredOpening),
         undeliveredClosing: str(totalDueValue()),
       },
@@ -1256,7 +1338,14 @@ export function computeMonth(input: MonthInput): MonthOutput {
   };
 }
 
-/** Reduces advance → loan → shortage (or an explicit allocation); returns the unallocated rest. */
+/** D62: how the DSR sheet's staff money moves the expected cash handover. */
+const STAFF_CASH: Partial<Record<MoneyKind, 1 | -1>> = {
+  staffAdvance: -1,
+  staffShortage: -1,
+  staffRepayment: 1,
+};
+
+/** Reduces advance â†’ loan â†’ shortage (or an explicit allocation); returns the unallocated rest. */
 function reduceOwed(
   b: Balances,
   amount: Decimal,

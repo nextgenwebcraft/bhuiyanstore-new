@@ -10,6 +10,7 @@ import { useWorkspaces } from "@/data/queries";
 import { queryKeys } from "@/data/query-keys";
 import { useActorId } from "@/data/service-context";
 import { CompanyForm } from "@/features/company-picker/company-form";
+import { MasterPanelMenuItem } from "@/features/master/master-link";
 import { CompanyMark } from "./company-mark";
 import { useActiveDraftGuard } from "./draft-guard";
 import { DraftSwitchPrompt, type DraftSwitchPromptHandle } from "./draft-switch-prompt";
@@ -145,6 +146,7 @@ export function CompanySwitcher({
             })}
           </ul>
           <div className="mt-1.5 border-t border-border pt-1.5">
+            <MasterPanelMenuItem onSelect={() => setOpen(false)} />
             <button
               type="button"
               role="menuitem"

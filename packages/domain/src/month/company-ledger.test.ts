@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { companyStatement } from "./company-statement";
 import { computeMonth } from "./compute-month";
 import type { MonthInput } from "./types";
 
@@ -117,7 +118,12 @@ describe("company order billed at once (D48)", () => {
         amount: "40000",
         productId: "A",
         quantity: "40",
+        fromDamage: "0",
+        fromIncentive: "0",
+        fromDeposit: "40000",
         balance: "-20000",
+        damageBalance: "0",
+        incentiveBalance: "0",
         undelivered: "40000",
       },
     ]);
@@ -225,5 +231,169 @@ describe("company order billed at once (D48)", () => {
     expect(c.undeliveredClosing).toBe(out.closing.products.A?.dueFromCompanyValue);
     expect(out.companyEntries.at(-1)?.balance).toBe(c.closing);
     expect(out.companyEntries.at(-1)?.undelivered).toBe(c.undeliveredClosing);
+  });
+});
+
+describe("company balance parts, order funding and investment (D63)", () => {
+  const order = (pieces: string, fundFrom?: ("damage" | "incentive")[]) => ({
+    pieces,
+    cartonRate: "1000",
+    piecesPerCarton: "1",
+    ...(fundFrom ? { fundFrom, group: "g1" } : {}),
+  });
+  const run = (opening: Partial<MonthInput["opening"]>, days: MonthInput["days"]) =>
+    computeMonth({
+      products: [{ id: "A", piecesPerCarton: "1" }],
+      opening: { products: { A: { stock: "0", dueFromCompany: "0" } }, ...opening },
+      days,
+    });
+
+  it("pays an order from damage first, then incentive, then মোট জমা", () => {
+    // 6,000 damage + 4,000 incentive = 10,000 in the parts; a 15,000 order takes 5,000 more.
+    const out = run({ companyPayable: "-10000", companyDamageBalance: "6000" }, [
+      {
+        date: "2026-11-01",
+        money: [{ kind: "companyIncentive", amount: "4000" }],
+      },
+      { date: "2026-11-02", products: { A: { orders: [order("15", ["incentive", "damage"])] } } },
+    ]);
+    const entry = out.companyEntries.find((e) => e.kind === "order");
+    expect(entry).toMatchObject({
+      amount: "15000",
+      fromDamage: "6000",
+      fromIncentive: "4000",
+      fromDeposit: "5000",
+      group: "g1",
+      balance: "1000", // −14,000 + 15,000: the company is owed 1,000
+      damageBalance: "0",
+      incentiveBalance: "0",
+    });
+    expect(out.closing).toMatchObject({
+      companyPayable: "1000",
+      companyDamageBalance: "0",
+      companyIncentiveBalance: "0",
+    });
+    // The statement shows the order as one line per balance part, each with the balance after it.
+    expect(
+      companyStatement(out.companyEntries).map((l) => [
+        l.kind,
+        l.amount,
+        l.balance,
+        l.damageBalance,
+        l.incentiveBalance,
+      ]),
+    ).toEqual([
+      ["incentive", "4000", "-14000", "6000", "4000"],
+      ["orderFromDamage", "6000", "-8000", "0", "4000"],
+      ["orderFromIncentive", "4000", "-4000", "0", "0"],
+      ["orderFromDeposit", "5000", "1000", "0", "0"],
+    ]);
+  });
+
+  it("gathers orders posted together into one group in the statement", () => {
+    const out = computeMonth({
+      products: [
+        { id: "A", piecesPerCarton: "1" },
+        { id: "B", piecesPerCarton: "1" },
+      ],
+      opening: {
+        products: {
+          A: { stock: "0", dueFromCompany: "0" },
+          B: { stock: "0", dueFromCompany: "0" },
+        },
+        companyPayable: "-500",
+        companyDamageBalance: "500",
+      },
+      days: [
+        {
+          date: "2026-11-01",
+          products: {
+            A: { orders: [order("1", ["damage"])] },
+            B: { orders: [order("2", ["damage"])] },
+          },
+        },
+      ],
+    });
+    const lines = companyStatement(out.companyEntries);
+    expect(lines.map((l) => [l.kind, l.amount, l.productIds, l.quantity])).toEqual([
+      ["orderFromDamage", "500", ["A", "B"], undefined],
+      ["orderFromDeposit", "2500", ["A", "B"], undefined],
+    ]);
+    expect(lines.at(-1)?.balance).toBe(out.month.companyPayable.closing);
+  });
+
+  it("leaves the parts alone when the order names none", () => {
+    const out = run({ companyPayable: "-6000", companyDamageBalance: "6000" }, [
+      { date: "2026-11-01", products: { A: { orders: [order("2")] } } },
+    ]);
+    expect(out.companyEntries[0]).toMatchObject({ fromDamage: "0", fromDeposit: "2000" });
+    expect(out.month.companyPayable.damageBalance).toBe("6000");
+  });
+
+  it("counts the same day's damage money return for that day's order", () => {
+    const out = run({}, [
+      {
+        date: "2026-11-01",
+        products: {
+          A: {
+            orders: [order("3", ["damage"])],
+            companyRefunds: [{ quantity: "5", unitCost: "400" }],
+          },
+        },
+      },
+    ]);
+    expect(out.companyEntries.find((e) => e.kind === "order")).toMatchObject({
+      fromDamage: "2000",
+      fromDeposit: "1000",
+    });
+    expect(out.month.companyPayable).toMatchObject({ closing: "1000", damageBalance: "0" });
+  });
+
+  it("records the deposit beyond the total cash as investment, so the total stays at zero", () => {
+    const out = run({ cashAccounts: { cash: "3000", bank: "1000" } }, [
+      {
+        date: "2026-11-01",
+        defaultCashAccount: "cash",
+        money: [{ kind: "supplierDeposit", amount: "10000", account: "bank", ref: "d1" }],
+      },
+    ]);
+    expect(out.month.companyPayable).toMatchObject({ investments: "6000", closing: "-10000" });
+    expect(out.closing.cashAccounts).toEqual({ cash: "3000", bank: "-3000" });
+    expect(out.cashEntries.map((e) => [e.type, e.account, e.in, e.out])).toEqual([
+      ["investment", "bank", "6000", "0"],
+      ["supplierDeposit", "bank", "0", "10000"],
+    ]);
+    expect(out.companyEntries.map((e) => [e.kind, e.amount, e.balance])).toEqual([
+      ["investment", "6000", "0"],
+      ["deposit", "10000", "-10000"],
+    ]);
+  });
+
+  it("puts nothing in when the cash covers the deposit or is already below zero", () => {
+    const covered = run({ cashAccounts: { "": "500" } }, [
+      { date: "2026-11-01", money: [{ kind: "supplierDeposit", amount: "500" }] },
+    ]);
+    expect(covered.month.companyPayable.investments).toBe("0");
+    const below = run({ cashAccounts: { "": "-200" } }, [
+      { date: "2026-11-01", money: [{ kind: "supplierDeposit", amount: "300" }] },
+    ]);
+    expect(below.month.companyPayable.investments).toBe("300");
+    expect(below.closing.cashAccounts).toEqual({ "": "-200" });
+  });
+
+  it("carries the parts through a month split", () => {
+    const days: MonthInput["days"] = [
+      { date: "2026-11-01", money: [{ kind: "companyIncentive", amount: "900" }] },
+      { date: "2026-11-02", products: { A: { orders: [order("1", ["incentive"])] } } },
+    ];
+    const whole = run({}, days);
+    const first = run({}, days.slice(0, 1));
+    const split = computeMonth({
+      products: [{ id: "A", piecesPerCarton: "1" }],
+      opening: first.closing,
+      days: days.slice(1),
+    });
+    expect(split.closing).toEqual(whole.closing);
+    expect(whole.closing.companyIncentiveBalance).toBe("0");
   });
 });

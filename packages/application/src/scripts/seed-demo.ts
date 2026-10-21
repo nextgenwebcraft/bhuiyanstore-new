@@ -1,6 +1,7 @@
 import { todayBusinessDate } from "@bsd/domain";
 import { config } from "dotenv";
 import { createHash, randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createDatabase } from "@bsd/database";
@@ -11,15 +12,18 @@ import { cashAccounts, expenseCategories, staffRoles } from "../configuration";
 import type { AppContext } from "../context";
 import { postDsrDay, postMoneyEntry, postStockEntries, saveDsrDay } from "../daily";
 import { createDamageCase } from "../damage";
+import { ensureMasterCompany } from "../master";
 import { getOpening, saveOpeningCutoff, saveOpeningSection } from "../opening";
 import { createProduct } from "../products";
 import { createShop } from "../shops";
 import { createStaff } from "../staff";
+import { demoSheet } from "./demo-sheet";
 import { addDays, buildSeedPlan, summarizePlan, type SeedPlan } from "./seed-demo-plan";
 
 /**
  * D45: local-only demo company filled from a month sheet, so every screen has data to look at and
- * edit. The workbook is read at runtime and never copied; every write goes through the application
+ * edit. The workbook is read at runtime and never copied; without it the made-up `demoSheet` is
+ * used; every write goes through the application
  * services (validated, audited, idempotent). `--dry-run` builds the plan and prints counts only.
  *
  *   pnpm db:seed-demo -- [--dry-run] [--file "docs/Drinko 2026.xlsx"] [--sheet "Aug 2026"]
@@ -48,7 +52,7 @@ if (addDays(cutoff, 1) > today) {
   throw new Error(`--cutoff ${cutoff}: the cutoff and the day after it must not be after ${today}`);
 }
 
-const read = await readMonthSheetFile(file, sheet);
+const read = existsSync(file) ? await readMonthSheetFile(file, sheet) : demoSheet();
 const plan = buildSeedPlan(read, { companyName, cutoff });
 const print = (lines: string[]) => process.stdout.write(`${lines.join("\n")}\n`);
 
@@ -101,6 +105,11 @@ async function seed(db: ReturnType<typeof createDatabase>, plan: SeedPlan): Prom
     `seed-demo-company-${nameHash}`,
   );
   const companyId = company.company.id;
+  // D65/D66: DSRs and managers are global staff of the master company; SRs stay company-wise.
+  const masterId = await ensureMasterCompany(db, tenantId);
+  const roleKindOf = new Map(plan.people.map((p) => [p.key, p.roleKind]));
+  const isGlobal = (personKey: string | null) =>
+    personKey !== null && roleKindOf.get(personKey) !== "sr";
 
   const categoryId = new Map<string, string>();
   const existingCategories = await expenseCategories.list(ctx);
@@ -165,7 +174,7 @@ async function seed(db: ReturnType<typeof createDatabase>, plan: SeedPlan): Prom
   for (const person of plan.people) {
     const created = await createStaff(
       ctx,
-      companyId,
+      isGlobal(person.key) ? masterId : companyId,
       {
         name: person.name,
         employer: person.employer,
@@ -224,20 +233,21 @@ async function seed(db: ReturnType<typeof createDatabase>, plan: SeedPlan): Prom
     },
     key("opening-stock"),
   );
-  const balances = [
-    ...opening.marketDue,
-    ...opening.shopDue,
-    ...opening.staff,
-    ...opening.company,
-    ...opening.cash,
-  ].map((b) => ({
+  const toLine = (b: (typeof opening.staff)[number]) => ({
     kind: b.kind,
     staffId: need(staffId, b.personKey, "person"),
     cashAccountId: need(accountId, b.cashAccountName, "cash account"),
     shopId: need(shopId, b.shopKey, "shop"),
     amount: b.amount,
     note: b.note,
-  }));
+  });
+  const balances = [
+    ...opening.marketDue,
+    ...opening.shopDue,
+    ...opening.staff.filter((b) => !isGlobal(b.personKey)),
+    ...opening.company,
+    ...opening.cash,
+  ].map(toLine);
   for (const section of openingBalanceSections) {
     view = await saveOpeningSection(
       ctx,
@@ -248,6 +258,26 @@ async function seed(db: ReturnType<typeof createDatabase>, plan: SeedPlan): Prom
         balances: balances.filter((b) => sectionOfBalanceKind(b.kind) === section),
       },
       key("opening-section"),
+    );
+  }
+  // The master's opening: the same cutoff and the global staff's balances (D66).
+  const masterOpening = await getOpening(ctx, masterId);
+  if (!masterOpening.cutoffDate) {
+    const master = await saveOpeningCutoff(
+      ctx,
+      masterId,
+      { version: masterOpening.version, cutoffDate: plan.cutoff },
+      key("master-cutoff"),
+    );
+    await saveOpeningSection(
+      ctx,
+      masterId,
+      {
+        section: "staff",
+        version: master.version,
+        balances: opening.staff.filter((b) => isGlobal(b.personKey)).map(toLine),
+      },
+      key("master-staff"),
     );
   }
 

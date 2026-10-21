@@ -298,6 +298,50 @@ export function useMonthCommand(companyId: string) {
   );
 }
 
+// ------------------------------------------------------------- master panel (D66)
+
+/** Opens (and on first use creates) the master company; super-admin only. */
+export function useMasterWorkspace(enabled = true) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.masterWorkspace(actorId),
+    queryFn: ({ signal }) => service.getMasterWorkspace({ signal }),
+    enabled,
+  });
+}
+
+export function useMasterSummary(companyId: string, range: ReportRange) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.masterSummary(actorId, companyId, range.from, range.to),
+    queryFn: ({ signal }) => service.getMasterSummary(companyId, range, { signal }),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useMasterMonth(companyId: string, month: string) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.masterMonth(actorId, companyId, month),
+    queryFn: ({ signal }) => service.getMasterMonth(companyId, month, { signal }),
+  });
+}
+
+/** Closing or reopening for every company changes every company's figures: refresh them all. */
+export function useMasterMonthCommand(companyId: string) {
+  const service = useService();
+  const actorId = useActorId();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ action, month }: { action: "close" | "reopen"; month: string }) =>
+      service.masterMonthCommand(companyId, month, action),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.actor(actorId) }),
+  });
+}
+
 export function useReport(companyId: string, report: ReportId, range: ReportRange, enabled = true) {
   const service = useService();
   const actorId = useActorId();

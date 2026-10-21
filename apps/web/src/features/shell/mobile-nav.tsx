@@ -39,7 +39,7 @@ export function MobileNav({
   const close = () => dialogRef.current?.close();
   const companyId = workspace.company.id;
   const visible = visibleHubs(workspace);
-  const currentHub = hubOfPath(currentPath)?.id;
+  const currentHub = hubOfPath(currentPath, workspace.company.isMaster)?.id;
   const tabs = TABS.flatMap((tab) => {
     const hub = visible.find((h) => h.id === tab.hub);
     return hub ? [{ ...tab, path: hub.path, icon: hub.icon, active: hub.id === currentHub }] : [];

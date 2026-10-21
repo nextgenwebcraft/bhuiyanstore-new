@@ -23,6 +23,15 @@ export type DaySummary = {
   receivedValue: string;
   /** Cost value of stock at the end of the day. */
   stockValue: string;
+  /** D60: samari value (issued × the day's sale price), returns, damage, shop commission. */
+  issuedValue: string;
+  returnValue: string;
+  damageValue: string;
+  commission: string;
+  /** Category expenses (operating cost). */
+  expenses: string;
+  /** Σ staff shortage entries. */
+  staffShortage: string;
   byDsr: DsrDaySummary[];
 };
 
@@ -67,6 +76,16 @@ export function summarizeDay(day: DayResult, input: DayInput): DaySummary {
     grossProfit: roundSettlement(sum(day.products.map((p) => p.grossProfit))),
     receivedValue: roundSettlement(sum(day.products.map((p) => p.receiptValue))),
     stockValue: roundSettlement(sum(day.products.map((p) => p.stockValue))),
+    issuedValue: roundSettlement(sum(day.products.map((p) => p.issuedValue))),
+    returnValue: roundSettlement(sum(day.products.map((p) => p.returnValue))),
+    damageValue: roundSettlement(sum(day.products.map((p) => p.damageValue))),
+    commission: roundSettlement(toDecimal(day.money.commission)),
+    expenses: roundSettlement(toDecimal(day.money.expenses)),
+    staffShortage: roundSettlement(
+      sum(
+        (input.money ?? []).filter((e) => e.kind === "staffShortage").map((e) => String(e.amount)),
+      ),
+    ),
     byDsr: [...dsr].map(([staffId, v]) => ({
       staffId,
       netSales: roundSettlement(v.sales),

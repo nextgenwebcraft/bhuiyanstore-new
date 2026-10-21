@@ -55,4 +55,17 @@ describe("DSR cash handover (D39)", () => {
       }),
     ).toEqual({ expected: "100.00", handedOver: null, difference: null });
   });
+
+  it("staff advances and shortages lower the expected cash, repayments raise it (D62)", () => {
+    expect(
+      dsrCashSettlement({
+        sales: "5000",
+        dueGiven: "0",
+        dueCollected: "0",
+        expenses: "0",
+        staffMoney: "-300",
+        handedOver: "4700",
+      }),
+    ).toEqual({ expected: "4700.00", handedOver: "4700.00", difference: "0.00" });
+  });
 });

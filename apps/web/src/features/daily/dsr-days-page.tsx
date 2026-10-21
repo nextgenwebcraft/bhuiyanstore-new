@@ -19,9 +19,9 @@ import {
 } from "@bsd/domain";
 import { useAsyncAction } from "@/lib/async-action";
 import { formatCount, formatDateTime, formatRate, t } from "@bsd/i18n";
-import { useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/button";
-import { PageHeader } from "@/components/page-header";
 import { QueryError } from "@/components/query-error";
 import { ListSkeleton } from "@/components/skeleton";
 import { StatTile } from "@/components/stat-tile";
@@ -36,18 +36,11 @@ import {
   useStaffRecords,
 } from "@/data/queries";
 import { ShopDueEntry } from "@/features/shops/shop-due-entry";
+import { StaffCashEntry } from "./staff-cash-entry";
 import { NavGate } from "@/features/shell/nav-gate";
 import { PrintButton, PrintHeader } from "@/features/shell/print";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
-import {
-  CellInput,
-  DateBar,
-  DateHeading,
-  DayGate,
-  SectionTitle,
-  clean,
-  useWorkingDate,
-} from "./daily-kit";
+import { CellInput, DateBar, DayGate, SectionTitle, clean, useWorkingDate } from "./daily-kit";
 import {
   CartonQty,
   StatusChip,
@@ -103,19 +96,10 @@ const blankLine: LineDraft = {
 };
 const isAmount = (value: string) => /^\d+(\.\d{1,2})?$/.test(value);
 
-/** DSRs assigned to the company on the date (D23: product custody is DSR-only). */
-export function dsrsOn(records: StaffRecord[], companyId: string, date: string) {
-  return records.filter((s) =>
-    s.assignments.some(
-      (a) =>
-        a.companyId === companyId &&
-        a.roleKind === "dsr" &&
-        a.from <= date &&
-        (a.to === null || a.to >= date),
-    ),
-  );
+/** Every DSR, always (D65: DSRs are global staff of the master company; any DSR assignment counts). */
+export function dsrsOn(records: StaffRecord[]) {
+  return records.filter((s) => s.assignments.some((a) => a.roleKind === "dsr"));
 }
-
 /** One line's FIFO allocation as small muted text: "ব্যাচ ১: ৪০ পিস @ ৳২০"; a net return reads "ফেরত ব্যাচ ১: ৫ পিস" (D49). */
 function allocationText(allocations: LineAllocation[]): string {
   return allocations
@@ -337,25 +321,24 @@ function FieldEntries({
   );
 }
 
-/** Day-end cash check (D39). Posting the sheet settles the difference as the DSR's shortage or excess (D54). */
+/** Day-end cash check (D39, D62): the difference is shown only, never posted. */
 function CashCheck({
   sales,
   dueGiven,
   dueCollected,
   expenses,
+  staffMoney,
   handedOver,
   locked,
-  settled,
   onHandedOver,
 }: {
   sales: string;
   dueGiven: string;
   dueCollected: string;
   expenses: string;
+  staffMoney: string;
   handedOver: string;
   locked: boolean;
-  /** The difference shown is already posted (D54). */
-  settled: boolean;
   onHandedOver: (value: string) => void;
 }) {
   const handed = clean(handedOver);
@@ -364,6 +347,7 @@ function CashCheck({
     dueGiven,
     dueCollected,
     expenses,
+    staffMoney,
     handedOver: handed && /^\d+(\.\d{1,2})?$/.test(handed) ? handed : null,
   });
   const diff = settlement.difference;
@@ -377,6 +361,7 @@ function CashCheck({
             ["dsr.cash.dueGiven", dueGiven],
             ["dsr.cash.dueCollected", dueCollected],
             ["dsr.cash.expenses", expenses],
+            ["dsr.cash.staffMoney", staffMoney],
             ["dsr.cash.expected", settlement.expected],
           ] as const
         ).map(([key, value]) => (
@@ -413,11 +398,6 @@ function CashCheck({
           {toDecimal(diff).gt(0) ? ` (${t("dsr.cash.excess")})` : ""}
         </p>
       ) : null}
-      {diff !== null && !toDecimal(diff).isZero() ? (
-        <p className="text-sm text-text-muted">
-          {settled ? t("dsr.cash.posted") : t("dsr.cash.willPost")}
-        </p>
-      ) : null}
       <p className="text-xs text-text-muted">{t("dsr.cash.hint")}</p>
     </section>
   );
@@ -430,7 +410,6 @@ function SheetEditor({
   sheet,
   history,
   view,
-  onBack,
 }: {
   companyId: string;
   date: string;
@@ -438,7 +417,6 @@ function SheetEditor({
   sheet: DsrDay | undefined;
   history: DsrDay[];
   view: DayView;
-  onBack: () => void;
 }) {
   const { permissions } = useCurrentWorkspace();
   const save = useSaveDsrDay(companyId);
@@ -482,6 +460,10 @@ function SheetEditor({
       ? field.totals.dueCollected
       : sumAmounts([entrySum("marketDueCollected"), sheetDue(sheet?.marketDueCollected)]),
     expenses: entrySum("staffCostPaid"),
+    staffMoney: toDecimal(entrySum("staffRepayment"))
+      .sub(toDecimal(entrySum("staffAdvance")))
+      .sub(toDecimal(entrySum("staffShortage")))
+      .toString(),
   };
 
   /** Firot = samari still in hand, damaged = pieces exchanged at shops. */
@@ -589,11 +571,6 @@ function SheetEditor({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <Button onClick={onBack}>← {t("dsr.sheet.back")}</Button>
-        <h2 className="text-lg font-semibold">{staff.name}</h2>
-        <StatusChip status={sheet?.status ?? "none"} />
-      </div>
       {posted ? (
         <StatePanel title={t(canCorrect ? "dsr.sheet.postedEditHint" : "dsr.sheet.postedHint")} />
       ) : null}
@@ -730,11 +707,11 @@ function SheetEditor({
         date={date}
         fieldOwned={field !== null}
       />
+      <StaffCashEntry companyId={companyId} staffId={staff.id} date={date} />
       <CashCheck
         {...cash}
         handedOver={draft.handedOver}
         locked={locked}
-        settled={posted && !dirty}
         onHandedOver={(handedOver) => setDraft((d) => ({ ...d, handedOver }))}
       />
       {shownError ? <StatePanel tone="error" title={shownError} /> : null}
@@ -786,10 +763,21 @@ function SheetEditor({
   );
 }
 
-function Sheets({ companyId, date, view }: { companyId: string; date: string; view: DayView }) {
+function Sheets({
+  companyId,
+  date,
+  view,
+  open,
+  setOpen,
+}: {
+  companyId: string;
+  date: string;
+  view: DayView;
+  open: string | null;
+  setOpen: (staffId: string | null) => void;
+}) {
   const records = useStaffRecords(companyId);
   const sheets = useDsrDays(companyId, date);
-  const [open, setOpen] = useState<string | null>(null);
 
   if (records.isPending || sheets.isPending) return <ListSkeleton rows={4} action />;
   if (records.isError)
@@ -797,7 +785,7 @@ function Sheets({ companyId, date, view }: { companyId: string; date: string; vi
   if (sheets.isError)
     return <QueryError error={sheets.error} onRetry={() => void sheets.refetch()} />;
 
-  const dsrs = dsrsOn(records.data, companyId, date);
+  const dsrs = dsrsOn(records.data);
   const live = (staffId: string) =>
     sheets.data.find((s) => s.staffId === staffId && s.status !== "reversed");
   const selected = dsrs.find((d) => d.id === open);
@@ -812,7 +800,6 @@ function Sheets({ companyId, date, view }: { companyId: string; date: string; vi
         sheet={sheet}
         history={sheets.data.filter((s) => s.staffId === selected.id && s.status === "reversed")}
         view={view}
-        onBack={() => setOpen(null)}
       />
     );
   }
@@ -914,25 +901,81 @@ function DsrList({
   );
 }
 
+/** The toolbar's left side: back to the list, the open DSR's name and the sheet's status. */
+function OpenDsr({
+  companyId,
+  date,
+  staffId,
+  onBack,
+}: {
+  companyId: string;
+  date: string;
+  staffId: string;
+  onBack: () => void;
+}) {
+  const records = useStaffRecords(companyId);
+  const sheets = useDsrDays(companyId, date);
+  const name = records.data?.find((s) => s.id === staffId)?.name ?? "";
+  const sheet = sheets.data?.find((s) => s.staffId === staffId && s.status !== "reversed");
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      <Button onClick={onBack}>← {t("dsr.sheet.back")}</Button>
+      <h2 className="text-lg font-semibold">{name}</h2>
+      <StatusChip status={sheet?.status ?? "none"} />
+    </div>
+  );
+}
+
 export function DsrDaysPage() {
   const { company } = useCurrentWorkspace();
   const [date, setDate] = useWorkingDate();
+  const router = useRouter();
+  const pathname = usePathname();
+  const search = useSearchParams();
+  // The open DSR lives in the address (?dsr=), so a reload keeps the sheet and Back returns to the list.
+  const open = search.get("dsr");
+  const setOpen = (staffId: string | null) => {
+    const query = new URLSearchParams(search.toString());
+    if (staffId) query.set("dsr", staffId);
+    else query.delete("dsr");
+    const text = query.toString();
+    router.push(text ? `${pathname}?${text}` : pathname, { scroll: true });
+  };
+  useEffect(() => {
+    // Opening or leaving a sheet starts the page at its top.
+    window.scrollTo({ top: 0 });
+    document.querySelector("main")?.scrollTo({ top: 0 });
+  }, [open]);
   return (
     <NavGate path={PATH}>
-      <PageHeader
-        title={t("nav.sales.dailySummaries")}
-        description={t("dsr.sheet.description")}
-        actions={
-          <>
-            <DateBar date={date} onChange={setDate} />
-            <PrintButton />
-          </>
-        }
-      />
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          {open ? (
+            <OpenDsr
+              companyId={company.id}
+              date={date}
+              staffId={open}
+              onBack={() => setOpen(null)}
+            />
+          ) : null}
+        </div>
+        <div className="flex flex-wrap gap-2 print:hidden">
+          <DateBar date={date} onChange={setDate} />
+          <PrintButton />
+        </div>
+      </div>
       <PrintHeader title={t("nav.sales.dailySummaries")} from={date} />
-      <DateHeading date={date} />
       <DayGate companyId={company.id} date={date} skeleton={<ListSkeleton rows={4} action />}>
-        {(view) => <Sheets key={date} companyId={company.id} date={date} view={view} />}
+        {(view) => (
+          <Sheets
+            key={date}
+            companyId={company.id}
+            date={date}
+            view={view}
+            open={open}
+            setOpen={setOpen}
+          />
+        )}
       </DayGate>
     </NavGate>
   );

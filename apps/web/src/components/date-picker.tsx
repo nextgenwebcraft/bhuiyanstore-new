@@ -19,7 +19,7 @@ const sorted = (a: string, b: string): [string, string] => (a <= b ? [a, b] : [b
 
 // ---------------------------------------------------------------- popover
 
-type PanelApi = { close: () => void; open: boolean };
+export type PanelApi = { close: () => void; open: boolean };
 
 function placePanel(trigger: HTMLElement, panel: HTMLElement, align: "start" | "end") {
   const edge = 8;
@@ -43,7 +43,7 @@ function placePanel(trigger: HTMLElement, panel: HTMLElement, align: "start" | "
  * A trigger button and a panel in the browser's top layer (native popover: light dismiss, Esc,
  * never clipped by a scrolling table), placed under the trigger or above it when there is no room.
  */
-function Popover({
+export function Popover({
   id,
   label,
   disabled,

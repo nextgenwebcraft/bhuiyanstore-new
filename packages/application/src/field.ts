@@ -35,6 +35,7 @@ import { fromDbDate, toDbDate } from "./dates";
 import { invalid, parseInput } from "./errors";
 import { isUniqueViolation, runIdempotent } from "./idempotency";
 import { runLedger } from "./ledger";
+import { staffCompanyIds } from "./master";
 import { plain } from "./numeric";
 import { packOn } from "./products";
 import { getStaffRecord } from "./staff";
@@ -84,7 +85,7 @@ async function fieldStaffId(
       id: requested,
       tenantId: ctx.actor.tenantId,
       status: "active",
-      assignments: { some: { companyId } },
+      assignments: { some: { companyId: { in: await staffCompanyIds(db, companyId) } } },
     },
     select: { id: true },
   });
@@ -539,7 +540,7 @@ export async function createStaffLogin(
           where: {
             id: staffId,
             tenantId: ctx.actor.tenantId,
-            assignments: { some: { companyId } },
+            assignments: { some: { companyId: { in: await staffCompanyIds(tx, companyId) } } },
           },
         });
         if (!staff) throw invalid("id", "validation.staff.unknown");

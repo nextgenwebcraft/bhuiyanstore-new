@@ -24,15 +24,16 @@ import {
   type StockEntryKind,
 } from "@bsd/contracts";
 import type { Prisma } from "@bsd/database";
+import { randomUUID } from "node:crypto";
 import {
   MONEY_KIND_EFFECTS,
-  dsrCashSettlement,
   monthOf,
   sumAmounts,
   sumQuantities,
   summarizeDay,
   toDecimal,
   todayBusinessDate,
+  type MonthOutput,
 } from "@bsd/domain";
 import {
   loadCompanyAccess,
@@ -47,6 +48,8 @@ import { AppError, invalid, parseInput } from "./errors";
 import { hasFieldVisits, postFieldVisits, reverseFieldVisits } from "./field-posting";
 import { isUniqueViolation, runIdempotent } from "./idempotency";
 import { cashDefaults, liveOpening, allocationOf, namesFor, rangeRun, runLedger } from "./ledger";
+import { staffCompanyIds } from "./master";
+import { staffRun } from "./staff-ledger";
 import { parseReportRange } from "./report-range";
 import { plain } from "./numeric";
 import { insertShop } from "./shop-rows";
@@ -107,10 +110,18 @@ export async function roleOn(
   date: string,
 ): Promise<RoleKind | null> {
   const day = toDbDate(date);
-  const assignment = await db.staffAssignment.findFirst({
-    where: { companyId, staffId, from: { lte: day }, OR: [{ to: null }, { to: { gte: day } }] },
+  const companyIds = await staffCompanyIds(db, companyId);
+  const assignments = await db.staffAssignment.findMany({
+    where: {
+      companyId: { in: companyIds },
+      staffId,
+      from: { lte: day },
+      OR: [{ to: null }, { to: { gte: day } }],
+    },
     include: { role: true },
   });
+  const assignment =
+    assignments.find((a) => a.companyId === companyId) ?? assignments.at(0) ?? null;
   return assignment ? (assignment.role.kind as RoleKind) : null;
 }
 
@@ -121,6 +132,7 @@ const STOCK_PERMISSION: Record<StockEntryKind, PermissionId> = {
   receipt: "purchase.post",
   damage: "damage.report",
   incentive: "purchase.post",
+  damageDeposit: "payment.post",
 };
 
 const stockInclude = { product: { select: { sku: true, name: true } } } as const;
@@ -138,6 +150,9 @@ function toStockEntry(row: StockRow): StockEntry {
     freePieces: row.freePieces === null ? null : plain(row.freePieces),
     cartonRate: row.cartonRate === null ? null : plain(row.cartonRate),
     piecesPerCarton: row.piecesPerCarton,
+    unitPrice: row.unitPrice === null ? null : plain(row.unitPrice),
+    fundFrom: row.fundFrom,
+    orderGroup: row.orderGroup,
     status: row.status,
     createdAt: row.createdAt.toISOString(),
     reversedAt: iso(row.reversedAt),
@@ -208,6 +223,8 @@ export async function postStockEntries(
       // D57: an order's per-piece price (carton rate ÷ carton size) becomes the current order
       // price, so excess receipts and the order price display follow the latest order.
       const orderPrices = new Map<string, string>();
+      // D63: orders posted together share a group and the balance parts named to pay them.
+      const orderGroup = randomUUID();
       if (request.lines.length) {
         await tx.stockEntry.createMany({
           data: request.lines.map((line) => {
@@ -219,6 +236,7 @@ export async function postStockEntries(
                 kind: line.kind,
                 productId: line.productId,
                 pieces: line.pieces,
+                ...(line.kind === "damageDeposit" ? { unitPrice: line.unitPrice ?? "0" } : {}),
                 createdById: ctx.actor.userId,
               };
             }
@@ -240,6 +258,8 @@ export async function postStockEntries(
               freePieces: line.freePieces ?? "0",
               cartonRate,
               piecesPerCarton,
+              fundFrom: request.fundFrom,
+              orderGroup,
               createdById: ctx.actor.userId,
             };
           }),
@@ -519,50 +539,9 @@ export async function saveDsrDay(
 }
 
 /**
- * D54: posting a sheet with the cash handed over settles the difference to what was expected
- * (D39 formula): short becomes a staff shortage, over a staff excess, both owned by the day (they
- * carry its id, are refused individual reversal and are reversed with the day). Runs in the posting
- * transaction after the sheet is posted, so the engine day already counts it.
- */
-async function settleHandover(
-  tx: Tx,
-  ctx: AppContext,
-  access: CompanyAccess,
-  day: { id: string; staffId: string; date: string; cashHandedOver: Parameters<typeof plain>[0] },
-): Promise<void> {
-  if (day.cashHandedOver === null) return;
-  const run = await runLedger(tx, access, day.date);
-  const money = run?.output.days
-    .find((d) => d.date === day.date)
-    ?.dsrs.find((d) => d.staffId === day.staffId);
-  const cash = dsrCashSettlement({
-    sales: money?.sales ?? "0",
-    dueGiven: money?.marketDueNew ?? "0",
-    dueCollected: money?.marketDueCollected ?? "0",
-    expenses: money?.costPaid ?? "0",
-    handedOver: plain(day.cashHandedOver),
-  });
-  const difference = toDecimal(cash.difference ?? "0");
-  if (difference.isZero()) return;
-  const defaults = await cashDefaults(tx, access.company.tenantId, access.company.id);
-  await tx.moneyEntry.create({
-    data: {
-      tenantId: access.company.tenantId,
-      companyId: access.company.id,
-      date: toDbDate(day.date),
-      kind: difference.isNegative() ? "staffShortage" : "staffExcess",
-      amount: difference.abs().toString(),
-      staffId: day.staffId,
-      dsrDayId: day.id,
-      cashAccountId: defaults.cash || null,
-      createdById: ctx.actor.userId,
-    },
-  });
-}
-
-/**
- * Posts or reverses a sheet with everything it owns: the field visits' dues and exchange case (D40)
- * and the handover settlement (D54). The stock check is left to the caller.
+ * Posts or reverses a sheet with everything it owns: the field visits' dues and exchange case
+ * (D40). The handover difference is shown only (D62); reversing still removes entries an earlier
+ * posting created (D54 history). The stock check is left to the caller.
  */
 async function moveDsrDay(
   tx: Tx,
@@ -584,7 +563,6 @@ async function moveDsrDay(
   const day = { id: row.id, staffId: row.staffId, date: fromDbDate(row.date) };
   if (to === "posted") {
     await postFieldVisits(tx, ctx, access, { ...row, ...day });
-    await settleHandover(tx, ctx, access, { ...day, cashHandedOver: row.cashHandedOver });
   } else {
     await reverseFieldVisits(tx, ctx, access.company.id, day);
   }
@@ -752,7 +730,7 @@ async function checkOwedLimits(
 ): Promise<void> {
   const offset = request.kind === "staffOffset" || request.kind === "srOffset";
   if (!request.staffId || (!allocation && !offset)) return;
-  const run = await runLedger(tx, access, request.date);
+  const run = await staffRun(tx, access.company.tenantId, request.date);
   const b = run?.output.closing.staff[request.staffId];
   const owed = (key: "advance" | "loan" | "shortage" | "credit" | "srLoan" | "owedToSr") =>
     toDecimal(b?.[key] ?? "0");
@@ -1091,6 +1069,9 @@ export async function getDayView(
               "0",
               ...run.output.month.products.map((p) => p.dueFromCompany),
             ]),
+            damageBalance: run.output.month.companyPayable.damageBalance,
+            incentiveBalance: run.output.month.companyPayable.incentiveBalance,
+            totalCash: sumAmounts(["0", ...run.output.month.cashBook.map((a) => a.closing)]),
           }
         : null,
     marketDueOutstanding: run?.output.month.marketDue.closing ?? "0",
@@ -1117,7 +1098,19 @@ export async function getDashboardSummary(
   query: unknown,
 ): Promise<DashboardSummary> {
   const access = await requirePermission(ctx, companyId, "company.view");
-  const range = parseReportRange(query);
+  return (await dashboardOf(ctx, access, parseReportRange(query))).summary;
+}
+
+/** The dashboard summary plus the engine's profit over the range (the master panel's P&L). */
+export async function dashboardOf(
+  ctx: AppContext,
+  access: CompanyAccess,
+  range: { from: string; to: string },
+): Promise<{
+  summary: DashboardSummary;
+  profit: MonthOutput["month"]["profit"] | null;
+}> {
+  const companyId = access.company.id;
   const canSeeCost = access.permissions.includes("inventory.cost_view");
   const canSeeProfit = canSeeCost && access.permissions.includes("report.profit_view");
   const dates = { gte: toDbDate(range.from), lte: toDbDate(range.to) };
@@ -1162,7 +1155,7 @@ export async function getDashboardSummary(
     };
   });
 
-  return dashboardSummarySchema.parse({
+  const summary = dashboardSummarySchema.parse({
     from: range.from,
     to: range.to,
     cutoffDate: active?.cutoffDate ?? null,
@@ -1171,7 +1164,17 @@ export async function getDashboardSummary(
     oldDuesCollected: total((s) => s.oldDuesCollected),
     cashCollected: total((s) => s.cashCollected),
     marketDueCreated: total((s) => s.marketDueCreated),
+    marketDueOpening: run?.output.month.marketDue.opening ?? "0.00",
     marketDueOutstanding: run?.output.month.marketDue.closing ?? "0.00",
+    issuedValue: total((s) => s.issuedValue),
+    returnValue: total((s) => s.returnValue),
+    commission: total((s) => s.commission),
+    ...(access.permissions.includes("finance.view")
+      ? {
+          expenses: total((s) => s.expenses),
+          staffShortage: total((s) => s.staffShortage),
+        }
+      : {}),
     postedSummaryCount: sheets,
     postedReceiptCount: receipts,
     byDsr,
@@ -1201,7 +1204,10 @@ export async function getDashboardSummary(
       ? {
           receivedValue: total((s) => s.receivedValue),
           stockValue: summaries.at(-1)?.stockValue ?? "0.00",
+          damageValue: total((s) => s.damageValue),
+          undeliveredValue: run.output.month.companyPayable.undeliveredClosing,
         }
       : {}),
   });
+  return { summary, profit: canSeeProfit && run ? run.output.month.profit : null };
 }

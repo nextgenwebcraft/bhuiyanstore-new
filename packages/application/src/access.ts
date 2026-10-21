@@ -15,6 +15,7 @@ export type CompanyAccess = {
     themeAccent: string | null;
     logoRef: string | null;
     blockNegativeStock: boolean;
+    isMaster: boolean;
     status: string;
     modules: { module: string }[];
   };
@@ -46,6 +47,8 @@ export async function loadCompanyAccess(
   ]);
   if (!company) throw new AppError("COMPANY_NOT_FOUND");
   if (ctx.actor.isSuperAdmin) return { company, permissions: [...permissionIds] };
+  // D66: only a super-admin opens the master company.
+  if (company.isMaster) throw new AppError("COMPANY_NOT_FOUND");
   if (!membership) throw new AppError("COMPANY_NOT_FOUND");
   const granted = new Set<PermissionId>();
   for (const { role } of membership.roles) {

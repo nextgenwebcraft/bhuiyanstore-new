@@ -18,11 +18,20 @@ describe("formatBusinessDate", () => {
 });
 
 describe("formatRate", () => {
-  it("trims trailing zeros to at least 2 places without rounding", () => {
+  it("shows exactly 2 places, rounded half up (D61)", () => {
     expect(formatRate("25.000000")).toBe("২৫.০০");
     expect(formatRate("18.500000")).toBe("১৮.৫০");
-    expect(formatRate("21.645400")).toBe("২১.৬৪৫৪");
+    expect(formatRate("21.645400")).toBe("২১.৬৫");
+    expect(formatRate("22.545149793428963984687347175391972387")).toBe("২২.৫৫");
     expect(formatRate("33")).toBe("৩৩.০০");
+  });
+});
+
+describe("display precision (D61)", () => {
+  it("never shows more than 2 decimal places", () => {
+    expect(formatAmount("22.610889619366514")).toBe("২২.৬১");
+    expect(formatCount("3.14159")).toBe("৩.১৪");
+    expect(formatMoney("-0.004")).toBe("০.০০");
   });
 });
 

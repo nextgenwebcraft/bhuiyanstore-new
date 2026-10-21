@@ -11,8 +11,10 @@ import {
   loadCompanyAccess,
   requirePermission,
   requireSuperAdmin,
+  requireSuperAdminView,
   type CompanyAccess,
 } from "./access";
+import { ensureMasterCompany } from "./master";
 import { recordAudit } from "./audit";
 import type { AppContext, Tx } from "./context";
 import { AppError, parseInput } from "./errors";
@@ -33,6 +35,7 @@ function toCompany(company: CompanyAccess["company"]): Company {
     },
     modules: company.modules.map((m) => m.module).sort(),
     blockNegativeStock: company.blockNegativeStock,
+    isMaster: company.isMaster,
   });
 }
 
@@ -74,12 +77,16 @@ function toWorkspace(ctx: AppContext, access: CompanyAccess): CompanyWorkspace {
 const duplicateName = () =>
   new AppError("VALIDATION_FAILED", [{ path: "name", code: "validation.company.duplicateName" }]);
 
-/** Active companies the actor can enter; a super-admin sees every company of the tenant. */
+/**
+ * Active companies the actor can enter; a super-admin sees every company of the tenant. The
+ * master company is not listed (D66): it opens through `getMasterWorkspace`.
+ */
 export async function listWorkspaces(ctx: AppContext): Promise<CompanyWorkspace[]> {
   const companies = await ctx.db.company.findMany({
     where: {
       tenantId: ctx.actor.tenantId,
       status: "active",
+      isMaster: false,
       ...(ctx.actor.isSuperAdmin ? {} : { memberships: { some: { userId: ctx.actor.userId } } }),
     },
     orderBy: { name: "asc" },
@@ -94,6 +101,13 @@ export async function listWorkspaces(ctx: AppContext): Promise<CompanyWorkspace[
 
 export async function getWorkspace(ctx: AppContext, companyId: string): Promise<CompanyWorkspace> {
   return toWorkspace(ctx, await loadCompanyAccess(ctx, companyId));
+}
+
+/** The master panel (D66), created on first open; super-admin only. */
+export async function getMasterWorkspace(ctx: AppContext): Promise<CompanyWorkspace> {
+  requireSuperAdminView(ctx);
+  const companyId = await ensureMasterCompany(ctx.db, ctx.actor.tenantId);
+  return getWorkspace(ctx, companyId);
 }
 
 /** Super-admin only: companies are tenant-level configuration (D28, guide §4.4). */

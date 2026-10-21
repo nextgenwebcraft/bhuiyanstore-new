@@ -9,6 +9,7 @@ import {
   shiftBusinessDate,
   sumQuantities,
   toMonthOpening,
+  type CompanyFund,
   type DayInput,
   type DsrLineInput,
   type MoneyEntryInput,
@@ -42,7 +43,7 @@ const ENGINE_PRICE: Record<string, PriceKind> = {
 
 /** D53: godown damage is its own engine input (stock and cost fall, no sales), not product-level damaged. */
 const STOCK_FIELD: Record<
-  StockEntryKind,
+  Exclude<StockEntryKind, "damageDeposit">,
   "ordered" | "received" | "godownDamaged" | "incentiveReceived"
 > = {
   order: "ordered",
@@ -289,12 +290,26 @@ async function rangeInput(
           cartonRate: plain(entry.cartonRate),
           piecesPerCarton: String(entry.piecesPerCarton),
           ref: entry.id,
+          ...(entry.fundFrom.length > 0 ? { fundFrom: entry.fundFrom as CompanyFund[] } : {}),
+          ...(entry.orderGroup ? { group: entry.orderGroup } : {}),
         },
       ];
       continue;
     }
+    if (entry.kind === "damageDeposit") {
+      // D63: damaged pieces handed to the company for money: they leave damaged stock and the
+      // company returns their value at once (a dispatch plus a money return).
+      const target = dayProduct(fromDbDate(entry.date), entry.productId);
+      const pieces = plain(entry.pieces);
+      target.companyDispatched = sumQuantities([target.companyDispatched ?? "0", pieces]);
+      target.companyRefunds = [
+        ...(target.companyRefunds ?? []),
+        { quantity: pieces, unitCost: plain(entry.unitPrice) ?? "0", ref: entry.id },
+      ];
+      continue;
+    }
     const target = dayProduct(fromDbDate(entry.date), entry.productId) as Record<string, string>;
-    const field = STOCK_FIELD[entry.kind as StockEntryKind] ?? "godownDamaged";
+    const field = STOCK_FIELD[entry.kind as keyof typeof STOCK_FIELD] ?? "godownDamaged";
     target[field] = sumQuantities([target[field] ?? "0", plain(entry.pieces)]);
   }
 
@@ -369,6 +384,7 @@ async function rangeInput(
     })),
     opening: { ...opening, products: openingProducts },
     days: [...days].map(([date, day]) => ({ date, ...dayDefaults, ...day })),
+    staffWarnings: false,
   };
 }
 

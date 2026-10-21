@@ -154,7 +154,9 @@ async function checkMemberships(tx: Tx, ctx: AppContext, memberships: Membership
   }
   const roleIds = [...new Set(memberships.flatMap((m) => m.roleIds))];
   const [companies, roles] = await Promise.all([
-    tx.company.count({ where: { id: { in: companyIds }, tenantId: ctx.actor.tenantId } }),
+    tx.company.count({
+      where: { id: { in: companyIds }, tenantId: ctx.actor.tenantId, isMaster: false },
+    }),
     tx.role.count({ where: { id: { in: roleIds }, tenantId: ctx.actor.tenantId } }),
   ]);
   if (companies !== companyIds.length)

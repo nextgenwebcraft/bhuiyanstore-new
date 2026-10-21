@@ -213,6 +213,36 @@ const STOCK_COLUMNS: Column[] = [
   { key: "day.column.stockValue", cell: amount("stockValue"), needs: "cost", total: "stockValue" },
 ];
 
+const UNDELIVERED_COLUMNS: Column[] = [
+  qty("day.column.dueFromCompany", "dueFromCompany"),
+  {
+    key: "undelivered.column.value",
+    cell: amount("dueFromCompanyValue"),
+    needs: "cost",
+    total: "dueFromCompanyValue",
+  },
+];
+
+/** Goods ordered from the company and not yet received at the end of the date (D64). */
+export function UndeliveredPage() {
+  return (
+    <DayPage
+      path="inventory/undelivered"
+      title="nav.inventory.undelivered"
+      description="undelivered.description"
+    >
+      {(view) => {
+        const due = view.products.filter((p) => !toDecimal(p.dueFromCompany).isZero());
+        return due.length === 0 ? (
+          <StatePanel title={t("undelivered.empty")} />
+        ) : (
+          <ProductTable view={{ ...view, products: due }} columns={UNDELIVERED_COLUMNS} />
+        );
+      }}
+    </DayPage>
+  );
+}
+
 export function StockPage() {
   const [batches, setBatches] = useState(true);
   return (
