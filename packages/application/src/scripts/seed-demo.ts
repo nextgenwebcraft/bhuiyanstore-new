@@ -1,6 +1,6 @@
-import { todayBusinessDate } from "@bsd/domain";
+import { Decimal, toDecimal, todayBusinessDate } from "@bsd/domain";
 import { config } from "dotenv";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,7 +10,7 @@ import { readMonthSheetFile } from "@bsd/importer";
 import { createCompany } from "../companies";
 import { cashAccounts, expenseCategories, staffRoles } from "../configuration";
 import type { AppContext } from "../context";
-import { postDsrDay, postMoneyEntry, postStockEntries, saveDsrDay } from "../daily";
+import { getDayView, postDsrDay, postMoneyEntry, postStockEntries, saveDsrDay } from "../daily";
 import { createDamageCase } from "../damage";
 import { ensureMasterCompany } from "../master";
 import { getOpening, saveOpeningCutoff, saveOpeningSection } from "../opening";
@@ -78,21 +78,22 @@ async function seed(db: ReturnType<typeof createDatabase>, plan: SeedPlan): Prom
   if (await db.company.findFirst({ where: { tenantId, name: plan.companyName } })) {
     throw new Error(`company "${plan.companyName}" already exists; nothing was changed`);
   }
+  const runId = randomUUID();
   const ctx: AppContext = {
     db,
     actor: { userId: admin.id, tenantId, isSuperAdmin: true, mustChangePassword: false },
-    requestId: `seed-demo-${randomUUID()}`,
+    requestId: `seed-demo-${runId}`,
   };
-  // One counter per step name gives every write the key "seed-demo-<step>-<n>".
+  // One counter per step name gives every write the key "seed-demo-<run>-<step>-<n>". A run is
+  // never retried (the name check above refuses it), so keys must not replay an earlier run's.
   const counters = new Map<string, number>();
   const key = (step: string): string => {
     const n = (counters.get(step) ?? 0) + 1;
     counters.set(step, n);
-    return `seed-demo-${step}-${n}`;
+    return `seed-demo-${runId}-${step}-${n}`;
   };
 
   // ---- company and tenant-wide lists (reused by name when they exist)
-  const nameHash = createHash("sha1").update(plan.companyName).digest("hex").slice(0, 8);
   const company = await createCompany(
     ctx,
     {
@@ -102,7 +103,7 @@ async function seed(db: ReturnType<typeof createDatabase>, plan: SeedPlan): Prom
       blockNegativeStock: false,
       starterData: false,
     },
-    `seed-demo-company-${nameHash}`,
+    key("company"),
   );
   const companyId = company.company.id;
   // D65/D66: DSRs and managers are global staff of the master company; SRs stay company-wise.
@@ -172,6 +173,22 @@ async function seed(db: ReturnType<typeof createDatabase>, plan: SeedPlan): Prom
   }
   const staffId = new Map<string, string>();
   for (const person of plan.people) {
+    // A global person an earlier demo company already created is reused by name and role kind.
+    const existing = isGlobal(person.key)
+      ? await db.staff.findFirst({
+          where: {
+            tenantId,
+            name: person.name,
+            status: "active",
+            assignments: { some: { companyId: masterId, role: { kind: person.roleKind } } },
+          },
+          select: { id: true },
+        })
+      : null;
+    if (existing) {
+      staffId.set(person.key, existing.id);
+      continue;
+    }
     const created = await createStaff(
       ctx,
       isGlobal(person.key) ? masterId : companyId,
@@ -241,12 +258,34 @@ async function seed(db: ReturnType<typeof createDatabase>, plan: SeedPlan): Prom
     amount: b.amount,
     note: b.note,
   });
+  // A cash account is opened by one company only; a later demo company leaves it out.
+  const openedElsewhere = new Set(
+    (
+      await db.openingBalanceLine.findMany({
+        where: {
+          kind: "cash",
+          amount: { not: null },
+          cashAccountId: { not: null },
+          session: { tenantId, companyId: { not: companyId } },
+        },
+        select: { cashAccountId: true },
+      })
+    ).map((l) => l.cashAccountId),
+  );
+  const cash = opening.cash.filter(
+    (b) => !openedElsewhere.has(need(accountId, b.cashAccountName, "cash account")),
+  );
+  if (cash.length < opening.cash.length) {
+    print([
+      `${opening.cash.length - cash.length} cash opening(s) already opened elsewhere; left out`,
+    ]);
+  }
   const balances = [
     ...opening.marketDue,
     ...opening.shopDue,
     ...opening.staff.filter((b) => !isGlobal(b.personKey)),
     ...opening.company,
-    ...opening.cash,
+    ...cash,
   ].map(toLine);
   for (const section of openingBalanceSections) {
     view = await saveOpeningSection(
@@ -282,19 +321,35 @@ async function seed(db: ReturnType<typeof createDatabase>, plan: SeedPlan): Prom
   }
 
   // ---- the two replayed days: godown, DSR sheets, money entries, damage case
+  // D68: an order names its sale price (the product's current one); a receipt fills the open
+  // batches oldest first, never beyond what is due on them; a DSR line takes the oldest batch in
+  // stock.
+  const salePrice = new Map(
+    opening.stock.map((s) => [need(productId, s.productKey, "product"), s.salePrice ?? "0"]),
+  );
+  let skippedReceipt = 0;
   for (const day of plan.days) {
-    if (day.stock.length || day.prices.length) {
+    for (const p of day.prices) {
+      if (p.kind === "sale") salePrice.set(need(productId, p.productKey, "product") ?? "", p.price);
+    }
+    const stockLine = (l: (typeof day.stock)[number]) => {
+      const id = need(productId, l.productKey, "product") ?? "";
+      return {
+        kind: l.kind,
+        productId: id,
+        pieces: l.pieces,
+        ...(l.cartonRate === undefined ? {} : { cartonRate: l.cartonRate }),
+        ...(l.kind === "order" ? { salePrice: salePrice.get(id) ?? "0" } : {}),
+      };
+    };
+    const others = day.stock.filter((l) => l.kind !== "receipt").map(stockLine);
+    if (others.length || day.prices.length) {
       await postStockEntries(
         ctx,
         companyId,
         {
           date: day.date,
-          lines: day.stock.map((l) => ({
-            kind: l.kind,
-            productId: need(productId, l.productKey, "product"),
-            pieces: l.pieces,
-            ...(l.cartonRate === undefined ? {} : { cartonRate: l.cartonRate }),
-          })),
+          lines: others,
           prices: day.prices.map((p) => ({
             productId: need(productId, p.productKey, "product"),
             kind: p.kind,
@@ -304,6 +359,31 @@ async function seed(db: ReturnType<typeof createDatabase>, plan: SeedPlan): Prom
         key("stock"),
       );
     }
+    const receipts = day.stock.filter((l) => l.kind === "receipt").map(stockLine);
+    if (receipts.length) {
+      const view = await getDayView(ctx, companyId, day.date);
+      const lines = receipts.flatMap((r) => {
+        const lots = view.products.find((p) => p.productId === r.productId)?.lots ?? [];
+        let left = toDecimal(r.pieces);
+        const out = [];
+        for (const lot of lots) {
+          const take = Decimal.min(left, toDecimal(lot.undelivered));
+          if (take.lte(0)) continue;
+          out.push({ ...r, pieces: take.toString(), batchId: lot.id });
+          left = left.sub(take);
+        }
+        if (left.gt(0)) skippedReceipt += 1;
+        return out;
+      });
+      if (lines.length) {
+        await postStockEntries(ctx, companyId, { date: day.date, lines }, key("receipt"));
+      }
+    }
+    const stockView = day.dsrSheets.length ? await getDayView(ctx, companyId, day.date) : null;
+    const oldestBatch = (id: string) =>
+      stockView?.products
+        .find((p) => p.productId === id)
+        ?.batches.find((b) => toDecimal(b.quantity).gt(0))?.key ?? "";
     for (const sheet of day.dsrSheets) {
       const draft = await saveDsrDay(
         ctx,
@@ -313,13 +393,17 @@ async function seed(db: ReturnType<typeof createDatabase>, plan: SeedPlan): Prom
           staffId: need(staffId, sheet.dsrKey, "DSR"),
           version: 0,
           cashHandedOver: null,
-          lines: sheet.lines.map((l) => ({
-            productId: need(productId, l.productKey, "product"),
-            issued: l.issued,
-            returned: l.returned,
-            damaged: l.damaged,
-            commission: l.commission,
-          })),
+          lines: sheet.lines.map((l) => {
+            const id = need(productId, l.productKey, "product") ?? "";
+            return {
+              productId: id,
+              issued: l.issued,
+              returned: l.returned,
+              damaged: l.damaged,
+              commission: l.commission,
+              batchKey: oldestBatch(id),
+            };
+          }),
         },
         key("dsr-save"),
       );
@@ -355,6 +439,11 @@ async function seed(db: ReturnType<typeof createDatabase>, plan: SeedPlan): Prom
         key("damage"),
       );
     }
+  }
+  if (skippedReceipt) {
+    print([
+      `${skippedReceipt} receipt line(s) brought more than was ordered; the excess was left out`,
+    ]);
   }
   return companyId;
 }

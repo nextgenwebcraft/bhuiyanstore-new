@@ -175,14 +175,14 @@ const periodInput = (period: Period, roles: StaffRole[]) => {
   };
 };
 
-type PersonDraft = {
+export type PersonDraft = {
   id?: string;
   name: string;
   employer: StaffEmployer;
   status: RecordStatus;
 };
 
-function PersonDialog({
+export function PersonDialog({
   companyId,
   draft,
   roles,

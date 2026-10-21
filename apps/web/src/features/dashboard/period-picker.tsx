@@ -31,31 +31,35 @@ export function PeriodPicker({
   years.sort((a, b) => Number(b) - Number(a));
 
   return (
-    <div className="flex flex-wrap items-center gap-3">
-      <select
-        aria-label={t("dashboard.period.month")}
-        className={`${inputClass} w-40`}
-        value={month}
-        onChange={(event) => onChange(periodForMonth(`${year}-${event.target.value}`, today))}
-      >
-        {monthNames("long").map((name, index) => (
-          <option key={name} value={String(index + 1).padStart(2, "0")}>
-            {name}
-          </option>
-        ))}
-      </select>
-      <select
-        aria-label={t("dashboard.period.year")}
-        className={`${inputClass} w-28`}
-        value={year}
-        onChange={(event) => onChange(periodForMonth(`${event.target.value}-${month}`, today))}
-      >
-        {years.map((y) => (
-          <option key={y} value={y}>
-            {toBengaliDigits(y)}
-          </option>
-        ))}
-      </select>
+    <div className="flex shrink-0 items-center gap-2">
+      <div className="w-36">
+        <select
+          aria-label={t("dashboard.period.month")}
+          className={inputClass}
+          value={month}
+          onChange={(event) => onChange(periodForMonth(`${year}-${event.target.value}`, today))}
+        >
+          {monthNames("long").map((name, index) => (
+            <option key={name} value={String(index + 1).padStart(2, "0")}>
+              {name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="w-28">
+        <select
+          aria-label={t("dashboard.period.year")}
+          className={inputClass}
+          value={year}
+          onChange={(event) => onChange(periodForMonth(`${event.target.value}-${month}`, today))}
+        >
+          {years.map((y) => (
+            <option key={y} value={y}>
+              {toBengaliDigits(y)}
+            </option>
+          ))}
+        </select>
+      </div>
     </div>
   );
 }

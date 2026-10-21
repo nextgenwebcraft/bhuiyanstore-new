@@ -1,5 +1,6 @@
 import { hashPassword } from "@bsd/auth";
 import {
+  fieldDayEndRequestSchema,
   fieldDaySchema,
   fieldPermissionIds,
   fieldShopCreateRequestSchema,
@@ -29,6 +30,7 @@ import {
   type CompanyAccess,
 } from "./access";
 import { recordAudit } from "./audit";
+import { lastBatchLine, linesByProduct } from "./batches";
 import type { AppContext, Tx } from "./context";
 import { businessDate, postingGuard, roleOn } from "./daily";
 import { fromDbDate, toDbDate } from "./dates";
@@ -188,7 +190,8 @@ async function buildFieldDay(
   if (!staff) throw invalid("staffId", "validation.staff.unknown");
   const visits = visitRows.map(toVisit);
 
-  const issued = new Map(sheet?.lines.map((l) => [l.productId, plain(l.issued)]) ?? []);
+  const sheetLine = linesByProduct(sheet?.lines ?? []);
+  const issued = new Map([...sheetLine].map(([id, l]) => [id, l.issued]));
   const used = new Map<string, { delivered: string; exchanged: string }[]>();
   for (const v of visits) {
     for (const l of v.lines) {
@@ -201,19 +204,39 @@ async function buildFieldDay(
       ...used.keys(),
     ]),
   ];
-  const [products, prices] = await Promise.all([
-    db.product.findMany({
-      where: { companyId, id: { in: productIds } },
-      include: { packs: true },
-      orderBy: { sku: "asc" },
-    }),
-    salePricesOn(db, productIds, date),
-  ]);
+  const catalog = await db.product.findMany({
+    where: { companyId, OR: [{ status: "active" }, { id: { in: productIds } }] },
+    include: { packs: true },
+    orderBy: { sku: "asc" },
+  });
+  const prices = await salePricesOn(
+    db,
+    catalog.map((p) => p.id),
+    date,
+  );
+  const inHand = new Set(productIds);
   const dues = run?.output.closing.shopDue ?? {};
   const sum = (values: string[]) => sumAmounts(values.length ? values : ["0"]);
   const sales = sum(visits.map((v) => v.salesValue));
   const cash = sum(visits.map((v) => v.cashReceived));
   const collected = sum(visits.map((v) => v.dueCollected));
+
+  const toProduct = (p: (typeof catalog)[number]) => {
+    const lines = used.get(p.id) ?? [];
+    return {
+      productId: p.id,
+      sku: p.sku,
+      productName: p.name,
+      piecesPerCarton: String(packOn(p.packs, date)?.piecesPerCarton ?? 1),
+      unitPrice: prices.get(p.id) ?? null,
+      issued: issued.get(p.id) ?? "0",
+      delivered: sumQuantities(lines.map((l) => l.delivered)),
+      exchanged: sumQuantities(lines.map((l) => l.exchanged)),
+      remaining: fieldRemaining(issued.get(p.id) ?? "0", lines),
+      returned: sheetLine.get(p.id)?.returned ?? "0",
+      damaged: sheetLine.get(p.id)?.damaged ?? "0",
+    };
+  };
 
   return fieldDaySchema.parse({
     date,
@@ -221,20 +244,8 @@ async function buildFieldDay(
     staffName: staff.name,
     sheetStatus: sheet ? sheet.status : "none",
     locked: sheet?.status === "posted",
-    products: products.map((p) => {
-      const lines = used.get(p.id) ?? [];
-      return {
-        productId: p.id,
-        sku: p.sku,
-        productName: p.name,
-        piecesPerCarton: String(packOn(p.packs, date)?.piecesPerCarton ?? 1),
-        unitPrice: prices.get(p.id) ?? null,
-        issued: issued.get(p.id) ?? "0",
-        delivered: sumQuantities(lines.map((l) => l.delivered)),
-        exchanged: sumQuantities(lines.map((l) => l.exchanged)),
-        remaining: fieldRemaining(issued.get(p.id) ?? "0", lines),
-      };
-    }),
+    products: catalog.filter((p) => inHand.has(p.id)).map(toProduct),
+    dayEnd: catalog.map(toProduct),
     visits,
     shops: shops.map((s) => ({
       id: s.id,
@@ -369,7 +380,9 @@ export async function saveFieldVisit(
       if (products.length !== productIds.length) {
         throw invalid("lines", "validation.daily.unknownProduct");
       }
-      const issued = new Map(sheet?.lines.map((l) => [l.productId, plain(l.issued)]) ?? []);
+      const issued = new Map(
+        [...linesByProduct(sheet?.lines ?? [])].map(([id, l]) => [id, l.issued]),
+      );
       const priced = lines.map((line, index) => {
         const unitPrice = prices.get(line.productId);
         if (unitPrice === undefined) throw invalid(`lines.${index}`, "validation.field.noPrice");
@@ -445,6 +458,114 @@ export async function saveFieldVisit(
       return visit;
     },
   );
+}
+
+/**
+ * The DSR's day end: firot and damage per product written into the office's draft sheet, which
+ * is created when the office has not started one (never posted here). Where samari exists,
+ * firot + damage may not exceed it.
+ */
+export async function saveFieldDayEnd(
+  ctx: AppContext,
+  companyId: string,
+  input: unknown,
+  requestKey?: string,
+): Promise<FieldDay> {
+  const access = await requirePermission(ctx, companyId, "field.entry", { write: true });
+  const request = parseInput(fieldDayEndRequestSchema, input);
+  const staffId = await runIdempotent(
+    ctx,
+    { scope: companyId, action: "field.day_end", requestKey },
+    request,
+    async (tx) => {
+      const staffId = await fieldStaffId(tx, ctx, companyId, request.staffId);
+      await postingGuard(tx, companyId, request.date);
+      if ((await roleOn(tx, companyId, staffId, request.date)) !== "dsr") {
+        throw invalid("", "validation.daily.dsrOnly");
+      }
+      await refuseIfPosted(tx, companyId, staffId, request.date);
+      const date = toDbDate(request.date);
+      const existing = await tx.dsrDay.findFirst({
+        where: { companyId, staffId, date, status: "draft" },
+        include: { lines: true },
+      });
+      const products = await tx.product.findMany({
+        where: { companyId, id: { in: request.lines.map((l) => l.productId) } },
+        include: { packs: true },
+      });
+      const productOf = new Map(products.map((p) => [p.id, p]));
+      const sheetLines = existing?.lines ?? [];
+      const byProduct = linesByProduct(sheetLines);
+      for (const [index, line] of request.lines.entries()) {
+        if (!productOf.has(line.productId)) {
+          throw invalid(`lines.${index}`, "validation.daily.unknownProduct");
+        }
+        // Before the office enters samari the DSR may still report; the office checks at posting.
+        const issued = toDecimal(byProduct.get(line.productId)?.issued ?? "0");
+        if (issued.gt(0) && toDecimal(line.returned).add(line.damaged).gt(issued)) {
+          throw invalid(`lines.${index}`, "validation.field.exceedsSamari");
+        }
+      }
+      let sheetId: string;
+      if (existing) {
+        const updated = await tx.dsrDay.updateMany({
+          where: { id: existing.id, version: existing.version, status: "draft" },
+          data: { version: { increment: 1 } },
+        });
+        if (updated.count !== 1) throw invalid("", "validation.daily.stale");
+        sheetId = existing.id;
+      } else {
+        sheetId = (
+          await tx.dsrDay.create({
+            data: {
+              tenantId: access.company.tenantId,
+              companyId,
+              staffId,
+              date,
+              createdById: ctx.actor.userId,
+            },
+          })
+        ).id;
+      }
+      for (const line of request.lines) {
+        // D68: firot and damage go to the product's last batch issued; its other lines get none.
+        const row = lastBatchLine(sheetLines, line.productId);
+        if (row) {
+          await tx.dsrLine.updateMany({
+            where: { dsrDayId: row.dsrDayId, productId: line.productId, id: { not: row.id } },
+            data: { returned: "0", damaged: "0" },
+          });
+          await tx.dsrLine.update({
+            where: { id: row.id },
+            data: { returned: line.returned, damaged: line.damaged },
+          });
+        } else if (line.returned !== "0" || line.damaged !== "0") {
+          await tx.dsrLine.create({
+            data: {
+              dsrDayId: sheetId,
+              productId: line.productId,
+              piecesPerCarton:
+                packOn(productOf.get(line.productId)?.packs ?? [], request.date)?.piecesPerCarton ??
+                1,
+              issued: "0",
+              returned: line.returned,
+              damaged: line.damaged,
+              commission: "0",
+            },
+          });
+        }
+      }
+      await recordAudit(tx, ctx, {
+        companyId,
+        action: "dsr_day.field_day_end",
+        resourceType: "dsr_day",
+        resourceId: sheetId,
+        after: { staffId, date: request.date, lines: request.lines },
+      });
+      return staffId;
+    },
+  );
+  return buildFieldDay(ctx.db, access, staffId, request.date);
 }
 
 /** Deletes an own open visit while the office has not posted the day. */

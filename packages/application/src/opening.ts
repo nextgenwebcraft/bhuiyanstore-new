@@ -19,6 +19,7 @@ import {
 } from "@bsd/domain";
 import { requirePermission, type CompanyAccess } from "./access";
 import { recordAudit } from "./audit";
+import { syncOpeningBatches } from "./batches";
 import type { AppContext, Tx } from "./context";
 import { fromDbDate, toDbDate } from "./dates";
 import { AppError, invalid, parseInput, type FieldError } from "./errors";
@@ -423,6 +424,7 @@ export async function writeSeededOpening(
   }
   await replaceBalances(tx, session, openingBalanceKinds, opening.balances);
   const pricesSet = await writeOpeningPrices(tx, company.id, session.id, opening.cutoffDate);
+  await syncOpeningBatches(tx, { tenantId: company.tenantId, companyId: company.id });
   return { sessionId: session.id, pricesSet };
 }
 /** Saves the go-live date. It cannot change once a daily record exists (D43). */
@@ -572,6 +574,7 @@ export async function saveOpeningSection(
           });
         }
         prices = await writeOpeningPrices(tx, companyId, session.id, cutoffDate);
+        await syncOpeningBatches(tx, { tenantId: access.company.tenantId, companyId });
       } else {
         validateRefs(catalog, [], data.balances);
         const mistakes = balanceMistakes(catalog, data.balances);

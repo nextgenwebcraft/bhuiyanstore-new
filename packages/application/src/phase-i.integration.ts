@@ -376,7 +376,7 @@ describe("D51 delete only what was never used", () => {
     );
     await postStockEntries(ctx, starter, {
       date: POST_DAY,
-      lines: [{ kind: "receipt", productId: used.id, pieces: "1" }],
+      lines: [{ kind: "incentive", productId: used.id, pieces: "1" }],
       prices: [],
     });
     await expectField(deleteProduct(ctx, starter, used.id), "id", "validation.product.inUse");

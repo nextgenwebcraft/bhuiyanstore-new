@@ -15,10 +15,12 @@ export type CatalogProduct = {
 };
 
 /**
- * One FIFO batch of a product (D49): pieces bought or received at one cost and sale price.
+ * One batch of a product (D49, D68): pieces bought or received at one cost and sale price.
  * `seq` numbers the product's batches 1, 2, … and continues across months.
  */
 export type BatchInput = {
+  /** D68: the stored batch id; absent = an automatic batch (`auto:<seq>`). */
+  key?: string;
   seq: number;
   /** The day the batch started (`YYYY-MM-DD`), or `opening` for stock without a known date. */
   startDate: string;
@@ -122,6 +124,11 @@ export type ProductDayInput = {
   /** Orders with a carton rate and free goods (D57); each is billed on its day. */
   orders?: readonly OrderInput[];
   received?: DecimalInput;
+  /**
+   * D68: receipts into a named batch (an order lot) at the receipt's prices, which become the
+   * batch's from that day. They count in `received` totals and the undelivered pool like it.
+   */
+  batchReceipts?: readonly BatchReceiptInput[];
   /** Damage recorded at product level (Excel column N); DSR lines may add their own. */
   damaged?: DecimalInput;
   /**
@@ -163,6 +170,20 @@ export type ProductDayInput = {
   salePrice?: DecimalInput;
 };
 
+/** D68: a named batch and the per-piece prices a receipt or DSR line uses for it. */
+export type BatchPricing = {
+  key: string;
+  seq: number;
+  costPrice: DecimalInput;
+  salePrice: DecimalInput;
+};
+
+export type BatchReceiptInput = BatchPricing & { quantity: DecimalInput };
+
+/** A DSR line's batch; a missing price is the batch's current one. */
+export type LineBatchInput = Omit<BatchPricing, "costPrice" | "salePrice"> &
+  Partial<Pick<BatchPricing, "costPrice" | "salePrice">>;
+
 /** Pieces sold at a price other than the day's sale price (D06). */
 export type PriceSplitInput = { quantity: DecimalInput; unitPrice: DecimalInput };
 
@@ -177,6 +198,11 @@ export type DsrLineInput = {
   priceSplits?: readonly PriceSplitInput[];
   /** Taka given to shops on this line (D41); lowers its sales, cash and profit. */
   commission?: DecimalInput;
+  /**
+   * D68: the batch the pieces come from, at these prices (sales at its sale price, cost at its
+   * purchase price). Absent = the oldest batches first (FIFO, history).
+   */
+  batch?: LineBatchInput;
 };
 
 export type MoneyKind =
@@ -191,6 +217,7 @@ export type MoneyKind =
   | "staffExcess"
   | "staffCostPaid"
   | "staffCreditPaid"
+  | "staffAbsent"
   | "salaryAccrual"
   | "salaryRecovery"
   | "salaryPaid"
@@ -319,6 +346,8 @@ export type ProductDayResult = {
 
 /** A batch with what is left of it (D49). */
 export type BatchResult = {
+  /** D68: the stored batch id, or `auto:<seq>` for an automatic batch. */
+  key: string;
   seq: number;
   startDate: string;
   costPrice: string;
@@ -330,6 +359,7 @@ export type BatchResult = {
 
 /** The pieces of one DSR line taken from one batch, in FIFO order (D49). */
 export type LineAllocationResult = {
+  key: string;
   seq: number;
   /** Negative only for a line that returns pieces (net below zero). */
   quantity: string;
@@ -532,6 +562,7 @@ export type StaffBalanceValues = Required<Record<keyof StaffBalances, string>>;
 
 /** A batch as the closing carries it into the next opening (D49). */
 export type BatchCarry = {
+  key?: string;
   seq: number;
   startDate: string;
   costPrice: string;

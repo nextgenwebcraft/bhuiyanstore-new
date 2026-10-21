@@ -5,6 +5,7 @@ import { createCompany } from "./companies";
 import { staffRoles } from "./configuration";
 import type { AppContext } from "./context";
 import { getDayView, postDsrDay, postStockEntries, reverseStockEntry, saveDsrDay } from "./daily";
+import { AppError } from "./errors";
 import { createProduct } from "./products";
 import { createStaff } from "./staff";
 import { contextFor, resetTestSchema, saveWholeOpening, testDatabase } from "./test-support";
@@ -13,12 +14,12 @@ process.env.BETTER_AUTH_SECRET ??= "integration-test-secret-integration-test-sec
 process.env.BETTER_AUTH_URL ??= "http://localhost:3000";
 
 /**
- * D57 carton rate and free goods on the order, batch cost from the order. Hand-worked numbers:
- * opening 24 pieces at cost 10 / sale 12 (batch 1). 2026-08-02 the owner example: 10 cartons of 24
- * ordered at 480 a carton plus 1 free carton: bill 240 x 480 / 24 = 4800 for 264 pieces. 2026-08-03
- * the 264 arrive at sale price 30: batch 2 costs 4800 / 264 = 18.1818... a piece. 2026-08-04 one
- * DSR sheet issues 34: 24 from batch 1 (cost 240, sales 288) + 10 from batch 2 (cost 181.8181...,
- * sales 300).
+ * D57 carton rate on the order, D68 batches. Hand-worked numbers: opening 24 pieces at cost 10 /
+ * sale 12 (batch 1, the opening). 2026-08-02 the owner example: 10 cartons of 24 ordered at 480 a
+ * carton (20 a piece) to sell at 30, plus 1 free carton: bill 240 × 480 / 24 = 4800; batch 2 = 240
+ * paid pieces at 20 / 30, batch 3 = 24 free pieces at 0 / 30. 2026-08-03 both arrive. 2026-08-04
+ * one DSR sheet takes 24 from batch 1 (cost 240, sales 288), 10 from batch 2 (cost 200, sales 300)
+ * and 4 free pieces from batch 3 at an edited sale price of 25 (cost 0, sales 100).
  */
 
 const { db, schema } = testDatabase();
@@ -29,10 +30,21 @@ let ctx: AppContext;
 let company = "";
 let alpha = "";
 let mamun = "";
+const batch = { opening: "", paid: "" };
 
 function must<T>(value: T | undefined | null): T {
   if (value === undefined || value === null) throw new Error("expected a value");
   return value;
+}
+
+async function expectField(promise: Promise<unknown>, path: string, code: string) {
+  await expect(promise).rejects.toSatisfy(
+    (e) =>
+      e instanceof AppError &&
+      e.code === "VALIDATION_FAILED" &&
+      e.fieldErrors?.[0]?.path === path &&
+      e.fieldErrors?.[0]?.code === code,
+  );
 }
 
 async function row(date: string) {
@@ -41,8 +53,10 @@ async function row(date: string) {
 async function balance(date: string) {
   return toDecimal(must((await getDayView(ctx, company, date)).company).balance);
 }
-const close = (value: string | null, expected: number) =>
-  expect(Number(value)).toBeCloseTo(expected, 8);
+const prices = async (id: string) => {
+  const b = await db.productBatch.findUniqueOrThrow({ where: { id } });
+  return [b.costPrice.toString(), b.salePrice.toString()];
+};
 
 beforeAll(async () => {
   await resetTestSchema(db, schema);
@@ -107,101 +121,204 @@ afterAll(async () => {
   await db.$disconnect();
 });
 
-describe("D57: order with carton rate and free goods", () => {
-  it("rejects an order without a carton rate or pieces, and a rate on a receipt", async () => {
+describe("D68: product batches from orders", () => {
+  it("the opening stock is the product's first batch", async () => {
+    const opening = await db.productBatch.findMany({ where: { productId: alpha } });
+    expect(opening.map((b) => [b.seq, b.source])).toEqual([[1, "opening"]]);
+    batch.opening = must(opening[0]).id;
+    expect(await prices(batch.opening)).toEqual(["10", "12"]);
+  });
+
+  it("rejects an order without a rate or sale price, and a receipt without a batch", async () => {
     const attempt = (line: Record<string, string>) =>
       postStockEntries(ctx, company, {
         date: "2026-08-02",
         lines: [{ kind: "order", productId: alpha, pieces: "24", ...line } as never],
         prices: [],
       });
-    await expect(attempt({})).rejects.toThrow();
-    await expect(attempt({ pieces: "0", cartonRate: "480" })).rejects.toThrow();
+    await expect(attempt({ salePrice: "30" })).rejects.toThrow();
+    await expect(attempt({ cartonRate: "480" })).rejects.toThrow();
+    await expect(attempt({ pieces: "0", cartonRate: "480", salePrice: "30" })).rejects.toThrow();
     await expect(
       postStockEntries(ctx, company, {
         date: "2026-08-02",
-        lines: [{ kind: "receipt", productId: alpha, pieces: "24", cartonRate: "480" } as never],
+        lines: [{ kind: "receipt", productId: alpha, pieces: "24" } as never],
         prices: [],
       }),
     ).rejects.toThrow();
   });
 
-  it("the owner example bills 4800, owes 264 pieces and sets the order price to 20 a piece", async () => {
+  it("the owner example bills 4800 and puts paid and free pieces in one batch", async () => {
     const before = await balance("2026-08-02");
-    const posted = await postStockEntries(ctx, company, {
-      date: "2026-08-02",
-      lines: [
-        { kind: "order", productId: alpha, pieces: "240", freePieces: "24", cartonRate: "480" },
-      ],
-      prices: [],
-    });
-    const entry = must(posted[0]);
-    expect([entry.pieces, entry.freePieces, entry.cartonRate, entry.piecesPerCarton]).toEqual([
-      "240",
-      "24",
-      "480",
-      24,
-    ]);
+    const entry = must(
+      (
+        await postStockEntries(ctx, company, {
+          date: "2026-08-02",
+          lines: [
+            {
+              kind: "order",
+              productId: alpha,
+              pieces: "240",
+              freePieces: "24",
+              cartonRate: "480",
+              salePrice: "30",
+            },
+          ],
+          prices: [],
+        })
+      )[0],
+    );
+    expect([entry.batchSeq, entry.costPrice, entry.salePrice]).toEqual([2, "20", "30"]);
+    batch.paid = must(entry.batchId);
+    expect(await prices(batch.paid)).toEqual(["20", "30"]);
     const day = await row("2026-08-02");
-    expect([day.ordered, day.orderValue, day.dueFromCompany, day.dueFromCompanyValue]).toEqual([
-      "240",
-      "4800",
-      "264",
-      "4800",
+    expect([day.ordered, day.orderValue, day.dueFromCompany]).toEqual(["240", "4800", "264"]);
+    expect(day.lots.map((l) => [l.seq, l.undelivered])).toEqual([
+      [1, "0"],
+      [2, "264"],
     ]);
-    // 480 a carton of 24 = 20 a piece becomes the current order price (for excess receipts).
-    expect(day.orderPrice).toBe("20");
     expect((await balance("2026-08-02")).toString()).toBe(before.sub(4800).toString());
   });
 
-  it("the receipt batch costs the order bill per piece, free pieces included", async () => {
+  it("receives a batch at its prices, free pieces too, never more than is due", async () => {
+    await expectField(
+      postStockEntries(ctx, company, {
+        date: "2026-08-03",
+        lines: [{ kind: "receipt", productId: alpha, pieces: "265", batchId: batch.paid }],
+        prices: [],
+      }),
+      "lines.0.pieces",
+      "validation.daily.batchOverDue",
+    );
     await postStockEntries(ctx, company, {
       date: "2026-08-03",
-      lines: [{ kind: "receipt", productId: alpha, pieces: "264" }],
-      prices: [{ productId: alpha, kind: "sale", price: "30" }],
+      lines: [{ kind: "receipt", productId: alpha, pieces: "264", batchId: batch.paid }],
+      prices: [],
     });
     const day = await row("2026-08-03");
-    expect([day.receiptValue, day.receiptBill, day.dueFromCompany]).toEqual(["4800", "0", "0"]);
-    expect(day.batches.map((b) => [b.seq, b.startDate, b.salePrice, b.quantity])).toEqual([
-      [1, "2026-08-01", "12", "24"],
-      [2, "2026-08-03", "30", "264"],
+    expect([day.received, day.receiptValue, day.receiptBill, day.dueFromCompany]).toEqual([
+      "264",
+      "4800",
+      "0",
+      "0",
     ]);
-    close(must(day.batches[1]).costPrice, 4800 / 264);
-    close(day.stockValue, 240 + 4800);
+    expect(day.batches.map((b) => [b.seq, b.costPrice, b.salePrice, b.quantity])).toEqual([
+      [1, "10", "12", "24"],
+      [2, "20", "30", "264"],
+    ]);
+    // The free pieces count at the batch's purchase price: 24 × 10 + 264 × 20.
+    expect(day.stockValue).toBe("5520");
   });
 
-  it("a DSR sale uses the batch cost", async () => {
+  it("a DSR sheet takes each line from its batch; an edited price stays on the batch", async () => {
     const draft = await saveDsrDay(ctx, company, {
       date: "2026-08-04",
       staffId: mamun,
       version: 0,
       marketDueNew: "0",
       marketDueCollected: "0",
-      lines: [{ productId: alpha, issued: "34", returned: "0", damaged: "0" }],
+      lines: [
+        {
+          productId: alpha,
+          batchKey: batch.opening,
+          issued: "24",
+          returned: "0",
+          damaged: "0",
+        },
+        {
+          productId: alpha,
+          batchKey: batch.paid,
+          issued: "14",
+          returned: "0",
+          damaged: "0",
+          salePrice: "25",
+        },
+      ],
     });
+    expect(draft.lines.map((l) => [l.batchSeq, l.salePrice])).toEqual([
+      [1, "12"],
+      [2, "25"],
+    ]);
+    expect(await prices(batch.paid)).toEqual(["20", "25"]);
     await postDsrDay(ctx, company, draft.id, { version: draft.version });
     const day = await row("2026-08-04");
-    expect(day.sales).toBe("588"); // 24 x 12 + 10 x 30
-    close(day.cost, 240 + (10 * 4800) / 264);
-    close(day.stockValue, (254 * 4800) / 264);
+    // Sales 24 × 12 + 14 × 25; cost 24 × 10 + 14 × 20.
+    expect([day.issued, day.sales, day.cost]).toEqual(["38", "638", "520"]);
+    // The emptied opening batch drops out of the stock (D49).
+    expect(day.batches.map((b) => [b.seq, b.salePrice, b.quantity])).toEqual([[2, "25", "250"]]);
+    expect(day.stockValue).toBe("5000");
   });
 
-  it("reversing an order removes its bill and its free pieces from what is due", async () => {
-    const before = await balance("2026-08-05");
+  it("the same prices reuse the latest batch, changed prices start a new one", async () => {
+    const order = (salePrice: string) =>
+      postStockEntries(ctx, company, {
+        date: "2026-08-05",
+        lines: [{ kind: "order", productId: alpha, pieces: "24", cartonRate: "480", salePrice }],
+        prices: [],
+      });
+    // The day's entries come back oldest first; the last is the one just posted.
+    const same = must((await order("25")).at(-1));
+    expect([same.batchId, same.batchSeq]).toEqual([batch.paid, 2]);
+    const changed = must((await order("32")).at(-1));
+    expect(changed.batchSeq).toBe(3);
+    expect(await prices(must(changed.batchId))).toEqual(["20", "32"]);
+    // A free-only order without a rate joins the latest batch at its purchase price.
+    const freeOnly = must(
+      (
+        await postStockEntries(ctx, company, {
+          date: "2026-08-05",
+          lines: [
+            { kind: "order", productId: alpha, pieces: "0", freePieces: "12", salePrice: "32" },
+          ],
+          prices: [],
+        })
+      ).at(-1),
+    );
+    expect([freeOnly.batchId, freeOnly.costPrice]).toEqual([changed.batchId, "20"]);
+    const lot = must((await row("2026-08-05")).lots.find((l) => l.id === changed.batchId));
+    expect(lot.undelivered).toBe("36");
+  });
+
+  it("an order is reversible until goods arrive in its batch", async () => {
+    const before = await balance("2026-08-06");
     const [entry] = await postStockEntries(ctx, company, {
-      date: "2026-08-05",
+      date: "2026-08-06",
       lines: [
-        { kind: "order", productId: alpha, pieces: "24", freePieces: "24", cartonRate: "480" },
+        {
+          kind: "order",
+          productId: alpha,
+          pieces: "24",
+          freePieces: "24",
+          cartonRate: "600",
+          salePrice: "40",
+        },
       ],
       prices: [],
     });
-    const open = await row("2026-08-05");
-    expect([open.dueFromCompany, open.dueFromCompanyValue]).toEqual(["48", "480"]);
-    expect((await balance("2026-08-05")).toString()).toBe(before.sub(480).toString());
+    const open = must(entry);
+    expect((await balance("2026-08-06")).toString()).toBe(before.sub(600).toString());
+    await reverseStockEntry(ctx, company, open.id);
+    expect((await balance("2026-08-06")).toString()).toBe(before.toString());
 
-    await reverseStockEntry(ctx, company, must(entry).id);
-    const reversed = await row("2026-08-05");
-    expect([reversed.dueFromCompany, reversed.dueFromCompanyValue]).toEqual(["0", "0"]);
-    expect((await balance("2026-08-05")).toString()).toBe(before.toString());
+    const again = await postStockEntries(ctx, company, {
+      date: "2026-08-06",
+      lines: [
+        { kind: "order", productId: alpha, pieces: "24", cartonRate: "600", salePrice: "40" },
+      ],
+      prices: [],
+    });
+    const received = must(again.at(-1));
+    // The same prices as the reversed order: its batch is reused.
+    expect(received.batchId).toBe(open.batchId);
+    await postStockEntries(ctx, company, {
+      date: "2026-08-06",
+      lines: [{ kind: "receipt", productId: alpha, pieces: "24", batchId: must(received.batchId) }],
+      prices: [],
+    });
+    await expectField(
+      reverseStockEntry(ctx, company, received.id),
+      "",
+      "validation.daily.batchReceived",
+    );
   });
 });

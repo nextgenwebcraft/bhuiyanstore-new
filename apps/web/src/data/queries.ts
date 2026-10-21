@@ -8,6 +8,7 @@ import type {
   DamageEventRequest,
   DsrDay,
   DsrDaySaveRequest,
+  FieldDayEndRequest,
   FieldShopCreateRequest,
   FieldVisitDeleteRequest,
   FieldVisitSaveRequest,
@@ -754,6 +755,13 @@ export function useDeleteFieldVisit(companyId: string) {
     "field",
     ({ visitId, ...input }: { visitId: string } & FieldVisitDeleteRequest) =>
       service.deleteFieldVisit(companyId, visitId, input),
+  );
+}
+
+export function useSaveFieldDayEnd(companyId: string) {
+  const service = useService();
+  return usePostingMutation(companyId, "fieldDayEnd", (input: FieldDayEndRequest) =>
+    service.saveFieldDayEnd(companyId, input),
   );
 }
 

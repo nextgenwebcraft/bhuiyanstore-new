@@ -1,10 +1,17 @@
 "use client";
 
 import type { DayView } from "@bsd/contracts";
-import { shiftBusinessDate, todayBusinessDate } from "@bsd/domain";
-import { formatBusinessDate, normalizeDigits, t } from "@bsd/i18n";
+import {
+  cartonFromPiece,
+  pieceFromCarton,
+  shiftBusinessDate,
+  toDecimal,
+  todayBusinessDate,
+} from "@bsd/domain";
+import { formatBusinessDate, formatCount, normalizeDigits, t } from "@bsd/i18n";
 import { useSyncExternalStore } from "react";
 import { Button, ButtonLink } from "@/components/button";
+import { tdClass } from "@/components/data-table";
 import { DatePicker } from "@/components/date-picker";
 import { Icon } from "@/components/icons";
 import { QueryError } from "@/components/query-error";
@@ -178,6 +185,94 @@ export function CellInput({
 
 /** User input with Bangla digits normalised; blank stays blank. */
 export const clean = (value: string) => normalizeDigits(value).trim();
+
+/** A batch's name: "ব্যাচ n" for an order lot, "অন্যান্য মাল n" for an automatic one (D68). */
+export function batchName(batch: { key?: string | undefined; seq: number }): string {
+  const auto = batch.key?.startsWith("auto:") ?? false;
+  return `${t(auto ? "batch.auto" : "batch.label")} ${formatCount(batch.seq)}`;
+}
+
+/** Goods that came without an order at no cost (company free goods, replacements; D49). */
+export function isFreeAuto(key: string, costPrice: string | null): boolean {
+  return key.startsWith("auto:") && costPrice !== null && toDecimal(costPrice).isZero();
+}
+
+// ---------------------------------------------------------------- carton / piece prices (D68)
+
+/** A price entered per carton or per piece; filling one fills the other. */
+export type PricePair = { carton: string; piece: string };
+
+const priceText = /^\d+(\.\d+)?$/;
+
+export function pairFromCarton(carton: string, piecesPerCarton: string): PricePair {
+  const value = clean(carton);
+  return {
+    carton,
+    piece: priceText.test(value) ? pieceFromCarton(value, piecesPerCarton) : "",
+  };
+}
+
+export function pairFromPiece(piece: string, piecesPerCarton: string): PricePair {
+  const value = clean(piece);
+  return {
+    carton: priceText.test(value) ? cartonFromPiece(value, piecesPerCarton) : "",
+    piece,
+  };
+}
+
+/** The pair for a stored per-piece price; blank without one. */
+export function pairOf(piecePrice: string | null | undefined, piecesPerCarton: string): PricePair {
+  if (!piecePrice) return { carton: "", piece: "" };
+  return pairFromPiece(toDecimal(piecePrice).toFixed(), piecesPerCarton);
+}
+
+/** Two linked cells: price per carton and per piece. */
+export function PriceCells({
+  label,
+  value,
+  piecesPerCarton,
+  onChange,
+  disabled = false,
+  invalid = false,
+  className = "",
+}: {
+  label: string;
+  value: PricePair;
+  piecesPerCarton: string;
+  onChange: (value: PricePair) => void;
+  disabled?: boolean;
+  invalid?: boolean;
+  className?: string;
+}) {
+  return (
+    <>
+      <td className={`${tdClass} text-center ${className}`}>
+        <CellInput
+          label={`${label} ${t("godown.price.carton")}`}
+          placeholder="৳"
+          value={value.carton}
+          onChange={(carton) => onChange(pairFromCarton(carton, piecesPerCarton))}
+          disabled={disabled}
+          invalid={invalid}
+          mode="decimal"
+          width="w-24"
+        />
+      </td>
+      <td className={`${tdClass} text-center`}>
+        <CellInput
+          label={`${label} ${t("godown.price.piece")}`}
+          placeholder="৳"
+          value={value.piece}
+          onChange={(piece) => onChange(pairFromPiece(piece, piecesPerCarton))}
+          disabled={disabled}
+          invalid={invalid}
+          mode="decimal"
+          width="w-24"
+        />
+      </td>
+    </>
+  );
+}
 
 export function SectionTitle({ children }: { children: React.ReactNode }) {
   return <h2 className="mt-8 mb-3 text-sm font-semibold">{children}</h2>;

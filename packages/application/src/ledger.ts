@@ -26,6 +26,7 @@ import type { AppContext, Tx } from "./context";
 import { fromDbDate, toDbDate } from "./dates";
 import { plain } from "./numeric";
 import { packOn } from "./products";
+import { openingBatches } from "./batches";
 
 /**
  * Runs the month engine over posted documents (PLAN §4). Nothing here calculates: it only turns
@@ -156,6 +157,7 @@ export async function liveOpening(db: Db, companyId: string): Promise<ActiveOpen
   });
   if (!session || !session.cutoffDate) return null;
   const cutoffDate = fromDbDate(session.cutoffDate);
+  const batches = await openingBatches(db, companyId);
   const opening = toMonthOpening({
     cutoffDate,
     stock: session.stock.map((line) => ({
@@ -165,6 +167,7 @@ export async function liveOpening(db: Db, companyId: string): Promise<ActiveOpen
       salePrice: plain(line.salePrice),
       orderPrice: plain(line.orderPrice),
       dueFromCompany: plain(line.dueFromCompany),
+      batch: batches.get(line.productId) ?? null,
     })),
     balances: session.balances.map((line) => ({
       kind: line.kind as OpeningKind,
@@ -199,6 +202,7 @@ async function rangeInput(
     }),
     db.stockEntry.findMany({
       where: { companyId, status: "posted", date: range },
+      include: { batch: { select: { seq: true } } },
       orderBy: { createdAt: "asc" },
     }),
     db.dsrDay.findMany({
@@ -296,6 +300,21 @@ async function rangeInput(
       ];
       continue;
     }
+    if (entry.kind === "receipt" && entry.batchId && entry.batch) {
+      // D68: received into the named batch at the receipt's own prices.
+      const product = dayProduct(fromDbDate(entry.date), entry.productId);
+      product.batchReceipts = [
+        ...(product.batchReceipts ?? []),
+        {
+          key: entry.batchId,
+          seq: entry.batch.seq,
+          quantity: plain(entry.pieces),
+          costPrice: plain(entry.costPrice) ?? "0",
+          salePrice: plain(entry.salePrice) ?? "0",
+        },
+      ];
+      continue;
+    }
     if (entry.kind === "damageDeposit") {
       // D63: damaged pieces handed to the company for money: they leave damaged stock and the
       // company returns their value at once (a dispatch plus a money return).
@@ -327,6 +346,16 @@ async function rangeInput(
           quantity: plain(s.quantity),
           unitPrice: plain(s.unitPrice),
         })),
+        ...(line.batchKey !== "" && line.batchSeq !== null
+          ? {
+              batch: {
+                key: line.batchKey,
+                seq: line.batchSeq,
+                ...(line.costPrice === null ? {} : { costPrice: plain(line.costPrice) }),
+                ...(line.salePrice === null ? {} : { salePrice: plain(line.salePrice) }),
+              },
+            }
+          : {}),
       });
     }
     for (const kind of ["marketDueNew", "marketDueCollected"] as const) {

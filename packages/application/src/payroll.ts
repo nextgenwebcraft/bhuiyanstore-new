@@ -13,6 +13,7 @@ import {
   checkRecovery,
   proposeRecovery,
   recoveryTotal,
+  salaryAfterAbsence,
   sumAmounts,
   toDecimal,
   type Recovery,
@@ -28,6 +29,7 @@ import { fromDbDate, toDbDate } from "./dates";
 import { AppError, invalid, parseInput } from "./errors";
 import { runIdempotent } from "./idempotency";
 import { liveOpening } from "./ledger";
+import { staffCompanyIds } from "./master";
 import { plain } from "./numeric";
 import { staffRun } from "./staff-ledger";
 
@@ -80,15 +82,16 @@ async function owedOn(db: Db, access: CompanyAccess, date: string): Promise<Map<
 }
 
 /**
- * Distributor employees (not SR) assigned to the company on some day of the month, with the
- * latest assignment's monthly salary as the payroll default (salary master).
+ * Distributor employees (not SR) assigned to the company or globally (master, D65) on some day of
+ * the month, with the latest assignment's monthly salary as the payroll default (salary master).
+ * D67: each company pays salaries from its own sales.
  */
 async function eligibleStaff(db: Db, companyId: string, month: string) {
   const from = toDbDate(firstOfMonth(month));
   const to = toDbDate(lastOfMonth(month));
   const assignments = await db.staffAssignment.findMany({
     where: {
-      companyId,
+      companyId: { in: await staffCompanyIds(db, companyId) },
       from: { lte: to },
       OR: [{ to: null }, { to: { gte: from } }],
       role: { kind: { not: "sr" } },
@@ -112,6 +115,24 @@ async function eligibleStaff(db: Db, companyId: string, month: string) {
     }
   }
   return [...people.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** D67: Σ absent fees per person entered in the company for the month. */
+async function absentFees(db: Db, companyId: string, month: string) {
+  const rows = await db.moneyEntry.findMany({
+    where: {
+      companyId,
+      kind: "staffAbsent",
+      status: "posted",
+      date: { gte: toDbDate(firstOfMonth(month)), lte: toDbDate(lastOfMonth(month)) },
+    },
+    select: { staffId: true, amount: true },
+  });
+  const byStaff = new Map<string, string[]>();
+  for (const r of rows) {
+    if (r.staffId) byStaff.set(r.staffId, [...(byStaff.get(r.staffId) ?? []), plain(r.amount)]);
+  }
+  return new Map([...byStaff].map(([id, amounts]) => [id, sumAmounts(amounts)]));
 }
 
 function line(input: {
@@ -175,8 +196,9 @@ async function viewOf(
           : null;
       const personOwed = snapshot ?? owed.get(l.staffId) ?? ZERO_OWED;
       const salary = plain(l.salary);
-      const roleName = l.staff.assignments.find((a) => a.companyId === access.company.id)?.role
-        .name;
+      const roleName = (
+        l.staff.assignments.find((a) => a.companyId === access.company.id) ?? l.staff.assignments[0]
+      )?.role.name;
       return line({
         staffId: l.staffId,
         staffName: l.staff.name,
@@ -198,8 +220,12 @@ async function viewOf(
     const lastSalary = new Map<string, string>();
     for (const p of previous)
       if (!lastSalary.has(p.staffId)) lastSalary.set(p.staffId, plain(p.salary));
+    const absent = await absentFees(db, access.company.id, month);
     lines = (await eligibleStaff(db, access.company.id, month)).map((p) => {
-      const salary = p.monthlySalary ?? lastSalary.get(p.id) ?? "0";
+      const salary = salaryAfterAbsence(
+        p.monthlySalary ?? lastSalary.get(p.id) ?? "0",
+        absent.get(p.id) ?? "0",
+      );
       const personOwed = owed.get(p.id) ?? ZERO_OWED;
       return line({
         staffId: p.id,

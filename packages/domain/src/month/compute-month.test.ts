@@ -275,8 +275,22 @@ describe("computeMonth golden month", () => {
       // D49/D57: day 1's receipt costs 480 Ã· 48 = 10 (not the opening 9.5), so it is batch 2; 8 of
       // the opening batch are left (day 2 sold 20 from it at 11).
       batches: [
-        { seq: 1, startDate: "opening", costPrice: "9.5", salePrice: "11", quantity: "8" },
-        { seq: 2, startDate: "2026-11-01", costPrice: "10", salePrice: "12", quantity: "48" },
+        {
+          key: "auto:1",
+          seq: 1,
+          startDate: "opening",
+          costPrice: "9.5",
+          salePrice: "11",
+          quantity: "8",
+        },
+        {
+          key: "auto:2",
+          seq: 2,
+          startDate: "2026-11-01",
+          costPrice: "10",
+          salePrice: "12",
+          quantity: "48",
+        },
       ],
       dueFromCompany: "2",
       dueFromCompanyValue: "20",

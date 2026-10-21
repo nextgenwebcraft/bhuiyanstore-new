@@ -5,7 +5,8 @@ import type { DayInput, MonthInput, MonthOpening } from "./types";
 /**
  * D49 FIFO batches. Every expected number is worked out by hand from the rules in PLAN §2.3:
  * a receipt at a changed cost or sale price starts a new batch; older batches sell first at their
- * own prices; zero-cost batches hold free goods and company replacements.
+ * own prices; without a named batch (D68), zero-cost batches hold free goods and company
+ * replacements.
  */
 
 // D57: a receipt batch costs its billed value per piece (order price here), so cases that receive
@@ -20,6 +21,7 @@ const batch = (
   salePrice: string,
   q: string,
 ) => ({
+  key: `auto:${seq}`,
   seq,
   startDate,
   costPrice,
@@ -88,9 +90,9 @@ describe("batches: receipt rules", () => {
     const d3 = view(out, 2);
     // 120 pieces = 60 @ 15 + 50 @ 16 + 10 @ 18.
     expect(out.days[2]?.persons[0]?.allocations).toEqual([
-      { seq: 1, quantity: "60", costPrice: "10", salePrice: "15" },
-      { seq: 2, quantity: "50", costPrice: "11", salePrice: "16" },
-      { seq: 3, quantity: "10", costPrice: "12", salePrice: "18" },
+      { key: "auto:1", seq: 1, quantity: "60", costPrice: "10", salePrice: "15" },
+      { key: "auto:2", seq: 2, quantity: "50", costPrice: "11", salePrice: "16" },
+      { key: "auto:3", seq: 3, quantity: "10", costPrice: "12", salePrice: "18" },
     ]);
     expect(d3.sales).toBe("1880"); // 900 + 800 + 180
     expect(d3.cost).toBe("1270"); // 600 + 550 + 120
@@ -176,8 +178,8 @@ describe("batches: price change without a receipt", () => {
     expect(shown(view(out, 0))).toEqual([[2, "2026-10-20", "12", "17", "20"]]);
     // 40 @ 15 (batch 1 keeps 10/15) + 10 @ 17 = 770; cost 400 + 10 × 12 = 520.
     expect(out.days[0]?.persons[0]?.allocations).toEqual([
-      { seq: 1, quantity: "40", costPrice: "10", salePrice: "15" },
-      { seq: 2, quantity: "10", costPrice: "12", salePrice: "17" },
+      { key: "auto:1", seq: 1, quantity: "40", costPrice: "10", salePrice: "15" },
+      { key: "auto:2", seq: 2, quantity: "10", costPrice: "12", salePrice: "17" },
     ]);
     expect([view(out, 0).sales, view(out, 0).cost]).toEqual(["770", "520"]);
   });
@@ -217,8 +219,8 @@ describe("batches: damaged pieces and price splits", () => {
     const person = out.days[0]?.persons[0];
     // 30 allocated = 20 @ batch 1 + 10 @ batch 2; sold = first 25, damaged = last 5 (batch 2).
     expect(person?.allocations).toEqual([
-      { seq: 1, quantity: "20", costPrice: "10", salePrice: "15" },
-      { seq: 2, quantity: "10", costPrice: "11", salePrice: "16" },
+      { key: "auto:1", seq: 1, quantity: "20", costPrice: "10", salePrice: "15" },
+      { key: "auto:2", seq: 2, quantity: "10", costPrice: "11", salePrice: "16" },
     ]);
     // Split: first 22 sold pieces at 14 replace 20 @ 15 (−20) and 2 @ 16 (−4) = −24.
     // soldValue = 20 × 15 + 5 × 16 − 24 = 356; amount (all 30) = 300 + 160 − 24 = 436.
@@ -304,7 +306,7 @@ describe("batches: deficit and returns", () => {
       "NEGATIVE_STOCK",
     ]);
     expect(out.days[0]?.persons[0]?.allocations).toEqual([
-      { seq: 1, quantity: "25", costPrice: "10", salePrice: "15" },
+      { key: "auto:1", seq: 1, quantity: "25", costPrice: "10", salePrice: "15" },
     ]);
     expect(shown(view(out, 1))).toEqual([[2, "2026-11-02", "11", "16", "25"]]);
     expect(view(out, 1).stockValue).toBe("275");
@@ -339,7 +341,7 @@ describe("batches: deficit and returns", () => {
       [{ date: "2026-11-01", dsrLines: [{ staffId: "d1", productId: "A", returned: "4" }] }],
     );
     expect(out.days[0]?.persons[0]?.allocations).toEqual([
-      { seq: 1, quantity: "-4", costPrice: "10", salePrice: "15" },
+      { key: "auto:1", seq: 1, quantity: "-4", costPrice: "10", salePrice: "15" },
     ]);
     expect(out.days[0]?.persons[0]).toMatchObject({ amount: "-60", soldValue: "-60" });
     const p = view(out, 0);
@@ -466,7 +468,9 @@ describe("batches: carry between months and fallback", () => {
       batch(3, "2026-11-02", "12", "18", "40"),
       batch(4, "2026-12-01", "13", "19", "5"),
     ];
-    expect(shown(view(december, 0))).toEqual(left.map((b) => Object.values(b)));
+    expect(shown(view(december, 0))).toEqual(
+      left.map((b) => [b.seq, b.startDate, b.costPrice, b.salePrice, b.quantity]),
+    );
     expect(whole.closing.products.A?.batches).toEqual(left);
   });
 
@@ -511,5 +515,104 @@ describe("batches: carry between months and fallback", () => {
       closingAtSale: "156",
     });
     expect(out.month.totals.closingValue).toBe("106");
+  });
+});
+
+describe("D68: named batches", () => {
+  // Opening batch "b1": 20 @ cost 10 / sale 15. An order lot "b2" (cost 11 / sale 16) of 30 is
+  // due from the company and arrives on day 1.
+  const opening: MonthOpening = {
+    products: {
+      A: {
+        stock: "20",
+        dueFromCompany: "30",
+        dueFromCompanyValue: "330",
+        batches: [{ ...batch(1, "opening", "10", "15", "20"), key: "b1" }],
+      },
+    },
+  };
+  const b2 = { key: "b2", seq: 2 };
+  const out = run(opening, [
+    {
+      date: "2026-11-01",
+      products: {
+        A: { batchReceipts: [{ ...b2, quantity: "30", costPrice: "11", salePrice: "16" }] },
+      },
+      dsrLines: [
+        // Net 8 from b2, 1 exchanged: sold 7 × 16 = 112, cost 8 × 11 = 88, damage 1 × 11.
+        {
+          staffId: "d1",
+          productId: "A",
+          issued: "10",
+          returned: "2",
+          damaged: "1",
+          batch: { ...b2, costPrice: "11", salePrice: "16" },
+        },
+        // The office edits b1's sale price to 17 on the line: 5 × 17 = 85, cost 5 × 10.
+        {
+          staffId: "d2",
+          productId: "A",
+          issued: "5",
+          batch: { key: "b1", seq: 1, costPrice: "10", salePrice: "17" },
+        },
+      ],
+    },
+    {
+      date: "2026-11-02",
+      // A later receipt into b2 at cost 12 re-values what is left of b2 (sold pieces keep 11).
+      products: {
+        A: { batchReceipts: [{ ...b2, quantity: "0.5", costPrice: "12", salePrice: "16" }] },
+      },
+    },
+  ]);
+
+  it("takes each line from its own batch at the line's prices", () => {
+    const p = view(out, 0);
+    expect(out.days[0]?.persons.map((x) => x.allocations)).toEqual([
+      [{ key: "b2", seq: 2, quantity: "8", costPrice: "11", salePrice: "16" }],
+      [{ key: "b1", seq: 1, quantity: "5", costPrice: "10", salePrice: "17" }],
+    ]);
+    expect([p.received, p.sales, p.cost, p.damageValue]).toEqual(["30", "197", "138", "11"]);
+    // Issued and returned at each line's batch sale price: 10 × 16 + 5 × 17; 2 × 16.
+    expect([p.issuedValue, p.returnValue]).toEqual(["245", "32"]);
+    // b1 keeps its new sale price for later lines; stock 15 + 22.
+    expect(p.batches.map((b) => [b.key, b.costPrice, b.salePrice, b.quantity])).toEqual([
+      ["b1", "10", "17", "15"],
+      ["b2", "11", "16", "22"],
+    ]);
+    // The receipt released the billed undelivered value; nothing is billed again.
+    expect([p.dueFromCompany, p.dueFromCompanyValue, p.receiptBill]).toEqual(["0", "0", "0"]);
+  });
+
+  it("re-prices the rest of a batch from a later receipt", () => {
+    const p = view(out, 1);
+    expect(p.batches.map((b) => [b.key, b.costPrice, b.quantity])).toEqual([
+      ["b1", "10", "15"],
+      ["b2", "12", "22.5"],
+    ]);
+    expect(p.stockValue).toBe("420"); // 150 + 270
+    expect(out.closing.products.A?.batches?.map((b) => b.key)).toEqual(["b1", "b2"]);
+  });
+
+  it("puts company free goods and replacements in the newest named batch at its prices", () => {
+    const free = run(opening, [
+      {
+        date: "2026-11-01",
+        products: {
+          A: {
+            batchReceipts: [{ ...b2, quantity: "30", costPrice: "11", salePrice: "16" }],
+            incentiveReceived: "6",
+            replacements: [{ quantity: "4", unitCost: "9" }],
+          },
+        },
+      },
+    ]);
+    const p = view(free, 0);
+    expect(p.batches.map((b) => [b.key, b.costPrice, b.salePrice, b.quantity])).toEqual([
+      ["b1", "10", "15", "20"],
+      ["b2", "11", "16", "40"],
+    ]);
+    // 20 × 10 + 40 × 11; the replacement memo keeps its reviewed unit cost (4 × 9).
+    expect([p.stock, p.stockValue, p.damageRecovery]).toEqual(["60", "640", "36"]);
   });
 });

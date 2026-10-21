@@ -30,6 +30,7 @@ import {
   useDeleteFieldVisit,
   useDsrFieldDay,
   useFieldDay,
+  useSaveFieldDayEnd,
   useSaveFieldVisit,
   useStaffRecords,
 } from "@/data/queries";
@@ -539,6 +540,118 @@ function VisitEditor({
   );
 }
 
+/**
+ * The DSR's day end: firot and damage per product, saved into the office's draft sheet. The
+ * office reviews, edits and posts it from the daily sales sheet.
+ */
+function DayEnd({
+  companyId,
+  staffId,
+  day,
+}: {
+  companyId: string;
+  staffId: string | undefined;
+  day: FieldDay;
+}) {
+  const save = useSaveFieldDayEnd(companyId);
+  const blank = (value: string) => (value === "0" ? "" : value);
+  const [rows, setRows] = useState(() =>
+    Object.fromEntries(
+      day.dayEnd.map((p) => [
+        p.productId,
+        { returned: blank(p.returned), damaged: blank(p.damaged) },
+      ]),
+    ),
+  );
+  const [error, setError] = useState<string | undefined>();
+  const [done, setDone] = useState(false);
+  const set = (productId: string, patch: Partial<{ returned: string; damaged: string }>) => {
+    setDone(false);
+    setRows((current) => ({
+      ...current,
+      [productId]: { returned: "", damaged: "", ...current[productId], ...patch },
+    }));
+  };
+
+  async function submit() {
+    setError(undefined);
+    const lines = day.dayEnd.map((p) => ({
+      productId: p.productId,
+      returned: pieces(rows[p.productId]?.returned ?? ""),
+      damaged: pieces(rows[p.productId]?.damaged ?? ""),
+    }));
+    if (lines.some((l) => !WHOLE.test(l.returned) || !WHOLE.test(l.damaged))) {
+      setError(t("validation.wholeNumber"));
+      return;
+    }
+    try {
+      await save.mutateAsync({ date: day.date, lines, ...forStaff(staffId) });
+      setDone(true);
+    } catch (e) {
+      setError(describeError(e, []).form);
+    }
+  }
+
+  return (
+    <section className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-3">
+      <h2 className="text-sm font-semibold">{t("field.dayEnd.title")}</h2>
+      <p className="text-xs text-text-muted">{t("field.dayEnd.hint")}</p>
+      <ul className="flex flex-col gap-3">
+        {day.dayEnd.map((p) => (
+          <li key={p.productId} className="flex flex-col gap-2 border-t border-border pt-2">
+            <div className="flex items-center justify-between gap-2 text-sm">
+              <span className="truncate font-medium">{p.productName}</span>
+              <span className="text-xs text-text-muted tabular-nums">
+                {t("field.inHand")}:{" "}
+                <CartonQty pieces={p.remaining} piecesPerCarton={p.piecesPerCarton} />
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Field id={`dayend-${p.productId}-r`} label={t("field.dayEnd.returned")}>
+                <input
+                  id={`dayend-${p.productId}-r`}
+                  inputMode="numeric"
+                  value={rows[p.productId]?.returned ?? ""}
+                  onChange={(event) => set(p.productId, { returned: event.target.value })}
+                  className={inputClass}
+                />
+              </Field>
+              <Field id={`dayend-${p.productId}-d`} label={t("field.dayEnd.damaged")}>
+                <input
+                  id={`dayend-${p.productId}-d`}
+                  inputMode="numeric"
+                  value={rows[p.productId]?.damaged ?? ""}
+                  onChange={(event) => set(p.productId, { damaged: event.target.value })}
+                  className={inputClass}
+                />
+              </Field>
+            </div>
+          </li>
+        ))}
+      </ul>
+      {error ? (
+        <p role="alert" className="text-sm text-error">
+          {error}
+        </p>
+      ) : null}
+      {done ? <p className="text-sm text-success">{t("field.dayEnd.saved")}</p> : null}
+      <div className="flex flex-wrap gap-2">
+        <Button
+          onClick={() => {
+            for (const p of day.dayEnd)
+              set(p.productId, { returned: p.remaining === "0" ? "" : p.remaining });
+          }}
+        >
+          {t("field.dayEnd.fillRemaining")}
+        </Button>
+        <Button variant="primary" disabled={save.isPending} onClick={() => void submit()}>
+          {save.isPending ? t("common.saving") : t("field.dayEnd.save")}
+        </Button>
+      </div>
+    </section>
+  );
+}
+
 function FieldDayView({ staffId }: { staffId?: string }) {
   const { company } = useCurrentWorkspace();
   const [date, setDate] = useWorkingDate();
@@ -642,6 +755,15 @@ function FieldDayView({ staffId }: { staffId?: string }) {
           </ul>
         )}
       </section>
+
+      {!data.locked && data.dayEnd.length > 0 ? (
+        <DayEnd
+          key={`${date}-${data.staffId}`}
+          companyId={company.id}
+          staffId={staffId}
+          day={data}
+        />
+      ) : null}
 
       {data.products.length > 0 ? (
         <details className="rounded-lg border border-border bg-surface p-3">

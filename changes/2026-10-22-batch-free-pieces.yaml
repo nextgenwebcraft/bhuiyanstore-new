@@ -1,0 +1,24 @@
+id: 2026-10-22-batch-free-pieces
+reason: >-
+  D68 amended (owner 2026-10-22) - an order's free pieces are not a separate batch: they go into
+  the order's own batch at its purchase price, and batch dropdowns no longer show free batches.
+owners: [contracts, database, application, i18n, web]
+changes:
+  - packages/database - migration 20261022020000_batch_free_pieces (drops stock_entry.free_batch_id and product_batch.free)
+  - packages/contracts - stock entry loses freeBatchId / freeBatchSeq, ProductLot loses free; order line doc (free-only order takes the latest batch's purchase price without a rate)
+  - packages/application - orderBatch: one batch per order line, null purchase price = latest batch's; batch due counts paid + free pieces; no free-batch price lock
+  - packages/i18n - order hint and order description; unused receipt cost hints and freeOnly removed
+  - apps/web - order form (latest batch incl. opening, rate always sent, batch shown for free-only rows), receipt form (no free lot handling), posted entries one batch, ফ্রি badge only on zero-cost automatic batches (isFreeAuto in daily-kit)
+  - packages/application/src/scripts/seed-demo.ts - run-scoped request keys, reuse of global staff by name, skips cash openings held by another company
+affectedActionIds: [purchase.create, purchase.reverse]
+financialImpact: >-
+  Free pieces received in a batch carry the batch's purchase price, so stock value and cost of goods
+  sold include them at that price (before: cost 0 in a free batch). The order bill (paid pieces x
+  carton rate) and the company balance are unchanged. Company free goods without an order
+  (incentive, replacement) keep their zero-cost automatic batches.
+backfill: none (no free batches existed in the dev database when the migration ran)
+tests:
+  - pnpm check (306 unit tests)
+  - pnpm test:integration (105 tests; phase-l updated: one batch for paid + free, stock value 5520, free-only order joins the latest batch)
+rollout: pnpm db:migrate, restart the app
+recovery: revert the commit and the migration (re-adds the columns empty)

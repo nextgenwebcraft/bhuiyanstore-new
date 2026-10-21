@@ -1,0 +1,23 @@
+id: 2026-10-21-company-salary-sr-tab
+reason: >-
+  D67 (owner change request 2026-10-21) - master panel cut to dashboard and new staff; salary per
+  company; absent fee; staff cost card and staff balances columns; SR cards and one SR tab in the
+  daily sales hub.
+owners: [domain, contracts, database, application, i18n, web]
+changes:
+  - packages/database - migration 20261021020000_staff_absent (money_entry kind CHECK adds staffAbsent)
+  - packages/domain - MoneyKind staffAbsent (record only), STAFF_COST_SIGN / staffCost, salaryAfterAbsence, day summary staffCost / srAdvanceGiven / srAdvanceReturned
+  - packages/contracts - moneyEntryKinds staffAbsent, dashboard staffCost / srAdvance*, company profit salaries
+  - packages/application - payroll lists global staff per company and takes absent fees off the proposal; staff-balances report columns (salary, shortage, advance, absent, cashPabe, staffCost); dashboard and master summary new fields
+  - packages/i18n - staffAbsent, staff cost and SR cards, report columns, sr.* tab strings, nav.sales.sr
+  - apps/web - navigation (master: dashboard + new staff; company money adds payroll, ledgers add staff accounts / statement, sales adds SR tab; SR hub and dsr/settlements removed), SR tab page, absent kind on the DSR staff card, dashboard cards, master month close as a dashboard section, P&L salaries column
+affectedActionIds: [payment.post, compensation.manage, sr_loan.create, sr_loan.repay, staff.manage]
+financialImpact: >-
+  Salary approved and paid in a company is that company's expense and cash out (was the master's).
+  Absent fees lower the proposed salary. SR advance and return keep their existing cash effects.
+  No change to stored balances.
+backfill: none
+tests:
+  - pnpm check (format, lint, types, unit tests incl. staff-cost.test.ts)
+rollout: pnpm db:migrate, deploy the app
+recovery: revert the commit and the migration (only if no staffAbsent entries exist)

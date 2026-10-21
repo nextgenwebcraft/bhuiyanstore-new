@@ -2,7 +2,6 @@
 
 import type {
   DayView,
-  PriceKind,
   StockEntry,
   StockEntryKind,
   StockEntryPostRequest,
@@ -12,7 +11,7 @@ import { EmptyListNote } from "@/components/empty-list-note";
 import { ReverseCell } from "@/components/reverse-cell";
 import { useAsyncAction } from "@/lib/async-action";
 import { sumQuantities, toBaseQuantity, toDecimal } from "@bsd/domain";
-import { formatCount, formatRate, t, type TranslationKey } from "@bsd/i18n";
+import { formatRate, t, type TranslationKey } from "@bsd/i18n";
 import { Fragment, useState } from "react";
 import { Button } from "@/components/button";
 import { PageHeader } from "@/components/page-header";
@@ -29,7 +28,15 @@ import {
 } from "@/data/queries";
 import { NavGate } from "@/features/shell/nav-gate";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
-import { CellInput, DateBar, DayGate, SectionTitle, clean, useWorkingDate } from "./daily-kit";
+import {
+  batchName,
+  CellInput,
+  DateBar,
+  DayGate,
+  SectionTitle,
+  clean,
+  useWorkingDate,
+} from "./daily-kit";
 import {
   CartonQty,
   ColumnHead,
@@ -46,83 +53,27 @@ import {
   theadClass,
 } from "@/components/data-table";
 import { TableScroller } from "@/components/table-scroller";
-import { visibleBatches } from "./day-report-page";
 import { OrderForm } from "./order-form";
+import { ReceiptForm } from "./receipt-form";
 import { OrderFunding } from "./order-funding";
 
 /** D63: damage deposits are entered on the company deposit page, not here. */
 type GodownKind = Exclude<StockEntryKind, "damageDeposit">;
+/** Godown damage and company free goods: plain quantities, no batch or price (D68). */
+type PlainKind = Exclude<GodownKind, "order" | "receipt">;
 
-/** Which price each godown screen can change from its date (Excel's carry-forward columns). */
-const PRICES: Record<GodownKind, PriceKind[]> = {
-  // D57: an order sets its carton rate on the order line; a receipt's cost comes from the order.
-  order: [],
-  receipt: ["sale"],
-  damage: [],
-  incentive: [],
-};
-const PRICE_FIELD = { order: "orderPrice", cost: "costPrice", sale: "salePrice" } as const;
-
-/** A receipt is one batch: its purchase and sale price apply from that day (D29). */
-const PRICE_LABEL: Record<GodownKind, Partial<Record<PriceKind, TranslationKey>>> = {
-  order: { order: "godown.column.orderPrice" },
-  receipt: { sale: "godown.column.batchSalePrice" },
-  damage: {},
-  incentive: {},
-};
-
-/** The day's posted quantity of each screen's kind, from the engine's product rows. */
+/** The day's posted quantity of each plain screen's kind, from the engine's product rows. */
 const POSTED_FIELD = {
-  order: "ordered",
-  receipt: "received",
   damage: "damaged",
   incentive: "incentiveReceived",
-} as const satisfies Record<GodownKind, string>;
-const POSTED_LABEL: Record<GodownKind, TranslationKey> = {
-  order: "day.column.ordered",
-  receipt: "day.column.received",
+} as const satisfies Record<PlainKind, string>;
+const POSTED_LABEL: Record<PlainKind, TranslationKey> = {
   damage: "day.column.damaged",
   incentive: "day.column.freeGoods",
 };
 
-type Row = { cartons: string; pieces: string } & Partial<Record<PriceKind, string>>;
+type Row = { cartons: string; pieces: string };
 const emptyRow: Row = { cartons: "", pieces: "" };
-
-/**
- * D57: the receipt's cost per piece is the average of the goods still due (their billed value Ã·
- * pieces, free pieces counted); shown read-only. Blank when nothing is due.
- */
-function orderCost(product: DayView["products"][number]): string {
-  const due = toDecimal(product.dueFromCompany);
-  if (due.lte(0)) return "";
-  return `${t("batch.currency")}${formatRate(
-    toDecimal(product.dueFromCompanyValue).div(due).toDecimalPlaces(4).toString(),
-  )}`;
-}
-
-/** The product's live batches, one line each, collapsed under the product name (D49). */
-function CurrentBatches({ product }: { product: DayView["products"][number] }) {
-  const batches = visibleBatches(product);
-  if (batches.length === 0) return null;
-  return (
-    <details className="mt-1 text-xs font-normal text-text-muted">
-      <summary className="cursor-pointer">{t("batch.current")}</summary>
-      <ul className="mt-1 flex flex-col gap-0.5">
-        {batches.map((b) => (
-          <li key={b.seq}>
-            {t("batch.label")} {formatCount(b.seq)} Â· {formatCount(b.quantity)}{" "}
-            {t("common.pieces")} @{" "}
-            {b.costPrice === null
-              ? ""
-              : `${t("batch.costShort")} ${t("batch.currency")}${formatRate(b.costPrice)} / `}
-            {t("batch.saleShort")} {t("batch.currency")}
-            {formatRate(b.salePrice)}
-          </li>
-        ))}
-      </ul>
-    </details>
-  );
-}
 
 function GodownForm({
   companyId,
@@ -132,16 +83,13 @@ function GodownForm({
 }: {
   companyId: string;
   date: string;
-  kind: GodownKind;
+  kind: PlainKind;
   view: DayView;
 }) {
-  const { permissions } = useCurrentWorkspace();
   const post = usePostStockEntries(companyId);
   const [rows, setRows] = useState<Record<string, Row>>({});
   const [error, setError] = useState<string | undefined>();
   const [done, setDone] = useState(false);
-  const canPrice = permissions.includes("product.edit");
-  const prices = canPrice ? PRICES[kind] : [];
 
   const set = (productId: string, patch: Partial<Row>) => {
     setDone(false);
@@ -153,7 +101,6 @@ function GodownForm({
 
   function request(): StockEntryPostRequest | string {
     const lines: StockEntryPostRequest["lines"] = [];
-    const priceLines: NonNullable<StockEntryPostRequest["prices"]> = [];
     for (const product of view.products) {
       const row = rows[product.productId];
       if (!row) continue;
@@ -164,13 +111,9 @@ function GodownForm({
       if (total !== "0") {
         lines.push({ kind, productId: product.productId, pieces: total });
       }
-      for (const priceKind of prices) {
-        const value = clean(row[priceKind] ?? "");
-        if (value) priceLines.push({ productId: product.productId, kind: priceKind, price: value });
-      }
     }
-    if (lines.length + priceLines.length === 0) return t("godown.nothing");
-    return { date, lines, prices: priceLines };
+    if (lines.length === 0) return t("godown.nothing");
+    return { date, lines, prices: [] };
   }
 
   async function submit() {
@@ -208,12 +151,6 @@ function GodownForm({
   return (
     <div className="flex flex-col gap-4">
       <TableSummary label={t("table.summary")} items={summary} />
-      {kind === "receipt" && prices.length ? (
-        <p className="rounded-lg border border-info/30 bg-info/5 px-4 py-3 text-sm">
-          {t("godown.receipt.costHint")}
-          <span className="mt-1 block text-text-muted">{t("batch.receiptHint")}</span>
-        </p>
-      ) : null}
       <TableScroller>
         <table className={tableClass}>
           <thead className={theadClass}>
@@ -227,14 +164,6 @@ function GodownForm({
               <th scope="col" className={thNum}>
                 {t("godown.column.pieces")}
               </th>
-              {prices.map((p) => (
-                <th key={p} scope="col" className={thNum}>
-                  {t(PRICE_LABEL[kind][p] ?? (`godown.column.${p}Price` as TranslationKey))}
-                </th>
-              ))}
-              {kind === "receipt" ? (
-                <ColumnHead label={t("godown.receipt.costByOrder")} quantity />
-              ) : null}
               <ColumnHead label={t("godown.column.stock")} quantity />
             </tr>
           </thead>
@@ -247,10 +176,9 @@ function GodownForm({
                     <th scope="row" className={`${tdClass} ${stickyCell} text-left font-medium`}>
                       <div>{product.productName}</div>
                       <div className="text-xs font-normal text-text-muted">
-                        {product.sku} Â· {t("godown.column.size")}{" "}
+                        {product.sku} · {t("godown.column.size")}{" "}
                         {quantity(product.piecesPerCarton)}
                       </div>
-                      {kind === "receipt" ? <CurrentBatches product={product} /> : null}
                     </th>
                     <td className={tdNum}>
                       <CellInput
@@ -268,22 +196,6 @@ function GodownForm({
                         width="w-16"
                       />
                     </td>
-                    {prices.map((p) => {
-                      const current = product[PRICE_FIELD[p]];
-                      return (
-                        <td key={p} className={tdNum}>
-                          <CellInput
-                            label={`${product.productName} ${t(`godown.column.${p}Price` as TranslationKey)}`}
-                            value={row[p] ?? ""}
-                            placeholder={current ? formatRate(current) : undefined}
-                            onChange={(value) => set(product.productId, { [p]: value })}
-                            mode="decimal"
-                            width="w-24"
-                          />
-                        </td>
-                      );
-                    })}
-                    {kind === "receipt" ? <td className={tdNum}>{orderCost(product)}</td> : null}
                     <td className={tdNum}>
                       <CartonQty pieces={product.stock} piecesPerCarton={product.piecesPerCarton} />
                     </td>
@@ -294,9 +206,7 @@ function GodownForm({
           </tbody>
         </table>
       </TableScroller>
-      <p className="text-xs text-text-muted">
-        {t("godown.quantityHint")} {prices.length ? t("godown.priceHint") : ""}
-      </p>
+      <p className="text-xs text-text-muted">{t("godown.quantityHint")}</p>
       {error ? <StatePanel tone="error" title={error} /> : null}
       {done ? <StatePanel title={t("common.posted")} /> : null}
       <div>
@@ -308,7 +218,7 @@ function GodownForm({
   );
 }
 
-/** An order's bill: paid pieces Ã— carton rate Ã· the carton size at posting (D57). */
+/** An order's bill: paid pieces × carton rate ÷ the carton size at posting (D57). */
 function orderBill(entry: StockEntry): string {
   if (entry.cartonRate === null || entry.piecesPerCarton === null) return "0";
   return toDecimal(entry.pieces)
@@ -316,6 +226,11 @@ function orderBill(entry: StockEntry): string {
     .div(entry.piecesPerCarton)
     .toDecimalPlaces(2)
     .toString();
+}
+
+/** The batch an order (paid and free pieces) or receipt went into (D68). */
+function entryBatches(entry: StockEntry): string {
+  return entry.batchSeq === null ? "—" : batchName({ seq: entry.batchSeq });
 }
 
 /** The day's posted entries of a kind as cards, shown above the entry form. */
@@ -388,6 +303,17 @@ function PostedEntries({
                     {t("godown.column.product")}
                   </th>
                   <ColumnHead label={t("godown.column.quantity")} quantity />
+                  {kind === "order" || kind === "receipt" ? (
+                    <th scope="col" className={thClass}>
+                      {t("godown.posted.batch")}
+                    </th>
+                  ) : null}
+                  {kind === "receipt" ? (
+                    <>
+                      {view.canSeeCost ? <ColumnHead label={t("batch.costShort")} /> : null}
+                      <ColumnHead label={t("batch.saleShort")} />
+                    </>
+                  ) : null}
                   {kind === "order" ? (
                     <>
                       <ColumnHead label={t("godown.posted.free")} quantity />
@@ -413,6 +339,21 @@ function PostedEntries({
                         piecesPerCarton={sizes.get(entry.productId) ?? "1"}
                       />
                     </td>
+                    {kind === "order" || kind === "receipt" ? (
+                      <td className={`${tdClass} whitespace-nowrap`}>{entryBatches(entry)}</td>
+                    ) : null}
+                    {kind === "receipt" ? (
+                      <>
+                        {view.canSeeCost ? (
+                          <td className={tdNum}>
+                            {entry.costPrice === null ? "" : formatRate(entry.costPrice)}
+                          </td>
+                        ) : null}
+                        <td className={tdNum}>
+                          {entry.salePrice === null ? "" : formatRate(entry.salePrice)}
+                        </td>
+                      </>
+                    ) : null}
                     {kind === "order" ? (
                       <>
                         <td className={tdNum}>
@@ -542,6 +483,8 @@ export function GodownPage({ path, kind }: { path: string; kind: GodownKind }) {
                 fundFrom={fundFrom}
                 setFundFrom={setFundFrom}
               />
+            ) : kind === "receipt" ? (
+              <ReceiptForm key={date} companyId={company.id} date={date} view={view} />
             ) : (
               <GodownForm key={date} companyId={company.id} date={date} kind={kind} view={view} />
             )}

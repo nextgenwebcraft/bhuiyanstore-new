@@ -89,17 +89,37 @@ export function PeriodBar({
 
 // ---------------------------------------------------------------- the summary
 
-type Card = { label: TranslationKey; value: string | undefined; emphasis?: boolean };
+type Card = {
+  label: TranslationKey;
+  value: string | undefined;
+  emphasis?: boolean;
+  /** Its step in the calculation chain: subtracted (−) or a result (=). */
+  op?: "minus" | "equals";
+};
 
-/** The summary cards in the owner's order (D60); a card without permission is left out. */
-export function summaryCards(d: DashboardSummary, singleDay: boolean): Card[] {
+/**
+ * D67: the calculation chain in order: মোট সামারি − ফেরত − ড্যামেজ − কমিশন − অপারেটিং খরচ
+ * − ডিএসআর খরচ − এসআর খরচ = নিট ব্যালান্স − বিক্রিত পণ্যের ক্রয়মূল্য = নিট লাভ (domain
+ * `dashboardChain`). A card without permission is left out.
+ */
+export function chainCards(d: DashboardSummary): Card[] {
   return [
     { label: "dashboard.card.issued", value: d.issuedValue, emphasis: true },
-    { label: "dashboard.card.returned", value: d.returnValue },
-    { label: "dashboard.card.damage", value: d.damageValue },
-    { label: "dashboard.card.commission", value: d.commission },
-    { label: "dashboard.card.operating", value: d.expenses },
-    { label: "dashboard.card.staffShort", value: d.staffShortage },
+    { label: "dashboard.card.returned", value: d.returnValue, op: "minus" },
+    { label: "dashboard.card.damage", value: d.damageSaleValue, op: "minus" },
+    { label: "dashboard.card.commission", value: d.commission, op: "minus" },
+    { label: "dashboard.card.operating", value: d.expenses, op: "minus" },
+    { label: "dashboard.card.staffCost", value: d.staffCost, op: "minus" },
+    { label: "dashboard.card.srCost", value: d.srCost, op: "minus" },
+    { label: "dashboard.card.netBalance", value: d.netBalance, op: "equals", emphasis: true },
+    { label: "dashboard.card.costOfSold", value: d.costOfSold, op: "minus" },
+    { label: "dashboard.card.netProfit", value: d.netProfit, op: "equals", emphasis: true },
+  ];
+}
+
+/** The position cards beside the chain: dues, SR advance and goods (D60, D67). */
+export function summaryCards(d: DashboardSummary, singleDay: boolean): Card[] {
+  return [
     ...(singleDay
       ? ([
           { label: "dashboard.card.newDue", value: d.marketDueCreated },
@@ -107,28 +127,43 @@ export function summaryCards(d: DashboardSummary, singleDay: boolean): Card[] {
         ] satisfies Card[])
       : []),
     { label: "dashboard.card.totalDue", value: d.marketDueOutstanding, emphasis: true },
+    { label: "dashboard.card.srAdvanceDue", value: d.srAdvanceDue },
     { label: "dashboard.card.received", value: d.receivedValue },
     { label: "dashboard.card.undelivered", value: d.undeliveredValue },
     { label: "dashboard.card.stock", value: d.stockValue, emphasis: true },
   ];
 }
 
-export function SummaryCards({ cards }: { cards: Card[] }) {
+const OP_SIGN = { minus: "−", equals: "=" } as const;
+
+export function SummaryCards({ cards, columns = 4 }: { cards: Card[]; columns?: 4 | 5 }) {
   return (
-    <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <dl
+      className={`grid grid-cols-1 gap-3 sm:grid-cols-2 ${columns === 5 ? "lg:grid-cols-5" : "lg:grid-cols-4"}`}
+    >
       {cards.flatMap((card) =>
         card.value === undefined
           ? []
           : [
               <StatTile
                 key={card.label}
-                label={t(card.label)}
+                label={card.op ? `${OP_SIGN[card.op]} ${t(card.label)}` : t(card.label)}
                 value={money(card.value)}
                 emphasis={card.emphasis ?? false}
               />,
             ],
       )}
     </dl>
+  );
+}
+
+/** The chain, then the other cards (D67). */
+export function SummaryGroups({ d, singleDay }: { d: DashboardSummary; singleDay: boolean }) {
+  return (
+    <>
+      <SummaryCards cards={chainCards(d)} columns={5} />
+      <SummaryCards cards={summaryCards(d, singleDay)} columns={5} />
+    </>
   );
 }
 
@@ -305,7 +340,7 @@ function DashboardBody({ range }: { range: ReportRange }) {
         <StatePanel title={t("dashboard.noActivity")} hint={t("dashboard.noActivityHint")} />
       ) : null}
       <Section title={t("dashboard.section.summary")}>
-        <SummaryCards cards={summaryCards(d, range.from === range.to)} />
+        <SummaryGroups d={d} singleDay={range.from === range.to} />
       </Section>
       {canReport ? <ReportSections range={range} /> : null}
     </div>

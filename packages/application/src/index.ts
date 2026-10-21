@@ -72,6 +72,7 @@ export {
   deleteFieldVisit,
   getDsrFieldDay,
   getFieldDay,
+  saveFieldDayEnd,
   saveFieldVisit,
 } from "./field";
 export { getSetupStatus } from "./setup";

@@ -47,11 +47,18 @@ const SUMMED = [
   "issuedValue",
   "returnValue",
   "commission",
+  "damageSaleValue",
 ] as const;
 
 const SUMMED_OPTIONAL = [
   "expenses",
   "staffShortage",
+  "staffCost",
+  "srCost",
+  "srAdvanceDue",
+  "netBalance",
+  "netProfit",
+  "costOfSold",
   "damageValue",
   "undeliveredValue",
   "grossProfit",
@@ -105,6 +112,7 @@ export async function getMasterSummary(
             companyId: r.company.id,
             companyName: r.company.name,
             gross: r.profit.gross,
+            salaries: r.profit.salaries,
             expenses: r.profit.expenses,
             srIncentive: r.profit.srIncentive,
             net: r.profit.net,
@@ -125,7 +133,7 @@ export async function getMasterSummary(
       ? {
           companies: profits,
           companiesNet: sumAmounts(["0", ...profits.map((p) => p.net)]),
-          salaries: own.profit.salaries,
+          salaries: sumAmounts(["0", ...profits.map((p) => p.salaries), own.profit.salaries]),
           masterExpenses: own.profit.expenses,
           net: sumAmounts(["0", ...profits.map((p) => p.net), own.profit.net]),
         }

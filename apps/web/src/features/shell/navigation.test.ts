@@ -80,7 +80,7 @@ describe("hubs", () => {
 
   it("keeps the tab order the owner decided", () => {
     const paths = (id: string) => hubs.find((h) => h.id === id)?.tabs.map((tab) => tab.path);
-    expect(paths("sales")).toEqual(["sales/daily-summaries", "sales/field"]);
+    expect(paths("sales")).toEqual(["sales/daily-summaries", "sales/sr", "sales/field"]);
     expect(paths("goods")).toEqual([
       "purchases/orders",
       "purchases/receipts",
@@ -92,26 +92,25 @@ describe("hubs", () => {
       "finance/supplier-deposits",
       "finance/company-account",
       "finance/expenses",
-      "sr-accounts/settlements",
-      "sr-accounts/incentives",
+      "dsr/salary-recovery",
+    ]);
+    expect(paths("ledgers")).toEqual([
+      "finance/cash-book",
+      "finance/receivables",
+      "finance/payables",
+      "dsr/accounts",
+      "dsr/statement",
     ]);
     expect(paths("opening")).toEqual(["admin/opening"]);
   });
 
-  it("gives the master panel global staff, salary and month close (D66)", () => {
+  it("gives the master panel only its dashboard and new staff (D67)", () => {
     const paths = (id: string) => masterHubs.find((h) => h.id === id)?.tabs.map((tab) => tab.path);
-    expect(masterHubs.map((h) => h.id)).toEqual([
-      "dashboard",
-      "staff",
-      "money",
-      "monthEnd",
-      "opening",
-      "setup",
-    ]);
-    expect(paths("staff")).toEqual(["masters/staff", "dsr/accounts", "dsr/statement"]);
-    expect(paths("monthEnd")).toEqual(["dsr/salary-recovery", "master/month-close"]);
-    for (const path of ["dsr/settlements", "dsr/salary-recovery", "master/month-close"]) {
-      expect(hubOfPath(path)).toBeUndefined();
+    expect(masterHubs.map((h) => h.id)).toEqual(["dashboard", "staff"]);
+    expect(paths("staff")).toEqual(["masters/staff"]);
+    expect(hubOfPath("masters/staff")).toBeUndefined();
+    for (const path of ["sr-accounts/representatives", "dsr/settlements", "master/month-close"]) {
+      expect(findNavEntry(path)).toBeUndefined();
     }
   });
 
@@ -119,15 +118,15 @@ describe("hubs", () => {
     expect(hubOfPath("")?.id).toBe("dashboard");
     expect(hubOfPath("inventory/undelivered")?.id).toBe("goods");
     expect(hubOfPath("admin/roles")?.id).toBe("setup");
-    expect(hubOfPath("dsr/accounts", true)?.id).toBe("staff");
+    expect(hubOfPath("masters/staff", true)?.id).toBe("staff");
     expect(hubOfPath("unknown/path")).toBeUndefined();
   });
 
   it("opens company screens in a company and master screens in the master only", async () => {
     const owner = await workspace("user-owner", "drinko");
     const master = { ...owner, company: { ...owner.company, isMaster: true } };
-    expect(equivalentPath("dsr/accounts", owner)).toBe("");
-    expect(equivalentPath("dsr/accounts", master)).toBe("dsr/accounts");
+    expect(equivalentPath("masters/staff", owner)).toBe("");
+    expect(equivalentPath("masters/staff", master)).toBe("masters/staff");
     expect(equivalentPath("purchases/orders", master)).toBe("");
     expect(visibleHubs(master).map((h) => h.id)).toContain("staff");
   });

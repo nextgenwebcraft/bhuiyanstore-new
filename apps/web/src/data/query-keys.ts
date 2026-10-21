@@ -148,6 +148,8 @@ export const postingEffects = {
   ],
   /** A field visit changes only the field day until the office posts the sheet. */
   field: [resourceIds.fieldDay],
+  /** The DSR's day end writes firot and damage into the office's draft sheet. */
+  fieldDayEnd: [resourceIds.fieldDay, resourceIds.dsrDay],
   money: [
     resourceIds.moneyEntry,
     resourceIds.shop,

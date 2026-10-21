@@ -2,6 +2,13 @@ export { Decimal, toDecimal, type DecimalInput } from "./decimal";
 export { COST_SCALE, SETTLEMENT_SCALE, roundCost, roundSettlement } from "./money";
 export { netIssuedQuantity, sumQuantities, toBaseQuantity, toCartonDisplay } from "./quantity";
 export {
+  batchUndelivered,
+  cartonFromPiece,
+  pieceFromCarton,
+  samePiecePrice,
+  type BatchMove,
+} from "./batch-lots";
+export {
   allocateByPriority,
   sortByAllocationPriority,
   type AllocatableLayer,
@@ -65,11 +72,19 @@ export {
   type CompanyStatementKind,
   type CompanyStatementLine,
 } from "./month/company-statement";
-export { summarizeDay, type DaySummary, type DsrDaySummary } from "./month/day-summary";
+export {
+  dashboardChain,
+  summarizeDay,
+  type DaySummary,
+  type DsrDaySummary,
+} from "./month/day-summary";
 export {
   MONEY_KIND_EFFECTS,
+  STAFF_COST_SIGN,
   cashBookEffect,
   moneyKindsWithAccount,
+  staffCost,
+  srCost,
   type MoneyKindEffect,
 } from "./month/money-kinds";
 export {
@@ -78,6 +93,7 @@ export {
   checkRecovery,
   proposeRecovery,
   recoveryTotal,
+  salaryAfterAbsence,
   type OwedInput,
   type Recovery,
   type RecoveryIssue,

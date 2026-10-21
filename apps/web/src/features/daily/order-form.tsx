@@ -1,8 +1,15 @@
 "use client";
 
 import type { DayView, OrderFund, StockEntryPostRequest } from "@bsd/contracts";
-import { orderFundingPreview, sumQuantities, toBaseQuantity, toDecimal } from "@bsd/domain";
-import { formatRate, t } from "@bsd/i18n";
+import {
+  orderFundingPreview,
+  pieceFromCarton,
+  samePiecePrice,
+  sumQuantities,
+  toBaseQuantity,
+  toDecimal,
+} from "@bsd/domain";
+import { t } from "@bsd/i18n";
 import { useState } from "react";
 import { Button } from "@/components/button";
 import {
@@ -24,19 +31,21 @@ import { TableScroller } from "@/components/table-scroller";
 import { TableSummary, type SummaryItem } from "@/components/table-summary";
 import { describeError } from "@/data/ports/service-error";
 import { usePostStockEntries } from "@/data/queries";
-import { CellInput, clean } from "./daily-kit";
+import { CellInput, clean, pairOf, PriceCells, type PricePair } from "./daily-kit";
 
 /**
- * The company order (D57): per product the paid cartons + pieces, the taka per carton and the free
- * goods the company gives with it. The bill and the per-piece cost are previews of what the month
- * engine calculates when the goods arrive.
+ * The company order (D57, D68): per product the paid cartons + pieces, the purchase and sale
+ * price (per carton or per piece, each filling the other) and the free goods the company gives
+ * with it. The prices start at the product's latest batch; changed prices make a new batch. The
+ * free goods go into the same batch at its prices.
  */
 type Row = {
   cartons: string;
   pieces: string;
-  rate?: string;
   freeCartons: string;
   freePieces: string;
+  buy?: PricePair;
+  sale?: PricePair;
 };
 const thCenter = `${thClass} text-center`;
 const tdCenter = `${tdClass} text-center`;
@@ -44,14 +53,21 @@ const freeTint = "bg-surface-muted/50";
 const emptyRow: Row = { cartons: "", pieces: "", freeCartons: "", freePieces: "" };
 const whole = /^\d+$/;
 const amount = /^\d+(\.\d{1,2})?$/;
+const unitPrice = /^\d+(\.\d{1,6})?$/;
 
 type Product = DayView["products"][number];
 
-/** The current order price as a taka-per-carton starting value; blank without a price. */
-const defaultRate = (product: Product) =>
-  product.orderPrice
-    ? toDecimal(product.orderPrice).mul(product.piecesPerCarton).toDecimalPlaces(2).toString()
-    : "";
+/** The product's latest batch: the prices the next order starts from. */
+const latestLot = (product: Product) => product.lots.at(-1);
+
+const defaultBuy = (product: Product) =>
+  pairOf(
+    latestLot(product)?.costPrice ?? product.orderPrice ?? product.costPrice,
+    product.piecesPerCarton,
+  );
+
+const defaultSale = (product: Product) =>
+  pairOf(latestLot(product)?.salePrice ?? product.salePrice, product.piecesPerCarton);
 
 type Draft =
   | { error: string }
@@ -59,8 +75,10 @@ type Draft =
       paid: string;
       free: string;
       rate: string;
+      salePrice: string;
       bill: ReturnType<typeof toDecimal>;
-      unitCost: ReturnType<typeof toDecimal>;
+      /** The order's batch number when the prices match the latest batch, else null (new). */
+      batchSeq: number | null;
     };
 
 export function OrderForm({
@@ -106,17 +124,26 @@ export function OrderForm({
     const paid = toBaseQuantity(cartons, pieces, product.piecesPerCarton);
     const free = toBaseQuantity(freeCartons, freePieces, product.piecesPerCarton);
     if (paid === "0" && free === "0") return null;
-    const rate = clean(row.rate ?? defaultRate(product));
-    if (paid !== "0" && !amount.test(rate)) return { error: t("godown.order.rateMissing") };
+    const rate = clean((row.buy ?? defaultBuy(product)).carton);
+    const salePrice = clean((row.sale ?? defaultSale(product)).piece);
+    if (!amount.test(rate) || !unitPrice.test(salePrice)) {
+      return { error: t("godown.order.priceMissing") };
+    }
     const bill =
       paid === "0" ? toDecimal("0") : toDecimal(paid).mul(rate).div(product.piecesPerCarton);
-    const all = toDecimal(paid).add(free);
+    const lot = latestLot(product);
+    const same =
+      lot !== undefined &&
+      lot.costPrice !== null &&
+      samePiecePrice(lot.costPrice, pieceFromCarton(rate, product.piecesPerCarton)) &&
+      samePiecePrice(lot.salePrice, salePrice);
     return {
       paid,
       free,
-      rate: paid === "0" ? "0" : rate,
+      rate,
+      salePrice,
       bill,
-      unitCost: all.isZero() ? toDecimal("0") : bill.div(all),
+      batchSeq: same ? lot.seq : null,
     };
   }
 
@@ -125,13 +152,14 @@ export function OrderForm({
     for (const product of view.products) {
       const draft = draftOf(product);
       if (!draft) continue;
-      if ("error" in draft) return draft.error;
+      if ("error" in draft) return `${product.productName}: ${draft.error}`;
       lines.push({
         kind: "order",
         productId: product.productId,
         pieces: draft.paid,
         freePieces: draft.free,
         cartonRate: draft.rate,
+        salePrice: draft.salePrice,
       });
     }
     if (lines.length === 0) return t("godown.nothing");
@@ -226,8 +254,11 @@ export function OrderForm({
               <th scope="col" colSpan={2} className={`${thCenter} border-b border-l border-border`}>
                 {t("godown.order.paidGroup")}
               </th>
-              <th scope="col" rowSpan={2} className={`${thCenter} border-l border-border`}>
-                {t("godown.order.cartonRate")}
+              <th scope="col" colSpan={2} className={`${thCenter} border-b border-l border-border`}>
+                {t("godown.order.purchaseGroup")}
+              </th>
+              <th scope="col" colSpan={2} className={`${thCenter} border-b border-l border-border`}>
+                {t("godown.order.saleGroup")}
               </th>
               <th scope="col" colSpan={2} className={`${thCenter} border-b border-l border-border`}>
                 {t("godown.order.freeGroup")}
@@ -235,8 +266,8 @@ export function OrderForm({
               <th scope="col" rowSpan={2} className={`${thNum} border-l border-border`}>
                 {t("godown.order.bill")}
               </th>
-              <th scope="col" rowSpan={2} className={thNum}>
-                {t("godown.order.unitCost")}
+              <th scope="col" rowSpan={2} className={thCenter}>
+                {t("godown.order.batch")}
               </th>
               <th scope="col" rowSpan={2} className={`${thNum} whitespace-nowrap`}>
                 {t("godown.order.due")}
@@ -253,6 +284,18 @@ export function OrderForm({
                 {t("godown.column.pieces")}
               </th>
               <th scope="col" className={`${thCenter} border-l border-border`}>
+                {t("godown.price.carton")}
+              </th>
+              <th scope="col" className={thCenter}>
+                {t("godown.price.piece")}
+              </th>
+              <th scope="col" className={`${thCenter} border-l border-border`}>
+                {t("godown.price.carton")}
+              </th>
+              <th scope="col" className={thCenter}>
+                {t("godown.price.piece")}
+              </th>
+              <th scope="col" className={`${thCenter} border-l border-border`}>
                 {t("godown.column.cartons")}
               </th>
               <th scope="col" className={thCenter}>
@@ -265,6 +308,7 @@ export function OrderForm({
               const row = rows[product.productId] ?? emptyRow;
               const label = product.productName;
               const preview = draft && !("error" in draft) ? draft : null;
+              const wrong = draft !== null && "error" in draft;
               return (
                 <tr key={product.productId} className="border-t border-border">
                   <th scope="row" className={`${tdClass} ${stickyCell} text-left font-medium`}>
@@ -282,7 +326,7 @@ export function OrderForm({
                       width="w-16"
                     />
                   </td>
-                  <td className={`${tdCenter}`}>
+                  <td className={tdCenter}>
                     <CellInput
                       label={`${label} ${t("godown.column.pieces")}`}
                       placeholder={t("godown.column.pieces")}
@@ -291,16 +335,22 @@ export function OrderForm({
                       width="w-16"
                     />
                   </td>
-                  <td className={`${tdCenter} border-l border-border`}>
-                    <CellInput
-                      label={`${label} ${t("godown.order.cartonRate")}`}
-                      placeholder="৳"
-                      value={row.rate ?? defaultRate(product)}
-                      onChange={(rate) => set(product.productId, { rate })}
-                      mode="decimal"
-                      width="w-24"
-                    />
-                  </td>
+                  <PriceCells
+                    label={`${label} ${t("godown.order.purchaseGroup")}`}
+                    value={row.buy ?? defaultBuy(product)}
+                    piecesPerCarton={product.piecesPerCarton}
+                    onChange={(buy) => set(product.productId, { buy })}
+                    invalid={wrong}
+                    className="border-l border-border"
+                  />
+                  <PriceCells
+                    label={`${label} ${t("godown.order.saleGroup")}`}
+                    value={row.sale ?? defaultSale(product)}
+                    piecesPerCarton={product.piecesPerCarton}
+                    onChange={(sale) => set(product.productId, { sale })}
+                    invalid={wrong}
+                    className="border-l border-border"
+                  />
                   <td className={`${tdCenter} ${freeTint} border-l border-border`}>
                     <CellInput
                       label={`${label} ${t("godown.order.free")} ${t("godown.column.cartons")}`}
@@ -326,9 +376,15 @@ export function OrderForm({
                       <span className="text-text-muted">—</span>
                     )}
                   </td>
-                  <td className={tdNum}>
+                  <td className={`${tdCenter} whitespace-nowrap`}>
                     {preview ? (
-                      formatRate(preview.unitCost.toDecimalPlaces(4).toString())
+                      preview.batchSeq === null ? (
+                        <span className="rounded bg-warning/15 px-1.5 py-0.5 text-xs font-medium">
+                          {t("godown.order.newBatch")}
+                        </span>
+                      ) : (
+                        `${t("godown.order.batch")} ${quantity(String(preview.batchSeq))}`
+                      )
                     ) : (
                       <span className="text-text-muted">—</span>
                     )}
@@ -346,7 +402,7 @@ export function OrderForm({
         </table>
       </TableScroller>
       <p className="text-xs text-text-muted">
-        {t("godown.quantityHint")} {t("godown.order.hint")}
+        {t("godown.quantityHint")} {t("godown.order.hint")} {t("godown.order.batchHint")}
       </p>
       {error ? <StatePanel tone="error" title={error} /> : null}
       {done ? <StatePanel title={t("common.posted")} /> : null}

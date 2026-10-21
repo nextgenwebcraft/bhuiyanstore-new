@@ -174,6 +174,7 @@ describe("toMonthOpening", () => {
     });
     expect(out.days[0]?.products[0]?.batches).toEqual([
       {
+        key: "auto:1",
         seq: 1,
         startDate: "2026-11-01",
         costPrice: "23.48",

@@ -263,6 +263,7 @@ model Product {
   dsrLines     DsrLine[]
   damageLines  DamageCaseLine[]
   fieldLines   FieldVisitLine[]
+  batches      ProductBatch[]
 
   @@unique([companyId, sku])
   @@index([tenantId, companyId])
@@ -298,6 +299,31 @@ model PriceChange {
 
   @@unique([productId, kind, effectiveFrom])
   @@map("price_change")
+}
+
+/// D68: one lot of a product at one purchase and one sale price per piece. An order creates it
+/// (or reuses the product's latest lot when both prices are unchanged); the opening stock is the
+/// product's `opening` lot. Receipts and DSR lines name it; editing its prices on a receipt or
+/// line changes them from then on, while posted lines keep their own copy.
+model ProductBatch {
+  id           String       @id @default(cuid())
+  tenantId     String       @map("tenant_id")
+  companyId    String       @map("company_id")
+  productId    String       @map("product_id")
+  /// 1, 2, … per product, in creation order.
+  seq          Int
+  /// `order` or `opening`.
+  source       String       @default("order")
+  costPrice    Decimal      @map("cost_price") @db.Decimal(20, 6)
+  salePrice    Decimal      @map("sale_price") @db.Decimal(20, 6)
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+  product      Product      @relation(fields: [productId], references: [id])
+  orderLines   StockEntry[] @relation("StockEntryBatch")
+
+  @@unique([productId, seq])
+  @@index([companyId])
+  @@map("product_batch")
 }
 
 // ---------------------------------------------------------------- parties
@@ -524,6 +550,11 @@ model StockEntry {
   fundFrom        String[]  @default([]) @map("fund_from")
   /// D63 (kind order only): orders posted together.
   orderGroup      String?   @map("order_group")
+  /// D68: the batch of an order (its paid and free pieces) or of a receipt. A receipt keeps the
+  /// per-piece prices it was received at.
+  batchId         String?   @map("batch_id")
+  costPrice       Decimal?  @map("cost_price") @db.Decimal(20, 6)
+  salePrice       Decimal?  @map("sale_price") @db.Decimal(20, 6)
   supplierId      String?   @map("supplier_id")
   reference       String    @default("")
   lot             String?
@@ -537,8 +568,10 @@ model StockEntry {
   company         Company   @relation(fields: [companyId], references: [id])
   product         Product   @relation(fields: [productId], references: [id])
   supplier        Supplier? @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  batch           ProductBatch? @relation("StockEntryBatch", fields: [batchId], references: [id], onDelete: Restrict)
 
   @@index([companyId, date])
+  @@index([batchId])
   @@map("stock_entry")
 }
 
@@ -584,11 +617,17 @@ model DsrLine {
   damaged         Decimal         @default(0) @db.Decimal(20, 6)
   /// D41: taka given to shops on this line; lowers its sales.
   commission      Decimal         @default(0) @db.Decimal(20, 2)
+  /// D68: the batch the pieces come from: a product_batch id, an automatic batch (`auto:<seq>`)
+  /// or '' (oldest first), with its number and the per-piece prices the line used.
+  batchKey        String          @default("") @map("batch_key")
+  batchSeq        Int?            @map("batch_seq")
+  costPrice       Decimal?        @map("cost_price") @db.Decimal(20, 6)
+  salePrice       Decimal?        @map("sale_price") @db.Decimal(20, 6)
   dsrDay          DsrDay          @relation(fields: [dsrDayId], references: [id], onDelete: Cascade)
   product         Product         @relation(fields: [productId], references: [id])
   splits          DsrPriceSplit[]
 
-  @@unique([dsrDayId, productId])
+  @@unique([dsrDayId, productId, batchKey])
   @@map("dsr_line")
 }
 

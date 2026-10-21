@@ -37,6 +37,7 @@ const TABLES = [
   "dsr_line",
   "dsr_day",
   "stock_entry",
+  "product_batch",
   "opening_balance_line",
   "opening_stock_line",
   "opening_session",

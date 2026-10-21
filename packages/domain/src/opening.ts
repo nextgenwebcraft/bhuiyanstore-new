@@ -53,6 +53,8 @@ export type OpeningStockInput = {
   salePrice: string | null;
   orderPrice: string | null;
   dueFromCompany: string | null;
+  /** D68: the stored opening batch of the product (its key and number), when there is one. */
+  batch?: { key: string; seq: number } | null;
 };
 
 export type OpeningBalanceInput = {
@@ -212,15 +214,18 @@ export function toMonthOpening(input: OpeningCheckInput): MonthOpening {
       stock: pieces,
       dueFromCompany: line.dueFromCompany ?? "0",
       // D49: the opening stock is the product's first batch at the line's cost and sale price. A
-      // line without both prices leaves it to the engine (one batch, prices as entered).
-      ...(toDecimal(pieces).gt(0) && line.unitCost !== null && line.salePrice !== null
+      // line without both prices leaves it to the engine (one batch, prices as entered), unless it
+      // has a stored batch (D68), which DSR lines and receipts name.
+      ...(toDecimal(pieces).gt(0) &&
+      (line.batch || (line.unitCost !== null && line.salePrice !== null))
         ? {
             batches: [
               {
-                seq: 1,
+                ...(line.batch ? { key: line.batch.key } : {}),
+                seq: line.batch?.seq ?? 1,
                 startDate: input.cutoffDate ?? "opening",
-                costPrice: line.unitCost,
-                salePrice: line.salePrice,
+                costPrice: line.unitCost ?? "0",
+                salePrice: line.salePrice ?? "0",
                 quantity: pieces,
               },
             ],

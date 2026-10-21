@@ -369,6 +369,8 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
         method: "DELETE",
         body: input,
       }),
+    saveFieldDayEnd: (companyId, input) =>
+      request(fieldDaySchema, `${company(companyId)}/field/day-end`, write("PUT", input)),
     createFieldShop: (companyId, input) =>
       request(fieldShopSchema, `${company(companyId)}/field/shops`, write("POST", input)),
     createStaffLogin: (companyId, staffId, input) =>

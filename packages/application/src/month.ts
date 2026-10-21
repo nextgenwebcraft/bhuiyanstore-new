@@ -14,8 +14,14 @@ import {
 } from "@bsd/contracts";
 import type { Prisma } from "@bsd/database";
 import {
+  STAFF_COST_SIGN,
+  cashPay,
   dsrCashSettlement,
   fieldRemaining,
+  proposeRecovery,
+  salaryAfterAbsence,
+  staffCost,
+  type MoneyKind,
   firstOfMonth,
   lastOfMonth,
   monthOf,
@@ -433,6 +439,7 @@ function buildTables(
   seen: Visibility,
   from: string,
   dsrExtras?: DsrExtras,
+  staffExtras?: StaffExtras,
 ): ReportTable[] {
   const m = output.month;
   const staffName = (sid: string) => names.staff.get(sid) ?? "";
@@ -850,22 +857,55 @@ function buildTables(
       ];
     }
     case "staff-balances": {
-      const keys = ["advance", "loan", "shortage", "credit", "salaryPayable", "srLoan", "owedToSr"];
+      // D67: salary, shortage, advance, absent fee, Cash Pabe and staff cost; an SR shows only
+      // the advance they owe us (SR loan).
       return [
         table(
           "staffBalances",
           [
             col("staff", "text"),
-            ...keys.map((k) => col(k, "money")),
+            col("salary", "money"),
+            col("shortage", "money"),
+            col("advance", "money"),
+            col("absent", "money"),
+            col("cashPabe", "money"),
+            col("staffCost", "money"),
           ],
-          m.staff.map((s) => ({
-            cells: {
-              staff: staffName(s.staffId),
-              ...Object.fromEntries(
-                keys.map((k) => [k, (s.closing as Record<string, string>)[k] ?? null]),
-              ),
-            },
-          })),
+          m.staff.map((s) => {
+            const extra = staffExtras?.get(s.staffId);
+            if (extra?.kind === "sr") {
+              return {
+                cells: {
+                  staff: staffName(s.staffId),
+                  salary: null,
+                  shortage: null,
+                  advance: s.closing.srLoan,
+                  absent: null,
+                  cashPabe: null,
+                  staffCost: null,
+                },
+              };
+            }
+            const salary = extra?.salary ?? "0";
+            const absent = extra?.absent ?? "0";
+            const owed = {
+              advance: s.closing.advance,
+              loan: s.closing.loan,
+              shortage: s.closing.shortage,
+            };
+            const net = salaryAfterAbsence(salary, absent);
+            return {
+              cells: {
+                staff: staffName(s.staffId),
+                salary,
+                shortage: s.closing.shortage,
+                advance: sumAmounts([s.closing.advance, s.closing.loan]),
+                absent,
+                cashPabe: cashPay(net, proposeRecovery(net, owed)),
+                staffCost: extra?.cost ?? "0",
+              },
+            };
+          }),
           null,
           seen,
         ),
@@ -1061,6 +1101,64 @@ function buildTables(
   }
 }
 
+type StaffExtras = Map<
+  string,
+  { kind: "sr" | "distributor"; salary: string; absent: string; cost: string }
+>;
+
+/**
+ * D67: per person in scope, the monthly salary (latest assignment that has one) and, over
+ * [from, to], the absent fees and staff cost entered in this company (every company for the master).
+ */
+async function loadStaffExtras(
+  db: Db,
+  access: CompanyAccess,
+  from: string,
+  to: string,
+): Promise<StaffExtras> {
+  const company = access.company;
+  const [people, assignments, entries] = await Promise.all([
+    staffInScope(db, company),
+    db.staffAssignment.findMany({
+      where: { company: { tenantId: company.tenantId }, monthlySalary: { not: null } },
+      select: { staffId: true, monthlySalary: true },
+      orderBy: { from: "desc" },
+    }),
+    db.moneyEntry.findMany({
+      where: {
+        ...(company.isMaster ? { tenantId: company.tenantId } : { companyId: company.id }),
+        status: "posted",
+        staffId: { not: null },
+        kind: { in: ["staffAbsent", ...(Object.keys(STAFF_COST_SIGN) as MoneyKind[])] },
+        date: { gte: toDbDate(from), lte: toDbDate(to) },
+      },
+      select: { staffId: true, kind: true, amount: true },
+    }),
+  ]);
+  const salary = new Map<string, string>();
+  for (const a of assignments) {
+    if (a.monthlySalary !== null && !salary.has(a.staffId)) {
+      salary.set(a.staffId, plain(a.monthlySalary));
+    }
+  }
+  const extras: StaffExtras = new Map();
+  for (const p of people) {
+    const mine = entries.flatMap((e) =>
+      e.staffId === p.id ? [{ kind: e.kind as MoneyKind, amount: plain(e.amount) }] : [],
+    );
+    extras.set(p.id, {
+      kind: p.kind,
+      salary: salary.get(p.id) ?? "0",
+      absent: sumAmounts([
+        "0",
+        ...mine.filter((e) => e.kind === "staffAbsent").map((e) => e.amount),
+      ]),
+      cost: staffCost(mine),
+    });
+  }
+  return extras;
+}
+
 type DsrExtras = Map<string, { handedOver: string | null; stockMismatch: boolean }>;
 
 /**
@@ -1145,11 +1243,12 @@ export async function getReport(
 
   const active = await liveOpening(ctx.db, companyId);
   const run = await rangeRun(ctx.db, access, range.from, to, active);
-  const [names, categories, dsrExtras, staff] = await Promise.all([
+  const [names, categories, dsrExtras, staff, staffExtras] = await Promise.all([
     namesFor(ctx.db, access, run?.from ?? range.from),
     categoryNames(ctx.db, access.company.tenantId),
     run && id === "dsr-daily" ? loadDsrExtras(ctx.db, companyId, run.from, to) : undefined,
     run && id === "staff-balances" ? globalStaff(ctx.db, access, run.from, to) : undefined,
+    run && id === "staff-balances" ? loadStaffExtras(ctx.db, access, run.from, to) : undefined,
   ]);
   const output =
     run && staff ? { ...run.output, month: { ...run.output.month, staff } } : run?.output;
@@ -1159,7 +1258,16 @@ export async function getReport(
     to,
     cutoffDate: active?.cutoffDate ?? null,
     tables: output
-      ? buildTables(id, output, names, categories, seen, run?.from ?? range.from, dsrExtras)
+      ? buildTables(
+          id,
+          output,
+          names,
+          categories,
+          seen,
+          run?.from ?? range.from,
+          dsrExtras,
+          staffExtras,
+        )
       : [],
     warnings: run?.output.warnings ?? [],
   });

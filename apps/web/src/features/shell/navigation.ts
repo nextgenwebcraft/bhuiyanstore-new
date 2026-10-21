@@ -45,6 +45,7 @@ export const navigation: readonly NavSection[] = [
       item("sales/daily-summaries", "nav.sales.dailySummaries", "sale.view"),
       item("sales/shops", "nav.sales.shops", "company.view"),
       item("sales/field", "nav.sales.field", "field.entry"),
+      item("sales/sr", "nav.sales.sr", "sr_loan.view"),
     ],
   },
   {
@@ -66,22 +67,10 @@ export const navigation: readonly NavSection[] = [
     ],
   },
   {
-    id: "sr-accounts",
-    labelKey: "nav.srAccounts",
-    module: "srAccounts",
-    items: [
-      item("sr-accounts/representatives", "nav.srAccounts.representatives", "sr_loan.view"),
-      item("sr-accounts/statement", "nav.srAccounts.statement", "sr_loan.view"),
-      item("sr-accounts/incentives", "sr.incentivePayment", "sr_incentive.view"),
-      item("sr-accounts/settlements", "nav.srAccounts.settlements", "sr_loan.view"),
-    ],
-  },
-  {
     id: "dsr-staff",
     labelKey: "nav.dsrStaff",
     module: "dsrStaff",
     items: [
-      item("dsr/settlements", "nav.dsrStaff.settlements", "settlement.view"),
       item("dsr/accounts", "nav.dsrStaff.accounts", "finance.view"),
       item("dsr/statement", "nav.dsrStaff.statement", "finance.view"),
       item("dsr/salary-recovery", "dsr.salaryRecovery", "compensation.view"),
@@ -119,11 +108,6 @@ export const navigation: readonly NavSection[] = [
       item("admin/opening", "nav.administration.opening", "opening.prepare"),
     ],
   },
-  {
-    id: "master",
-    labelKey: "nav.master",
-    items: [item("master/month-close", "nav.flow.monthClose", "period.close")],
-  },
 ];
 
 export type HubId =
@@ -159,7 +143,7 @@ const hubDefinitions: readonly Omit<Hub, "shortcut">[] = [
     id: "sales",
     labelKey: "nav.hub.sales",
     icon: "sales",
-    tabs: [{ path: "sales/daily-summaries" }, { path: "sales/field" }],
+    tabs: [{ path: "sales/daily-summaries" }, { path: "sales/sr" }, { path: "sales/field" }],
   },
   {
     id: "goods",
@@ -186,8 +170,7 @@ const hubDefinitions: readonly Omit<Hub, "shortcut">[] = [
       { path: "finance/supplier-deposits" },
       { path: "finance/company-account" },
       { path: "finance/expenses" },
-      { path: "sr-accounts/settlements" },
-      { path: "sr-accounts/incentives" },
+      { path: "dsr/salary-recovery", labelKey: "nav.flow.payroll" },
     ],
   },
   {
@@ -198,8 +181,8 @@ const hubDefinitions: readonly Omit<Hub, "shortcut">[] = [
       { path: "finance/cash-book" },
       { path: "finance/receivables" },
       { path: "finance/payables" },
-      { path: "sr-accounts/representatives" },
-      { path: "sr-accounts/statement" },
+      { path: "dsr/accounts" },
+      { path: "dsr/statement" },
     ],
   },
   {
@@ -215,7 +198,6 @@ const hubDefinitions: readonly Omit<Hub, "shortcut">[] = [
     tabs: [
       { path: "masters/products" },
       { path: "masters/cartons" },
-      { path: "masters/staff" },
       { path: "masters/lists" },
       { path: "admin/users" },
       { path: "admin/roles" },
@@ -224,8 +206,8 @@ const hubDefinitions: readonly Omit<Hub, "shortcut">[] = [
 ];
 
 /**
- * The master panel's hubs (D66): the all-company dashboard, global staff, their money and
- * accounts, salary and month close for every company, the master's opening and tenant setup.
+ * The master panel's hubs (D66, D67): the all-company dashboard (with the month close) and the
+ * global staff; everything else lives in the companies.
  */
 const masterHubDefinitions: readonly Omit<Hub, "shortcut">[] = [
   { id: "dashboard", labelKey: "nav.master.dashboard", icon: "dashboard", tabs: [{ path: "" }] },
@@ -233,38 +215,7 @@ const masterHubDefinitions: readonly Omit<Hub, "shortcut">[] = [
     id: "staff",
     labelKey: "nav.master.staff",
     icon: "srAccounts",
-    tabs: [{ path: "masters/staff" }, { path: "dsr/accounts" }, { path: "dsr/statement" }],
-  },
-  {
-    id: "money",
-    labelKey: "nav.hub.money",
-    icon: "finance",
-    tabs: [
-      { path: "dsr/settlements", labelKey: "nav.flow.staffCash" },
-      { path: "finance/expenses" },
-      { path: "finance/cash-book" },
-    ],
-  },
-  {
-    id: "monthEnd",
-    labelKey: "nav.flow.monthEnd",
-    icon: "calendar",
-    tabs: [
-      { path: "dsr/salary-recovery", labelKey: "nav.flow.payroll" },
-      { path: "master/month-close" },
-    ],
-  },
-  {
-    id: "opening",
-    labelKey: "nav.administration.opening",
-    icon: "administration",
-    tabs: [{ path: "admin/opening" }],
-  },
-  {
-    id: "setup",
-    labelKey: "nav.hub.setup",
-    icon: "masters",
-    tabs: [{ path: "masters/lists" }, { path: "admin/users" }, { path: "admin/roles" }],
+    tabs: [{ path: "masters/staff", labelKey: "nav.master.staff" }],
   },
 ];
 

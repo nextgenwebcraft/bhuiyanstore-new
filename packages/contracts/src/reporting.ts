@@ -45,6 +45,19 @@ export const dashboardSummarySchema = z.object({
   /** Category expenses and staff shortages over the range; require `finance.view`. */
   expenses: decimalStringSchema.optional(),
   staffShortage: decimalStringSchema.optional(),
+  /** D67: money paid out for staff (advance to salary, net of returns); requires `finance.view`. */
+  staffCost: decimalStringSchema.optional(),
+  /** D67: money paid out for SRs (advance, incentive, payment − returns) and what SRs owe at the end. */
+  srCost: decimalStringSchema.optional(),
+  srAdvanceDue: decimalStringSchema.optional(),
+  /** D67: DSR-damaged pieces at the sale price (the chain's damage). */
+  damageSaleValue: decimalStringSchema,
+  /** D67: মোট সামারি − every deduction and cost (domain `dashboardChain`); requires `finance.view`. */
+  netBalance: decimalStringSchema.optional(),
+  /** D67: purchase cost of the goods sold; requires `inventory.cost_view`. */
+  costOfSold: decimalStringSchema.optional(),
+  /** D67: netBalance − costOfSold; requires `finance.view` and `report.profit_view`. */
+  netProfit: decimalStringSchema.optional(),
   /** Cost value of damaged pieces; requires `inventory.cost_view`. */
   damageValue: decimalStringSchema.optional(),
   /** Billed value of goods ordered and not received at the end (D48); requires `inventory.cost_view`. */
@@ -68,11 +81,12 @@ export const dashboardSummarySchema = z.object({
 
 export type DashboardSummary = z.infer<typeof dashboardSummarySchema>;
 
-/** One company's net profit over the range (engine `month.profit`, no salary, D66). */
+/** One company's net profit over the range (engine `month.profit`; salaries paid by it, D67). */
 const companyProfitSchema = z.object({
   companyId: idSchema,
   companyName: z.string(),
   gross: decimalStringSchema,
+  salaries: decimalStringSchema,
   expenses: decimalStringSchema,
   srIncentive: decimalStringSchema,
   net: decimalStringSchema,

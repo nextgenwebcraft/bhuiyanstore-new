@@ -64,6 +64,12 @@ export const stockEntrySchema = z.object({
   /** D63, orders only: the balance parts named to pay it, and the group posted together. */
   fundFrom: z.array(z.enum(orderFunds)),
   orderGroup: z.string().nullable(),
+  /** D68: the batch of an order (its paid and free pieces) or of a receipt. */
+  batchId: idSchema.nullable(),
+  batchSeq: z.number().int().positive().nullable(),
+  /** D68: per-piece prices (an order's batch prices, a receipt's own); cost null without cost view. */
+  costPrice: decimalStringSchema.nullable(),
+  salePrice: decimalStringSchema.nullable(),
   status: z.enum(documentStatuses),
   createdAt: z.string(),
   reversedAt: z.string().nullable(),
@@ -72,10 +78,12 @@ export const stockEntrySchema = z.object({
 export type StockEntry = z.infer<typeof stockEntrySchema>;
 
 /**
- * One godown line. An `order` (D57) carries paid pieces, optional free pieces and the taka per
- * carton (required with paid pieces); paid pieces may be 0 only with free pieces. A damage
- * deposit (D63) carries whole pieces > 0 and the taka per piece. Other kinds carry whole pieces > 0
- * and nothing else.
+ * One godown line. An `order` (D57, D68) carries paid pieces, optional free pieces, the purchase
+ * taka per carton (required with paid pieces; without it a free-only order takes the latest
+ * batch's purchase price) and the sale price per piece; paid pieces may be 0 only with free
+ * pieces, which go into the same batch. A `receipt` (D68) names the batch it receives into and may change the
+ * batch's per-piece prices. A damage deposit (D63) carries whole pieces > 0 and the taka per
+ * piece. Other kinds carry whole pieces > 0 and nothing else.
  */
 export const stockEntryLineRequestSchema = z
   .object({
@@ -85,6 +93,9 @@ export const stockEntryLineRequestSchema = z
     freePieces: wholePiecesSchema.optional(),
     cartonRate: amountSchema.optional(),
     unitPrice: unitPriceSchema.optional(),
+    batchId: idSchema.optional(),
+    costPrice: unitPriceSchema.optional(),
+    salePrice: unitPriceSchema.optional(),
   })
   .superRefine((line, ctx) => {
     const issue = (path: string, message: string) =>
@@ -95,15 +106,25 @@ export const stockEntryLineRequestSchema = z
     } else if (line.unitPrice !== undefined) {
       issue("unitPrice", "validation.daily.orderOnly");
     }
+    if (line.kind === "receipt") {
+      if (line.batchId === undefined) issue("batchId", "validation.daily.batchRequired");
+    } else {
+      if (line.batchId !== undefined) issue("batchId", "validation.daily.orderOnly");
+      if (line.costPrice !== undefined) issue("costPrice", "validation.daily.orderOnly");
+    }
     if (line.kind !== "order") {
       if (!paid) issue("pieces", "validation.quantityPositive");
       if (line.freePieces !== undefined) issue("freePieces", "validation.daily.orderOnly");
       if (line.cartonRate !== undefined) issue("cartonRate", "validation.daily.orderOnly");
+      if (line.kind !== "receipt" && line.salePrice !== undefined) {
+        issue("salePrice", "validation.daily.orderOnly");
+      }
       return;
     }
     const free = line.freePieces !== undefined && line.freePieces !== "0";
     if (!paid && !free) issue("pieces", "validation.quantityPositive");
     if (paid && line.cartonRate === undefined) issue("cartonRate", "validation.daily.rateRequired");
+    if (line.salePrice === undefined) issue("salePrice", "validation.daily.salePriceRequired");
   });
 
 /**
@@ -149,6 +170,14 @@ export const dsrLineRequestSchema = z.object({
   damaged: wholePiecesSchema,
   /** Taka given to shops on this line (D41); lowers its sales. */
   commission: amountSchema.default("0"),
+  /**
+   * D68: the batch the pieces come from (a batch id, `auto:<n>`, or '' for oldest first). One
+   * line per product and batch. The prices default to the batch's; a changed price becomes the
+   * batch's from then on. The purchase price needs cost view.
+   */
+  batchKey: z.string().max(64).default(""),
+  costPrice: unitPriceSchema.optional(),
+  salePrice: unitPriceSchema.optional(),
 });
 
 export const dsrDaySaveRequestSchema = z.object({
@@ -176,6 +205,11 @@ export const dsrLineSchema = dsrLineRequestSchema.extend({
   sku: z.string(),
   productName: z.string(),
   piecesPerCarton: z.string(),
+  batchKey: z.string(),
+  batchSeq: z.number().int().nonnegative().nullable(),
+  /** Null without cost view, or for a line without a batch. */
+  costPrice: decimalStringSchema.nullable(),
+  salePrice: decimalStringSchema.nullable(),
 });
 
 export const dsrDaySchema = z.object({
@@ -216,6 +250,7 @@ export const moneyEntryKinds = [
   "staffExcess",
   "staffCostPaid",
   "staffCreditPaid",
+  "staffAbsent",
   "salaryAccrual",
   "salaryRecovery",
   "salaryPaid",
@@ -252,6 +287,7 @@ export const moneyKindPerson: Partial<Record<MoneyEntryKind, "dsr" | "sr" | "dis
   staffExcess: "distributor",
   staffCostPaid: "distributor",
   staffCreditPaid: "distributor",
+  staffAbsent: "distributor",
   salaryAccrual: "distributor",
   salaryRecovery: "distributor",
   salaryPaid: "distributor",
@@ -276,6 +312,7 @@ export const moneyKindPermission: Record<MoneyEntryKind, PermissionId> = {
   staffExcess: "payment.post",
   staffCostPaid: "payment.post",
   staffCreditPaid: "payment.post",
+  staffAbsent: "payment.post",
   salaryAccrual: "compensation.manage",
   salaryRecovery: "compensation.manage",
   salaryPaid: "compensation.manage",
@@ -460,6 +497,8 @@ const costMoney = decimalStringSchema.nullable();
  * counted at the opening without a known date.
  */
 export const batchRowSchema = z.object({
+  /** D68: the batch id, or `auto:<seq>` for goods that arrived without one (free goods etc.). */
+  key: z.string(),
   seq: z.number().int().positive(),
   startDate: z.string(),
   costPrice: costMoney,
@@ -472,6 +511,7 @@ export type BatchRow = z.infer<typeof batchRowSchema>;
 
 /** The pieces of one DSR line taken from one batch, in FIFO order (D49); read-only. */
 export const lineAllocationSchema = z.object({
+  key: z.string(),
   seq: z.number().int().positive(),
   quantity: money,
   costPrice: costMoney,
@@ -479,6 +519,21 @@ export const lineAllocationSchema = z.object({
 });
 
 export type LineAllocation = z.infer<typeof lineAllocationSchema>;
+
+/**
+ * D68: one stored batch (order lot) of a product with its current per-piece prices and the pieces
+ * still due from the company on the date. `costPrice` is null without cost view.
+ */
+export const productLotSchema = z.object({
+  id: idSchema,
+  seq: z.number().int().positive(),
+  source: z.enum(["order", "opening"]),
+  costPrice: costMoney,
+  salePrice: money,
+  undelivered: money,
+});
+
+export type ProductLot = z.infer<typeof productLotSchema>;
 
 export const dayProductRowSchema = z.object({
   productId: idSchema,
@@ -524,6 +579,11 @@ export const dayProductRowSchema = z.object({
   stockValue: costMoney,
   /** The batches left at the end of the day, oldest first; the newest may be 0 (D49). */
   batches: z.array(batchRowSchema),
+  /**
+   * D68: the product's stored batches that still matter on the date: those with goods due from
+   * the company or in stock, and the latest paid one (its prices pre-fill the next order).
+   */
+  lots: z.array(productLotSchema),
 });
 
 export type DayProductRow = z.infer<typeof dayProductRowSchema>;

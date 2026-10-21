@@ -15,6 +15,7 @@ import type {
   ExpenseCategory,
   ExpenseCategoryUpsertRequest,
   FieldDay,
+  FieldDayEndRequest,
   FieldShopCreateRequest,
   FieldVisit,
   FieldVisitDeleteRequest,
@@ -358,6 +359,8 @@ export interface DistributionService {
     visitId: string,
     input: FieldVisitDeleteRequest,
   ): Promise<void>;
+  /** Requires `field.entry`: firot and damage into the draft office sheet; returns the day. */
+  saveFieldDayEnd(companyId: string, input: FieldDayEndRequest): Promise<FieldDay>;
   /** Requires `field.shop_create`. */
   createFieldShop(
     companyId: string,

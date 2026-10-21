@@ -2,14 +2,18 @@ import { Decimal, toDecimal, type DecimalInput } from "../decimal";
 import { MONEY_KIND_EFFECTS, cashBookEffect } from "./money-kinds";
 import { depositInvestment, fundOrder } from "./order-funding";
 import {
+  autoKey,
   consumeFifo,
   firstPieces,
   lastPiecesCost,
   layerAtSale,
   layerCost,
+  receiveFree,
   receiveInto,
+  receiveIntoBatch,
   repriceNewest,
   returnToOldest,
+  takeFromBatch,
   totalAtSale,
   totalQuantity,
   totalValue,
@@ -280,9 +284,13 @@ type LineAggregate = {
   cost: Decimal;
   /** Batch cost of the damaged (exchanged) pieces of the lines (D49). */
   damagedCost: Decimal;
+  /** Issued and returned pieces at the line's list sale price (its batch's, D68). */
+  issuedValue: Decimal;
+  returnValue: Decimal;
 };
 
 const toBatchResult = (b: BatchLayer): BatchResult => ({
+  key: b.key,
   seq: b.seq,
   startDate: b.startDate,
   costPrice: str(b.costPrice),
@@ -291,6 +299,7 @@ const toBatchResult = (b: BatchLayer): BatchResult => ({
   value: str(b.quantity.mul(b.costPrice)),
 });
 const toCarry = (b: BatchLayer): BatchCarry => ({
+  key: b.key,
   seq: b.seq,
   startDate: b.startDate,
   costPrice: str(b.costPrice),
@@ -298,6 +307,7 @@ const toCarry = (b: BatchLayer): BatchCarry => ({
   quantity: str(b.quantity),
 });
 const toAllocationResult = (a: LayerAllocation): LineAllocationResult => ({
+  key: a.key,
   seq: a.seq,
   quantity: str(a.quantity),
   costPrice: str(a.costPrice),
@@ -333,6 +343,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
     // D49: the opening batches, or one batch from the stock at the opening prices.
     const openingBatches: BatchLayer[] = (o?.batches ?? [])
       .map((b) => ({
+        key: b.key ?? autoKey(b.seq),
         seq: b.seq,
         startDate: b.startDate,
         costPrice: toDecimal(b.costPrice),
@@ -344,6 +355,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
     const batchSale = newestPrice(openingBatches, "salePrice");
     if (openingBatches.length === 0 && !dec(o?.stock).isZero()) {
       openingBatches.push({
+        key: autoKey(1),
         seq: 1,
         startDate: "opening",
         costPrice: openingCost ?? ZERO,
@@ -486,42 +498,65 @@ export function computeMonth(input: MonthInput): MonthOutput {
     const dayProducts = day.products ?? {};
     for (const id of Object.keys(dayProducts)) requireProduct(id);
     const orderStages = new Map<ProductId, OrderStage>();
+    const dayReceipts = new Map<ProductId, { received: Decimal; receiptSale: Decimal }>();
 
     // Prices for the day: carry forward, changed by today's values. D49: the day's stock inflows
     // come first. A receipt's pieces take the day's cost and sale price (merging into the newest
     // batch only when both are equal, else a new batch); a price change on a day without a receipt
-    // re-prices the newest batch only. Free goods and company replacements are zero-cost pieces.
+    // re-prices the newest batch only. D68: a receipt into a named batch takes the receipt's own
+    // prices instead; free goods and company replacements join the newest named batch.
     for (const [id, state] of products) {
       const p = dayProducts[id];
       for (const kind of ["orderPrice", "costPrice", "salePrice"] as const) {
         const v = p?.[kind];
         if (v !== undefined) state.prices[kind] = toDecimal(v);
       }
-      const received = dec(p?.received);
+      const batchReceipts = (p?.batchReceipts ?? []).map((r) => ({
+        key: r.key,
+        seq: r.seq,
+        quantity: toDecimal(r.quantity),
+        costPrice: toDecimal(r.costPrice),
+        salePrice: toDecimal(r.salePrice),
+      }));
+      for (const r of batchReceipts) {
+        if (r.quantity.lte(0) || r.costPrice.isNegative() || r.salePrice.isNegative()) {
+          throw new RangeError(`invalid batch receipt: ${id}`);
+        }
+      }
+      const unbatched = dec(p?.received);
+      const received = unbatched.add(sum(batchReceipts.map((r) => r.quantity)));
       const sale = state.prices.salePrice ?? ZERO;
       // D57: the order/receipt pool decides the receipt batch's cost per piece.
       const stage = orderStage(state, p, received);
       orderStages.set(id, stage);
       // The cost price the day's other pieces fall back on (deficit batches, history).
       const cost = state.prices.costPrice ?? ZERO;
-      if (received.gt(0)) {
+      let receiptSale = unbatched.mul(sale);
+      if (unbatched.gt(0)) {
         const receiptCost = stage.receiptValue.div(received);
-        receiveInto(state.batches, received, receiptCost, sale, day.date);
+        receiveInto(state.batches, unbatched, receiptCost, sale, day.date);
         // The current cost price follows the newest batch (display, carried into the closing).
         state.prices.costPrice = receiptCost;
-      } else {
+      } else if (batchReceipts.length === 0) {
         repriceNewest(state.batches, {
           costPrice: p?.costPrice === undefined ? undefined : toDecimal(p.costPrice),
           salePrice: p?.salePrice === undefined ? undefined : toDecimal(p.salePrice),
         });
       }
+      for (const r of batchReceipts) {
+        receiveIntoBatch(state.batches, r, r.quantity, r, day.date);
+        state.prices.costPrice = r.costPrice;
+        state.prices.salePrice = r.salePrice;
+        receiptSale = receiptSale.add(r.quantity.mul(r.salePrice));
+      }
+      dayReceipts.set(id, { received, receiptSale });
       const freeQuantity = sum((p?.replacements ?? []).map((r) => toDecimal(r.quantity))).add(
         dec(p?.incentiveReceived),
       );
-      if (freeQuantity.gt(0)) receiveInto(state.batches, freeQuantity, ZERO, sale, day.date);
+      receiveFree(state.batches, freeQuantity, sale, day.date);
       // A negative receipt (correction) takes pieces back out, oldest first.
-      if (received.isNegative()) {
-        consumeFifo(state.batches, received.neg(), { costPrice: cost, salePrice: sale }, day.date);
+      if (unbatched.isNegative()) {
+        consumeFifo(state.batches, unbatched.neg(), { costPrice: cost, salePrice: sale }, day.date);
       }
     }
 
@@ -569,13 +604,37 @@ export function computeMonth(input: MonthInput): MonthOutput {
         salePrice: lineState.prices.salePrice ?? ZERO,
       };
       const net = issued.sub(returned);
-      // D49: the line's pieces leave the oldest batches first (a negative net returns to the
-      // oldest). The first `sold` allocated pieces are sold, the last `damaged` ones exchanged.
-      const allocation = net.gt(0)
-        ? consumeFifo(lineState.batches, net, fallback, day.date)
-        : returnToOldest(lineState.batches, net.neg(), fallback, day.date);
+      const named = line.batch;
+      const layer = named ? lineState.batches.find((b) => b.key === named.key) : undefined;
+      const batch = named
+        ? {
+            key: named.key,
+            seq: named.seq,
+            costPrice:
+              named.costPrice === undefined
+                ? (layer?.costPrice ?? fallback.costPrice)
+                : toDecimal(named.costPrice),
+            salePrice:
+              named.salePrice === undefined
+                ? (layer?.salePrice ?? fallback.salePrice)
+                : toDecimal(named.salePrice),
+          }
+        : null;
+      if (batch && (batch.costPrice.isNegative() || batch.salePrice.isNegative())) {
+        throw new RangeError(`invalid batch price: ${line.staffId}/${line.productId}`);
+      }
+      // D68: a line naming its batch takes the pieces from it at the line's prices. D49: else
+      // the pieces leave the oldest batches first (a negative net returns to the oldest). The
+      // first `sold` allocated pieces are sold, the last `damaged` ones exchanged.
+      const allocation = batch
+        ? takeFromBatch(lineState.batches, batch, net, batch, day.date)
+        : net.gt(0)
+          ? consumeFifo(lineState.batches, net, fallback, day.date)
+          : returnToOldest(lineState.batches, net.neg(), fallback, day.date);
       const newestSale = lineState.batches[lineState.batches.length - 1]?.salePrice;
-      const firstSale = allocation[0]?.salePrice ?? newestSale ?? fallback.salePrice;
+      const firstSale =
+        batch?.salePrice ?? allocation[0]?.salePrice ?? newestSale ?? fallback.salePrice;
+      const listSale = batch?.salePrice ?? fallback.salePrice;
       const soldPieces = lineSold.gt(0) ? firstPieces(allocation, lineSold) : [];
       let soldBase = soldPieces.reduce((t, c) => t.add(c.quantity.mul(c.salePrice)), ZERO);
       // Sold below zero (damaged beyond net, or a net return) is valued at the first batch price.
@@ -607,6 +666,8 @@ export function computeMonth(input: MonthInput): MonthOutput {
         soldValue: ZERO,
         cost: ZERO,
         damagedCost: ZERO,
+        issuedValue: ZERO,
+        returnValue: ZERO,
       };
       agg.issued = agg.issued.add(issued);
       agg.returned = agg.returned.add(returned);
@@ -615,8 +676,12 @@ export function computeMonth(input: MonthInput): MonthOutput {
       agg.soldValue = agg.soldValue.add(soldValue);
       agg.cost = agg.cost.add(lineCostValue);
       agg.damagedCost = agg.damagedCost.add(
-        damaged.isZero() ? ZERO : lastPiecesCost(allocation, damaged, fallback.costPrice),
+        damaged.isZero()
+          ? ZERO
+          : lastPiecesCost(allocation, damaged, batch?.costPrice ?? fallback.costPrice),
       );
+      agg.issuedValue = agg.issuedValue.add(issued.mul(listSale));
+      agg.returnValue = agg.returnValue.add(returned.mul(listSale));
       lineAggregates.set(line.productId, agg);
 
       const dsr = dsrOf(line.staffId);
@@ -666,7 +731,10 @@ export function computeMonth(input: MonthInput): MonthOutput {
       const p = dayProducts[id];
       const agg = lineAggregates.get(id);
       const ordered = dec(p?.ordered).add(stage0Pieces(p));
-      const received = dec(p?.received);
+      const { received, receiptSale } = dayReceipts.get(id) ?? {
+        received: ZERO,
+        receiptSale: ZERO,
+      };
       const incentiveReceived = dec(p?.incentiveReceived);
       if (incentiveReceived.isNegative()) throw new RangeError(`invalid free goods: ${id}`);
       if (!incentiveReceived.isZero()) {
@@ -846,9 +914,8 @@ export function computeMonth(input: MonthInput): MonthOutput {
       const t = totals.get(id) as ProductTotals;
       const orderValue = orderBill;
       const receiptBill = excessBill;
-      const receiptSale = received.mul(state.prices.salePrice ?? ZERO);
-      const returnValue = returned.mul(state.prices.salePrice ?? ZERO);
-      const issuedValue = issued.mul(state.prices.salePrice ?? ZERO);
+      const returnValue = agg?.returnValue ?? ZERO;
+      const issuedValue = agg?.issuedValue ?? ZERO;
       // D49: the damaged pieces' batch cost, plus replaced and godown-damaged pieces at theirs;
       // product-level damaged (importer only) at the current cost.
       const damageValue = (agg?.damagedCost ?? ZERO)

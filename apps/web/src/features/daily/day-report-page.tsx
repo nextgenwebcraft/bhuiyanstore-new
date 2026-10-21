@@ -2,7 +2,7 @@
 
 import type { BatchRow, DayProductRow, DayView } from "@bsd/contracts";
 import { sumAmounts, toDecimal } from "@bsd/domain";
-import { formatBusinessDate, formatCount, formatRate, t, type TranslationKey } from "@bsd/i18n";
+import { formatBusinessDate, formatRate, t, type TranslationKey } from "@bsd/i18n";
 import { Fragment, useState } from "react";
 import { PageHeader } from "@/components/page-header";
 import { StatePanel } from "@/components/state-panel";
@@ -11,7 +11,7 @@ import { NavGate } from "@/features/shell/nav-gate";
 import { PrintButton, PrintHeader } from "@/features/shell/print";
 import { PageWarnings } from "@/features/shell/notifications";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
-import { DateBar, DateHeading, DayGate, useWorkingDate } from "./daily-kit";
+import { batchName, DateBar, DateHeading, DayGate, isFreeAuto, useWorkingDate } from "./daily-kit";
 import {
   columnVisible,
   type ColumnNeeds,
@@ -59,7 +59,6 @@ function visible(columns: Column[], view: DayView) {
 /** Batches worth showing: the newest batch may be empty (D49). */
 export const visibleBatches = (row: DayProductRow): BatchRow[] =>
   row.batches.filter((b) => !toDecimal(b.quantity).isZero());
-
 /** The batch cell under each stock column; columns a batch has no value for stay empty. */
 const BATCH_CELLS: Partial<
   Record<TranslationKey, (b: BatchRow, row: DayProductRow) => React.ReactNode>
@@ -74,12 +73,10 @@ const BATCH_CELLS: Partial<
 
 function BatchRows({ row, shown }: { row: DayProductRow; shown: Column[] }) {
   return visibleBatches(row).map((b) => (
-    <tr key={`${row.productId}-${b.seq}`} className="border-t border-border/50 text-text-muted">
+    <tr key={`${row.productId}-${b.key}`} className="border-t border-border/50 text-text-muted">
       <th scope="row" className={`${tdClass} ${stickyCell} pl-6 text-left text-xs font-normal`}>
-        <span className="font-medium">
-          {t("batch.label")} {formatCount(b.seq)}
-        </span>
-        {b.costPrice !== null && toDecimal(b.costPrice).isZero() ? (
+        <span className="font-medium">{batchName(b)}</span>
+        {isFreeAuto(b.key, b.costPrice) ? (
           <span className="ml-1 rounded bg-success/10 px-1 text-success">{t("batch.free")}</span>
         ) : null}
         <div>

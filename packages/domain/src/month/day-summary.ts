@@ -1,6 +1,7 @@
-import { Decimal, toDecimal } from "../decimal";
+import { Decimal, toDecimal, type DecimalInput } from "../decimal";
 import { roundSettlement } from "../money";
-import type { DayInput, DayResult, StaffId } from "./types";
+import { srCost, staffCost } from "./money-kinds";
+import type { DayInput, DayResult, MoneyKind, StaffId } from "./types";
 
 export type DsrDaySummary = {
   staffId: StaffId;
@@ -27,16 +28,55 @@ export type DaySummary = {
   issuedValue: string;
   returnValue: string;
   damageValue: string;
+  /** D67: DSR-damaged pieces at the day's sale price (the dashboard chain's damage). */
+  damageSaleValue: string;
+  /** D67: purchase cost of the goods sold (delivered) that day. */
+  costOfSold: string;
   commission: string;
   /** Category expenses (operating cost). */
   expenses: string;
   /** Σ staff shortage entries. */
   staffShortage: string;
+  /** D67: money paid out for distributor staff that day, net of returns (`staffCost`). */
+  staffCost: string;
+  /** D67: money paid out for SRs that day, net of returns (`srCost`). */
+  srCost: string;
   byDsr: DsrDaySummary[];
 };
 
 const sum = (values: readonly string[]) =>
   values.reduce((total, v) => total.add(toDecimal(v)), new Decimal(0));
+
+/**
+ * D67: the dashboard's calculation chain over summed period figures.
+ * নিট ব্যালান্স = মোট সামারি − ফেরত − ড্যামেজ (sale price) − কমিশন − অপারেটিং খরচ − ডিএসআর খরচ
+ * − এসআর খরচ; নিট লাভ = নিট ব্যালান্স − বিক্রিত পণ্যের ক্রয়মূল্য.
+ */
+export function dashboardChain(input: {
+  issuedValue: DecimalInput;
+  returnValue: DecimalInput;
+  damageSaleValue: DecimalInput;
+  commission: DecimalInput;
+  expenses: DecimalInput;
+  staffCost: DecimalInput;
+  srCost: DecimalInput;
+  costOfSold?: DecimalInput;
+}): { netBalance: string; netProfit: string | null } {
+  const netBalance = toDecimal(input.issuedValue)
+    .sub(toDecimal(input.returnValue))
+    .sub(toDecimal(input.damageSaleValue))
+    .sub(toDecimal(input.commission))
+    .sub(toDecimal(input.expenses))
+    .sub(toDecimal(input.staffCost))
+    .sub(toDecimal(input.srCost));
+  return {
+    netBalance: roundSettlement(netBalance),
+    netProfit:
+      input.costOfSold === undefined
+        ? null
+        : roundSettlement(netBalance.sub(toDecimal(input.costOfSold))),
+  };
+}
 
 /**
  * The dashboard's per-day figures, from one engine day and that day's input (PLAN §6). Market due
@@ -67,6 +107,8 @@ export function summarizeDay(day: DayResult, input: DayInput): DaySummary {
   const dueNew = toDecimal(day.money.marketDueNew);
   const collected = toDecimal(day.money.marketDueCollected);
   const salesCash = sales.sub(dueNew);
+  const ofKind = (kind: MoneyKind) =>
+    sum((input.money ?? []).filter((e) => e.kind === kind).map((e) => String(e.amount)));
   return {
     netSales: roundSettlement(sales),
     salesCash: roundSettlement(salesCash),
@@ -79,13 +121,18 @@ export function summarizeDay(day: DayResult, input: DayInput): DaySummary {
     issuedValue: roundSettlement(sum(day.products.map((p) => p.issuedValue))),
     returnValue: roundSettlement(sum(day.products.map((p) => p.returnValue))),
     damageValue: roundSettlement(sum(day.products.map((p) => p.damageValue))),
-    commission: roundSettlement(toDecimal(day.money.commission)),
-    expenses: roundSettlement(toDecimal(day.money.expenses)),
-    staffShortage: roundSettlement(
-      sum(
-        (input.money ?? []).filter((e) => e.kind === "staffShortage").map((e) => String(e.amount)),
+    damageSaleValue: roundSettlement(
+      day.products.reduce(
+        (total, p) => total.add(toDecimal(p.damaged).mul(toDecimal(p.salePrice ?? "0"))),
+        new Decimal(0),
       ),
     ),
+    costOfSold: roundSettlement(sum(day.products.map((p) => p.cost))),
+    commission: roundSettlement(toDecimal(day.money.commission)),
+    expenses: roundSettlement(toDecimal(day.money.expenses)),
+    staffShortage: roundSettlement(ofKind("staffShortage")),
+    staffCost: roundSettlement(toDecimal(staffCost(input.money ?? []))),
+    srCost: roundSettlement(toDecimal(srCost(input.money ?? []))),
     byDsr: [...dsr].map(([staffId, v]) => ({
       staffId,
       netSales: roundSettlement(v.sales),

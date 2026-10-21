@@ -1,3 +1,4 @@
+import { Decimal, toDecimal, type DecimalInput } from "../decimal";
 import type { MoneyKind, StaffBalances } from "./types";
 
 type Direction = 1 | -1 | 0;
@@ -44,6 +45,8 @@ export const MONEY_KIND_EFFECTS: Readonly<Record<MoneyKind, MoneyKindEffect>> = 
     requiresStaff: true,
   },
   staffCreditPaid: { cash: -1, staff: { balance: "credit", direction: -1 }, requiresStaff: true },
+  /** D67: absent fee, a record only; payroll takes it off that month's salary. */
+  staffAbsent: { cash: 0, requiresStaff: true },
   salaryAccrual: {
     cash: 0,
     staff: { balance: "salaryPayable", direction: 1 },
@@ -97,6 +100,49 @@ export const MONEY_KIND_EFFECTS: Readonly<Record<MoneyKind, MoneyKindEffect>> = 
 export function cashBookEffect(kind: MoneyKind): 1 | -1 | "transfer" | 0 {
   const effect = MONEY_KIND_EFFECTS[kind];
   return effect.cash !== 0 ? effect.cash : (effect.book ?? 0);
+}
+
+/**
+ * D67: কর্মীর খরচ, the money the sales paid out for distributor staff, net of what came back:
+ * advance, loan, shortage, salary paid and credit paid count in; repayments and excess count out.
+ */
+export const STAFF_COST_SIGN: Readonly<Partial<Record<MoneyKind, 1 | -1>>> = {
+  staffAdvance: 1,
+  staffLoan: 1,
+  staffShortage: 1,
+  salaryPaid: 1,
+  staffCreditPaid: 1,
+  staffRepayment: -1,
+  staffExcess: -1,
+};
+
+/** D67: এসআর খরচ, money the sales paid out for SRs (advance, incentive, payment) net of returns. */
+export const SR_COST_SIGN: Readonly<Partial<Record<MoneyKind, 1 | -1>>> = {
+  srLoan: 1,
+  srIncentive: 1,
+  srPayment: 1,
+  srRepayment: -1,
+};
+
+type Entry = { kind: MoneyKind; amount: DecimalInput };
+
+function signedSum(entries: readonly Entry[], signs: Partial<Record<MoneyKind, 1 | -1>>): string {
+  let total = new Decimal(0);
+  for (const entry of entries) {
+    const sign = signs[entry.kind];
+    if (sign) total = total.add(toDecimal(entry.amount).mul(sign));
+  }
+  return total.toString();
+}
+
+/** Σ signed staff cost of the entries (D67). */
+export function staffCost(entries: readonly Entry[]): string {
+  return signedSum(entries, STAFF_COST_SIGN);
+}
+
+/** Σ signed SR cost of the entries (D67). */
+export function srCost(entries: readonly Entry[]): string {
+  return signedSum(entries, SR_COST_SIGN);
 }
 
 /** The kinds that name a cash account on entry: everything that moves one. */

@@ -28,16 +28,23 @@ import { clean } from "@/features/daily/daily-kit";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 import { useAsyncAction } from "@/lib/async-action";
 
-/** D62: the four kinds of the DSR sheet's staff money card. */
-export type StaffCashKind = "advance" | "shortage" | "advanceReturn" | "shortageReturn";
+/** D62: the kinds of the DSR sheet's staff money card; D67 adds the absent fee. */
+export type StaffCashKind = "advance" | "shortage" | "advanceReturn" | "shortageReturn" | "absent";
 
-const KINDS: readonly StaffCashKind[] = ["advance", "shortage", "advanceReturn", "shortageReturn"];
+const KINDS: readonly StaffCashKind[] = [
+  "advance",
+  "shortage",
+  "advanceReturn",
+  "shortageReturn",
+  "absent",
+];
 
 const LABEL: Record<StaffCashKind, TranslationKey> = {
   advance: "staffCash.kind.advance",
   shortage: "staffCash.kind.shortage",
   advanceReturn: "staffCash.kind.advanceReturn",
   shortageReturn: "staffCash.kind.shortageReturn",
+  absent: "staffCash.kind.absent",
 };
 
 /** The money entry a card kind posts: returns are repayments allocated to one bucket. */
@@ -54,6 +61,8 @@ export function staffCashRequest(
       return { kind: "staffRepayment", allocation: { advance: amount, loan: "0", shortage: "0" } };
     case "shortageReturn":
       return { kind: "staffRepayment", allocation: { advance: "0", loan: "0", shortage: amount } };
+    case "absent":
+      return { kind: "staffAbsent" };
   }
 }
 
@@ -61,6 +70,7 @@ export function staffCashRequest(
 export function staffCashKindOf(entry: MoneyEntry): StaffCashKind | null {
   if (entry.kind === "staffAdvance") return "advance";
   if (entry.kind === "staffShortage") return "shortage";
+  if (entry.kind === "staffAbsent") return "absent";
   if (entry.kind !== "staffRepayment") return null;
   const shortage = entry.allocation?.shortage ?? "0";
   return /[1-9]/.test(shortage) ? "shortageReturn" : "advanceReturn";
@@ -201,7 +211,7 @@ function Entries({ rows, companyId }: { rows: MoneyEntry[]; companyId: string })
           </table>
         </TableScroller>
       )}
-      <dl className="grid gap-2 text-sm sm:grid-cols-4">
+      <dl className="grid gap-2 text-sm sm:grid-cols-3 lg:grid-cols-5">
         {KINDS.map((k) => (
           <div key={k} className="flex justify-between gap-2 rounded-md bg-surface-muted px-3 py-2">
             <dt className="text-text-muted">{t(LABEL[k])}</dt>

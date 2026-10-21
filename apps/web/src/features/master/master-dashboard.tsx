@@ -24,9 +24,9 @@ import {
   PeriodBar,
   RangeHeading,
   Section,
-  SummaryCards,
-  summaryCards,
+  SummaryGroups,
 } from "@/features/dashboard/dashboard-page";
+import { MasterMonthClose } from "@/features/master/master-month-page";
 import { ReportBody } from "@/features/reports/report-view";
 import { companyHref } from "@/features/shell/navigation";
 import { NavGate } from "@/features/shell/nav-gate";
@@ -37,8 +37,8 @@ import { useToday } from "@/lib/today";
 const ALL = "all";
 
 /**
- * D66: the business's profit and loss = Σ company net profit − salaries − master expenses. With
- * one company chosen, only that company's lines (salaries are not split by company).
+ * D66, D67: the business's profit and loss = Σ company net profit (after the salaries each company
+ * paid) − master expenses. With one company chosen, only that company's line.
  */
 function ProfitAndLoss({
   profit,
@@ -63,6 +63,9 @@ function ProfitAndLoss({
               {t("report.line.gross")}
             </th>
             <th scope="col" className={thNum}>
+              {t("report.column.salary")}
+            </th>
+            <th scope="col" className={thNum}>
               {t("report.line.expenses")}
             </th>
             <th scope="col" className={thNum}>
@@ -78,6 +81,7 @@ function ProfitAndLoss({
             <tr key={c.companyId} className="border-t border-border">
               <td className={tdClass}>{c.companyName}</td>
               <td className={tdNum}>{money(c.gross)}</td>
+              <td className={tdNum}>{money(c.salaries)}</td>
               <td className={tdNum}>{money(c.expenses)}</td>
               <td className={tdNum}>{money(c.srIncentive)}</td>
               <td className={tdNum}>{money(c.net)}</td>
@@ -87,25 +91,19 @@ function ProfitAndLoss({
             <>
               <tr className="border-t border-border-strong font-semibold">
                 <td className={tdClass}>{t("master.pl.companiesNet")}</td>
-                <td className={tdNum} colSpan={4}>
+                <td className={tdNum} colSpan={5}>
                   {money(profit.companiesNet)}
                 </td>
               </tr>
               <tr className="border-t border-border">
-                <td className={tdClass}>{t("master.pl.salaries")}</td>
-                <td className={tdNum} colSpan={4}>
-                  {money(profit.salaries)}
-                </td>
-              </tr>
-              <tr className="border-t border-border">
                 <td className={tdClass}>{t("master.pl.masterExpenses")}</td>
-                <td className={tdNum} colSpan={4}>
+                <td className={tdNum} colSpan={5}>
                   {money(profit.masterExpenses)}
                 </td>
               </tr>
               <tr className="border-t-2 border-border-strong bg-brand/8 text-base font-semibold">
                 <td className={tdClass}>{t("master.pl.net")}</td>
-                <td className={tdNum} colSpan={4}>
+                <td className={tdNum} colSpan={5}>
                   {money(profit.net)}
                 </td>
               </tr>
@@ -139,7 +137,7 @@ function MasterBody({ range, companyId }: { range: ReportRange; companyId: strin
   return (
     <div className="flex flex-col gap-6">
       <Section title={t("dashboard.section.summary")}>
-        <SummaryCards cards={summaryCards(chosen, range.from === range.to)} />
+        <SummaryGroups d={chosen} singleDay={range.from === range.to} />
         {companyId === ALL ? (
           <p className="text-xs text-text-muted">{t("master.totalHint")}</p>
         ) : null}
@@ -151,6 +149,9 @@ function MasterBody({ range, companyId }: { range: ReportRange; companyId: strin
       ) : null}
       <Section title={t("dashboard.section.staff")} collapsible>
         <ReportBody companyId={company.id} report="staff-balances" range={range} />
+      </Section>
+      <Section title={t("nav.flow.monthClose")} collapsible defaultOpen={false}>
+        <MasterMonthClose />
       </Section>
     </div>
   );

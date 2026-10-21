@@ -93,8 +93,10 @@ export {
   stockEntryPostRequestSchema,
   stockEntrySchema,
   lineAllocationSchema,
+  productLotSchema,
   type OrderFund,
   type BatchRow,
+  type ProductLot,
   type LineAllocation,
   type DayProductRow,
   type DayView,
@@ -252,6 +254,7 @@ export {
   type StaffUpsertRequest,
 } from "./parties";
 export {
+  fieldDayEndRequestSchema,
   fieldDaySchema,
   fieldProductSchema,
   fieldShopCreateRequestSchema,
@@ -265,6 +268,7 @@ export {
   fieldVisitStatuses,
   staffLoginCreateRequestSchema,
   type FieldDay,
+  type FieldDayEndRequest,
   type FieldProduct,
   type FieldShopCreateRequest,
   type FieldTotals,

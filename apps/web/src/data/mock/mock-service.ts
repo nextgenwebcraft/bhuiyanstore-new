@@ -323,6 +323,7 @@ export function createMockService(
     getDsrFieldDay: demoReadOnly,
     saveFieldVisit: demoReadOnly,
     deleteFieldVisit: demoReadOnly,
+    saveFieldDayEnd: demoReadOnly,
     createFieldShop: demoReadOnly,
     createStaffLogin: demoReadOnly,
   };
