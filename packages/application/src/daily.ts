@@ -1223,6 +1223,8 @@ export async function dashboardOf(
   });
 
   const seesFinance = access.permissions.includes("finance.view");
+  // D67 amended (owner 2026-10-22): the SR cost is what the SRs hold at the end of the range.
+  const srCost = sumAmounts(["0", ...(run?.output.month.staff ?? []).map((s) => s.closing.srLoan)]);
   const chain = dashboardChain({
     issuedValue: total((s) => s.issuedValue),
     returnValue: total((s) => s.returnValue),
@@ -1230,7 +1232,7 @@ export async function dashboardOf(
     commission: total((s) => s.commission),
     expenses: total((s) => s.expenses),
     staffCost: total((s) => s.staffCost),
-    srCost: total((s) => s.srCost),
+    srCost,
     costOfSold: total((s) => s.costOfSold),
   });
 
@@ -1254,11 +1256,7 @@ export async function dashboardOf(
           expenses: total((s) => s.expenses),
           staffShortage: total((s) => s.staffShortage),
           staffCost: total((s) => s.staffCost),
-          srCost: total((s) => s.srCost),
-          srAdvanceDue: sumAmounts([
-            "0",
-            ...(run?.output.month.staff ?? []).map((s) => s.closing.srLoan),
-          ]),
+          srCost,
           netBalance: chain.netBalance,
         }
       : {}),

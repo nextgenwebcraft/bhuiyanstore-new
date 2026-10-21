@@ -84,7 +84,6 @@ export {
   cashBookEffect,
   moneyKindsWithAccount,
   staffCost,
-  srCost,
   type MoneyKindEffect,
 } from "./month/money-kinds";
 export {

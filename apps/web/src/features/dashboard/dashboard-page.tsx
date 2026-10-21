@@ -127,8 +127,6 @@ export function summaryCards(d: DashboardSummary, singleDay: boolean): Card[] {
         ] satisfies Card[])
       : []),
     { label: "dashboard.card.totalDue", value: d.marketDueOutstanding, emphasis: true },
-    { label: "dashboard.card.srAdvanceDue", value: d.srAdvanceDue },
-    { label: "dashboard.card.received", value: d.receivedValue },
     { label: "dashboard.card.undelivered", value: d.undeliveredValue },
     { label: "dashboard.card.stock", value: d.stockValue, emphasis: true },
   ];

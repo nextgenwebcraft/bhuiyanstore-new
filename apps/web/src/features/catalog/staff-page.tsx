@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  MIN_PASSWORD_LENGTH,
   staffEmployers,
   type StaffAssignment,
   type StaffEmployer,
@@ -408,7 +409,7 @@ function LoginDialog({
   async function submit() {
     const fields: Partial<Record<string, string>> = {};
     if (!email.trim()) fields.email = t("validation.required");
-    if (password.length < 12) fields.password = t("auth.passwordTooShort");
+    if (password.length < MIN_PASSWORD_LENGTH) fields.password = t("auth.passwordTooShort");
     if (Object.keys(fields).length > 0) {
       setErrors({ fields });
       return;

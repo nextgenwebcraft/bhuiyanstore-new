@@ -116,14 +116,6 @@ export const STAFF_COST_SIGN: Readonly<Partial<Record<MoneyKind, 1 | -1>>> = {
   staffExcess: -1,
 };
 
-/** D67: এসআর খরচ, money the sales paid out for SRs (advance, incentive, payment) net of returns. */
-export const SR_COST_SIGN: Readonly<Partial<Record<MoneyKind, 1 | -1>>> = {
-  srLoan: 1,
-  srIncentive: 1,
-  srPayment: 1,
-  srRepayment: -1,
-};
-
 type Entry = { kind: MoneyKind; amount: DecimalInput };
 
 function signedSum(entries: readonly Entry[], signs: Partial<Record<MoneyKind, 1 | -1>>): string {
@@ -139,12 +131,6 @@ function signedSum(entries: readonly Entry[], signs: Partial<Record<MoneyKind, 1
 export function staffCost(entries: readonly Entry[]): string {
   return signedSum(entries, STAFF_COST_SIGN);
 }
-
-/** Σ signed SR cost of the entries (D67). */
-export function srCost(entries: readonly Entry[]): string {
-  return signedSum(entries, SR_COST_SIGN);
-}
-
 /** The kinds that name a cash account on entry: everything that moves one. */
 export const moneyKindsWithAccount: readonly MoneyKind[] = (
   Object.keys(MONEY_KIND_EFFECTS) as MoneyKind[]

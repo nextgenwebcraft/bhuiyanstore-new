@@ -47,9 +47,8 @@ export const dashboardSummarySchema = z.object({
   staffShortage: decimalStringSchema.optional(),
   /** D67: money paid out for staff (advance to salary, net of returns); requires `finance.view`. */
   staffCost: decimalStringSchema.optional(),
-  /** D67: money paid out for SRs (advance, incentive, payment − returns) and what SRs owe at the end. */
+  /** D67 (amended 2026-10-22): what the SRs owe at the end of the range; requires `finance.view`. */
   srCost: decimalStringSchema.optional(),
-  srAdvanceDue: decimalStringSchema.optional(),
   /** D67: DSR-damaged pieces at the sale price (the chain's damage). */
   damageSaleValue: decimalStringSchema,
   /** D67: মোট সামারি − every deduction and cost (domain `dashboardChain`); requires `finance.view`. */

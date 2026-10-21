@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { dashboardChain } from "./day-summary";
-import { MONEY_KIND_EFFECTS, srCost, staffCost } from "./money-kinds";
+import { MONEY_KIND_EFFECTS, staffCost } from "./money-kinds";
 import { cashPay, proposeRecovery, salaryAfterAbsence } from "./payroll";
 
 describe("staff cost (D67)", () => {
@@ -15,17 +15,6 @@ describe("staff cost (D67)", () => {
         { kind: "staffAbsent", amount: "400" },
       ]),
     ).toBe("10000");
-  });
-
-  it("counts money paid out for SRs, net of returns", () => {
-    expect(
-      srCost([
-        { kind: "srLoan", amount: "900" },
-        { kind: "srIncentive", amount: "200" },
-        { kind: "srRepayment", amount: "300" },
-        { kind: "staffAdvance", amount: "50" },
-      ]),
-    ).toBe("800");
   });
 
   it("chains the dashboard to net balance and net profit", () => {

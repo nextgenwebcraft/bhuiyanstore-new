@@ -1,6 +1,6 @@
 import { Decimal, toDecimal, type DecimalInput } from "../decimal";
 import { roundSettlement } from "../money";
-import { srCost, staffCost } from "./money-kinds";
+import { staffCost } from "./money-kinds";
 import type { DayInput, DayResult, MoneyKind, StaffId } from "./types";
 
 export type DsrDaySummary = {
@@ -39,8 +39,6 @@ export type DaySummary = {
   staffShortage: string;
   /** D67: money paid out for distributor staff that day, net of returns (`staffCost`). */
   staffCost: string;
-  /** D67: money paid out for SRs that day, net of returns (`srCost`). */
-  srCost: string;
   byDsr: DsrDaySummary[];
 };
 
@@ -50,7 +48,8 @@ const sum = (values: readonly string[]) =>
 /**
  * D67: the dashboard's calculation chain over summed period figures.
  * নিট ব্যালান্স = মোট সামারি − ফেরত − ড্যামেজ (sale price) − কমিশন − অপারেটিং খরচ − ডিএসআর খরচ
- * − এসআর খরচ; নিট লাভ = নিট ব্যালান্স − বিক্রিত পণ্যের ক্রয়মূল্য.
+ * − এসআর খরচ (what the SRs owe at the end of the period); নিট লাভ = নিট ব্যালান্স − বিক্রিত পণ্যের
+ * ক্রয়মূল্য.
  */
 export function dashboardChain(input: {
   issuedValue: DecimalInput;
@@ -132,7 +131,6 @@ export function summarizeDay(day: DayResult, input: DayInput): DaySummary {
     expenses: roundSettlement(toDecimal(day.money.expenses)),
     staffShortage: roundSettlement(ofKind("staffShortage")),
     staffCost: roundSettlement(toDecimal(staffCost(input.money ?? []))),
-    srCost: roundSettlement(toDecimal(srCost(input.money ?? []))),
     byDsr: [...dsr].map(([staffId, v]) => ({
       staffId,
       netSales: roundSettlement(v.sales),

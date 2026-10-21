@@ -71,7 +71,7 @@ export const meSchema = z.object({
 export type Me = z.infer<typeof meSchema>;
 
 /** Guide §12.1; the auth server enforces the same minimum again (`@bsd/auth`). */
-export const MIN_PASSWORD_LENGTH = 12;
+export const MIN_PASSWORD_LENGTH = 6;
 
 export const passwordChangeRequestSchema = z.object({
   currentPassword: z.string().min(1).max(256),

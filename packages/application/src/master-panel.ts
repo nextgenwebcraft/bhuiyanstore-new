@@ -55,7 +55,6 @@ const SUMMED_OPTIONAL = [
   "staffShortage",
   "staffCost",
   "srCost",
-  "srAdvanceDue",
   "netBalance",
   "netProfit",
   "costOfSold",
