@@ -7,19 +7,25 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createRole, createUser } from "./administration";
 import { createCompany } from "./companies";
 import type { AppContext } from "./context";
-import { postMoneyEntry } from "./daily";
+import { postMoneyEntry, postStockEntries } from "./daily";
+import { fromDbDate } from "./dates";
 import { AppError } from "./errors";
+import { getOpening, saveOpeningCutoff, saveOpeningSection } from "./opening";
 import { createProduct, deleteProduct } from "./products";
 import { deleteShop, listShops } from "./shops";
 import { deleteStaff, listStaffRecords } from "./staff";
 import {
   STANDARD_CASH_ACCOUNTS,
   STANDARD_EXPENSE_CATEGORIES,
+  STARTER_CASH,
+  STARTER_COMPANY_ADVANCE,
+  STARTER_NOTE,
   STARTER_PEOPLE,
   STARTER_PRODUCTS,
   STARTER_SHOPS,
+  starterCashAccountName,
 } from "./starter-dataset";
-import { contextFor, resetTestSchema, saveWholeOpening, testDatabase } from "./test-support";
+import { contextFor, resetTestSchema, testDatabase } from "./test-support";
 
 process.env.BETTER_AUTH_SECRET ??= "integration-test-secret-integration-test-secret";
 process.env.BETTER_AUTH_URL ??= "http://localhost:3000";
@@ -27,7 +33,7 @@ process.env.BETTER_AUTH_URL ??= "http://localhost:3000";
 const { db, schema } = testDatabase();
 const theme = { primary: "#0F766E", primaryForeground: "#FFFFFF" };
 const DAY = "2026-09-01"; // opening cutoff
-const POST_DAY = todayBusinessDate(); // starter people are assigned from the creation day
+const POST_DAY = todayBusinessDate(); // the creation day: starter assignments and go-live
 
 let admin: Actor;
 let ctx: AppContext;
@@ -118,28 +124,52 @@ describe("D51 starter dataset", () => {
     expect(await db.staffAssignment.count({ where: { companyId: starter } })).toBe(
       STARTER_PEOPLE.length,
     );
+    // The seeded opening wrote its prices at the go-live date; they replaced the sample prices.
     expect(await db.priceChange.count({ where: { product: { companyId: starter } } })).toBe(
       STARTER_PRODUCTS.length * 3,
     );
     expect(
       await db.priceChange.count({
-        where: { product: { companyId: starter }, source: { not: "starter" } },
+        where: { product: { companyId: starter }, source: { not: "opening" } },
       }),
     ).toBe(0);
     expect(await db.expenseCategory.count({ where: { tenantId: admin.tenantId } })).toBe(
       STANDARD_EXPENSE_CATEGORIES.length,
     );
+    // The standard accounts plus the company's own cash account for its opening cash.
     expect(await db.cashAccount.count({ where: { tenantId: admin.tenantId } })).toBe(
-      STANDARD_CASH_ACCOUNTS.length,
+      STANDARD_CASH_ACCOUNTS.length + 1,
     );
-    // No opening and no daily records: everything stays editable and deletable.
-    expect(await db.openingSession.count({ where: { companyId: starter } })).toBe(0);
+
+    // D59: every opening section is filled and live from the creation day.
+    const opening = await getOpening(ctx, starter);
+    expect(opening.cutoffDate).toBe(POST_DAY);
+    expect(opening.issues.filter((i) => i.severity === "error")).toEqual([]);
+    expect(opening.sections.map((s) => [s.section, s.state])).toEqual([
+      ["stock", "done"],
+      ["marketDue", "done"],
+      ["shopDue", "done"],
+      ["staff", "done"],
+      ["company", "done"],
+      ["cash", "done"],
+    ]);
+    expect(opening.stock.every((l) => l.pieces !== null && l.note === STARTER_NOTE)).toBe(true);
+    expect(opening.totals.companyPayable).toBe(`-${STARTER_COMPANY_ADVANCE}.00`);
+    expect(opening.totals.cash).toBe(`${STARTER_CASH}.00`);
+    const cashLine = must(opening.balances.find((b) => b.kind === "cash"));
+    const cashAccount = must(
+      await db.cashAccount.findUnique({ where: { id: must(cashLine.cashAccountId) } }),
+    );
+    expect(cashAccount.name).toBe(starterCashAccountName("Starter"));
+    // No daily records: everything stays editable and deletable.
+    expect(opening.cutoffEditable).toBe(true);
     expect(await db.stockEntry.count({ where: { companyId: starter } })).toBe(0);
     expect(await db.moneyEntry.count({ where: { companyId: starter } })).toBe(0);
 
     expect(await db.product.count({ where: { companyId: plain } })).toBe(0);
     expect(await db.shop.count({ where: { companyId: plain } })).toBe(0);
     expect(await db.staffAssignment.count({ where: { companyId: plain } })).toBe(0);
+    expect(await db.openingSession.count({ where: { companyId: plain } })).toBe(0);
     expect(await db.auditEvent.count({ where: { action: "company.starter_data" } })).toBe(1);
 
     // Same key replays the stored response without a second dataset.
@@ -165,6 +195,12 @@ describe("D51 starter dataset", () => {
     expect(await db.product.count({ where: { companyId: second.id } })).toBe(
       STARTER_PRODUCTS.length,
     );
+    // Its opening cash is in its own account, never in the first company's.
+    const cash = (await getOpening(ctx, second.id)).balances.find((b) => b.kind === "cash");
+    const account = must(
+      await db.cashAccount.findUnique({ where: { id: must(cash?.cashAccountId) } }),
+    );
+    expect(account.name).toBe(starterCashAccountName("Second"));
   });
 
   it("rolls the whole company back when the dataset cannot be created", async () => {
@@ -179,35 +215,37 @@ describe("D51 starter dataset", () => {
     await db.staffRole.updateMany({ where: { kind: "dsr" }, data: { active: true } });
   });
 
-  it("lets the opening prices replace the starter prices of the product", async () => {
+  it("lets the owner move the go-live date and change the seeded opening prices", async () => {
     const product = must(
       await db.product.findFirst({ where: { companyId: starter, sku: "NMN-001" } }),
     );
-    const other = must(
-      await db.product.findFirst({ where: { companyId: starter, sku: "NMN-002" } }),
-    );
-    await saveWholeOpening(ctx, starter, {
+    let view = await saveOpeningCutoff(ctx, starter, {
+      version: (await getOpening(ctx, starter)).version,
       cutoffDate: DAY,
-      stock: [
-        {
-          productId: product.id,
-          pieces: "10",
-          unitCost: "19",
-          salePrice: "21",
-          orderPrice: "19",
-          dueFromCompany: "0",
-          note: "",
-        },
-      ],
-      balances: [],
     });
-    const rows = await db.priceChange.findMany({ where: { productId: product.id } });
-    expect(rows.every((r) => r.source === "opening")).toBe(true);
-    expect(rows).toHaveLength(3);
-    // A product without opening prices keeps its sample prices.
-    expect(await db.priceChange.count({ where: { productId: other.id, source: "starter" } })).toBe(
-      3,
+    const moved = await db.priceChange.findMany({ where: { product: { companyId: starter } } });
+    expect(moved).toHaveLength(STARTER_PRODUCTS.length * 3);
+    expect(moved.every((r) => r.source === "opening" && fromDbDate(r.effectiveFrom) === DAY)).toBe(
+      true,
     );
+    view = await saveOpeningSection(ctx, starter, {
+      section: "stock",
+      version: view.version,
+      stock: view.stock.map((l) => ({
+        productId: l.productId,
+        pieces: l.pieces,
+        unitCost: l.productId === product.id ? "19" : l.unitCost,
+        salePrice: l.salePrice,
+        orderPrice: l.orderPrice,
+        dueFromCompany: l.dueFromCompany,
+        note: l.note,
+      })),
+    });
+    const cost = must(
+      await db.priceChange.findFirst({ where: { productId: product.id, kind: "cost" } }),
+    );
+    expect(cost.price.toString()).toBe("19");
+    expect(view.sections.every((s) => s.state === "done")).toBe(true);
   });
 });
 
@@ -316,14 +354,16 @@ describe("D50 new shop from a due entry", () => {
 });
 
 describe("D51 delete only what was never used", () => {
-  it("deletes an unused product with its own prices and packs, and audits it", async () => {
+  it("deletes an unused product with its prices, packs and opening line, and audits it", async () => {
     const product = must(
       await db.product.findFirst({ where: { companyId: starter, sku: "NMN-008" } }),
     );
+    expect(await db.openingStockLine.count({ where: { productId: product.id } })).toBe(1);
     await deleteProduct(ctx, starter, product.id);
     expect(await db.product.count({ where: { id: product.id } })).toBe(0);
     expect(await db.priceChange.count({ where: { productId: product.id } })).toBe(0);
     expect(await db.productPack.count({ where: { productId: product.id } })).toBe(0);
+    expect(await db.openingStockLine.count({ where: { productId: product.id } })).toBe(0);
     expect(
       await db.auditEvent.count({ where: { action: "product.delete", resourceId: product.id } }),
     ).toBe(1);
@@ -334,8 +374,13 @@ describe("D51 delete only what was never used", () => {
     const used = must(
       await db.product.findFirst({ where: { companyId: starter, sku: "NMN-001" } }),
     );
-    // NMN-001 has an opening stock line from the price test above.
+    await postStockEntries(ctx, starter, {
+      date: POST_DAY,
+      lines: [{ kind: "receipt", productId: used.id, pieces: "1" }],
+      prices: [],
+    });
     await expectField(deleteProduct(ctx, starter, used.id), "id", "validation.product.inUse");
+    expect(await db.openingStockLine.count({ where: { productId: used.id } })).toBe(1);
     expect(await db.product.count({ where: { id: used.id } })).toBe(1);
     const fresh = await createProduct(ctx, plain, {
       sku: "P1",
@@ -352,8 +397,10 @@ describe("D51 delete only what was never used", () => {
     const unused = must(
       await db.shop.findFirst({ where: { companyId: starter, name: "নমুনা দোকান ৪" } }),
     );
+    expect(await db.openingBalanceLine.count({ where: { shopId: unused.id } })).toBe(1);
     await deleteShop(ctx, starter, unused.id);
     expect(await db.shop.count({ where: { id: unused.id } })).toBe(0);
+    expect(await db.openingBalanceLine.count({ where: { shopId: unused.id } })).toBe(0);
     const used = must(
       await db.shop.findFirst({ where: { companyId: starter, name: "দোকান আলফা" } }),
     );
@@ -364,9 +411,11 @@ describe("D51 delete only what was never used", () => {
   it("deletes an unused person with the assignment and refuses one with entries", async () => {
     const records = await listStaffRecords(ctx, starter);
     const manager = must(records.find((r) => r.name === "নমুনা ম্যানেজার"));
+    expect(await db.openingBalanceLine.count({ where: { staffId: manager.id } })).toBe(1);
     await deleteStaff(ctx, starter, manager.id);
     expect(await db.staff.count({ where: { id: manager.id } })).toBe(0);
     expect(await db.staffAssignment.count({ where: { staffId: manager.id } })).toBe(0);
+    expect(await db.openingBalanceLine.count({ where: { staffId: manager.id } })).toBe(0);
     // The DSR has money entries from the D50 tests.
     await expectField(deleteStaff(ctx, starter, dsrId), "id", "validation.staff.inUse");
     expect(await db.staff.count({ where: { id: dsrId } })).toBe(1);
@@ -383,6 +432,28 @@ describe("D51 delete only what was never used", () => {
     );
     await expectCode(deleteShop(viewer, starter, shop.id), "FORBIDDEN");
     await expectCode(deleteStaff(viewer, starter, dsrId), "FORBIDDEN");
+  });
+
+  it("keeps opening lines as use once the opening is locked (D43)", async () => {
+    const product = must(
+      await db.product.findFirst({ where: { companyId: starter, sku: "NMN-007" } }),
+    );
+    const shop = must(
+      await db.shop.findFirst({ where: { companyId: starter, name: "নমুনা দোকান ৩" } }),
+    );
+    const close = await db.monthClose.create({
+      data: {
+        tenantId: admin.tenantId,
+        companyId: starter,
+        month: "2026-08",
+        closing: {},
+        closedById: admin.userId,
+      },
+    });
+    await expectField(deleteProduct(ctx, starter, product.id), "id", "validation.product.inUse");
+    await expectField(deleteShop(ctx, starter, shop.id), "id", "validation.shop.inUse");
+    expect(await db.openingStockLine.count({ where: { productId: product.id } })).toBe(1);
+    await db.monthClose.delete({ where: { id: close.id } });
   });
 });
 

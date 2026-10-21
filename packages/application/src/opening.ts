@@ -24,6 +24,7 @@ import { fromDbDate, toDbDate } from "./dates";
 import { AppError, invalid, parseInput, type FieldError } from "./errors";
 import { runIdempotent } from "./idempotency";
 import { plain } from "./numeric";
+import { isLocked } from "./opening-lock";
 import { summarizeSections } from "./opening-summary";
 import { packOn } from "./products";
 
@@ -122,11 +123,6 @@ async function hasDailyRecords(db: Db, companyId: string): Promise<boolean> {
     db.fieldVisit.findFirst(where),
   ]);
   return found.some((row) => row !== null);
-}
-
-/** D43: the opening is locked once the company's first month is closed. */
-async function isLocked(db: Db, companyId: string): Promise<boolean> {
-  return (await db.monthClose.findFirst({ where: { companyId }, select: { id: true } })) !== null;
 }
 
 async function flagsOf(db: Db, companyId: string): Promise<Flags> {
@@ -383,6 +379,44 @@ async function writeOpeningPrices(
   return written;
 }
 
+export type SeededOpening = {
+  cutoffDate: string;
+  stock: Omit<OpeningStockLine, "sku" | "productName" | "piecesPerCarton">[];
+  balances: (OpeningBalanceLine & { personRoleKind: "dsr" | "sr" | "general" | null })[];
+};
+
+/**
+ * A complete opening written while a company is created (D59, starter dataset). It runs in the
+ * creating transaction, so there is no version to claim; the caller only names cash accounts no
+ * other company has opened. Anything `checkOpening` calls a mistake is a bug in the seed and throws.
+ */
+export async function writeSeededOpening(
+  tx: Tx,
+  company: { id: string; tenantId: string },
+  opening: SeededOpening,
+): Promise<{ sessionId: string; pricesSet: number }> {
+  const { issues } = checkOpening(opening);
+  const mistakes = issues.filter((i) => i.severity === "error");
+  if (mistakes.length) {
+    throw new Error(`seeded opening is invalid: ${mistakes.map((i) => i.code).join(", ")}`);
+  }
+  const session = await tx.openingSession.create({
+    data: {
+      tenantId: company.tenantId,
+      companyId: company.id,
+      cutoffDate: toDbDate(opening.cutoffDate),
+      version: 1,
+    },
+  });
+  if (opening.stock.length) {
+    await tx.openingStockLine.createMany({
+      data: opening.stock.map((line) => ({ sessionId: session.id, ...line })),
+    });
+  }
+  await replaceBalances(tx, session, openingBalanceKinds, opening.balances);
+  const pricesSet = await writeOpeningPrices(tx, company.id, session.id, opening.cutoffDate);
+  return { sessionId: session.id, pricesSet };
+}
 /** Saves the go-live date. It cannot change once a daily record exists (D43). */
 export async function saveOpeningCutoff(
   ctx: AppContext,

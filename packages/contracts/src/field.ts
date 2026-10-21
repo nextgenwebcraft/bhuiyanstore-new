@@ -115,12 +115,16 @@ export const fieldVisitSaveRequestSchema = z.object({
   dueCollected: amountSchema,
   note: z.string().trim().max(300).default(""),
   lines: z.array(fieldVisitLineRequestSchema).max(300),
+  /** Super-admin only: the DSR the visit is for. A DSR's own login acts on itself. */
+  staffId: idSchema.optional(),
 });
 
 export type FieldVisitSaveRequest = z.input<typeof fieldVisitSaveRequestSchema>;
 
 export const fieldVisitDeleteRequestSchema = z.object({
   version: z.number().int().positive(),
+  /** Super-admin only: the DSR whose visit it is. */
+  staffId: idSchema.optional(),
 });
 
 export type FieldVisitDeleteRequest = z.infer<typeof fieldVisitDeleteRequestSchema>;
@@ -131,6 +135,8 @@ export const fieldShopCreateRequestSchema = z.object({
   ownerName: z.string().trim().max(120).default(""),
   phone: z.string().trim().max(40).default(""),
   area: z.string().trim().max(120).default(""),
+  /** Super-admin only: the DSR the shop is added for. */
+  staffId: idSchema.optional(),
 });
 
 export type FieldShopCreateRequest = z.input<typeof fieldShopCreateRequestSchema>;

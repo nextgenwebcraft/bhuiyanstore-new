@@ -1,7 +1,7 @@
 "use client";
 
 import { workspaceModuleIds, type WorkspaceModuleId } from "@bsd/contracts";
-import { contrastRatio, DEFAULT_COMPANY_THEME, MIN_TEXT_CONTRAST } from "@bsd/design-system";
+import { DEFAULT_COMPANY_THEME } from "@bsd/design-system";
 import { t } from "@bsd/i18n";
 import { useId, useState } from "react";
 import { Field, inputClass } from "@/components/field";
@@ -19,7 +19,6 @@ export function CompanyForm({ onClose }: { onClose: () => void }) {
   const [starterData, setStarterData] = useState(true);
   const [modules, setModules] = useState<WorkspaceModuleId[]>([...workspaceModuleIds]);
   const [errors, setErrors] = useState<DescribedError>({ fields: {} });
-  const lowContrast = contrastRatio(foreground, primary) < MIN_TEXT_CONTRAST;
 
   function toggle(module: WorkspaceModuleId) {
     const next = new Set(modules);
@@ -33,7 +32,6 @@ export function CompanyForm({ onClose }: { onClose: () => void }) {
       setErrors({ fields: { name: t("validation.required") } });
       return;
     }
-    if (lowContrast) return;
     setErrors({ fields: {} });
     try {
       await createCompany.mutateAsync({
@@ -100,11 +98,6 @@ export function CompanyForm({ onClose }: { onClose: () => void }) {
       >
         {name.trim() || t("company.name")}
       </div>
-      {lowContrast ? (
-        <p className="text-sm text-error" role="alert">
-          {t("company.lowContrast")}
-        </p>
-      ) : null}
       <label className="flex min-h-(--touch-target) items-start gap-2">
         <input
           type="checkbox"

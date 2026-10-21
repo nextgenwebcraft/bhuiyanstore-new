@@ -42,8 +42,9 @@ import { getStaffRecord } from "./staff";
 /**
  * DSR field panel (D40). A DSR signs in as themselves (`staff.user_id`) and records each shop
  * visit: pieces delivered at the day's price, cash received, old due collected and damaged pieces
- * exchanged. Every use case acts on the actor's own staff record only. Posting the office day
- * sheet turns the visits into shop dues and exchange custody (`field-posting.ts`).
+ * exchanged. Every use case acts on the actor's own staff record only; a super-admin names the DSR
+ * (D59). Posting the office day sheet turns the visits into shop dues and exchange custody
+ * (`field-posting.ts`).
  */
 
 type Db = AppContext["db"] | Tx;
@@ -57,6 +58,37 @@ async function ownStaffId(db: Db, ctx: AppContext): Promise<string> {
     select: { id: true },
   });
   if (!staff) throw invalid("", "validation.field.noStaffLink");
+  return staff.id;
+}
+
+/**
+ * The DSR a field use case acts on: the actor's own staff record, or for a super-admin the named
+ * person assigned to the company (D59). Anyone else naming a different person is refused.
+ */
+async function fieldStaffId(
+  db: Db,
+  ctx: AppContext,
+  companyId: string,
+  requested: string | undefined,
+): Promise<string> {
+  if (!ctx.actor.isSuperAdmin) {
+    const own = await ownStaffId(db, ctx);
+    if (requested !== undefined && requested !== own) {
+      throw invalid("staffId", "validation.field.ownOnly");
+    }
+    return own;
+  }
+  if (requested === undefined) throw invalid("staffId", "validation.field.chooseDsr");
+  const staff = await db.staff.findFirst({
+    where: {
+      id: requested,
+      tenantId: ctx.actor.tenantId,
+      status: "active",
+      assignments: { some: { companyId } },
+    },
+    select: { id: true },
+  });
+  if (!staff) throw invalid("staffId", "validation.staff.unknown");
   return staff.id;
 }
 
@@ -228,7 +260,7 @@ export async function getFieldDay(
 ): Promise<FieldDay> {
   const access = await requirePermission(ctx, companyId, "field.entry");
   const date = businessDate(dateInput);
-  return buildFieldDay(ctx.db, access, await ownStaffId(ctx.db, ctx), date);
+  return buildFieldDay(ctx.db, access, await fieldStaffId(ctx.db, ctx, companyId, undefined), date);
 }
 
 /** The office's read of one DSR's field day (day-end reconciliation). */
@@ -288,7 +320,7 @@ export async function saveFieldVisit(
     { scope: companyId, action: `field.visit_save:${visitId ?? "new"}`, requestKey },
     request,
     async (tx) => {
-      const staffId = await ownStaffId(tx, ctx);
+      const staffId = await fieldStaffId(tx, ctx, companyId, request.staffId);
       // One DSR's visits are checked against the same samari: serialize them.
       await tx.$queryRaw`SELECT id FROM staff WHERE id = ${staffId} FOR UPDATE`;
       await postingGuard(tx, companyId, request.date);
@@ -422,9 +454,9 @@ export async function deleteFieldVisit(
   input: unknown,
 ): Promise<void> {
   await requirePermission(ctx, companyId, "field.entry", { write: true });
-  const { version } = parseInput(fieldVisitDeleteRequestSchema, input);
+  const { version, staffId: requested } = parseInput(fieldVisitDeleteRequestSchema, input);
   await ctx.db.$transaction(async (tx) => {
-    const staffId = await ownStaffId(tx, ctx);
+    const staffId = await fieldStaffId(tx, ctx, companyId, requested);
     const visit = await loadOwnVisit(tx, companyId, staffId, visitId);
     await refuseIfPosted(tx, companyId, staffId, fromDbDate(visit.date));
     const deleted = await tx.fieldVisit.deleteMany({
@@ -449,14 +481,14 @@ export async function createFieldShop(
   requestKey?: string,
 ): Promise<FieldDay["shops"][number]> {
   const access = await requirePermission(ctx, companyId, "field.shop_create", { write: true });
-  const data = parseInput(fieldShopCreateRequestSchema, input);
+  const { staffId: requested, ...data } = parseInput(fieldShopCreateRequestSchema, input);
   try {
     return await runIdempotent(
       ctx,
       { scope: companyId, action: "field.shop_create", requestKey },
-      data,
+      { ...data, staffId: requested },
       async (tx) => {
-        const staffId = await ownStaffId(tx, ctx);
+        const staffId = await fieldStaffId(tx, ctx, companyId, requested);
         const row = await tx.shop.create({
           data: {
             ...data,

@@ -9,6 +9,7 @@ import type {
   DsrDay,
   DsrDaySaveRequest,
   FieldShopCreateRequest,
+  FieldVisitDeleteRequest,
   FieldVisitSaveRequest,
   MoneyEntryPostRequest,
   Opening,
@@ -672,12 +673,13 @@ export function useSetupStatus(companyId: string, enabled = true) {
 
 // ------------------------------------------------------------- DSR field panel (D40)
 
-export function useFieldDay(companyId: string, date: string) {
+export function useFieldDay(companyId: string, date: string, enabled = true) {
   const service = useService();
   const actorId = useActorId();
   return useQuery({
     queryKey: queryKeys.fieldDay(actorId, companyId, date),
     queryFn: ({ signal }) => service.getFieldDay(companyId, date, { signal }),
+    enabled,
   });
 }
 
@@ -706,8 +708,8 @@ export function useDeleteFieldVisit(companyId: string) {
   return usePostingMutation(
     companyId,
     "field",
-    ({ visitId, version }: { visitId: string; version: number }) =>
-      service.deleteFieldVisit(companyId, visitId, { version }),
+    ({ visitId, ...input }: { visitId: string } & FieldVisitDeleteRequest) =>
+      service.deleteFieldVisit(companyId, visitId, input),
   );
 }
 

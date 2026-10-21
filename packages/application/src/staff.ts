@@ -17,6 +17,7 @@ import { fromDbDate, toDbDate } from "./dates";
 import { invalid, parseInput } from "./errors";
 import { isForeignKeyViolation, runIdempotent } from "./idempotency";
 import { plain } from "./numeric";
+import { releaseOpeningLines } from "./opening-lock";
 
 const withAssignments = {
   assignments: { include: { role: true }, orderBy: { from: "asc" } },
@@ -374,9 +375,10 @@ async function writeAssignment(
 }
 
 /**
- * Hard delete of a person nothing refers to (D51): no opening balance, DSR sheet, field visit,
- * money entry, payroll line, damage case or shop added by them, no login, and no assignment in
- * another company. Their own assignments in this company go with them (cascade).
+ * Hard delete of a person nothing refers to (D51): no DSR sheet, field visit, money entry, payroll
+ * line, damage case or shop added by them, no login, no assignment in another company, and no
+ * opening balance once the opening is locked. Their own assignments in this company and an
+ * unlocked opening's balances go with them (D59).
  */
 export async function deleteStaff(
   ctx: AppContext,
@@ -389,7 +391,6 @@ export async function deleteStaff(
     await ctx.db.$transaction(async (tx) => {
       const before = await loadCompanyStaff(tx, ctx, companyId, staffId);
       const refs = await Promise.all([
-        tx.openingBalanceLine.count({ where: { staffId } }),
         tx.dsrDay.count({ where: { staffId } }),
         tx.fieldVisit.count({ where: { staffId } }),
         tx.moneyEntry.count({ where: { staffId } }),
@@ -401,13 +402,15 @@ export async function deleteStaff(
       if (refs.some((n) => n > 0) || elsewhere || before.user !== null) {
         throw invalid("id", "validation.staff.inUse");
       }
+      const opening = await releaseOpeningLines(tx, companyId, { staffId });
+      if (!opening) throw invalid("id", "validation.staff.inUse");
       await tx.staff.delete({ where: { id: staffId } });
       await recordAudit(tx, ctx, {
         companyId,
         action: "staff.delete",
         resourceType: "staff",
         resourceId: staffId,
-        before: toRecord(before, visible),
+        before: { ...toRecord(before, visible), openingLinesRemoved: opening },
       });
     });
   } catch (error) {

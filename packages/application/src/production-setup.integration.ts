@@ -2,7 +2,7 @@ import { bootstrapSuperAdmin, type Actor } from "@bsd/auth";
 import { toDecimal } from "@bsd/domain";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadCompanyAccess } from "./access";
-import { createCompany } from "./companies";
+import { createCompany, getWorkspace } from "./companies";
 import { staffRoles } from "./configuration";
 import type { AppContext } from "./context";
 import {
@@ -309,6 +309,46 @@ describe("DSR field panel (D40)", () => {
     );
     const shop = await createFieldShop(rohim, company, { name: "New Corner" });
     expect(shop.addedByDsr).toBe(true);
+  });
+
+  it("lets a super-admin enter for a chosen DSR; a DSR only for themselves (D59)", async () => {
+    expect((await getWorkspace(ctx, company)).allModules).toBe(true);
+    expect((await getWorkspace(rohim, company)).allModules).toBe(false);
+    const base = {
+      date,
+      shopId: id.shop,
+      version: 0,
+      cashReceived: "0",
+      dueCollected: "10",
+      lines: [],
+    };
+    await expectField(
+      saveFieldVisit(ctx, company, undefined, base),
+      "staffId",
+      "validation.field.chooseDsr",
+    );
+    await expectField(getFieldDay(ctx, company, date), "staffId", "validation.field.chooseDsr");
+    await expectField(
+      saveFieldVisit(rohim, company, undefined, { ...base, staffId: id.kamal }),
+      "staffId",
+      "validation.field.ownOnly",
+    );
+    const visit = await saveFieldVisit(ctx, company, undefined, { ...base, staffId: id.rohim });
+    expect(visit.staffId).toBe(id.rohim);
+    expect((await getFieldDay(rohim, company, date)).visits.map((v) => v.id)).toContain(visit.id);
+    await expectField(
+      deleteFieldVisit(ctx, company, visit.id, { version: visit.version, staffId: id.kamal }),
+      "",
+      "validation.field.visitNotFound",
+    );
+    await deleteFieldVisit(ctx, company, visit.id, { version: visit.version, staffId: id.rohim });
+    expect(
+      (await getDsrFieldDay(ctx, company, id.rohim, date)).visits.map((v) => v.id),
+    ).not.toContain(visit.id);
+    const shop = await createFieldShop(ctx, company, { name: "Admin Corner", staffId: id.kamal });
+    expect(shop.addedByDsr).toBe(true);
+    const row = await db.shop.findUniqueOrThrow({ where: { id: shop.id } });
+    expect(row.addedByStaffId).toBe(id.kamal);
   });
 
   it("posting the day writes per-shop dues and locks the visits; reversing undoes it", async () => {

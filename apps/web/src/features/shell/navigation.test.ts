@@ -128,6 +128,13 @@ describe("hubs", () => {
     ).toEqual(expect.not.arrayContaining(["purchases/orders"]));
   });
 
+  it("opens every module for a super-admin, still by permission (D59)", async () => {
+    const snacks = { ...(await workspace("user-owner", "demo-snacks")), allModules: true };
+    const paths = visibleHubs(snacks).flatMap((h) => h.tabs.map((tab) => tab.path));
+    expect(paths).toEqual(expect.arrayContaining(["purchases/receipts", "sales/field"]));
+    expect(equivalentPath("purchases/orders", snacks)).toBe("purchases/orders");
+  });
+
   it("keeps the equivalent route only when the destination supports it", async () => {
     const snacks = await workspace("user-owner", "demo-snacks");
     expect(equivalentPath("masters/products", snacks)).toBe("masters/products");

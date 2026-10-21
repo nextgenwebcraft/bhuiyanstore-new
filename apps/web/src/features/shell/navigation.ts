@@ -291,13 +291,20 @@ export function findNavEntry(path: string): { section: NavSection; item: NavItem
   return undefined;
 }
 
-/** Effective visibility = enabled module ∩ authorized permission (guide section 4.3). */
+/**
+ * Effective visibility = enabled module ∩ authorized permission (guide section 4.3); a
+ * super-admin opens every module (D59).
+ */
 export function navAccess(
   workspace: CompanyWorkspace,
   section: NavSection,
   navItem: NavItem,
 ): NavAccess {
-  if (section.module && !workspace.company.modules.includes(section.module)) {
+  if (
+    section.module &&
+    !workspace.allModules &&
+    !workspace.company.modules.includes(section.module)
+  ) {
     return "moduleUnavailable";
   }
   return workspace.permissions.includes(navItem.permission) ? "ok" : "forbidden";

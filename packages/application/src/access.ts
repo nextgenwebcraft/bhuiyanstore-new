@@ -64,7 +64,11 @@ export async function requirePermission(
   options: { write?: boolean; module?: WorkspaceModuleId } = {},
 ): Promise<CompanyAccess> {
   const access = await loadCompanyAccess(ctx, companyId);
-  if (options.module && !access.company.modules.some((m) => m.module === options.module)) {
+  if (
+    options.module &&
+    !ctx.actor.isSuperAdmin &&
+    !access.company.modules.some((m) => m.module === options.module)
+  ) {
     throw new AppError("MODULE_UNAVAILABLE");
   }
   if (!access.permissions.includes(permission)) throw new AppError("FORBIDDEN");

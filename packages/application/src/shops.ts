@@ -12,6 +12,7 @@ import { businessDate } from "./daily";
 import { AppError, invalid, parseInput } from "./errors";
 import { isForeignKeyViolation, isUniqueViolation, runIdempotent } from "./idempotency";
 import { rangeRun, runLedger } from "./ledger";
+import { releaseOpeningLines } from "./opening-lock";
 import { insertShop, toShop } from "./shop-rows";
 
 /**
@@ -55,8 +56,9 @@ export async function createShop(
 }
 
 /**
- * Hard delete of a shop that nothing refers to (D51). Any money entry (also a reversed one),
- * opening balance or field visit makes it "used": it is then refused and should be deactivated.
+ * Hard delete of a shop that nothing refers to (D51). Any money entry (also a reversed one), field
+ * visit or opening due in a locked opening makes it "used": it is then refused and should be
+ * deactivated. An unlocked opening's due goes with the shop (D59).
  */
 export async function deleteShop(
   ctx: AppContext,
@@ -68,19 +70,20 @@ export async function deleteShop(
     await ctx.db.$transaction(async (tx) => {
       const shop = await tx.shop.findFirst({ where: { id: shopId, companyId } });
       if (!shop) throw invalid("id", "validation.shop.unknown");
-      const [entries, balances, visits] = await Promise.all([
+      const [entries, visits] = await Promise.all([
         tx.moneyEntry.count({ where: { shopId } }),
-        tx.openingBalanceLine.count({ where: { shopId } }),
         tx.fieldVisit.count({ where: { shopId } }),
       ]);
-      if (entries + balances + visits > 0) throw invalid("id", "validation.shop.inUse");
+      if (entries + visits > 0) throw invalid("id", "validation.shop.inUse");
+      const opening = await releaseOpeningLines(tx, companyId, { shopId });
+      if (!opening) throw invalid("id", "validation.shop.inUse");
       await tx.shop.delete({ where: { id: shopId } });
       await recordAudit(tx, ctx, {
         companyId,
         action: "shop.delete",
         resourceType: "shop",
         resourceId: shopId,
-        before: toShop(shop, null),
+        before: { ...toShop(shop, null), openingLinesRemoved: opening },
       });
     });
   } catch (error) {

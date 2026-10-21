@@ -31,6 +31,8 @@ export type Company = z.infer<typeof companySchema>;
 export const companyWorkspaceSchema = z.object({
   company: companySchema,
   permissions: z.array(z.enum(permissionIds)),
+  /** A super-admin opens every module, also those the company has not enabled. */
+  allModules: z.boolean().default(false),
 });
 
 export type CompanyWorkspace = z.infer<typeof companyWorkspaceSchema>;

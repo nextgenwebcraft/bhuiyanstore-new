@@ -63,10 +63,11 @@ async function ensureNoNegativeStock(tx: Tx, access: CompanyAccess): Promise<voi
   );
 }
 
-function toWorkspace(access: CompanyAccess): CompanyWorkspace {
+function toWorkspace(ctx: AppContext, access: CompanyAccess): CompanyWorkspace {
   return companyWorkspaceSchema.parse({
     company: toCompany(access.company),
     permissions: access.permissions,
+    allModules: ctx.actor.isSuperAdmin,
   });
 }
 
@@ -85,12 +86,14 @@ export async function listWorkspaces(ctx: AppContext): Promise<CompanyWorkspace[
     select: { id: true },
   });
   const workspaces: CompanyWorkspace[] = [];
-  for (const { id } of companies) workspaces.push(toWorkspace(await loadCompanyAccess(ctx, id)));
+  for (const { id } of companies) {
+    workspaces.push(toWorkspace(ctx, await loadCompanyAccess(ctx, id)));
+  }
   return workspaces;
 }
 
 export async function getWorkspace(ctx: AppContext, companyId: string): Promise<CompanyWorkspace> {
-  return toWorkspace(await loadCompanyAccess(ctx, companyId));
+  return toWorkspace(ctx, await loadCompanyAccess(ctx, companyId));
 }
 
 /** Super-admin only: companies are tenant-level configuration (D28, guide §4.4). */

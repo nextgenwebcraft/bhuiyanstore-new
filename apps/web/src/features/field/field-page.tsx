@@ -24,13 +24,17 @@ import { ListSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
 import { StatusBadge } from "@/components/status-badge";
 import { describeError, type DescribedError } from "@/data/ports/service-error";
+import { useSession } from "@/data/http/http-provider";
 import {
   useCreateFieldShop,
   useDeleteFieldVisit,
+  useDsrFieldDay,
   useFieldDay,
   useSaveFieldVisit,
+  useStaffRecords,
 } from "@/data/queries";
 import { clean, DateBar, useWorkingDate } from "@/features/daily/daily-kit";
+import { dsrsOn } from "@/features/daily/dsr-days-page";
 import { CartonQty, StatusChip } from "@/components/data-table";
 import { NavGate } from "@/features/shell/nav-gate";
 import { FIELD_PATH } from "@/features/shell/navigation";
@@ -142,12 +146,17 @@ function VisitCard({
   );
 }
 
+/** The DSR a super-admin acts for (D59); absent on a DSR's own login. */
+const forStaff = (staffId: string | undefined) => (staffId ? { staffId } : {});
+
 function ShopDialog({
   companyId,
+  staffId,
   onCreated,
   onClose,
 }: {
   companyId: string;
+  staffId: string | undefined;
   onCreated: (shopId: string) => void;
   onClose: () => void;
 }) {
@@ -163,7 +172,7 @@ function ShopDialog({
     }
     setErrors(noErrors);
     try {
-      const shop = await create.mutateAsync(values);
+      const shop = await create.mutateAsync({ ...values, ...forStaff(staffId) });
       onCreated(shop.id);
     } catch (error) {
       setErrors(describeError(error, ["name", "ownerName", "phone", "area"]));
@@ -224,11 +233,13 @@ function deliveredOf(draft: LineDraft, piecesPerCarton: string): string | null {
 
 function VisitEditor({
   companyId,
+  staffId,
   day,
   visit,
   onDone,
 }: {
   companyId: string;
+  staffId: string | undefined;
   day: FieldDay;
   visit: FieldVisit | null;
   onDone: () => void;
@@ -323,6 +334,7 @@ function VisitEditor({
       dueCollected: collectedText,
       note: note.trim(),
       lines,
+      ...forStaff(staffId),
     };
     try {
       await save.mutateAsync({ ...(visit ? { visitId: visit.id } : {}), input });
@@ -515,6 +527,7 @@ function VisitEditor({
       {addingShop ? (
         <ShopDialog
           companyId={companyId}
+          staffId={staffId}
           onCreated={(created) => {
             setShopId(created);
             setAddingShop(false);
@@ -526,10 +539,12 @@ function VisitEditor({
   );
 }
 
-function FieldDayView() {
+function FieldDayView({ staffId }: { staffId?: string }) {
   const { company } = useCurrentWorkspace();
   const [date, setDate] = useWorkingDate();
-  const day = useFieldDay(company.id, date);
+  const ownDay = useFieldDay(company.id, date, staffId === undefined);
+  const dsrDay = useDsrFieldDay(company.id, staffId ?? "", date, staffId !== undefined);
+  const day = staffId === undefined ? ownDay : dsrDay;
   const remove = useDeleteFieldVisit(company.id);
   const [editing, setEditing] = useState<FieldVisit | "new" | null>(null);
   const [deleteError, setDeleteError] = useState<string | undefined>();
@@ -552,6 +567,7 @@ function FieldDayView() {
       <VisitEditor
         key={editing === "new" ? "new" : editing.id}
         companyId={company.id}
+        staffId={staffId}
         day={data}
         visit={editing === "new" ? null : editing}
         onDone={() => setEditing(null)}
@@ -564,7 +580,11 @@ function FieldDayView() {
     if (!window.confirm(t("field.deleteConfirm"))) return;
     setDeleteError(undefined);
     try {
-      await remove.mutateAsync({ visitId: visit.id, version: visit.version });
+      await remove.mutateAsync({
+        visitId: visit.id,
+        version: visit.version,
+        ...forStaff(staffId),
+      });
     } catch (error) {
       setDeleteError(describeError(error, []).form);
     }
@@ -642,14 +662,62 @@ function FieldDayView() {
   );
 }
 
+/** A super-admin has no DSR login of their own: they pick the DSR to enter for (D59). */
+function ActForDsr() {
+  const { company } = useCurrentWorkspace();
+  const [date] = useWorkingDate();
+  const records = useStaffRecords(company.id);
+  const [chosen, setChosen] = useState("");
+  const id = useId();
+
+  if (records.isPending) return <ListSkeleton rows={4} detail />;
+  if (records.isError) {
+    return (
+      <StatePanel
+        tone="error"
+        title={describeError(records.error, []).form ?? t("error.INTERNAL")}
+        action={<Button onClick={() => void records.refetch()}>{t("state.retry")}</Button>}
+      />
+    );
+  }
+  const dsrs = dsrsOn(records.data, company.id, date);
+  const staffId = dsrs.some((d) => d.id === chosen) ? chosen : dsrs[0]?.id;
+
+  return (
+    <div className="flex flex-col gap-4">
+      <Field id={`${id}-dsr`} label={t("field.actingAs")}>
+        <select
+          id={`${id}-dsr`}
+          value={staffId ?? ""}
+          disabled={dsrs.length === 0}
+          onChange={(event) => setChosen(event.target.value)}
+          className={inputClass}
+        >
+          {dsrs.map((d) => (
+            <option key={d.id} value={d.id}>
+              {d.name}
+            </option>
+          ))}
+        </select>
+      </Field>
+      {staffId ? (
+        <FieldDayView key={staffId} staffId={staffId} />
+      ) : (
+        <StatePanel title={t("dsr.sheet.noDsr")} hint={t("dsr.sheet.noDsrHint")} />
+      )}
+    </div>
+  );
+}
+
 /** DSR phone panel (D40): shop-wise delivery, cash, old due and damage exchange per visit. */
 export function FieldPage() {
   const { permissions } = useCurrentWorkspace();
+  const session = useSession();
   if (isFieldOnly(permissions)) return <FieldDayView />;
   return (
     <NavGate path={FIELD_PATH}>
       <div className="mx-auto max-w-xl">
-        <FieldDayView />
+        {session?.me.isSuperAdmin ? <ActForDsr /> : <FieldDayView />}
       </div>
     </NavGate>
   );
