@@ -42,7 +42,14 @@ export async function postFieldVisits(
     throw invalid("marketDueNew", "validation.field.sheetDues");
   }
 
-  const issued = new Map(day.lines.map((l) => [l.productId, toDecimal(plain(l.issued) ?? "0")]));
+  // D68: a product may have one line per batch.
+  const issued = new Map<string, ReturnType<typeof toDecimal>>();
+  for (const l of day.lines) {
+    issued.set(
+      l.productId,
+      (issued.get(l.productId) ?? toDecimal("0")).add(plain(l.issued) ?? "0"),
+    );
+  }
   const used = new Map<string, string>();
   const exchanged = new Map<string, string>();
   for (const line of visits.flatMap((v) => v.lines)) {

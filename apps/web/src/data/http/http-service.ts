@@ -1,6 +1,5 @@
 import {
   apiErrorSchema,
-  cashAccountSchema,
   companyWorkspaceSchema,
   damageCaseSchema,
   dashboardSummarySchema,
@@ -12,9 +11,10 @@ import {
   fieldVisitSchema,
   meSchema,
   moneyEntrySchema,
+  masterMonthSchema,
+  masterSummarySchema,
   monthCloseResultSchema,
   monthViewSchema,
-  openingSchema,
   payrollRunSchema,
   priceChangeSchema,
   productHistorySchema,
@@ -22,7 +22,6 @@ import {
   productSchema,
   reportSchema,
   roleSchema,
-  setupStatusSchema,
   staffAccountsSchema,
   staffMemberSchema,
   shopSchema,
@@ -253,6 +252,12 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
         method: "POST",
         body: input,
       }),
+    decideFieldReport: (companyId, reportId, action, input) =>
+      request(
+        z.undefined(),
+        `${company(companyId)}/field/reports/${id(reportId)}/${action}`,
+        write("POST", input),
+      ),
     listMoneyEntries: (companyId, query, options) => {
       const params = new URLSearchParams({ from: query.from });
       if (query.to) params.set("to", query.to);
@@ -337,15 +342,6 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
     resetUserPassword: (userId, input) =>
       request(userSchema, `/users/${id(userId)}/password`, write("POST", input)),
 
-    getOpening: (companyId, options) =>
-      request(openingSchema, `${company(companyId)}/opening`, options),
-    saveOpeningCutoff: (companyId, input) =>
-      request(openingSchema, `${company(companyId)}/opening/cutoff`, write("PUT", input)),
-    saveOpeningSection: (companyId, input) =>
-      request(openingSchema, `${company(companyId)}/opening/section`, write("PUT", input)),
-    getSetupStatus: (companyId, options) =>
-      request(setupStatusSchema, `${company(companyId)}/setup`, options),
-
     getFieldDay: (companyId, date, options) =>
       request(fieldDaySchema, `${company(companyId)}/field/day?date=${id(date)}`, options),
     getDsrFieldDay: (companyId, staffId, date, options) =>
@@ -367,6 +363,8 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
         method: "DELETE",
         body: input,
       }),
+    saveFieldDayEnd: (companyId, input) =>
+      request(fieldDaySchema, `${company(companyId)}/field/day-end`, write("PUT", input)),
     createFieldShop: (companyId, input) =>
       request(fieldShopSchema, `${company(companyId)}/field/shops`, write("POST", input)),
     createStaffLogin: (companyId, staffId, input) =>
@@ -388,6 +386,21 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
       request(
         monthCloseResultSchema,
         `${company(companyId)}/months/${id(month)}/reopen`,
+        write("POST", {}),
+      ),
+    getMasterWorkspace: (options) => request(companyWorkspaceSchema, "/master", options),
+    getMasterSummary: (companyId, range, options) =>
+      request(
+        masterSummarySchema,
+        `${company(companyId)}/master-summary?${new URLSearchParams(range).toString()}`,
+        options,
+      ),
+    getMasterMonth: (companyId, month, options) =>
+      request(masterMonthSchema, `${company(companyId)}/master-months/${id(month)}`, options),
+    masterMonthCommand: (companyId, month, action) =>
+      request(
+        masterMonthSchema,
+        `${company(companyId)}/master-months/${id(month)}/${action}`,
         write("POST", {}),
       ),
     getReport: (companyId, report, range, options) =>
@@ -489,5 +502,4 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
 const configLists: Record<ConfigListId, { path: string; schema: z.ZodType }> = {
   staffRoles: { path: "/staff-roles", schema: staffRoleSchema },
   expenseCategories: { path: "/expense-categories", schema: expenseCategorySchema },
-  cashAccounts: { path: "/cash-accounts", schema: cashAccountSchema },
 };

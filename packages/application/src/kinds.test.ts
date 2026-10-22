@@ -1,7 +1,6 @@
 import {
   damageEventKinds as contractDamageKinds,
   damageOrigins as contractOrigins,
-  moneyAccountKinds,
   moneyEntryKinds,
   moneyKindPermission,
   owedAllocationSchema,
@@ -9,7 +8,6 @@ import {
 } from "@bsd/contracts";
 import {
   MONEY_KIND_EFFECTS,
-  cashBookEffect,
   computeMonth,
   damageEventKinds,
   damageOrigins,
@@ -22,18 +20,6 @@ describe("contract lists match the month engine", () => {
   it("money entry kinds", () => {
     expect([...moneyEntryKinds].sort()).toEqual(Object.keys(MONEY_KIND_EFFECTS).sort());
     expect(Object.keys(moneyKindPermission).sort()).toEqual([...moneyEntryKinds].sort());
-  });
-
-  it("kinds that name a cash account (D52)", () => {
-    const moving = moneyEntryKinds.filter((k) => cashBookEffect(k) !== 0);
-    expect([...moneyAccountKinds].sort()).toEqual([...moving].sort());
-    // Every kind with a daily cash effect, plus a supplier deposit and a transfer.
-    for (const kind of moneyEntryKinds) {
-      const cash = MONEY_KIND_EFFECTS[kind].cash !== 0;
-      expect(moneyAccountKinds.includes(kind)).toBe(
-        cash || kind === "supplierDeposit" || kind === "cashTransfer",
-      );
-    }
   });
 
   it("damage origins and event kinds", () => {

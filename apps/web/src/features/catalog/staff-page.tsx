@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  MIN_PASSWORD_LENGTH,
   staffEmployers,
   type StaffAssignment,
   type StaffEmployer,
@@ -175,14 +176,14 @@ const periodInput = (period: Period, roles: StaffRole[]) => {
   };
 };
 
-type PersonDraft = {
+export type PersonDraft = {
   id?: string;
   name: string;
   employer: StaffEmployer;
   status: RecordStatus;
 };
 
-function PersonDialog({
+export function PersonDialog({
   companyId,
   draft,
   roles,
@@ -408,7 +409,7 @@ function LoginDialog({
   async function submit() {
     const fields: Partial<Record<string, string>> = {};
     if (!email.trim()) fields.email = t("validation.required");
-    if (password.length < 12) fields.password = t("auth.passwordTooShort");
+    if (password.length < MIN_PASSWORD_LENGTH) fields.password = t("auth.passwordTooShort");
     if (Object.keys(fields).length > 0) {
       setErrors({ fields });
       return;
@@ -502,6 +503,9 @@ function AssignmentList({
   );
 }
 
+type StaffTab = "sr" | "dsr" | "other";
+const STAFF_TABS = ["sr", "dsr", "other"] as const;
+
 /** SR, DSR and other staff with dated role assignments; one DSR may serve several brands (D09). */
 function Staff() {
   const { company, permissions } = useCurrentWorkspace();
@@ -515,23 +519,48 @@ function Staff() {
   const [person, setPerson] = useState<PersonDraft | null>(null);
   const [assignment, setAssignment] = useState<AssignmentDraft | null>(null);
   const [login, setLogin] = useState<StaffRecord | null>(null);
+  const [tab, setTab] = useState<StaffTab>("sr");
 
-  const roleList = roles.data ?? [];
-  const dsrRoles = new Set(roleList.filter((role) => role.kind === "dsr").map((role) => role.id));
-  const isDsrHere = (record: StaffRecord) =>
-    record.assignments.some((a) => a.companyId === company.id && dsrRoles.has(a.roleId));
-  const here = new Set(records.data?.map((r) => r.id));
-  const candidates = (allStaff.data ?? []).filter((r) => !here.has(r.id) && r.status === "active");
+  // D65: the master panel holds the global staff (no SR); a company holds its SRs only.
+  const roleList = (roles.data ?? []).filter((role) =>
+    company.isMaster ? role.kind !== "sr" : role.kind === "sr",
+  );
+  const dsrRoles = new Set(
+    (roles.data ?? []).filter((role) => role.kind === "dsr").map((role) => role.id),
+  );
+  const isDsrHere = (record: StaffRecord) => record.assignments.some((a) => dsrRoles.has(a.roleId));
+  const own = (records.data ?? []).filter((r) =>
+    r.assignments.some((a) => a.companyId === company.id),
+  );
+  const here = new Set(own.map((r) => r.id));
+  const candidates = (allStaff.data ?? []).filter(
+    (r) =>
+      !here.has(r.id) &&
+      r.status === "active" &&
+      r.employer === (company.isMaster ? "distributor" : "supplier"),
+  );
+
+  // The master panel lists everyone of the tenant (SRs of every company too) in SR / DSR / other tabs.
+  const kindOf = new Map((roles.data ?? []).map((role) => [role.id, role.kind]));
+  const tabOf = (record: StaffRecord): StaffTab => {
+    const kinds = record.assignments.map((a) => kindOf.get(a.roleId));
+    if (kinds.includes("sr")) return "sr";
+    return kinds.includes("dsr") ? "dsr" : "other";
+  };
+  const source = company.isMaster ? allStaff : records;
+  const pool = company.isMaster ? (allStaff.data ?? []) : own;
+  const listed = company.isMaster ? pool.filter((r) => tabOf(r) === tab) : own;
 
   let body: React.ReactNode;
-  if (records.isPending) body = <ListSkeleton rows={5} detail action />;
-  else if (records.isError) {
-    body = <QueryError error={records.error} onRetry={() => void records.refetch()} />;
-  } else if (records.data.length === 0) body = <StatePanel title={t("staff.empty")} />;
-  else {
+  if (source.isPending) body = <ListSkeleton rows={5} detail action />;
+  else if (source.isError) {
+    body = <QueryError error={source.error} onRetry={() => void source.refetch()} />;
+  } else if (listed.length === 0) {
+    body = <StatePanel title={t(company.isMaster ? "staff.tab.empty" : "staff.empty")} />;
+  } else {
     body = (
       <ul className="flex flex-col gap-3">
-        {records.data.map((record) => (
+        {listed.map((record) => (
           <li key={record.id} className="rounded-lg border border-border bg-surface p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
@@ -555,9 +584,11 @@ function Staff() {
                   {isSuperAdmin && record.loginEmail === null && isDsrHere(record) ? (
                     <Button onClick={() => setLogin(record)}>{t("staff.login.create")}</Button>
                   ) : null}
-                  <Button onClick={() => setAssignment({ person: record })}>
-                    {t("staff.assign")}
-                  </Button>
+                  {company.isMaster && tabOf(record) === "sr" ? null : (
+                    <Button onClick={() => setAssignment({ person: record })}>
+                      {t("staff.assign")}
+                    </Button>
+                  )}
                   <Button
                     onClick={() =>
                       setPerson({
@@ -602,7 +633,13 @@ function Staff() {
               ) : null}
               <Button
                 variant="primary"
-                onClick={() => setPerson({ name: "", employer: "distributor", status: "active" })}
+                onClick={() =>
+                  setPerson({
+                    name: "",
+                    employer: company.isMaster ? "distributor" : "supplier",
+                    status: "active",
+                  })
+                }
               >
                 {t("staff.new")}
               </Button>
@@ -610,6 +647,25 @@ function Staff() {
           ) : null
         }
       />
+      <p className="mb-4 text-sm text-text-muted">
+        {t(company.isMaster ? "staff.globalHint" : "staff.companyHint")}
+      </p>
+      {company.isMaster ? (
+        <div role="tablist" className="mb-4 flex flex-wrap gap-2">
+          {STAFF_TABS.map((id) => (
+            <Button
+              key={id}
+              role="tab"
+              aria-selected={id === tab}
+              variant={id === tab ? "primary" : "secondary"}
+              onClick={() => setTab(id)}
+            >
+              {t(`staff.tab.${id}`)} (
+              {toBengaliDigits(String(pool.filter((r) => tabOf(r) === id).length))})
+            </Button>
+          ))}
+        </div>
+      ) : null}
       {person ? (
         <PersonDialog
           companyId={company.id}

@@ -15,6 +15,7 @@ import { useState } from "react";
 import { Button } from "@/components/button";
 import { DatePicker, MonthPicker } from "@/components/date-picker";
 import { Field } from "@/components/field";
+import { FormDialog } from "@/components/form-dialog";
 import { PageHeader } from "@/components/page-header";
 import { QueryError } from "@/components/query-error";
 import { FormSkeleton, TableSkeleton } from "@/components/skeleton";
@@ -59,6 +60,76 @@ function draftOf(line: PayrollLine): Draft {
   };
 }
 
+const sameDraft = (a: Draft, b: Draft) => JSON.stringify(a) === JSON.stringify(b);
+
+/** D75: confirm one person's Pay Now: their salary, absent fee, recovery and Cash Pabe. */
+function PayNowDialog({
+  run,
+  month,
+  line,
+  onClose,
+}: {
+  run: PayrollRun;
+  month: string;
+  line: PayrollLine;
+  onClose: () => void;
+}) {
+  const { company } = useCurrentWorkspace();
+  const command = usePayrollCommand(company.id, month);
+  const today = useToday();
+  const [payDate, setPayDate] = useState(today);
+  const action = useAsyncAction();
+  const rows: [string, string][] = [
+    [t("payroll.salary"), money(line.salary)],
+    [t("payroll.absent"), money(line.absent)],
+    [t("payroll.recovery"), money(line.recoveryTotal)],
+  ];
+
+  return (
+    <FormDialog
+      open
+      title={`${t("payroll.payNow.title")}: ${line.staffName}`}
+      error={action.error}
+      pending={action.busy}
+      submitLabel={t("payroll.payNow")}
+      onClose={onClose}
+      onSubmit={() =>
+        void action.run(() =>
+          command.mutateAsync({
+            action: "payStaff",
+            input: { version: run.version, payDate, staffId: line.staffId },
+          }),
+        )
+      }
+    >
+      <dl className="flex flex-col gap-1 text-sm">
+        {rows.map(([label, value]) => (
+          <div key={label} className="flex justify-between gap-4">
+            <dt className="text-text-muted">{label}</dt>
+            <dd className="tabular-nums">{value}</dd>
+          </div>
+        ))}
+        <div className="flex justify-between gap-4 border-t border-border pt-1 font-semibold">
+          <dt>{t("payroll.cashPay")}</dt>
+          <dd className="tabular-nums">{money(line.cashPay)}</dd>
+        </div>
+      </dl>
+      <Field id="pay-now-date" label={t("payroll.payDate")}>
+        <DatePicker
+          id="pay-now-date"
+          value={payDate}
+          min={`${month}-01`}
+          max={today}
+          label={t("payroll.payDate")}
+          onChange={(next) => next && setPayDate(next)}
+          className="w-full"
+        />
+      </Field>
+      <p className="text-sm text-text-muted">{t("payroll.payNow.hint")}</p>
+    </FormDialog>
+  );
+}
+
 function RunStatus({ status }: { status: PayrollStatus }) {
   const tone =
     status === "paid" ? "success" : status === "approved" || status === "draft" ? "brand" : "muted";
@@ -77,6 +148,7 @@ function RunEditor({ run, month }: { run: PayrollRun; month: string }) {
   const today = useToday();
   const [payDate, setPayDate] = useState(() => (today < run.date ? run.date : today));
   const [error, setError] = useState<string | undefined>();
+  const [paying, setPaying] = useState<PayrollLine | null>(null);
   const action = useAsyncAction();
   const shownError = error ?? action.error;
   const busy = save.isPending || command.isPending;
@@ -86,6 +158,18 @@ function RunEditor({ run, month }: { run: PayrollRun; month: string }) {
     pay: permissions.includes("payment.post"),
     reverse: permissions.includes("payment.reverse"),
   };
+  const canPayNow = editable && can.manage && can.approve && can.pay;
+  const somePaid = run.lines.some((l) => l.paid);
+
+  function payNow(line: PayrollLine) {
+    setError(undefined);
+    const d = drafts[line.staffId];
+    if (d && !sameDraft(d, draftOf(line))) {
+      setError(`${line.staffName}: ${t("payroll.payNow.saveFirst")}`);
+      return;
+    }
+    setPaying(line);
+  }
 
   const update = (staffId: string, patch: Partial<Draft>) =>
     setDrafts((current) => {
@@ -123,7 +207,7 @@ function RunEditor({ run, month }: { run: PayrollRun; month: string }) {
     await action.run(() => save.mutateAsync({ version: run.version, date, lines }));
   }
 
-  async function act(kind: PayrollAction) {
+  async function act(kind: Exclude<PayrollAction, "payStaff">) {
     setError(undefined);
     await action.run(
       () =>
@@ -168,8 +252,9 @@ function RunEditor({ run, month }: { run: PayrollRun; month: string }) {
           </p>
         ) : null}
       </div>
-      <dl className="grid gap-3 sm:grid-cols-3">
+      <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatTile label={t("payroll.totalSalary")} value={money(run.totals.salary)} />
+        <StatTile label={t("payroll.totalAbsent")} value={money(run.totals.absent)} />
         <StatTile label={t("payroll.totalRecovery")} value={money(run.totals.recovery)} />
         <StatTile label={t("payroll.totalCash")} value={money(run.totals.cashPay)} emphasis />
       </dl>
@@ -188,6 +273,9 @@ function RunEditor({ run, month }: { run: PayrollRun; month: string }) {
                   {t("payroll.salary")}
                 </th>
                 <th scope="col" className={thNum}>
+                  {t("payroll.absent")}
+                </th>
+                <th scope="col" className={thNum}>
                   {t("payroll.owed")}
                 </th>
                 <th scope="col" className={thNum}>
@@ -196,11 +284,17 @@ function RunEditor({ run, month }: { run: PayrollRun; month: string }) {
                 <th scope="col" className={thNum}>
                   {t("payroll.cashPay")}
                 </th>
+                {editable || somePaid ? (
+                  <th scope="col" className={`${thClass} print:hidden`}>
+                    <span className="sr-only">{t("common.actions")}</span>
+                  </th>
+                ) : null}
               </tr>
             </thead>
             <tbody>
               {run.lines.map((line) => {
                 const d = drafts[line.staffId] ?? draftOf(line);
+                const lineEditable = editable && can.manage && !line.paid;
                 return (
                   <tr key={line.staffId} className="border-t border-border align-top">
                     <td className={tdClass}>
@@ -208,7 +302,7 @@ function RunEditor({ run, month }: { run: PayrollRun; month: string }) {
                       <div className="text-xs text-text-muted">{line.roleName}</div>
                     </td>
                     <td className={tdNum}>
-                      {editable && can.manage ? (
+                      {lineEditable ? (
                         <CellInput
                           label={`${line.staffName} ${t("payroll.salary")}`}
                           value={d.salary}
@@ -220,6 +314,7 @@ function RunEditor({ run, month }: { run: PayrollRun; month: string }) {
                         money(line.salary)
                       )}
                     </td>
+                    <td className={tdNum}>{money(line.absent)}</td>
                     <td className={`${tdNum} text-xs`}>
                       {owedBuckets.map((b) => (
                         <div key={b}>
@@ -228,7 +323,7 @@ function RunEditor({ run, month }: { run: PayrollRun; month: string }) {
                       ))}
                     </td>
                     <td className={tdNum}>
-                      {editable && can.manage && d.override ? (
+                      {lineEditable && d.override ? (
                         <div className="flex flex-col items-end gap-1">
                           {owedBuckets.map((b) => (
                             <label key={b} className="flex items-center gap-2 text-xs">
@@ -261,7 +356,7 @@ function RunEditor({ run, month }: { run: PayrollRun; month: string }) {
                           ) : null}
                         </>
                       )}
-                      {editable && can.manage ? (
+                      {lineEditable ? (
                         <label className="mt-1 flex items-center justify-end gap-1 text-xs text-text-muted">
                           <input
                             type="checkbox"
@@ -278,6 +373,22 @@ function RunEditor({ run, month }: { run: PayrollRun; month: string }) {
                       ) : null}
                     </td>
                     <td className={`${tdNum} font-semibold`}>{money(line.cashPay)}</td>
+                    {editable || somePaid ? (
+                      <td className={`${tdClass} text-right print:hidden`}>
+                        {line.paid ? (
+                          <StatusBadge tone="success">{t("payroll.status.paid")}</StatusBadge>
+                        ) : canPayNow ? (
+                          <Button
+                            variant="primary"
+                            className="whitespace-nowrap"
+                            disabled={busy}
+                            onClick={() => payNow(line)}
+                          >
+                            {t("payroll.payNow")}
+                          </Button>
+                        ) : null}
+                      </td>
+                    ) : null}
                   </tr>
                 );
               })}
@@ -297,7 +408,7 @@ function RunEditor({ run, month }: { run: PayrollRun; month: string }) {
             {t("payroll.approve")}
           </Button>
         ) : null}
-        {run.status === "draft" && can.manage ? (
+        {run.status === "draft" && can.manage && !somePaid ? (
           <Button disabled={busy} onClick={() => void act("discard")}>
             {t("payroll.discard")}
           </Button>
@@ -307,12 +418,19 @@ function RunEditor({ run, month }: { run: PayrollRun; month: string }) {
             {t("payroll.pay")}
           </Button>
         ) : null}
-        {(run.status === "approved" || run.status === "paid") && can.manage && can.reverse ? (
+        {(run.status === "approved" ||
+          run.status === "paid" ||
+          (run.status === "draft" && somePaid)) &&
+        can.manage &&
+        can.reverse ? (
           <Button disabled={busy} onClick={() => void act("reverse")}>
             {t("payroll.reverse")}
           </Button>
         ) : null}
       </div>
+      {paying ? (
+        <PayNowDialog run={run} month={month} line={paying} onClose={() => setPaying(null)} />
+      ) : null}
     </div>
   );
 }

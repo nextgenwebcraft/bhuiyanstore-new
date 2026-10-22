@@ -4,13 +4,13 @@ import type { MonthInput } from "./types";
 
 /**
  * D57 (hand-changed numbers below): day 1's 48 received pieces of A are billed at the order price
- * 10 (released 480 ÷ 48), so they form a second batch (cost 10) next to the opening batch (9.5);
+ * 10 (released 480 Ã· 48), so they form a second batch (cost 10) next to the opening batch (9.5);
  * day 2's sale price change re-prices only that newest batch, so day 2's 20 delivered pieces come
- * from the opening batch at 11 (not 12): sales −20 (−19 net of the damaged piece), cost unchanged.
+ * from the opening batch at 11 (not 12): sales âˆ’20 (âˆ’19 net of the damaged piece), cost unchanged.
  *
- * Synthetic golden month; every expected value below was worked out by hand from PLAN §2.
+ * Synthetic golden month; every expected value below was worked out by hand from PLAN Â§2.
  * D47: cost is charged on every delivered piece (damaged ones too), so cost and gross profit
- * differ from the pre-D47 month by the damaged pieces × cost price (day 1: 2 × 9.5, day 2: 1 × 9.5).
+ * differ from the pre-D47 month by the damaged pieces Ã— cost price (day 1: 2 Ã— 9.5, day 2: 1 Ã— 9.5).
  * D48: orders are billed on their day; a receipt only bills pieces beyond the order, so the day
  * receipts below bill nothing (B's order is billed on day 1 instead of day 2).
  */
@@ -82,18 +82,26 @@ describe("computeMonth golden month", () => {
   const [day1, day2] = out.days;
 
   it("gives each DSR's day money for the cash check (D39)", () => {
+    const money = { costPaid: "0", staffMoney: "0" };
     expect(day1?.dsrs).toEqual([
-      { staffId: "d1", sales: "528", marketDueNew: "100", marketDueCollected: "50", costPaid: "0" },
-      { staffId: "d2", sales: "264", marketDueNew: "0", marketDueCollected: "0", costPaid: "0" },
+      {
+        staffId: "d1",
+        sales: "528",
+        marketDueNew: "100",
+        marketDueCollected: "50",
+        ...money,
+        staffMoney: "10",
+      },
+      { staffId: "d2", sales: "264", marketDueNew: "0", marketDueCollected: "0", ...money },
     ]);
-    // Day 2: B 12 sold at 22.5 with 2 at 20 (−5); A 24 − 4 − 1 = 19 at 12.
+    // Day 2: B 12 sold at 22.5 with 2 at 20 (âˆ’5); A 24 âˆ’ 4 âˆ’ 1 = 19 at 12.
     expect(day2?.dsrs).toEqual([
-      { staffId: "d1", sales: "474", marketDueNew: "0", marketDueCollected: "0", costPaid: "0" },
+      { staffId: "d1", sales: "474", marketDueNew: "0", marketDueCollected: "0", ...money },
     ]);
     expect(day2?.persons.find((p) => p.productId === "A")).toMatchObject({
       sold: "19",
       soldValue: "209", // D57: 8 + 11 pieces at 11 = 209 (was 19 at 12)
-      amount: "220", // 20 × 11
+      amount: "220", // 20 Ã— 11
     });
   });
 
@@ -106,11 +114,11 @@ describe("computeMonth golden month", () => {
       damaged: "2",
       sold: "70",
       sales: "770",
-      // D47: 72 delivered × 9.5 = 684 (was 70 sold × 9.5 = 665); profit 770 − 684 = 86.
+      // D47: 72 delivered Ã— 9.5 = 684 (was 70 sold Ã— 9.5 = 665); profit 770 âˆ’ 684 = 86.
       cost: "684",
       grossProfit: "86",
       dueFromCompany: "2",
-      // D48: 50 undelivered billed at 10 = 500; the 48 received release 500 × 48/50 = 480.
+      // D48: 50 undelivered billed at 10 = 500; the 48 received release 500 Ã— 48/50 = 480.
       dueFromCompanyValue: "20",
       stock: "76",
       stockValue: "746",
@@ -129,7 +137,7 @@ describe("computeMonth golden month", () => {
       costPrice: "10", // D57: the current cost follows the newest batch (the day-1 receipt, 10)
       sold: "19",
       sales: "209", // D57: 19 sold from the opening batch at 11 (was 228 at 12)
-      // D47: 20 delivered × 9.5 = 190 (was 19 × 9.5 = 180.5); profit 209 − 190 = 19.
+      // D47: 20 delivered Ã— 9.5 = 190 (was 19 Ã— 9.5 = 180.5); profit 209 âˆ’ 190 = 19.
       cost: "190",
       grossProfit: "19",
       stock: "56",
@@ -139,8 +147,8 @@ describe("computeMonth golden month", () => {
       dueFromCompany: "0",
       stock: "12",
       sales: "265",
-      cost: "240", // D57: the 24 received cost 480 ÷ 24 = 20 each (was the day-1 cost price 19)
-      grossProfit: "25", // 265 − 240
+      cost: "240", // D57: the 24 received cost 480 Ã· 24 = 20 each (was the day-1 cost price 19)
+      grossProfit: "25", // 265 âˆ’ 240
       // D48: the 24 received were ordered on day 1 (billed then): nothing new to bill.
       receiptBill: "0",
       receiptValue: "480",
@@ -180,7 +188,7 @@ describe("computeMonth golden month", () => {
     expect(out.month.products[0]).toMatchObject({
       salesTotal: "979",
       costTotal: "874", // 684 + 190
-      profitTotal: "105", // 979 − 874
+      profitTotal: "105", // 979 âˆ’ 874
       salesCartons: "3.833333",
       closingStock: "56",
       closingValue: "556",
@@ -188,14 +196,14 @@ describe("computeMonth golden month", () => {
       closingCartons: "2.333333",
     });
     expect(out.month.profit).toEqual({
-      // gross: A 105 + B 25 = 130 (D57: was 161; −19 sold at 11 not 12, −12 B cost 20 not 19).
+      // gross: A 105 + B 25 = 130 (D57: was 161; âˆ’19 sold at 11 not 12, âˆ’12 B cost 20 not 19).
       gross: "130",
       // D47 amendment: `damageRecovery` is no longer part of the profit figures.
       salaries: "1000",
       expenses: "30",
       expensesByCategory: { operating: "30" },
       srIncentive: "20",
-      net: "-920", // 130 − 1000 − 30 − 20
+      net: "-920", // 130 âˆ’ 1000 âˆ’ 30 âˆ’ 20
       netWithoutIncentive: "-900",
     });
     expect(out.month.marketDue).toMatchObject({
@@ -211,9 +219,14 @@ describe("computeMonth golden month", () => {
       deposits: "500",
       incentives: "0",
       damageRefunds: "0",
-      closing: "980", // 1000 + 480 − 500
-      undeliveredOpening: "500", // A: 50 × 10
-      undeliveredClosing: "20", // A: 2 × 10
+      investments: "0", // the day's cash covers the deposit
+      closing: "980", // 1000 + 480 âˆ’ 500
+      damageBalanceOpening: "0",
+      incentiveBalanceOpening: "0",
+      damageBalance: "0",
+      incentiveBalance: "0",
+      undeliveredOpening: "500", // A: 50 Ã— 10
+      undeliveredClosing: "20", // A: 2 Ã— 10
     });
     const staff = Object.fromEntries(out.month.staff.map((s) => [s.staffId, s]));
     expect(staff.d1?.closing.shortage).toBe("20");
@@ -259,11 +272,25 @@ describe("computeMonth golden month", () => {
   it("produces a closing that is the next month's opening", () => {
     expect(out.closing.products.A).toEqual({
       stock: "56",
-      // D49/D57: day 1's receipt costs 480 ÷ 48 = 10 (not the opening 9.5), so it is batch 2; 8 of
+      // D49/D57: day 1's receipt costs 480 Ã· 48 = 10 (not the opening 9.5), so it is batch 2; 8 of
       // the opening batch are left (day 2 sold 20 from it at 11).
       batches: [
-        { seq: 1, startDate: "opening", costPrice: "9.5", salePrice: "11", quantity: "8" },
-        { seq: 2, startDate: "2026-11-01", costPrice: "10", salePrice: "12", quantity: "48" },
+        {
+          key: "auto:1",
+          seq: 1,
+          startDate: "opening",
+          costPrice: "9.5",
+          salePrice: "11",
+          quantity: "8",
+        },
+        {
+          key: "auto:2",
+          seq: 2,
+          startDate: "2026-11-01",
+          costPrice: "10",
+          salePrice: "12",
+          quantity: "48",
+        },
       ],
       dueFromCompany: "2",
       dueFromCompanyValue: "20",
@@ -292,6 +319,7 @@ describe("computeMonth company account (D33)", () => {
     opening: {
       products: { A: { stock: "10", dueFromCompany: "48", orderPrice: "10", costPrice: "9" } },
       companyPayable: "1000",
+      cashAccounts: { "": "1000" },
     },
     days: [
       {
@@ -313,7 +341,12 @@ describe("computeMonth company account (D33)", () => {
       deposits: "300",
       incentives: "120",
       damageRefunds: "47.5",
-      closing: "532.5", // 1000 − 300 − 120 − 47.5
+      investments: "0",
+      closing: "532.5", // 1000 âˆ’ 300 âˆ’ 120 âˆ’ 47.5
+      damageBalanceOpening: "0",
+      incentiveBalanceOpening: "0",
+      damageBalance: "47.5", // D63
+      incentiveBalance: "120",
       undeliveredOpening: "480",
       undeliveredClosing: "0",
     });
@@ -338,6 +371,8 @@ describe("computeMonth company account (D33)", () => {
         productId: "A",
         quantity: "48",
         balance: "1000",
+        damageBalance: "0",
+        incentiveBalance: "0",
         undelivered: "0",
       },
       {
@@ -346,6 +381,8 @@ describe("computeMonth company account (D33)", () => {
         amount: "47.5",
         productId: "A",
         balance: "952.5",
+        damageBalance: "47.5",
+        incentiveBalance: "0",
         undelivered: "0",
       },
       {
@@ -354,6 +391,8 @@ describe("computeMonth company account (D33)", () => {
         amount: "300",
         ref: "dep",
         balance: "652.5",
+        damageBalance: "47.5",
+        incentiveBalance: "0",
         undelivered: "0",
       },
       {
@@ -362,6 +401,8 @@ describe("computeMonth company account (D33)", () => {
         amount: "120",
         ref: "inc",
         balance: "532.5",
+        damageBalance: "47.5",
+        incentiveBalance: "120",
         undelivered: "0",
       },
     ]);
@@ -399,6 +440,8 @@ describe("computeMonth free goods (D16)", () => {
         productId: "A",
         quantity: "24",
         balance: "1000",
+        damageBalance: "0",
+        incentiveBalance: "0",
         undelivered: "480",
       },
     ]);
@@ -438,6 +481,24 @@ describe("computeMonth data problems", () => {
     });
     expect(out.closing.staff.s1).toMatchObject({ advance: "0", loan: "0", credit: "5" });
     expect(out.warnings[0]).toMatchObject({ code: "REPAYMENT_EXCEEDS_DUE", detail: "5" });
+  });
+
+  it("leaves staff warnings to the tenant-wide staff run in a company run (D65)", () => {
+    const out = computeMonth({
+      ...base,
+      staffWarnings: false,
+      days: [
+        {
+          date: "2026-11-01",
+          money: [
+            { kind: "staffRepayment", amount: "20", staffId: "s1" },
+            { kind: "salaryPaid", amount: "5", staffId: "s1" },
+          ],
+        },
+      ],
+    });
+    expect(out.closing.staff.s1).toMatchObject({ credit: "20" });
+    expect(out.warnings.filter((w) => w.staffId === "s1")).toEqual([]);
   });
 
   it("honours an explicit recovery allocation", () => {
@@ -522,7 +583,7 @@ describe("shop commission on DSR lines (D41)", () => {
   const day = out.days[0];
 
   it("takes the commission out of the line's sold value, sales, cash and profit", () => {
-    // d1: 20 × 11 = 220 − 15.5; d2: 10 × 11 = 110.
+    // d1: 20 Ã— 11 = 220 âˆ’ 15.5; d2: 10 Ã— 11 = 110.
     expect(day?.persons[0]).toMatchObject({
       commission: "15.5",
       soldValue: "204.5",

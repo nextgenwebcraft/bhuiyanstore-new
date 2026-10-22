@@ -1,0 +1,24 @@
+id: 2026-10-22-profit-total-sales
+reason: >-
+  Owner 2026-10-22 (D74) - the damage at the sale price is not taken off the DSR-line profit; a মোট
+  বিক্রি card on the DSR sheet and on the dashboard; the day summary tiles above the DSR list removed.
+owners: [domain, contracts, application, web, i18n, docs]
+changes:
+  - packages/domain sales-profit.ts - profit no longer subtracts damageValue; ProfitParts.netSales (delivered value − damage value − commission); dashboardTotals takes issuedValue and returns totalSales (issuedValue − totalCost)
+  - packages/domain staff-cost.test.ts - profit 375, netSales 2075, totalSales 675
+  - packages/contracts reporting.ts - DashboardSummary.totalSales (finance.view)
+  - packages/application daily.ts, master-panel.ts - dashboard and master summary carry totalSales
+  - apps/web dsr-days-page.tsx - = মোট বিক্রি card after কমিশন; the list's day summary tiles removed
+  - apps/web dashboard-page.tsx - = মোট বিক্রি card after ডিএসআর খরচ (বেতনসহ)
+  - packages/i18n - dsr.profit.netSales, dashboard.card.totalSales; unused dsr.summary tile keys removed
+  - docs - D74
+affectedActionIds: []
+financialImpact: >-
+  The DSR-line profit (sheet প্রফিট, dashboard মোট প্রফিট and নিট প্রফিট) rises by the damaged pieces
+  at the sale price. Example sheet: 26.58 becomes 51.58. Engine month profit, cash, balances and
+  stock are unchanged. মোট বিক্রি is a shown figure only.
+backfill: none (computed at read time)
+tests:
+  - pnpm check:types, pnpm lint, pnpm test
+rollout: deploy the app; no migration
+recovery: revert the commit

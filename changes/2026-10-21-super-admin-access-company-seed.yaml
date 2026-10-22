@@ -1,0 +1,26 @@
+id: 2026-10-21-super-admin-access-company-seed
+reason: >-
+  D59 (owner change request 2026-10-21) - a super-admin opens every module including the DSR field
+  panel (acting for a chosen DSR); company creation no longer validates the chosen colors; a new
+  company with starter data gets a complete opening (every প্রারম্ভিক তথ্য section) besides the
+  sample masters.
+owners: [contracts, application, i18n, web]
+changes:
+  - packages/contracts - companyWorkspaceSchema.allModules (default false); optional staffId on fieldVisitSaveRequestSchema, fieldVisitDeleteRequestSchema and fieldShopCreateRequestSchema
+  - packages/application - companies.ts toWorkspace sets allModules for a super-admin; access.ts requirePermission skips the module check for a super-admin; field.ts fieldStaffId (own staff record, or for a super-admin the named active person assigned to the company; validation.field.chooseDsr / validation.field.ownOnly) used by getFieldDay, saveFieldVisit, deleteFieldVisit and createFieldShop
+  - packages/application - starter-dataset.ts seeds a sample SR, per-person/shop opening values, company advance, cash in a new "<company> ক্যাশ" account and calls opening.ts writeSeededOpening (go-live = creation day, every section filled, opening prices written); opening-lock.ts owns isLocked (moved from opening.ts) and releaseOpeningLines; deleteProduct / deleteStaff / deleteShop remove opening lines of an otherwise unused record while the opening is unlocked
+  - packages/i18n - field.actingAs, validation.field.chooseDsr, validation.field.ownOnly; company.starterDataHint mentions the opening; company.lowContrast removed
+  - apps/web - navAccess honours allModules; field page DSR picker for a super-admin (ActForDsr) passing staffId to reads and writes; useFieldDay enabled flag; company form without the contrast check
+affectedActionIds:
+  [company.create, field.entry, field.shop_create, product.delete, staff.delete, shop.delete]
+financialImpact: >-
+  New companies created with starter data start with a live opening holding sample stock, dues,
+  staff balances, a company advance and cash (all noted নমুনা). These figures enter the month
+  engine from the creation day until the owner edits them on the opening page. Existing companies
+  are unchanged. No change to any calculation.
+backfill: none - existing companies get no seed
+tests:
+  - pnpm check (format, lint, types, 287 unit tests; navigation test for allModules)
+  - pnpm test:integration (11 files, 103 tests; phase-i - seeded opening with every section done, own cash account per company, cutoff move and price edit, delete removes opening lines, locked opening refuses; production-setup - super-admin enters for a chosen DSR, chooseDsr / ownOnly refusals, delete and shop for a named DSR, allModules)
+rollout: deploy the app; no migration
+recovery: revert the commit; seeded companies keep their data (ordinary editable rows)

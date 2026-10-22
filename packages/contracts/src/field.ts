@@ -60,6 +60,9 @@ export const fieldProductSchema = z.object({
   exchanged: decimalStringSchema,
   /** issued − delivered − exchanged: what is still in hand (expected firot at day end). */
   remaining: decimalStringSchema,
+  /** Firot and damage on the office sheet, as the DSR entered them at day end (draft). */
+  returned: decimalStringSchema,
+  damaged: decimalStringSchema,
 });
 
 export type FieldProduct = z.infer<typeof fieldProductSchema>;
@@ -92,7 +95,14 @@ export const fieldDaySchema = z.object({
   sheetStatus: z.enum(["none", "draft", "posted"]),
   /** True once the office posted the day; visits can no longer change. */
   locked: z.boolean(),
+  /**
+   * D71: after posting the day end goes to the office as a report to approve; true while one
+   * waits (`dayEnd` then shows its firot and damage).
+   */
+  reportPending: z.boolean(),
   products: z.array(fieldProductSchema),
+  /** Every active product for the day end (firot and damage), with or without samari. */
+  dayEnd: z.array(fieldProductSchema),
   visits: z.array(fieldVisitSchema),
   shops: z.array(fieldShopSchema),
   totals: fieldTotalsSchema,
@@ -115,15 +125,41 @@ export const fieldVisitSaveRequestSchema = z.object({
   dueCollected: amountSchema,
   note: z.string().trim().max(300).default(""),
   lines: z.array(fieldVisitLineRequestSchema).max(300),
+  /** Super-admin only: the DSR the visit is for. A DSR's own login acts on itself. */
+  staffId: idSchema.optional(),
 });
 
 export type FieldVisitSaveRequest = z.input<typeof fieldVisitSaveRequestSchema>;
 
 export const fieldVisitDeleteRequestSchema = z.object({
   version: z.number().int().positive(),
+  /** Super-admin only: the DSR whose visit it is. */
+  staffId: idSchema.optional(),
 });
 
 export type FieldVisitDeleteRequest = z.infer<typeof fieldVisitDeleteRequestSchema>;
+
+/**
+ * The DSR's day end from the field: firot and damage per product, written into the office's draft
+ * sheet (created when the office has not started one). The office reviews, edits and posts it; a
+ * posted day refuses it.
+ */
+export const fieldDayEndRequestSchema = z.object({
+  date: businessDateSchema,
+  lines: z
+    .array(
+      z.object({
+        productId: idSchema,
+        returned: wholePiecesSchema,
+        damaged: wholePiecesSchema,
+      }),
+    )
+    .max(300),
+  /** Super-admin only: the DSR the day is for. */
+  staffId: idSchema.optional(),
+});
+
+export type FieldDayEndRequest = z.input<typeof fieldDayEndRequestSchema>;
 
 /** A shop added from the field: the office completes the rest later. */
 export const fieldShopCreateRequestSchema = z.object({
@@ -131,6 +167,8 @@ export const fieldShopCreateRequestSchema = z.object({
   ownerName: z.string().trim().max(120).default(""),
   phone: z.string().trim().max(40).default(""),
   area: z.string().trim().max(120).default(""),
+  /** Super-admin only: the DSR the shop is added for. */
+  staffId: idSchema.optional(),
 });
 
 export type FieldShopCreateRequest = z.input<typeof fieldShopCreateRequestSchema>;

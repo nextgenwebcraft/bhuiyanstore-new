@@ -23,6 +23,8 @@ export const companySchema = z.object({
   modules: z.array(z.enum(workspaceModuleIds)),
   /** D34: postings that would take a product's stock below zero are refused. */
   blockNegativeStock: z.boolean().default(false),
+  /** D66: the tenant's hidden master company (global staff, payroll, all-company summary). */
+  isMaster: z.boolean().default(false),
 });
 
 export type Company = z.infer<typeof companySchema>;
@@ -31,6 +33,8 @@ export type Company = z.infer<typeof companySchema>;
 export const companyWorkspaceSchema = z.object({
   company: companySchema,
   permissions: z.array(z.enum(permissionIds)),
+  /** A super-admin opens every module, also those the company has not enabled. */
+  allModules: z.boolean().default(false),
 });
 
 export type CompanyWorkspace = z.infer<typeof companyWorkspaceSchema>;
@@ -67,7 +71,7 @@ export const meSchema = z.object({
 export type Me = z.infer<typeof meSchema>;
 
 /** Guide §12.1; the auth server enforces the same minimum again (`@bsd/auth`). */
-export const MIN_PASSWORD_LENGTH = 12;
+export const MIN_PASSWORD_LENGTH = 6;
 
 export const passwordChangeRequestSchema = z.object({
   currentPassword: z.string().min(1).max(256),

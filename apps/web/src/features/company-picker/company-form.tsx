@@ -1,7 +1,7 @@
 "use client";
 
 import { workspaceModuleIds, type WorkspaceModuleId } from "@bsd/contracts";
-import { contrastRatio, DEFAULT_COMPANY_THEME, MIN_TEXT_CONTRAST } from "@bsd/design-system";
+import { DEFAULT_COMPANY_THEME } from "@bsd/design-system";
 import { t } from "@bsd/i18n";
 import { useId, useState } from "react";
 import { Field, inputClass } from "@/components/field";
@@ -16,10 +16,8 @@ export function CompanyForm({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState("");
   const [primary, setPrimary] = useState<string>(DEFAULT_COMPANY_THEME.primary);
   const [foreground, setForeground] = useState<string>(DEFAULT_COMPANY_THEME.primaryForeground);
-  const [starterData, setStarterData] = useState(true);
   const [modules, setModules] = useState<WorkspaceModuleId[]>([...workspaceModuleIds]);
   const [errors, setErrors] = useState<DescribedError>({ fields: {} });
-  const lowContrast = contrastRatio(foreground, primary) < MIN_TEXT_CONTRAST;
 
   function toggle(module: WorkspaceModuleId) {
     const next = new Set(modules);
@@ -33,7 +31,6 @@ export function CompanyForm({ onClose }: { onClose: () => void }) {
       setErrors({ fields: { name: t("validation.required") } });
       return;
     }
-    if (lowContrast) return;
     setErrors({ fields: {} });
     try {
       await createCompany.mutateAsync({
@@ -41,7 +38,7 @@ export function CompanyForm({ onClose }: { onClose: () => void }) {
         theme: { primary, primaryForeground: foreground },
         modules,
         blockNegativeStock: false,
-        starterData,
+        starterData: true,
       });
       onClose();
     } catch (error) {
@@ -100,23 +97,9 @@ export function CompanyForm({ onClose }: { onClose: () => void }) {
       >
         {name.trim() || t("company.name")}
       </div>
-      {lowContrast ? (
-        <p className="text-sm text-error" role="alert">
-          {t("company.lowContrast")}
-        </p>
-      ) : null}
-      <label className="flex min-h-(--touch-target) items-start gap-2">
-        <input
-          type="checkbox"
-          checked={starterData}
-          onChange={(event) => setStarterData(event.target.checked)}
-          className="mt-1"
-        />
-        <span>
-          <span className="block font-medium">{t("company.starterData")}</span>
-          <span className="block text-sm text-text-muted">{t("company.starterDataHint")}</span>
-        </span>
-      </label>
+      <p className="rounded-xl border border-border bg-surface-muted/50 px-4 py-3 text-sm text-text-muted">
+        {t("company.starterDataHint")}
+      </p>
       <fieldset>
         <legend className="mb-1 text-sm font-medium">{t("company.modules")}</legend>
         <p className="mb-2 text-sm text-text-muted">{t("company.modulesHint")}</p>

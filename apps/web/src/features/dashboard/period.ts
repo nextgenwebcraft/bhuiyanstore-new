@@ -36,10 +36,10 @@ export function parsePeriod(value: string | null | undefined, today: string): Pe
     case "last-month":
       return { kind: value };
   }
-  if (value && monthSchema.safeParse(value).success && value <= monthOf(today)) {
+  if (value && monthSchema.safeParse(value).success) {
     return periodForMonth(value, today);
   }
-  if (value && YEAR_PARAM.test(value) && value <= today.slice(0, 4)) {
+  if (value && YEAR_PARAM.test(value) && value >= "1900") {
     return { kind: "year", year: value };
   }
   return TODAY_PERIOD;
@@ -47,6 +47,8 @@ export function parsePeriod(value: string | null | undefined, today: string): Pe
 
 const monthRange = (month: string, today: string) => {
   const last = lastOfMonth(month);
+  // A future month is shown whole (D60): it simply has no entries yet.
+  if (month > monthOf(today)) return { from: `${month}-01`, to: last };
   return { from: `${month}-01`, to: last > today ? today : last };
 };
 
@@ -63,6 +65,7 @@ export function periodRange(period: Period, today: string): { from: string; to: 
       return monthRange(period.month, today);
     case "year": {
       const last = `${period.year}-12-31`;
+      if (period.year > today.slice(0, 4)) return { from: `${period.year}-01-01`, to: last };
       return { from: `${period.year}-01-01`, to: last > today ? today : last };
     }
   }
@@ -89,23 +92,30 @@ export function periodMonth(period: Period, today: string): string | null {
   }
 }
 
-/**
- * Months for the "earlier month" list: from January of the opening cutoff year (this year when
- * there is none) up to the month before last, newest first.
- */
-export function earlierMonths(cutoffDate: string | null, today: string): string[] {
-  const newest = shiftMonth(monthOf(today), -2);
-  const oldest = `${(cutoffDate ?? today).slice(0, 4)}-01`;
-  const months: string[] = [];
-  for (let month = newest; month >= oldest; month = shiftMonth(month, -1)) months.push(month);
-  return months;
-}
+/** How far back the picker lists years; any earlier year can still be typed (D60). */
+const LISTED_YEARS = 15;
+const FUTURE_YEARS = 5;
 
-/** Years from the cutoff year (this year when there is none) to this year, newest first. */
-export function periodYears(cutoffDate: string | null, today: string): string[] {
-  const newest = Number(today.slice(0, 4));
-  const oldest = cutoffDate ? Number(cutoffDate.slice(0, 4)) : newest;
+/**
+ * Years the period picker lists, newest first: 5 years after this year back 15 years before it, and back to the cutoff
+ * year when that is older.
+ */
+export function pickerYears(cutoffDate: string | null, today: string): string[] {
+  const thisYear = Number(today.slice(0, 4));
+  const newest = thisYear + FUTURE_YEARS;
+  const cutoffYear = cutoffDate ? Number(cutoffDate.slice(0, 4)) : thisYear;
+  const oldest = Math.min(thisYear - LISTED_YEARS, cutoffYear);
   const years: string[] = [];
   for (let year = newest; year >= oldest; year -= 1) years.push(String(year));
   return years;
+}
+
+/** A typed year the picker accepts: four digits from 1900 to 2999 (future years allowed). */
+export function validYear(text: string): string | null {
+  return /^\d{4}$/.test(text) && text >= "1900" && text <= "2999" ? text : null;
+}
+
+/** The month of a period, or null for today and a whole year (the picker's highlighted month). */
+export function pickedMonth(period: Period, today: string): string | null {
+  return period.kind === "today" || period.kind === "year" ? null : periodMonth(period, today);
 }

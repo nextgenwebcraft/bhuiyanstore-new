@@ -1,5 +1,7 @@
 import { hashPassword } from "@bsd/auth";
 import {
+  documentTransitionRequestSchema,
+  fieldDayEndRequestSchema,
   fieldDaySchema,
   fieldPermissionIds,
   fieldShopCreateRequestSchema,
@@ -29,12 +31,14 @@ import {
   type CompanyAccess,
 } from "./access";
 import { recordAudit } from "./audit";
+import { lastBatchLine, linesByProduct, type SheetLine } from "./batches";
 import type { AppContext, Tx } from "./context";
-import { businessDate, postingGuard, roleOn } from "./daily";
+import { businessDate, postingGuard, roleOn, saveDsrDayIn } from "./daily";
 import { fromDbDate, toDbDate } from "./dates";
 import { invalid, parseInput } from "./errors";
 import { isUniqueViolation, runIdempotent } from "./idempotency";
 import { runLedger } from "./ledger";
+import { staffCompanyIds } from "./master";
 import { plain } from "./numeric";
 import { packOn } from "./products";
 import { getStaffRecord } from "./staff";
@@ -42,8 +46,9 @@ import { getStaffRecord } from "./staff";
 /**
  * DSR field panel (D40). A DSR signs in as themselves (`staff.user_id`) and records each shop
  * visit: pieces delivered at the day's price, cash received, old due collected and damaged pieces
- * exchanged. Every use case acts on the actor's own staff record only. Posting the office day
- * sheet turns the visits into shop dues and exchange custody (`field-posting.ts`).
+ * exchanged. Every use case acts on the actor's own staff record only; a super-admin names the DSR
+ * (D59). Posting the office day sheet turns the visits into shop dues and exchange custody
+ * (`field-posting.ts`).
  */
 
 type Db = AppContext["db"] | Tx;
@@ -57,6 +62,37 @@ async function ownStaffId(db: Db, ctx: AppContext): Promise<string> {
     select: { id: true },
   });
   if (!staff) throw invalid("", "validation.field.noStaffLink");
+  return staff.id;
+}
+
+/**
+ * The DSR a field use case acts on: the actor's own staff record, or for a super-admin the named
+ * person assigned to the company (D59). Anyone else naming a different person is refused.
+ */
+async function fieldStaffId(
+  db: Db,
+  ctx: AppContext,
+  companyId: string,
+  requested: string | undefined,
+): Promise<string> {
+  if (!ctx.actor.isSuperAdmin) {
+    const own = await ownStaffId(db, ctx);
+    if (requested !== undefined && requested !== own) {
+      throw invalid("staffId", "validation.field.ownOnly");
+    }
+    return own;
+  }
+  if (requested === undefined) throw invalid("staffId", "validation.field.chooseDsr");
+  const staff = await db.staff.findFirst({
+    where: {
+      id: requested,
+      tenantId: ctx.actor.tenantId,
+      status: "active",
+      assignments: { some: { companyId: { in: await staffCompanyIds(db, companyId) } } },
+    },
+    select: { id: true },
+  });
+  if (!staff) throw invalid("staffId", "validation.staff.unknown");
   return staff.id;
 }
 
@@ -122,6 +158,10 @@ function toVisit(row: VisitRow): FieldVisit {
   });
 }
 
+/** A reported value when there is one, else the sheet's. */
+const plainOr = (reported: Prisma.Decimal | undefined, sheet: string | undefined) =>
+  reported === undefined ? (sheet ?? "0") : plain(reported);
+
 /** One DSR's field day: samari in hand per product, the visits and the shop list with dues. */
 async function buildFieldDay(
   db: Db,
@@ -131,7 +171,7 @@ async function buildFieldDay(
 ): Promise<FieldDay> {
   const companyId = access.company.id;
   const day = toDbDate(date);
-  const [staff, sheet, visitRows, shops, run] = await Promise.all([
+  const [staff, sheet, visitRows, shops, run, report] = await Promise.all([
     db.staff.findFirst({
       where: { id: staffId, tenantId: access.company.tenantId },
       select: { name: true },
@@ -151,11 +191,17 @@ async function buildFieldDay(
       select: { id: true, name: true, area: true, addedByStaffId: true },
     }),
     runLedger(db, access, date < todayBusinessDate() ? date : todayBusinessDate()),
+    db.fieldDayReport.findFirst({
+      where: { companyId, staffId, date: day, status: "pending" },
+      include: { lines: true },
+    }),
   ]);
   if (!staff) throw invalid("staffId", "validation.staff.unknown");
+  const reported = new Map((report?.lines ?? []).map((l) => [l.productId, l]));
   const visits = visitRows.map(toVisit);
 
-  const issued = new Map(sheet?.lines.map((l) => [l.productId, plain(l.issued)]) ?? []);
+  const sheetLine = linesByProduct(sheet?.lines ?? []);
+  const issued = new Map([...sheetLine].map(([id, l]) => [id, l.issued]));
   const used = new Map<string, { delivered: string; exchanged: string }[]>();
   for (const v of visits) {
     for (const l of v.lines) {
@@ -168,19 +214,39 @@ async function buildFieldDay(
       ...used.keys(),
     ]),
   ];
-  const [products, prices] = await Promise.all([
-    db.product.findMany({
-      where: { companyId, id: { in: productIds } },
-      include: { packs: true },
-      orderBy: { sku: "asc" },
-    }),
-    salePricesOn(db, productIds, date),
-  ]);
+  const catalog = await db.product.findMany({
+    where: { companyId, OR: [{ status: "active" }, { id: { in: productIds } }] },
+    include: { packs: true },
+    orderBy: { sku: "asc" },
+  });
+  const prices = await salePricesOn(
+    db,
+    catalog.map((p) => p.id),
+    date,
+  );
+  const inHand = new Set(productIds);
   const dues = run?.output.closing.shopDue ?? {};
   const sum = (values: string[]) => sumAmounts(values.length ? values : ["0"]);
   const sales = sum(visits.map((v) => v.salesValue));
   const cash = sum(visits.map((v) => v.cashReceived));
   const collected = sum(visits.map((v) => v.dueCollected));
+
+  const toProduct = (p: (typeof catalog)[number]) => {
+    const lines = used.get(p.id) ?? [];
+    return {
+      productId: p.id,
+      sku: p.sku,
+      productName: p.name,
+      piecesPerCarton: String(packOn(p.packs, date)?.piecesPerCarton ?? 1),
+      unitPrice: prices.get(p.id) ?? null,
+      issued: issued.get(p.id) ?? "0",
+      delivered: sumQuantities(lines.map((l) => l.delivered)),
+      exchanged: sumQuantities(lines.map((l) => l.exchanged)),
+      remaining: fieldRemaining(issued.get(p.id) ?? "0", lines),
+      returned: plainOr(reported.get(p.id)?.returned, sheetLine.get(p.id)?.returned),
+      damaged: plainOr(reported.get(p.id)?.damaged, sheetLine.get(p.id)?.damaged),
+    };
+  };
 
   return fieldDaySchema.parse({
     date,
@@ -188,20 +254,9 @@ async function buildFieldDay(
     staffName: staff.name,
     sheetStatus: sheet ? sheet.status : "none",
     locked: sheet?.status === "posted",
-    products: products.map((p) => {
-      const lines = used.get(p.id) ?? [];
-      return {
-        productId: p.id,
-        sku: p.sku,
-        productName: p.name,
-        piecesPerCarton: String(packOn(p.packs, date)?.piecesPerCarton ?? 1),
-        unitPrice: prices.get(p.id) ?? null,
-        issued: issued.get(p.id) ?? "0",
-        delivered: sumQuantities(lines.map((l) => l.delivered)),
-        exchanged: sumQuantities(lines.map((l) => l.exchanged)),
-        remaining: fieldRemaining(issued.get(p.id) ?? "0", lines),
-      };
-    }),
+    reportPending: report !== null,
+    products: catalog.filter((p) => inHand.has(p.id)).map(toProduct),
+    dayEnd: catalog.map(toProduct),
     visits,
     shops: shops.map((s) => ({
       id: s.id,
@@ -228,7 +283,7 @@ export async function getFieldDay(
 ): Promise<FieldDay> {
   const access = await requirePermission(ctx, companyId, "field.entry");
   const date = businessDate(dateInput);
-  return buildFieldDay(ctx.db, access, await ownStaffId(ctx.db, ctx), date);
+  return buildFieldDay(ctx.db, access, await fieldStaffId(ctx.db, ctx, companyId, undefined), date);
 }
 
 /** The office's read of one DSR's field day (day-end reconciliation). */
@@ -288,7 +343,7 @@ export async function saveFieldVisit(
     { scope: companyId, action: `field.visit_save:${visitId ?? "new"}`, requestKey },
     request,
     async (tx) => {
-      const staffId = await ownStaffId(tx, ctx);
+      const staffId = await fieldStaffId(tx, ctx, companyId, request.staffId);
       // One DSR's visits are checked against the same samari: serialize them.
       await tx.$queryRaw`SELECT id FROM staff WHERE id = ${staffId} FOR UPDATE`;
       await postingGuard(tx, companyId, request.date);
@@ -336,7 +391,9 @@ export async function saveFieldVisit(
       if (products.length !== productIds.length) {
         throw invalid("lines", "validation.daily.unknownProduct");
       }
-      const issued = new Map(sheet?.lines.map((l) => [l.productId, plain(l.issued)]) ?? []);
+      const issued = new Map(
+        [...linesByProduct(sheet?.lines ?? [])].map(([id, l]) => [id, l.issued]),
+      );
       const priced = lines.map((line, index) => {
         const unitPrice = prices.get(line.productId);
         if (unitPrice === undefined) throw invalid(`lines.${index}`, "validation.field.noPrice");
@@ -414,6 +471,312 @@ export async function saveFieldVisit(
   );
 }
 
+/**
+ * The DSR's day end: firot and damage per product written into the office's draft sheet, which
+ * is created when the office has not started one (never posted here). Where samari exists,
+ * firot + damage may not exceed it.
+ */
+export async function saveFieldDayEnd(
+  ctx: AppContext,
+  companyId: string,
+  input: unknown,
+  requestKey?: string,
+): Promise<FieldDay> {
+  const access = await requirePermission(ctx, companyId, "field.entry", { write: true });
+  const request = parseInput(fieldDayEndRequestSchema, input);
+  const staffId = await runIdempotent(
+    ctx,
+    { scope: companyId, action: "field.day_end", requestKey },
+    request,
+    async (tx) => {
+      const staffId = await fieldStaffId(tx, ctx, companyId, request.staffId);
+      await postingGuard(tx, companyId, request.date);
+      if ((await roleOn(tx, companyId, staffId, request.date)) !== "dsr") {
+        throw invalid("", "validation.daily.dsrOnly");
+      }
+      const date = toDbDate(request.date);
+      const posted = await tx.dsrDay.findFirst({
+        where: { companyId, staffId, date, status: "posted" },
+        include: { lines: true },
+      });
+      if (posted) {
+        await saveFieldReport(tx, ctx, access, staffId, request, posted.lines);
+        return staffId;
+      }
+      const existing = await tx.dsrDay.findFirst({
+        where: { companyId, staffId, date, status: "draft" },
+        include: { lines: true },
+      });
+      const products = await tx.product.findMany({
+        where: { companyId, id: { in: request.lines.map((l) => l.productId) } },
+        include: { packs: true },
+      });
+      const productOf = new Map(products.map((p) => [p.id, p]));
+      const sheetLines = existing?.lines ?? [];
+      const byProduct = linesByProduct(sheetLines);
+      for (const [index, line] of request.lines.entries()) {
+        if (!productOf.has(line.productId)) {
+          throw invalid(`lines.${index}`, "validation.daily.unknownProduct");
+        }
+        // Before the office enters samari the DSR may still report; the office checks at posting.
+        const issued = toDecimal(byProduct.get(line.productId)?.issued ?? "0");
+        if (issued.gt(0) && toDecimal(line.returned).add(line.damaged).gt(issued)) {
+          throw invalid(`lines.${index}`, "validation.field.exceedsSamari");
+        }
+      }
+      let sheetId: string;
+      if (existing) {
+        const updated = await tx.dsrDay.updateMany({
+          where: { id: existing.id, version: existing.version, status: "draft" },
+          data: { version: { increment: 1 } },
+        });
+        if (updated.count !== 1) throw invalid("", "validation.daily.stale");
+        sheetId = existing.id;
+      } else {
+        sheetId = (
+          await tx.dsrDay.create({
+            data: {
+              tenantId: access.company.tenantId,
+              companyId,
+              staffId,
+              date,
+              createdById: ctx.actor.userId,
+            },
+          })
+        ).id;
+      }
+      for (const line of request.lines) {
+        // D68: firot and damage go to the product's last batch issued; its other lines get none.
+        const row = lastBatchLine(sheetLines, line.productId);
+        if (row) {
+          await tx.dsrLine.updateMany({
+            where: { dsrDayId: row.dsrDayId, productId: line.productId, id: { not: row.id } },
+            data: { returned: "0", damaged: "0" },
+          });
+          await tx.dsrLine.update({
+            where: { id: row.id },
+            data: { returned: line.returned, damaged: line.damaged },
+          });
+        } else if (line.returned !== "0" || line.damaged !== "0") {
+          await tx.dsrLine.create({
+            data: {
+              dsrDayId: sheetId,
+              productId: line.productId,
+              piecesPerCarton:
+                packOn(productOf.get(line.productId)?.packs ?? [], request.date)?.piecesPerCarton ??
+                1,
+              issued: "0",
+              returned: line.returned,
+              damaged: line.damaged,
+              commission: "0",
+            },
+          });
+        }
+      }
+      await recordAudit(tx, ctx, {
+        companyId,
+        action: "dsr_day.field_day_end",
+        resourceType: "dsr_day",
+        resourceId: sheetId,
+        after: { staffId, date: request.date, lines: request.lines },
+      });
+      return staffId;
+    },
+  );
+  return buildFieldDay(ctx.db, access, staffId, request.date);
+}
+
+type DayEndRequest = ReturnType<typeof fieldDayEndRequestSchema.parse>;
+
+/**
+ * D71: the day end after the office posted the day. What differs from the posted sheet waits as
+ * the DSR's one pending report (replaced on every send, removed when nothing differs).
+ */
+async function saveFieldReport(
+  tx: Tx,
+  ctx: AppContext,
+  access: CompanyAccess,
+  staffId: string,
+  request: DayEndRequest,
+  sheetLines: readonly SheetLine[],
+): Promise<void> {
+  const companyId = access.company.id;
+  await tx.$queryRaw`SELECT id FROM staff WHERE id = ${staffId} FOR UPDATE`;
+  const ids = request.lines.map((l) => l.productId);
+  const known = await tx.product.count({ where: { companyId, id: { in: ids } } });
+  if (known !== new Set(ids).size) throw invalid("lines", "validation.daily.unknownProduct");
+  const byProduct = linesByProduct(sheetLines);
+  const same = (a: string, b: string | undefined) => toDecimal(a).eq(toDecimal(b ?? "0"));
+  const changed = request.lines.filter((line, index) => {
+    const sheet = byProduct.get(line.productId);
+    const issued = toDecimal(sheet?.issued ?? "0");
+    if (issued.gt(0) && toDecimal(line.returned).add(line.damaged).gt(issued)) {
+      throw invalid(`lines.${index}`, "validation.field.exceedsSamari");
+    }
+    return !same(line.returned, sheet?.returned) || !same(line.damaged, sheet?.damaged);
+  });
+
+  const date = toDbDate(request.date);
+  const existing = await tx.fieldDayReport.findFirst({
+    where: { companyId, staffId, date, status: "pending" },
+  });
+  if (existing) await tx.fieldDayReport.delete({ where: { id: existing.id } });
+  if (changed.length === 0) return;
+  const report = await tx.fieldDayReport.create({
+    data: {
+      tenantId: access.company.tenantId,
+      companyId,
+      staffId,
+      date,
+      version: (existing?.version ?? 0) + 1,
+      createdById: ctx.actor.userId,
+      lines: {
+        create: changed.map((l) => ({
+          productId: l.productId,
+          returned: l.returned,
+          damaged: l.damaged,
+        })),
+      },
+    },
+  });
+  await recordAudit(tx, ctx, {
+    companyId,
+    action: "field_day_report.save",
+    resourceType: "field_day_report",
+    resourceId: report.id,
+    after: { staffId, date: request.date, lines: changed },
+  });
+}
+
+async function loadPendingReport(tx: Tx, companyId: string, reportId: string, version: number) {
+  const report = await tx.fieldDayReport.findFirst({
+    where: { id: reportId, companyId },
+    include: { lines: true },
+  });
+  if (!report || report.status !== "pending" || report.version !== version) {
+    throw invalid("version", "validation.daily.stale");
+  }
+  return report;
+}
+
+/**
+ * D71: approving a DSR's report corrects the DSR's live sheet (D56 when posted): each reported
+ * product's firot and damage go to its last batch line issued, its other lines get none.
+ */
+export async function approveFieldDayReport(
+  ctx: AppContext,
+  companyId: string,
+  reportId: string,
+  input: unknown,
+  requestKey?: string,
+): Promise<void> {
+  const access = await requirePermission(ctx, companyId, "sale.create", { write: true });
+  const { version } = parseInput(documentTransitionRequestSchema, input);
+  await runIdempotent(
+    ctx,
+    { scope: companyId, action: `field_day_report.approve:${reportId}`, requestKey },
+    { reportId, version },
+    async (tx) => {
+      const report = await loadPendingReport(tx, companyId, reportId, version);
+      const sheet = await tx.dsrDay.findFirst({
+        where: {
+          companyId,
+          staffId: report.staffId,
+          date: report.date,
+          status: { not: "reversed" },
+        },
+        include: { lines: true },
+      });
+      if (!sheet) throw invalid("", "validation.field.reportNoSheet");
+      const lines = sheet.lines.map((l) => ({
+        productId: l.productId,
+        batchKey: l.batchKey,
+        issued: plain(l.issued),
+        returned: plain(l.returned),
+        damaged: plain(l.damaged),
+        commission: plain(l.commission),
+        ...(l.salePrice === null ? {} : { salePrice: plain(l.salePrice) }),
+        ...(l.costPrice === null ? {} : { costPrice: plain(l.costPrice) }),
+      }));
+      for (const r of report.lines) {
+        const target = lastBatchLine(sheet.lines, r.productId);
+        const values = { returned: plain(r.returned), damaged: plain(r.damaged) };
+        if (!target) {
+          lines.push({
+            productId: r.productId,
+            batchKey: "",
+            issued: "0",
+            commission: "0",
+            ...values,
+          });
+          continue;
+        }
+        for (const line of lines) {
+          if (line.productId !== r.productId) continue;
+          Object.assign(
+            line,
+            line.batchKey === target.batchKey ? values : { returned: "0", damaged: "0" },
+          );
+        }
+      }
+      await saveDsrDayIn(tx, ctx, access, {
+        date: fromDbDate(sheet.date),
+        staffId: sheet.staffId,
+        version: sheet.version,
+        lines,
+      });
+      await tx.fieldDayReport.update({
+        where: { id: report.id },
+        data: {
+          status: "approved",
+          version: { increment: 1 },
+          decidedById: ctx.actor.userId,
+          decidedAt: new Date(),
+        },
+      });
+      await recordAudit(tx, ctx, {
+        companyId,
+        action: "field_day_report.approve",
+        resourceType: "field_day_report",
+        resourceId: report.id,
+        before: { status: "pending", version },
+        after: { status: "approved", sheetId: sheet.id },
+      });
+    },
+  );
+}
+
+/** D71: the office turns a DSR's report down; the sheet stays as it is. */
+export async function rejectFieldDayReport(
+  ctx: AppContext,
+  companyId: string,
+  reportId: string,
+  input: unknown,
+): Promise<void> {
+  await requirePermission(ctx, companyId, "sale.create", { write: true });
+  const { version } = parseInput(documentTransitionRequestSchema, input);
+  await ctx.db.$transaction(async (tx) => {
+    const report = await loadPendingReport(tx, companyId, reportId, version);
+    await tx.fieldDayReport.update({
+      where: { id: report.id },
+      data: {
+        status: "rejected",
+        version: { increment: 1 },
+        decidedById: ctx.actor.userId,
+        decidedAt: new Date(),
+      },
+    });
+    await recordAudit(tx, ctx, {
+      companyId,
+      action: "field_day_report.reject",
+      resourceType: "field_day_report",
+      resourceId: report.id,
+      before: { status: "pending", version },
+      after: { status: "rejected" },
+    });
+  });
+}
+
 /** Deletes an own open visit while the office has not posted the day. */
 export async function deleteFieldVisit(
   ctx: AppContext,
@@ -422,9 +785,9 @@ export async function deleteFieldVisit(
   input: unknown,
 ): Promise<void> {
   await requirePermission(ctx, companyId, "field.entry", { write: true });
-  const { version } = parseInput(fieldVisitDeleteRequestSchema, input);
+  const { version, staffId: requested } = parseInput(fieldVisitDeleteRequestSchema, input);
   await ctx.db.$transaction(async (tx) => {
-    const staffId = await ownStaffId(tx, ctx);
+    const staffId = await fieldStaffId(tx, ctx, companyId, requested);
     const visit = await loadOwnVisit(tx, companyId, staffId, visitId);
     await refuseIfPosted(tx, companyId, staffId, fromDbDate(visit.date));
     const deleted = await tx.fieldVisit.deleteMany({
@@ -449,14 +812,14 @@ export async function createFieldShop(
   requestKey?: string,
 ): Promise<FieldDay["shops"][number]> {
   const access = await requirePermission(ctx, companyId, "field.shop_create", { write: true });
-  const data = parseInput(fieldShopCreateRequestSchema, input);
+  const { staffId: requested, ...data } = parseInput(fieldShopCreateRequestSchema, input);
   try {
     return await runIdempotent(
       ctx,
       { scope: companyId, action: "field.shop_create", requestKey },
-      data,
+      { ...data, staffId: requested },
       async (tx) => {
-        const staffId = await ownStaffId(tx, ctx);
+        const staffId = await fieldStaffId(tx, ctx, companyId, requested);
         const row = await tx.shop.create({
           data: {
             ...data,
@@ -507,7 +870,7 @@ export async function createStaffLogin(
           where: {
             id: staffId,
             tenantId: ctx.actor.tenantId,
-            assignments: { some: { companyId } },
+            assignments: { some: { companyId: { in: await staffCompanyIds(tx, companyId) } } },
           },
         });
         if (!staff) throw invalid("id", "validation.staff.unknown");

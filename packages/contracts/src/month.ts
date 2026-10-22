@@ -263,6 +263,8 @@ export const reportTableSchema = z.object({
   ),
   rows: z.array(
     z.object({
+      /** What the row is about (a staff id for staff balances), for row actions. */
+      id: z.string().optional(),
       /** Carton size for `quantity` columns of this row. */
       piecesPerCarton: z.string().optional(),
       cells: z.record(z.string(), z.string().nullable()),

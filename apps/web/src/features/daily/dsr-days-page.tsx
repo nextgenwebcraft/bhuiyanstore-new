@@ -9,22 +9,14 @@ import type {
   MoneyEntry,
   StaffRecord,
 } from "@bsd/contracts";
-import {
-  dsrCashSettlement,
-  sumAmounts,
-  sumQuantities,
-  toBaseQuantity,
-  toCartonDisplay,
-  toDecimal,
-} from "@bsd/domain";
+import { dsrCashSettlement, salesProfit, sumAmounts, sumQuantities, toDecimal } from "@bsd/domain";
 import { useAsyncAction } from "@/lib/async-action";
 import { formatCount, formatDateTime, formatRate, t } from "@bsd/i18n";
-import { useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/button";
-import { PageHeader } from "@/components/page-header";
 import { QueryError } from "@/components/query-error";
 import { ListSkeleton } from "@/components/skeleton";
-import { StatTile } from "@/components/stat-tile";
 import { StatePanel } from "@/components/state-panel";
 import { TableSummary, type SummaryItem } from "@/components/table-summary";
 import {
@@ -36,20 +28,25 @@ import {
   useStaffRecords,
 } from "@/data/queries";
 import { ShopDueEntry } from "@/features/shops/shop-due-entry";
+import { StaffCashEntry } from "./staff-cash-entry";
+import { FieldReportCard } from "./field-report-card";
 import { NavGate } from "@/features/shell/nav-gate";
 import { PrintButton, PrintHeader } from "@/features/shell/print";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 import {
+  batchName,
   CellInput,
   DateBar,
-  DateHeading,
   DayGate,
+  isFreeAuto,
   SectionTitle,
   clean,
   useWorkingDate,
 } from "./daily-kit";
+import { inputClass } from "@/components/field";
 import {
   CartonQty,
+  cartonText,
   StatusChip,
   money,
   quantity,
@@ -83,78 +80,176 @@ const loneHead = "border-l border-border px-3 py-2 text-center text-xs font-semi
 const subHead = "border-border px-2 py-1.5 text-center text-[11px] font-medium text-text-muted";
 const inputCell = "border-border px-2 py-2 text-center [&_input]:mx-auto";
 
+/** One sheet line: a product taken from one batch (D68); prices left unset are the batch's. */
 type LineDraft = {
+  id: string;
+  batchKey: string;
   issuedCartons: string;
   issuedPieces: string;
   returnedCartons: string;
   returnedPieces: string;
   damaged: string;
   commission: string;
+  salePrice?: string | undefined;
+  costPrice?: string | undefined;
 };
-type SheetDraft = { lines: Record<string, LineDraft>; handedOver: string };
+/** The lines of each product, in order; a product without lines shows one blank line. */
+type SheetDraft = { lines: Record<string, LineDraft[]>; handedOver: string };
 
-const blankLine: LineDraft = {
+const blankLine = (id: string, batchKey: string): LineDraft => ({
+  id,
+  batchKey,
   issuedCartons: "",
   issuedPieces: "",
   returnedCartons: "",
   returnedPieces: "",
   damaged: "",
   commission: "",
-};
+});
 const isAmount = (value: string) => /^\d+(\.\d{1,2})?$/.test(value);
+const isUnitPrice = (value: string) => /^\d+(\.\d{1,6})?$/.test(value);
 
-/** DSRs assigned to the company on the date (D23: product custody is DSR-only). */
-export function dsrsOn(records: StaffRecord[], companyId: string, date: string) {
-  return records.filter((s) =>
-    s.assignments.some(
-      (a) =>
-        a.companyId === companyId &&
-        a.roleKind === "dsr" &&
-        a.from <= date &&
-        (a.to === null || a.to >= date),
-    ),
+type Product = DayView["products"][number];
+
+/** A batch the sheet can take a product from: the engine's batch with its stock after the day. */
+type BatchOption = {
+  key: string;
+  seq: number;
+  quantity: string;
+  costPrice: string | null;
+  salePrice: string;
+  free: boolean;
+};
+
+/**
+ * The product's batches for the sheet: those in stock, those any sheet took from today (they may
+ * be empty now) and those the draft names, oldest first.
+ */
+function batchOptions(product: Product, view: DayView, named: readonly string[]): BatchOption[] {
+  const usedToday = new Map(
+    view.persons
+      .filter((p) => p.productId === product.productId)
+      .flatMap((p) => p.allocations)
+      .map((a) => [a.key, a]),
   );
+  const out = new Map<string, BatchOption>();
+  for (const b of product.batches) {
+    if (toDecimal(b.quantity).lte(0) && !usedToday.has(b.key) && !named.includes(b.key)) continue;
+    out.set(b.key, { ...b, free: isFreeAuto(b.key, b.costPrice) });
+  }
+  for (const a of usedToday.values()) {
+    if (out.has(a.key)) continue;
+    out.set(a.key, {
+      key: a.key,
+      seq: a.seq,
+      quantity: "0",
+      costPrice: a.costPrice,
+      salePrice: a.salePrice,
+      free: isFreeAuto(a.key, a.costPrice),
+    });
+  }
+  return [...out.values()].sort((a, b) => a.seq - b.seq);
 }
 
-/** One line's FIFO allocation as small muted text: "ব্যাচ ১: ৪০ পিস @ ৳২০"; a net return reads "ফেরত ব্যাচ ১: ৫ পিস" (D49). */
+/** The batch a new line starts from: the oldest in stock not yet on the product's lines. */
+function nextBatch(options: BatchOption[], taken: readonly string[]): string {
+  const open = options.filter((o) => !taken.includes(o.key));
+  return (open.find((o) => toDecimal(o.quantity).gt(0)) ?? open[0])?.key ?? "";
+}
+
+/** Every DSR, always (D65: DSRs are global staff of the master company; any DSR assignment counts). */
+export function dsrsOn(records: StaffRecord[]) {
+  return records.filter((s) => s.assignments.some((a) => a.roleKind === "dsr"));
+}
+/** One line's batch allocation as small muted text: "ব্যাচ ১: ৪০ পিস @ ৳২০"; a net return reads "ফেরত ব্যাচ ১: ৫ পিস" (D49). */
 function allocationText(allocations: LineAllocation[]): string {
   return allocations
     .filter((a) => !toDecimal(a.quantity).isZero())
     .map((a) => {
       const returned = toDecimal(a.quantity).isNegative();
       const pieces = `${formatCount(returned ? a.quantity.replace("-", "") : a.quantity)} ${t("common.pieces")}`;
-      const head = `${returned ? `${t("batch.returned")} ` : ""}${t("batch.label")} ${formatCount(a.seq)}: ${pieces}`;
+      const head = `${returned ? `${t("batch.returned")} ` : ""}${batchName(a)}: ${pieces}`;
       return returned ? head : `${head} @ ${t("batch.currency")}${formatRate(a.salePrice)}`;
     })
     .join(", ");
 }
 
-function split(pieces: string, size: string): [string, string] {
-  if (pieces === "0") return ["", ""];
-  if (size === "1") return ["", pieces];
-  const { cartons, loosePieces } = toCartonDisplay(pieces, size);
-  return [cartons === "0" ? "" : cartons, loosePieces === "0" ? "" : loosePieces];
+const isNumber = (value: string) => /^\d+(\.\d+)?$/.test(value);
+
+/**
+ * The other field of a linked carton/piece pair (D69, owner 2026-10-22: both show the same
+ * quantity; pieces are what is saved): pieces = cartons × size, cartons = pieces ÷ size. Blank
+ * gives blank; null when the typed value is not a number yet.
+ */
+function linkedValue(value: string, size: string, from: "cartons" | "pieces"): string | null {
+  const typed = clean(value);
+  if (typed === "") return "";
+  if (!isNumber(typed)) return null;
+  const scaled =
+    from === "cartons"
+      ? toDecimal(typed).mul(toDecimal(size))
+      : toDecimal(typed).div(toDecimal(size)).toDecimalPlaces(4);
+  return scaled.toFixed();
 }
 
+/** A saved quantity as its carton and piece fields. */
+function split(pieces: string, size: string): [string, string] {
+  if (pieces === "0") return ["", ""];
+  return [linkedValue(pieces, size, "pieces") ?? "", pieces];
+}
+
+const priceText = (value: string | null) =>
+  value === null ? undefined : toDecimal(value).toFixed();
+
 function draftOf(sheet: DsrDay | undefined): SheetDraft {
-  const lines: Record<string, LineDraft> = {};
+  const lines: Record<string, LineDraft[]> = {};
   for (const line of sheet?.lines ?? []) {
     const [issuedCartons, issuedPieces] = split(line.issued, line.piecesPerCarton);
     const [returnedCartons, returnedPieces] = split(line.returned, line.piecesPerCarton);
-    lines[line.productId] = {
+    (lines[line.productId] ??= []).push({
+      id: `${line.productId}|${line.batchKey}`,
+      batchKey: line.batchKey,
       issuedCartons,
       issuedPieces,
       returnedCartons,
       returnedPieces,
       damaged: line.damaged === "0" ? "" : line.damaged,
       commission: toDecimal(line.commission).isZero() ? "" : line.commission,
-    };
+      salePrice: priceText(line.salePrice),
+      costPrice: priceText(line.costPrice),
+    });
   }
   return { lines, handedOver: sheet?.cashHandedOver ?? "" };
 }
 
 const whole = (value: string) => clean(value) || "0";
 const isWhole = (value: string) => /^\d+$/.test(value);
+
+/**
+ * The product's lines in the draft, or its one blank line. A line always names a batch: one
+ * without (blank, or saved before) takes the first batch in stock not on another line.
+ */
+function linesOf(draft: SheetDraft, product: Product, view: DayView): LineDraft[] {
+  const own = draft.lines[product.productId] ?? [];
+  const taken = own.map((l) => l.batchKey).filter((key) => key !== "");
+  const options = batchOptions(product, view, taken);
+  if (own.length === 0) return [blankLine(product.productId, nextBatch(options, []))];
+  if (own.every((l) => l.batchKey !== "")) return own;
+  return own.map((l) => {
+    if (l.batchKey !== "") return l;
+    const batchKey = nextBatch(options, taken);
+    taken.push(batchKey);
+    return { ...l, batchKey };
+  });
+}
+
+/** Pieces of one line (the piece fields; cartons only mirror them), or null when not whole. */
+function piecesOf(line: LineDraft) {
+  const parts = [line.issuedPieces, line.returnedPieces, line.damaged].map(whole);
+  if (!parts.every(isWhole)) return null;
+  const [issued, returned, damaged] = parts as [string, string, string];
+  return { issued, returned, damaged };
+}
 
 function requestOf(
   draft: SheetDraft,
@@ -165,47 +260,83 @@ function requestOf(
   if (handed && !isAmount(handed)) return t("validation.opening.amount");
   const lines: DsrDaySaveRequest["lines"] = [];
   for (const product of view.products) {
-    const d = draft.lines[product.productId];
-    if (!d) continue;
-    const parts = [
-      d.issuedCartons,
-      d.issuedPieces,
-      d.returnedCartons,
-      d.returnedPieces,
-      d.damaged,
-    ].map(whole);
-    if (!parts.every(isWhole)) return t("validation.wholeNumber");
-    const [ic, ip, rc, rp, damaged] = parts as [string, string, string, string, string];
-    const issued = toBaseQuantity(ic, ip, product.piecesPerCarton);
-    const returned = toBaseQuantity(rc, rp, product.piecesPerCarton);
-    const commission = clean(d.commission) || "0";
-    if (!isAmount(commission)) return t("validation.opening.amount");
-    const noCommission = toDecimal(commission).isZero();
-    if (issued === "0" && returned === "0" && damaged === "0" && noCommission) continue;
-    lines.push({
-      productId: product.productId,
-      issued,
-      returned,
-      damaged,
-      commission: noCommission ? "0" : commission,
-    });
+    const seen = new Set<string>();
+    for (const d of linesOf(draft, product, view)) {
+      const pieces = piecesOf(d);
+      if (!pieces) return t("validation.wholeNumber");
+      const commission = clean(d.commission) || "0";
+      if (!isAmount(commission)) return t("validation.opening.amount");
+      const noCommission = toDecimal(commission).isZero();
+      const { issued, returned, damaged } = pieces;
+      if (issued === "0" && returned === "0" && damaged === "0" && noCommission) continue;
+      if (seen.has(d.batchKey)) {
+        return `${product.productName}: ${t("validation.daily.duplicateProduct")}`;
+      }
+      seen.add(d.batchKey);
+      const salePrice = d.salePrice === undefined ? undefined : clean(d.salePrice);
+      const costPrice =
+        d.costPrice === undefined || !view.canSeeCost ? undefined : clean(d.costPrice);
+      if ([salePrice, costPrice].some((p) => p !== undefined && !isUnitPrice(p))) {
+        return `${product.productName}: ${t("validation.unitPrice.invalid")}`;
+      }
+      lines.push({
+        productId: product.productId,
+        batchKey: d.batchKey,
+        issued,
+        returned,
+        damaged,
+        commission: noCommission ? "0" : commission,
+        ...(salePrice === undefined ? {} : { salePrice }),
+        ...(costPrice === undefined ? {} : { costPrice }),
+      });
+    }
   }
   return { ...base, cashHandedOver: handed || null, lines };
 }
 
-/** Pieces sold × the day's price − commission, before posting (the engine owns the posted figure). */
+/** The sale price a line uses: its own, else its batch's, else the product's. */
+function saleOf(
+  line: { productId: string; batchKey?: string | undefined; salePrice?: string | undefined },
+  view: DayView,
+) {
+  if (line.salePrice !== undefined) return line.salePrice;
+  const product = view.products.find((p) => p.productId === line.productId);
+  if (!product) return "0";
+  const key = line.batchKey ?? "";
+  const batch = batchOptions(product, view, [key]).find((o) => o.key === key);
+  return batch?.salePrice ?? product.salePrice ?? "0";
+}
+
+/** The purchase price a line uses: its own, else its batch's, else the product's. */
+function costOf(
+  line: { productId: string; batchKey?: string | undefined; costPrice?: string | undefined },
+  view: DayView,
+) {
+  if (line.costPrice !== undefined) return line.costPrice;
+  const product = view.products.find((p) => p.productId === line.productId);
+  if (!product) return "0";
+  const key = line.batchKey ?? "";
+  const batch = batchOptions(product, view, [key]).find((o) => o.key === key);
+  return batch?.costPrice ?? product.costPrice ?? "0";
+}
+
+/** Pieces sold × the line's price − commission, before posting (the engine owns the posted figure). */
 function previewSales(lines: DsrDaySaveRequest["lines"], view: DayView): string {
-  const prices = new Map(view.products.map((p) => [p.productId, p.salePrice]));
   return sumAmounts([
     "0",
     ...lines.map((l) => {
       const sold = toDecimal(l.issued).sub(toDecimal(l.returned)).sub(toDecimal(l.damaged));
       return sold
-        .mul(toDecimal(prices.get(l.productId) ?? "0"))
+        .mul(toDecimal(saleOf(l, view)))
         .sub(toDecimal(l.commission ?? "0"))
         .toString();
     }),
   ]);
+}
+
+/** The seq of a line's batch, for "the last batch issued" (D68). */
+function seqOf(key: string, options: BatchOption[]): number {
+  return options.find((o) => o.key === key)?.seq ?? Number(/^auto:(\d+)$/.exec(key)?.[1] ?? 0);
 }
 
 const commissionOf = (lines: { commission?: string | undefined }[]) =>
@@ -235,17 +366,11 @@ function FieldEntries({
       return today !== null && today !== undefined && !toDecimal(today).eq(toDecimal(l.unitPrice));
     }),
   );
-  const product = (id: string) => view.products.find((p) => p.productId === id);
   const mismatch = (kind: "returned" | "damaged") =>
     field.products.some((p) => {
-      const d = draft.lines[p.productId] ?? blankLine;
-      const size = product(p.productId)?.piecesPerCarton ?? p.piecesPerCarton;
-      const entered =
-        kind === "returned"
-          ? [d.returnedCartons, d.returnedPieces].map(whole)
-          : ["0", whole(d.damaged)];
-      if (!entered.every(isWhole)) return true;
-      const pieces = toBaseQuantity(entered[0] ?? "0", entered[1] ?? "0", size);
+      const lines = (draft.lines[p.productId] ?? []).map((d) => piecesOf(d));
+      if (lines.some((l) => l === null)) return true;
+      const pieces = sumQuantities(["0", ...lines.map((l) => l?.[kind] ?? "0")]);
       const expected = kind === "returned" ? p.remaining : p.exchanged;
       return !toDecimal(pieces).eq(toDecimal(expected));
     });
@@ -337,25 +462,24 @@ function FieldEntries({
   );
 }
 
-/** Day-end cash check (D39). Posting the sheet settles the difference as the DSR's shortage or excess (D54). */
+/** Day-end cash check (D39, D62): the difference is shown only, never posted. */
 function CashCheck({
   sales,
   dueGiven,
   dueCollected,
   expenses,
+  staffMoney,
   handedOver,
   locked,
-  settled,
   onHandedOver,
 }: {
   sales: string;
   dueGiven: string;
   dueCollected: string;
   expenses: string;
+  staffMoney: string;
   handedOver: string;
   locked: boolean;
-  /** The difference shown is already posted (D54). */
-  settled: boolean;
   onHandedOver: (value: string) => void;
 }) {
   const handed = clean(handedOver);
@@ -364,6 +488,7 @@ function CashCheck({
     dueGiven,
     dueCollected,
     expenses,
+    staffMoney,
     handedOver: handed && /^\d+(\.\d{1,2})?$/.test(handed) ? handed : null,
   });
   const diff = settlement.difference;
@@ -377,6 +502,7 @@ function CashCheck({
             ["dsr.cash.dueGiven", dueGiven],
             ["dsr.cash.dueCollected", dueCollected],
             ["dsr.cash.expenses", expenses],
+            ["dsr.cash.staffMoney", staffMoney],
             ["dsr.cash.expected", settlement.expected],
           ] as const
         ).map(([key, value]) => (
@@ -413,11 +539,6 @@ function CashCheck({
           {toDecimal(diff).gt(0) ? ` (${t("dsr.cash.excess")})` : ""}
         </p>
       ) : null}
-      {diff !== null && !toDecimal(diff).isZero() ? (
-        <p className="text-sm text-text-muted">
-          {settled ? t("dsr.cash.posted") : t("dsr.cash.willPost")}
-        </p>
-      ) : null}
       <p className="text-xs text-text-muted">{t("dsr.cash.hint")}</p>
     </section>
   );
@@ -430,7 +551,6 @@ function SheetEditor({
   sheet,
   history,
   view,
-  onBack,
 }: {
   companyId: string;
   date: string;
@@ -438,7 +558,6 @@ function SheetEditor({
   sheet: DsrDay | undefined;
   history: DsrDay[];
   view: DayView;
-  onBack: () => void;
 }) {
   const { permissions } = useCurrentWorkspace();
   const save = useSaveDsrDay(companyId);
@@ -482,57 +601,119 @@ function SheetEditor({
       ? field.totals.dueCollected
       : sumAmounts([entrySum("marketDueCollected"), sheetDue(sheet?.marketDueCollected)]),
     expenses: entrySum("staffCostPaid"),
+    staffMoney: toDecimal(entrySum("staffRepayment"))
+      .sub(toDecimal(entrySum("staffAdvance")))
+      .sub(toDecimal(entrySum("staffShortage")))
+      .toString(),
   };
 
-  /** Firot = samari still in hand, damaged = pieces exchanged at shops. */
+  /**
+   * Firot = samari still in hand, damaged = pieces exchanged at shops; both go on the product's
+   * last batch issued (D68), the product's other lines get none.
+   */
   function prefillFromField() {
     if (!field) return;
     setDraft((d) => {
       const lines = { ...d.lines };
       for (const p of field.products) {
-        const size = view.products.find((v) => v.productId === p.productId)?.piecesPerCarton;
-        const [returnedCartons, returnedPieces] = split(p.remaining, size ?? p.piecesPerCarton);
-        lines[p.productId] = {
-          ...(lines[p.productId] ?? blankLine),
-          returnedCartons,
-          returnedPieces,
-          damaged: p.exchanged === "0" ? "" : p.exchanged,
-        };
+        const product = view.products.find((v) => v.productId === p.productId);
+        if (!product) continue;
+        const size = product.piecesPerCarton;
+        const own = linesOf(d, product, view);
+        const options = batchOptions(
+          product,
+          view,
+          own.map((l) => l.batchKey),
+        );
+        if (options.length === 0) continue;
+        const issued = own.filter((l) => {
+          const pieces = piecesOf(l);
+          return pieces !== null && pieces.issued !== "0";
+        });
+        const target = (issued.length ? issued : own).reduce((best, l) =>
+          seqOf(l.batchKey, options) > seqOf(best.batchKey, options) ? l : best,
+        );
+        const [returnedCartons, returnedPieces] = split(p.remaining, size);
+        lines[p.productId] = own.map((l) =>
+          l.id === target.id
+            ? {
+                ...l,
+                returnedCartons,
+                returnedPieces,
+                damaged: p.exchanged === "0" ? "" : p.exchanged,
+              }
+            : { ...l, returnedCartons: "", returnedPieces: "", damaged: "" },
+        );
       }
       return { ...d, lines };
     });
   }
+  // D69: the table's amounts as the profit's parts (domain `salesProfit`), pieces underneath.
+  const parts = salesProfit(
+    entered.map((l) => ({
+      issued: l.issued,
+      returned: l.returned,
+      damaged: l.damaged,
+      commission: l.commission ?? "0",
+      salePrice: saleOf(l, view),
+      costPrice: costOf(l, view),
+    })),
+  );
+  const pieces = (value: string) => `${quantity(value)} ${t("common.pieces")}`;
   const sheetSummary: SummaryItem[] = [
-    { label: t("table.summary.products"), value: quantity(String(entered.length)) },
     {
-      label: `${t("dsr.sheet.issued")} (${t("godown.column.pieces")})`,
-      value: quantity(sumQuantities(entered.map((l) => l.issued))),
+      label: t("dsr.profit.issued"),
+      value: money(parts.issuedValue),
+      hint: pieces(parts.issued),
     },
     {
-      label: `${t("dsr.sheet.returned")} (${t("godown.column.pieces")})`,
-      value: quantity(sumQuantities(entered.map((l) => l.returned))),
+      label: `− ${t("dsr.profit.returned")}`,
+      value: money(parts.returnValue),
+      hint: pieces(parts.returned),
     },
     {
-      label: `${t("dsr.sheet.damaged")} (${t("godown.column.pieces")})`,
-      value: quantity(sumQuantities(entered.map((l) => l.damaged))),
+      label: `− ${t("dsr.profit.damaged")}`,
+      value: money(parts.damageValue),
+      hint: pieces(parts.damaged),
     },
-    { label: t("dsr.summary.commission"), value: money(commissionOf(entered)) },
-    ...(posted
+    { label: `− ${t("dsr.profit.commission")}`, value: money(parts.commission) },
+    { label: `= ${t("dsr.profit.netSales")}`, value: money(parts.netSales), emphasis: true },
+    ...(view.canSeeCost
       ? [
           {
-            label: t("dsr.sheet.engineAmount"),
-            value: money(sumAmounts([...amounts.values()])),
-            emphasis: true,
+            label: `− ${t("dsr.profit.deliveredCost")}`,
+            value: money(parts.deliveredCost),
+            hint: pieces(parts.delivered),
           },
+          { label: `− ${t("dsr.profit.damageMargin")}`, value: money(parts.damageMargin) },
         ]
+      : []),
+    ...(view.canSeeCost && view.canSeeProfit
+      ? [{ label: `= ${t("dsr.profit.profit")}`, value: money(parts.profit), emphasis: true }]
       : []),
   ];
 
-  const setLine = (productId: string, patch: Partial<LineDraft>) =>
-    setDraft((d) => ({
-      ...d,
-      lines: { ...d.lines, [productId]: { ...(d.lines[productId] ?? blankLine), ...patch } },
-    }));
+  const setLines = (productId: string, change: (lines: LineDraft[]) => LineDraft[]) =>
+    setDraft((d) => {
+      const own = view.products.find((p) => p.productId === productId);
+      if (!own) return d;
+      return { ...d, lines: { ...d.lines, [productId]: change(linesOf(d, own, view)) } };
+    });
+  const setLine = (productId: string, id: string, patch: Partial<LineDraft>) =>
+    setLines(productId, (lines) => lines.map((l) => (l.id === id ? { ...l, ...patch } : l)));
+  const addLine = (productId: string, options: BatchOption[]) =>
+    setLines(productId, (lines) => [
+      ...lines,
+      blankLine(
+        crypto.randomUUID(),
+        nextBatch(
+          options,
+          lines.map((l) => l.batchKey),
+        ),
+      ),
+    ]);
+  const removeLine = (productId: string, id: string) =>
+    setLines(productId, (lines) => lines.filter((l) => l.id !== id));
 
   async function run(kind: "save" | "post" | "discard" | "reverse" | "correct") {
     setError(undefined);
@@ -571,17 +752,37 @@ function SheetEditor({
     );
   }
 
+  type QuantityField = Exclude<keyof LineDraft, "id" | "batchKey" | "salePrice" | "costPrice">;
+  const PAIR = {
+    issuedCartons: ["issuedPieces", "cartons"],
+    issuedPieces: ["issuedCartons", "pieces"],
+    returnedCartons: ["returnedPieces", "cartons"],
+    returnedPieces: ["returnedCartons", "pieces"],
+  } as const;
+  /** Typing in a carton or piece field fills the other of its pair. */
+  const change = (productId: string, line: LineDraft, field: QuantityField, value: string) => {
+    if (!(field in PAIR)) return setLine(productId, line.id, { [field]: value });
+    const [other, from] = PAIR[field as keyof typeof PAIR];
+    const size = view.products.find((p) => p.productId === productId)?.piecesPerCarton ?? "1";
+    const linked = linkedValue(value, size, from);
+    setLine(productId, line.id, {
+      [field]: value,
+      ...(linked === null ? {} : { [other]: linked }),
+    });
+  };
   const cell = (
     productId: string,
-    field: keyof LineDraft,
+    line: LineDraft,
+    field: QuantityField,
     label: string,
+    off: boolean,
     mode: "numeric" | "decimal" = "numeric",
   ) => (
     <CellInput
       label={label}
-      value={(draft.lines[productId] ?? blankLine)[field]}
-      onChange={(value) => setLine(productId, { [field]: value })}
-      disabled={locked}
+      value={line[field]}
+      onChange={(value) => change(productId, line, field, value)}
+      disabled={off}
       mode={mode}
       width={mode === "decimal" ? "w-20" : "w-14"}
     />
@@ -589,11 +790,14 @@ function SheetEditor({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <Button onClick={onBack}>← {t("dsr.sheet.back")}</Button>
-        <h2 className="text-lg font-semibold">{staff.name}</h2>
-        <StatusChip status={sheet?.status ?? "none"} />
-      </div>
+      {sheet?.fieldReport ? (
+        <FieldReportCard
+          companyId={companyId}
+          sheet={sheet}
+          report={sheet.fieldReport}
+          canDecide={permissions.includes("sale.create") && (!posted || canCorrect)}
+        />
+      ) : null}
       {posted ? (
         <StatePanel title={t(canCorrect ? "dsr.sheet.postedEditHint" : "dsr.sheet.postedHint")} />
       ) : null}
@@ -604,6 +808,9 @@ function SheetEditor({
             <tr>
               <th scope="col" rowSpan={2} className={`${thClass} ${stickyHead} align-bottom`}>
                 {t("godown.column.product")}
+              </th>
+              <th scope="col" rowSpan={2} className={`${thClass} align-bottom`}>
+                {t("dsr.sheet.batch")}
               </th>
               <th scope="colgroup" colSpan={2} className={`${groupHead} ${GROUP.issued.head}`}>
                 {t("dsr.sheet.issued")}
@@ -622,8 +829,13 @@ function SheetEditor({
                 rowSpan={2}
                 className={`${thNum} border-l border-border align-bottom`}
               >
-                {t("dsr.sheet.salePrice")}
+                {t("dsr.sheet.batchSalePrice")}
               </th>
+              {view.canSeeCost ? (
+                <th scope="col" rowSpan={2} className={`${thNum} align-bottom`}>
+                  {t("dsr.sheet.costPrice")}
+                </th>
+              ) : null}
               {posted ? (
                 <th scope="col" rowSpan={2} className={`${thNum} align-bottom`}>
                   {t("dsr.sheet.engineAmount")}
@@ -646,75 +858,187 @@ function SheetEditor({
             </tr>
           </thead>
           <tbody>
-            {view.products.map((product) => {
-              const name = product.productName;
-              return (
-                <tr key={product.productId} className="border-t border-border">
-                  <th scope="row" className={`${tdClass} ${stickyCell} text-left font-medium`}>
-                    <div>{name}</div>
-                    <div className="text-xs font-normal text-text-muted">
-                      {product.sku} · {t("godown.column.stock")}{" "}
-                      <CartonQty pieces={product.stock} piecesPerCarton={product.piecesPerCarton} />
-                    </div>
-                    {posted && allocationText(allocations.get(product.productId) ?? []) ? (
-                      <div className="max-w-56 text-xs font-normal whitespace-normal text-text-muted">
-                        <span className="sr-only">{t("dsr.allocation.title")}: </span>
-                        {allocationText(allocations.get(product.productId) ?? [])}
-                      </div>
-                    ) : null}
-                  </th>
-                  <td className={`${inputCell} border-l ${GROUP.issued.cell}`}>
-                    {cell(
-                      product.productId,
-                      "issuedCartons",
-                      `${name} ${t("dsr.sheet.issued")} ${t("godown.column.cartons")}`,
-                    )}
-                  </td>
-                  <td className={`${inputCell} ${GROUP.issued.cell}`}>
-                    {cell(
-                      product.productId,
-                      "issuedPieces",
-                      `${name} ${t("dsr.sheet.issued")} ${t("godown.column.pieces")}`,
-                    )}
-                  </td>
-                  <td className={`${inputCell} border-l ${GROUP.returned.cell}`}>
-                    {cell(
-                      product.productId,
-                      "returnedCartons",
-                      `${name} ${t("dsr.sheet.returned")} ${t("godown.column.cartons")}`,
-                    )}
-                  </td>
-                  <td className={`${inputCell} ${GROUP.returned.cell}`}>
-                    {cell(
-                      product.productId,
-                      "returnedPieces",
-                      `${name} ${t("dsr.sheet.returned")} ${t("godown.column.pieces")}`,
-                    )}
-                  </td>
-                  <td className={`${inputCell} border-l ${GROUP.damaged.cell}`}>
-                    {cell(product.productId, "damaged", `${name} ${t("dsr.sheet.damaged")}`)}
-                  </td>
-                  <td className={`${inputCell} border-l ${GROUP.commission.cell}`}>
-                    {cell(
-                      product.productId,
-                      "commission",
-                      `${name} ${t("dsr.sheet.commission")}`,
-                      "decimal",
-                    )}
-                  </td>
-                  <td className={`${tdNum} border-l border-border`}>
-                    {product.salePrice ? formatRate(product.salePrice) : "—"}
-                  </td>
-                  {posted ? (
-                    <td className={tdNum}>{money(amounts.get(product.productId) ?? "0")}</td>
-                  ) : null}
-                </tr>
+            {view.products.flatMap((product) => {
+              const lines = linesOf(draft, product, view);
+              const options = batchOptions(
+                product,
+                view,
+                lines.map((l) => l.batchKey),
               );
+              const canAdd = !locked && options.length > lines.length;
+              // No batch (no stock, none used today): nothing can be issued from this product.
+              const noStock = options.length === 0;
+              const off = locked || noStock;
+              return lines.map((line, index) => {
+                const first = index === 0;
+                const batch = options.find((o) => o.key === line.batchKey);
+                const name = `${product.productName}${batch ? ` ${batchName(batch)}` : ""}`;
+                return (
+                  <tr
+                    key={`${product.productId}-${line.id}`}
+                    title={noStock ? t("dsr.sheet.noStock") : undefined}
+                    className={`${first ? "border-t border-border" : "border-t border-border/40"}${noStock ? "text-text-muted" : ""}`}
+                  >
+                    <th scope="row" className={`${tdClass} ${stickyCell} text-left font-medium`}>
+                      {first ? (
+                        <>
+                          <div>{product.productName}</div>
+                          <div className="text-xs font-normal text-text-muted">
+                            {product.sku} · {t("godown.column.stock")}{" "}
+                            <CartonQty
+                              pieces={product.stock}
+                              piecesPerCarton={product.piecesPerCarton}
+                            />
+                          </div>
+                          {posted && allocationText(allocations.get(product.productId) ?? []) ? (
+                            <div className="max-w-56 text-xs font-normal whitespace-normal text-text-muted">
+                              <span className="sr-only">{t("dsr.allocation.title")}: </span>
+                              {allocationText(allocations.get(product.productId) ?? [])}
+                            </div>
+                          ) : null}
+                          {canAdd ? (
+                            <Button
+                              className="mt-1 px-2 py-0.5 text-xs font-normal"
+                              onClick={() => addLine(product.productId, options)}
+                            >
+                              {t("dsr.sheet.addBatch")}
+                            </Button>
+                          ) : null}
+                        </>
+                      ) : null}
+                    </th>
+                    <td className={tdClass}>
+                      <div className="flex items-center gap-1">
+                        <select
+                          aria-label={`${product.productName} ${t("dsr.sheet.batch")}`}
+                          value={line.batchKey}
+                          disabled={off}
+                          onChange={(event) =>
+                            setLine(product.productId, line.id, {
+                              batchKey: event.target.value,
+                              salePrice: undefined,
+                              costPrice: undefined,
+                            })
+                          }
+                          className={`${inputClass} min-w-44`}
+                        >
+                          {noStock ? <option value="">{t("dsr.sheet.noStock")}</option> : null}
+                          {options.map((o) => (
+                            <option key={o.key} value={o.key}>
+                              {batchName(o)}
+                              {o.free ? ` (${t("batch.free")})` : ""} · {t("batch.available")}{" "}
+                              {cartonText(o.quantity, product.piecesPerCarton)}
+                            </option>
+                          ))}
+                        </select>
+                        {!first && !locked ? (
+                          <Button
+                            aria-label={t("dsr.sheet.removeBatch")}
+                            title={t("dsr.sheet.removeBatch")}
+                            className="px-2 py-1 text-xs"
+                            onClick={() => removeLine(product.productId, line.id)}
+                          >
+                            ×
+                          </Button>
+                        ) : null}
+                      </div>
+                    </td>
+                    <td className={`${inputCell} border-l ${GROUP.issued.cell}`}>
+                      {cell(
+                        product.productId,
+                        line,
+                        "issuedCartons",
+                        `${name} ${t("dsr.sheet.issued")} ${t("godown.column.cartons")}`,
+                        off,
+                      )}
+                    </td>
+                    <td className={`${inputCell} ${GROUP.issued.cell}`}>
+                      {cell(
+                        product.productId,
+                        line,
+                        "issuedPieces",
+                        `${name} ${t("dsr.sheet.issued")} ${t("godown.column.pieces")}`,
+                        off,
+                      )}
+                    </td>
+                    <td className={`${inputCell} border-l ${GROUP.returned.cell}`}>
+                      {cell(
+                        product.productId,
+                        line,
+                        "returnedCartons",
+                        `${name} ${t("dsr.sheet.returned")} ${t("godown.column.cartons")}`,
+                        off,
+                      )}
+                    </td>
+                    <td className={`${inputCell} ${GROUP.returned.cell}`}>
+                      {cell(
+                        product.productId,
+                        line,
+                        "returnedPieces",
+                        `${name} ${t("dsr.sheet.returned")} ${t("godown.column.pieces")}`,
+                        off,
+                      )}
+                    </td>
+                    <td className={`${inputCell} border-l ${GROUP.damaged.cell}`}>
+                      {cell(
+                        product.productId,
+                        line,
+                        "damaged",
+                        `${name} ${t("dsr.sheet.damaged")}`,
+                        off,
+                      )}
+                    </td>
+                    <td className={`${inputCell} border-l ${GROUP.commission.cell}`}>
+                      {cell(
+                        product.productId,
+                        line,
+                        "commission",
+                        `${name} ${t("dsr.sheet.commission")}`,
+                        off,
+                        "decimal",
+                      )}
+                    </td>
+                    <td className={`${inputCell} border-l border-border`}>
+                      <CellInput
+                        label={`${name} ${t("dsr.sheet.batchSalePrice")}`}
+                        value={
+                          line.salePrice ?? priceText(batch?.salePrice ?? product.salePrice) ?? ""
+                        }
+                        onChange={(salePrice) => setLine(product.productId, line.id, { salePrice })}
+                        disabled={off || !batch}
+                        mode="decimal"
+                        width="w-24"
+                      />
+                    </td>
+                    {view.canSeeCost ? (
+                      <td className={inputCell}>
+                        <CellInput
+                          label={`${name} ${t("dsr.sheet.costPrice")}`}
+                          value={line.costPrice ?? priceText(batch?.costPrice ?? null) ?? ""}
+                          onChange={(costPrice) =>
+                            setLine(product.productId, line.id, { costPrice })
+                          }
+                          disabled={off || !batch || batch.free}
+                          mode="decimal"
+                          width="w-24"
+                        />
+                      </td>
+                    ) : null}
+                    {posted ? (
+                      <td className={tdNum}>
+                        {first ? money(amounts.get(product.productId) ?? "0") : null}
+                      </td>
+                    ) : null}
+                  </tr>
+                );
+              });
             })}
           </tbody>
         </table>
       </TableScroller>
-      <p className="text-xs text-text-muted">{t("dsr.sheet.hint")}</p>
+      <p className="text-xs text-text-muted">
+        {t("dsr.sheet.hint")} {t("dsr.sheet.batchHint")}
+      </p>
       {field ? (
         <FieldEntries
           field={field}
@@ -730,11 +1054,11 @@ function SheetEditor({
         date={date}
         fieldOwned={field !== null}
       />
+      <StaffCashEntry companyId={companyId} staffId={staff.id} date={date} />
       <CashCheck
         {...cash}
         handedOver={draft.handedOver}
         locked={locked}
-        settled={posted && !dirty}
         onHandedOver={(handedOver) => setDraft((d) => ({ ...d, handedOver }))}
       />
       {shownError ? <StatePanel tone="error" title={shownError} /> : null}
@@ -786,10 +1110,21 @@ function SheetEditor({
   );
 }
 
-function Sheets({ companyId, date, view }: { companyId: string; date: string; view: DayView }) {
+function Sheets({
+  companyId,
+  date,
+  view,
+  open,
+  setOpen,
+}: {
+  companyId: string;
+  date: string;
+  view: DayView;
+  open: string | null;
+  setOpen: (staffId: string | null) => void;
+}) {
   const records = useStaffRecords(companyId);
   const sheets = useDsrDays(companyId, date);
-  const [open, setOpen] = useState<string | null>(null);
 
   if (records.isPending || sheets.isPending) return <ListSkeleton rows={4} action />;
   if (records.isError)
@@ -797,7 +1132,7 @@ function Sheets({ companyId, date, view }: { companyId: string; date: string; vi
   if (sheets.isError)
     return <QueryError error={sheets.error} onRetry={() => void sheets.refetch()} />;
 
-  const dsrs = dsrsOn(records.data, companyId, date);
+  const dsrs = dsrsOn(records.data);
   const live = (staffId: string) =>
     sheets.data.find((s) => s.staffId === staffId && s.status !== "reversed");
   const selected = dsrs.find((d) => d.id === open);
@@ -812,33 +1147,13 @@ function Sheets({ companyId, date, view }: { companyId: string; date: string; vi
         sheet={sheet}
         history={sheets.data.filter((s) => s.staffId === selected.id && s.status === "reversed")}
         view={view}
-        onBack={() => setOpen(null)}
       />
     );
   }
-  const statuses = dsrs.map((d) => live(d.id)?.status ?? "none");
-  const count = (status: string) => quantity(String(statuses.filter((s) => s === status).length));
-  const dayPieces = (field: "issued" | "returned" | "damaged") =>
-    quantity(sumQuantities(view.products.map((p) => p[field])));
-  return (
-    <div className="flex flex-col gap-4">
-      <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatTile label={t("dsr.summary.dsrs")} value={quantity(String(dsrs.length))} />
-        <StatTile label={t("dsr.summary.posted")} value={count("posted")} />
-        <StatTile label={t("dsr.summary.draft")} value={count("draft")} />
-        <StatTile label={t("dsr.summary.notStarted")} value={count("none")} />
-        <StatTile label={pieceLabel("dsr.sheet.issued")} value={dayPieces("issued")} />
-        <StatTile label={pieceLabel("dsr.sheet.returned")} value={dayPieces("returned")} />
-        <StatTile label={pieceLabel("dsr.sheet.damaged")} value={dayPieces("damaged")} />
-        <StatTile label={t("dsr.summary.commission")} value={money(view.money.commission)} />
-        <StatTile label={t("dsr.summary.sales")} value={money(view.money.sales)} emphasis />
-      </dl>
-      {dsrs.length === 0 ? (
-        <StatePanel title={t("dsr.sheet.noDsr")} hint={t("dsr.sheet.noDsrHint")} />
-      ) : (
-        <DsrList dsrs={dsrs} live={live} view={view} onOpen={setOpen} />
-      )}
-    </div>
+  return dsrs.length === 0 ? (
+    <StatePanel title={t("dsr.sheet.noDsr")} hint={t("dsr.sheet.noDsrHint")} />
+  ) : (
+    <DsrList dsrs={dsrs} live={live} view={view} onOpen={setOpen} />
   );
 }
 
@@ -896,6 +1211,11 @@ function DsrList({
               <div className="flex items-center gap-3">
                 <span className="font-medium">{dsr.name}</span>
                 <StatusChip status={sheet?.status ?? "none"} />
+                {sheet?.fieldReport ? (
+                  <span className="rounded-full bg-warning/15 px-2 py-0.5 text-xs font-medium text-warning">
+                    {t("dsr.report.badge")}
+                  </span>
+                ) : null}
               </div>
               <Button variant={sheet ? "secondary" : "primary"} onClick={() => setOpen(dsr.id)}>
                 {t(sheet ? "dsr.sheet.open" : "dsr.sheet.start")}
@@ -914,25 +1234,81 @@ function DsrList({
   );
 }
 
+/** The toolbar's left side: back to the list, the open DSR's name and the sheet's status. */
+function OpenDsr({
+  companyId,
+  date,
+  staffId,
+  onBack,
+}: {
+  companyId: string;
+  date: string;
+  staffId: string;
+  onBack: () => void;
+}) {
+  const records = useStaffRecords(companyId);
+  const sheets = useDsrDays(companyId, date);
+  const name = records.data?.find((s) => s.id === staffId)?.name ?? "";
+  const sheet = sheets.data?.find((s) => s.staffId === staffId && s.status !== "reversed");
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      <Button onClick={onBack}>← {t("dsr.sheet.back")}</Button>
+      <h2 className="text-lg font-semibold">{name}</h2>
+      <StatusChip status={sheet?.status ?? "none"} />
+    </div>
+  );
+}
+
 export function DsrDaysPage() {
   const { company } = useCurrentWorkspace();
   const [date, setDate] = useWorkingDate();
+  const router = useRouter();
+  const pathname = usePathname();
+  const search = useSearchParams();
+  // The open DSR lives in the address (?dsr=), so a reload keeps the sheet and Back returns to the list.
+  const open = search.get("dsr");
+  const setOpen = (staffId: string | null) => {
+    const query = new URLSearchParams(search.toString());
+    if (staffId) query.set("dsr", staffId);
+    else query.delete("dsr");
+    const text = query.toString();
+    router.push(text ? `${pathname}?${text}` : pathname, { scroll: true });
+  };
+  useEffect(() => {
+    // Opening or leaving a sheet starts the page at its top.
+    window.scrollTo({ top: 0 });
+    document.querySelector("main")?.scrollTo({ top: 0 });
+  }, [open]);
   return (
     <NavGate path={PATH}>
-      <PageHeader
-        title={t("nav.sales.dailySummaries")}
-        description={t("dsr.sheet.description")}
-        actions={
-          <>
-            <DateBar date={date} onChange={setDate} />
-            <PrintButton />
-          </>
-        }
-      />
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          {open ? (
+            <OpenDsr
+              companyId={company.id}
+              date={date}
+              staffId={open}
+              onBack={() => setOpen(null)}
+            />
+          ) : null}
+        </div>
+        <div className="flex flex-wrap gap-2 print:hidden">
+          <DateBar date={date} onChange={setDate} />
+          <PrintButton />
+        </div>
+      </div>
       <PrintHeader title={t("nav.sales.dailySummaries")} from={date} />
-      <DateHeading date={date} />
       <DayGate companyId={company.id} date={date} skeleton={<ListSkeleton rows={4} action />}>
-        {(view) => <Sheets key={date} companyId={company.id} date={date} view={view} />}
+        {(view) => (
+          <Sheets
+            key={date}
+            companyId={company.id}
+            date={date}
+            view={view}
+            open={open}
+            setOpen={setOpen}
+          />
+        )}
       </DayGate>
     </NavGate>
   );

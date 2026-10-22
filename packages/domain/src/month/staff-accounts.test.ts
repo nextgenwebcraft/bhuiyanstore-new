@@ -40,6 +40,22 @@ describe("staff money accounts (D27, guide §11.9)", () => {
     });
   });
 
+  it("D75: lists an absent fee without moving any balance or the cash", () => {
+    const out = oneDay([
+      { kind: "staffAdvance", amount: "500", staffId: "p", ref: "e1" },
+      { kind: "staffAbsent", amount: "300", staffId: "p", ref: "e2" },
+    ]);
+    expect(out.staffEntries[1]).toMatchObject({
+      ref: "e2",
+      kind: "staffAbsent",
+      amount: "300",
+      change: { advance: "0", shortage: "0", salaryPayable: "0" },
+      balances: { advance: "500" },
+    });
+    expect(out.days[0]?.money.cashLeft).toBe("-500");
+    expect(out.month.staff.find((s) => s.staffId === "p")?.owesUs).toBe("500");
+  });
+
   it("T25: SR loan 1,000 and repayment 400 leave a 600 receivable with no revenue or expense", () => {
     const out = oneDay([
       { kind: "srLoan", amount: "1000", staffId: "sr" },

@@ -16,7 +16,7 @@ export function HubTabs({
   workspace: CompanyWorkspace;
   currentPath: string;
 }) {
-  const hubId = hubOfPath(currentPath)?.id;
+  const hubId = hubOfPath(currentPath, workspace.company.isMaster)?.id;
   const hub = visibleHubs(workspace).find((h) => h.id === hubId);
   if (!hub || hub.tabs.length < 2) return null;
 

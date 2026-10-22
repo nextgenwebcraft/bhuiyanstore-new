@@ -1,26 +1,20 @@
 "use client";
 
-import { moneyKindPermission, type MoneyEntryKind, type ReportRange } from "@bsd/contracts";
-import { formatBusinessDate, formatCount, labelOf, t, type TranslationKey } from "@bsd/i18n";
-import Link from "next/link";
-import { useId, useState } from "react";
+import type { ReportRange, ReportTable } from "@bsd/contracts";
+import { formatBusinessDate, formatCount, labelOf, t } from "@bsd/i18n";
+import { useState } from "react";
 import { Button } from "@/components/button";
 import { presetRange } from "@/components/calendar-math";
-import { DatePicker, DateRangePicker } from "@/components/date-picker";
-import { Field, inputClass } from "@/components/field";
-import { FormDialog } from "@/components/form-dialog";
+import { DateRangePicker } from "@/components/date-picker";
 import { PageHeader } from "@/components/page-header";
+import { Pager } from "@/components/pager";
 import { QueryError } from "@/components/query-error";
 import { SummarySkeleton } from "@/components/skeleton";
 import { StatTile } from "@/components/stat-tile";
 import { StatePanel } from "@/components/state-panel";
-import { describeError } from "@/data/ports/service-error";
-import { usePostMoneyEntry, useReport } from "@/data/queries";
-import { AccountSelect } from "@/features/daily/account-select";
-import { clean } from "@/features/daily/daily-kit";
+import { useReport } from "@/data/queries";
 import { money } from "@/components/data-table";
 import { ReportTableView } from "@/features/reports/report-view";
-import { companyHref } from "@/features/shell/navigation";
 import { NavGate } from "@/features/shell/nav-gate";
 import { PrintButton, PrintHeader } from "@/features/shell/print";
 import { PageWarnings } from "@/features/shell/notifications";
@@ -32,89 +26,38 @@ const PATH = "finance/company-account";
 /** "All time" (D48): the server moves the start up to the go-live cutoff and lifts the day limit. */
 const ALL_TIME_FROM = "2000-01-01";
 
-/** The money movements with the company entered here; damage money comes from the damage page. */
-const ENTRY_KINDS = ["supplierDeposit", "companyIncentive"] as const satisfies MoneyEntryKind[];
-type EntryKind = (typeof ENTRY_KINDS)[number];
+/** Statement rows per screen page (D63); print and PDF always take every row. */
+const PAGE_SIZE = 25;
 
-const kindLabel = (kind: EntryKind) => t(`money.kind.${kind}` as TranslationKey);
+/** The summary figures shown as cards, in this order. */
+const CARDS = [
+  "balance",
+  "totalCash",
+  "damageBalance",
+  "incentiveBalance",
+  "undeliveredValue",
+  "deposits",
+  "orders",
+  "incentives",
+  "damageRefunds",
+  "investments",
+];
 
-function EntryDialog({
-  companyId,
-  kind,
-  onClose,
-}: {
-  companyId: string;
-  kind: EntryKind | null;
-  onClose: () => void;
-}) {
-  const id = useId();
-  const today = useToday();
-  const post = usePostMoneyEntry(companyId);
-  const [date, setDate] = useState(today);
-  const [amount, setAmount] = useState("");
-  const [accountId, setAccountId] = useState("");
-  const [error, setError] = useState<string | undefined>();
-
-  function close() {
-    setAmount("");
-    setError(undefined);
-    onClose();
-  }
-
-  async function submit() {
-    if (!kind) return;
-    const value = clean(amount);
-    if (!/^\d+(\.\d{1,2})?$/.test(value) || !/[1-9]/.test(value)) {
-      setError(t("validation.amountPositive"));
-      return;
-    }
-    setError(undefined);
-    try {
-      await post.mutateAsync({
-        date,
-        kind,
-        amount: value,
-        staffId: null,
-        expenseCategoryId: null,
-        allocation: null,
-        // D52: a deposit leaves an account; the company's money incentive touches none.
-        cashAccountId: kind === "supplierDeposit" && accountId ? accountId : null,
-      });
-      close();
-    } catch (e) {
-      setError(describeError(e, []).form);
-    }
-  }
-
+function PagedStatement({ table }: { table: ReportTable }) {
+  const [page, setPage] = useState(1);
+  const pages = Math.max(1, Math.ceil(table.rows.length / PAGE_SIZE));
+  const current = Math.min(page, pages);
+  const rows = table.rows.slice((current - 1) * PAGE_SIZE, current * PAGE_SIZE);
   return (
-    <FormDialog
-      open={kind !== null}
-      title={kind ? kindLabel(kind) : ""}
-      error={error}
-      pending={post.isPending}
-      submitLabel={t("common.post")}
-      onSubmit={() => void submit()}
-      onClose={close}
-    >
-      {kind === "companyIncentive" ? (
-        <p className="text-xs text-text-muted">{t("companyAccount.incentiveHint")}</p>
-      ) : null}
-      <Field id={`${id}-date`} label={t("common.date")}>
-        <DatePicker id={`${id}-date`} value={date} onChange={setDate} max={today} />
-      </Field>
-      <Field id={`${id}-amount`} label={t("common.amount")}>
-        <input
-          id={`${id}-amount`}
-          inputMode="decimal"
-          value={amount}
-          onChange={(event) => setAmount(event.target.value)}
-          className={inputClass}
-        />
-      </Field>
-      {kind === "supplierDeposit" ? (
-        <AccountSelect id={`${id}-account`} value={accountId} onChange={setAccountId} />
-      ) : null}
-    </FormDialog>
+    <>
+      <div className="flex flex-col gap-3 print:hidden">
+        <ReportTableView table={{ ...table, rows }} />
+        <Pager page={current} pages={pages} onChange={setPage} />
+      </div>
+      <div className="hidden print:block">
+        <ReportTableView table={table} summary={false} />
+      </div>
+    </>
   );
 }
 
@@ -153,6 +96,7 @@ function Account({
     );
   }
   const cells = summary.rows[0]?.cells ?? {};
+  const columns = CARDS.flatMap((key) => summary.columns.filter((c) => c.key === key));
   return (
     <div className="flex flex-col gap-6">
       {allTime || data.from !== range.from ? (
@@ -162,47 +106,43 @@ function Account({
       ) : null}
       <PageWarnings warnings={data.warnings} />
       <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {summary.columns
-          .filter((c) => c.key !== "undeliveredPieces")
-          .map((c) => {
-            const current = c.key === "balance";
-            return (
-              <div key={c.key} className={current ? "sm:col-span-2 lg:col-span-3" : undefined}>
-                <StatTile
-                  label={labelOf(c.label)}
-                  value={money(cells[c.key] ?? null)}
-                  emphasis={current}
-                  large={current}
-                  {...(current
-                    ? { hint: t("companyAccount.balanceHint") }
-                    : c.key === "undeliveredValue"
-                      ? {
-                          hint: `${formatCount(cells.undeliveredPieces ?? "0")} ${t("common.pieces")} · ${t("companyAccount.undeliveredHint")}`,
-                        }
-                      : {})}
-                />
-              </div>
-            );
-          })}
+        {columns.map((c) => {
+          const current = c.key === "balance";
+          return (
+            <div key={c.key} className={current ? "sm:col-span-2" : undefined}>
+              <StatTile
+                label={labelOf(c.label)}
+                value={money(cells[c.key] ?? null)}
+                emphasis={current}
+                large={current}
+                {...(current
+                  ? { hint: t("companyAccount.balanceHint") }
+                  : c.key === "undeliveredValue"
+                    ? {
+                        hint: `${formatCount(cells.undeliveredPieces ?? "0")} ${t("common.pieces")} · ${t("companyAccount.undeliveredHint")}`,
+                      }
+                    : {})}
+              />
+            </div>
+          );
+        })}
       </dl>
-      <ReportTableView table={statement} />
+      <PagedStatement key={`${data.from}|${data.to}`} table={statement} />
     </div>
   );
 }
 
 /**
- * The company account (D33, D48): money deposited with the company. An order is billed at once and
- * lowers the balance; deposits, money incentives and damage money returns raise it. Receiving
- * ordered goods moves no money; goods ordered and not yet received are shown as undelivered.
+ * The company statement (D33, D48, D63): every movement with the company — deposits, money
+ * incentives, damage deposits, orders by the balance part that paid them, excess receipts and
+ * investments — paginated on screen, every row on print and PDF.
  */
 export function CompanyAccountPage() {
-  const { company, permissions } = useCurrentWorkspace();
+  const { company } = useCurrentWorkspace();
   const today = useToday();
   const [picked, setRange] = useState(() => presetRange("thisMonth", today));
   const [allTime, setAllTime] = useState(false);
   const range = allTime ? { from: ALL_TIME_FROM, to: today } : picked;
-  const [entry, setEntry] = useState<EntryKind | null>(null);
-  const allowed = ENTRY_KINDS.filter((k) => permissions.includes(moneyKindPermission[k]));
   return (
     <NavGate path={PATH}>
       <PageHeader
@@ -231,25 +171,19 @@ export function CompanyAccountPage() {
               max={today}
             />
             <PrintButton />
+            <Button
+              className="print:hidden"
+              title={t("companyAccount.pdfHint")}
+              onClick={() => window.print()}
+            >
+              {t("companyAccount.pdf")}
+            </Button>
           </>
         }
       />
       <PrintHeader title={t("nav.finance.companyAccount")} from={range.from} to={range.to} />
-      <div className="mb-6 flex flex-wrap items-center gap-2 print:hidden">
-        {allowed.map((kind) => (
-          <Button key={kind} variant="primary" onClick={() => setEntry(kind)}>
-            + {kindLabel(kind)}
-          </Button>
-        ))}
-        <Link
-          href={companyHref(company.id, "inventory/claims")}
-          className="text-sm text-brand underline-offset-2 hover:underline"
-        >
-          {t("companyAccount.damageLink")}
-        </Link>
-      </div>
+      <p className="mb-4 text-xs text-text-muted print:hidden">{t("companyAccount.pdfHint")}</p>
       <Account companyId={company.id} range={range} allTime={allTime} />
-      <EntryDialog companyId={company.id} kind={entry} onClose={() => setEntry(null)} />
     </NavGate>
   );
 }

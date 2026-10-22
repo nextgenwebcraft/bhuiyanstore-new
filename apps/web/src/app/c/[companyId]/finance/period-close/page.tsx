@@ -1,5 +1,11 @@
-import { MonthPage } from "@/features/reports/month-page";
+import { redirect } from "next/navigation";
 
-export default function PeriodCloseRoute() {
-  return <MonthPage path="finance/period-close" title="nav.finance.periodClose" />;
+/** Months close for every company together from the master panel now (D66). */
+export default async function PeriodCloseRoute({
+  params,
+}: {
+  params: Promise<{ companyId: string }>;
+}) {
+  const { companyId } = await params;
+  redirect(`/c/${companyId}`);
 }

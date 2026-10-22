@@ -12,6 +12,7 @@ import {
 } from "@bsd/contracts";
 import type { Prisma } from "@bsd/database";
 import {
+  Decimal,
   OPENING_KIND_EFFECTS,
   checkOpening,
   type OpeningKindEffect,
@@ -19,11 +20,14 @@ import {
 } from "@bsd/domain";
 import { requirePermission, type CompanyAccess } from "./access";
 import { recordAudit } from "./audit";
+import { syncOpeningBatches } from "./batches";
 import type { AppContext, Tx } from "./context";
 import { fromDbDate, toDbDate } from "./dates";
 import { AppError, invalid, parseInput, type FieldError } from "./errors";
 import { runIdempotent } from "./idempotency";
+import { staffCompanyIds } from "./master";
 import { plain } from "./numeric";
+import { isLocked } from "./opening-lock";
 import { summarizeSections } from "./opening-summary";
 import { packOn } from "./products";
 
@@ -46,7 +50,7 @@ type Catalog = {
     piecesPerCarton: string;
   }[];
   staff: { id: string; name: string; roleKind: "dsr" | "sr" | "general" }[];
-  cashAccounts: { id: string; name: string }[];
+  cashAccounts: { id: string; name: string; kind: string }[];
   shops: { id: string; active: boolean }[];
 };
 
@@ -57,6 +61,8 @@ async function loadCatalog(
 ): Promise<Catalog> {
   const companyId = access.company.id;
   const onDate = cutoffDate ?? todayBusinessDate();
+  // D65: global staff (the master's) count in every company, e.g. a DSR's market due.
+  const companyIds = await staffCompanyIds(db, companyId);
   const [products, staff, cashAccounts, shops] = await Promise.all([
     db.product.findMany({
       where: { companyId },
@@ -64,13 +70,18 @@ async function loadCatalog(
       orderBy: { sku: "asc" },
     }),
     db.staff.findMany({
-      where: { tenantId: access.company.tenantId, assignments: { some: { companyId } } },
-      include: { assignments: { where: { companyId }, include: { role: true } } },
+      where: {
+        tenantId: access.company.tenantId,
+        assignments: { some: { companyId: { in: companyIds } } },
+      },
+      include: {
+        assignments: { where: { companyId: { in: companyIds } }, include: { role: true } },
+      },
       orderBy: { name: "asc" },
     }),
     db.cashAccount.findMany({
       where: { legalEntityId: access.company.legalEntityId, active: true },
-      orderBy: { name: "asc" },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     }),
     db.shop.findMany({ where: { companyId }, select: { id: true, status: true } }),
   ]);
@@ -94,7 +105,7 @@ async function loadCatalog(
         roleKind: (covering?.role.kind ?? "general") as "dsr" | "sr" | "general",
       };
     }),
-    cashAccounts: cashAccounts.map((a) => ({ id: a.id, name: a.name })),
+    cashAccounts: cashAccounts.map((a) => ({ id: a.id, name: a.name, kind: a.kind })),
     shops: shops.map((s) => ({ id: s.id, active: s.status === "active" })),
   };
 }
@@ -122,11 +133,6 @@ async function hasDailyRecords(db: Db, companyId: string): Promise<boolean> {
     db.fieldVisit.findFirst(where),
   ]);
   return found.some((row) => row !== null);
-}
-
-/** D43: the opening is locked once the company's first month is closed. */
-async function isLocked(db: Db, companyId: string): Promise<boolean> {
-  return (await db.monthClose.findFirst({ where: { companyId }, select: { id: true } })) !== null;
 }
 
 async function flagsOf(db: Db, companyId: string): Promise<Flags> {
@@ -161,20 +167,20 @@ function toView(
         note: line?.note ?? "",
       };
     });
-  const balances: OpeningBalanceLine[] = (session?.balances ?? [])
-    .map((b) => ({
-      kind: b.kind as OpeningBalanceKind,
-      staffId: b.staffId,
-      cashAccountId: b.cashAccountId,
-      shopId: b.shopId,
-      amount: b.amount === null ? null : b.amount.toFixed(2),
-      note: b.note,
-    }))
-    .sort(
-      (a, b) =>
-        openingBalanceKinds.indexOf(a.kind) - openingBalanceKinds.indexOf(b.kind) ||
-        partyKey(a).localeCompare(partyKey(b)),
-    );
+  const stored: OpeningBalanceLine[] = (session?.balances ?? []).map((b) => ({
+    kind: b.kind as OpeningBalanceKind,
+    staffId: b.staffId,
+    cashAccountId: b.cashAccountId,
+    shopId: b.shopId,
+    amount: b.amount === null ? null : b.amount.toFixed(2),
+    note: b.note,
+  }));
+  const cashAccountId = singleCashAccount(catalog, stored);
+  const balances = foldCash(stored, cashAccountId).sort(
+    (a, b) =>
+      openingBalanceKinds.indexOf(a.kind) - openingBalanceKinds.indexOf(b.kind) ||
+      partyKey(a).localeCompare(partyKey(b)),
+  );
   const roleOf = new Map(catalog.staff.map((s) => [s.id, s.roleKind]));
   const cutoffDate = session?.cutoffDate ? fromDbDate(session.cutoffDate) : null;
   const { issues, totals } = checkOpening({
@@ -191,6 +197,7 @@ function toView(
     cutoffDate,
     stock,
     balances,
+    cashAccountId,
     issues,
     totals,
     sections: summarizeSections(
@@ -199,11 +206,43 @@ function toView(
         dsrIds: catalog.staff.filter((m) => m.roleKind === "dsr").map((m) => m.id),
         staffIds: catalog.staff.map((m) => m.id),
         shopIds: catalog.shops.filter((x) => x.active).map((x) => x.id),
-        cashAccountIds: catalog.cashAccounts.map((a) => a.id),
+        cashAccountIds: cashAccountId ? [cashAccountId] : [],
       },
     ),
     ...flags,
   });
+}
+
+/**
+ * D72: the company's cash account: the `cash` account its opening cash is on, else the first
+ * active one (as the ledger's cash bucket).
+ */
+function singleCashAccount(catalog: Catalog, balances: OpeningBalanceLine[]): string | null {
+  const cash = catalog.cashAccounts.filter((a) => a.kind === "cash");
+  const opened = new Set(balances.filter((b) => b.kind === "cash").map((b) => b.cashAccountId));
+  return (cash.find((a) => opened.has(a.id)) ?? cash[0])?.id ?? null;
+}
+
+/** D72: every opening cash line (an old bank account's too) as one line on the cash account. */
+function foldCash(
+  balances: OpeningBalanceLine[],
+  cashAccountId: string | null,
+): OpeningBalanceLine[] {
+  const cash = balances.filter((b) => b.kind === "cash");
+  if (!cashAccountId || cash.every((b) => b.cashAccountId === cashAccountId)) return balances;
+  const amounts = cash.flatMap((b) => (b.amount === null ? [] : [b.amount]));
+  const total = amounts.reduce((sum, amount) => sum.add(amount), new Decimal(0));
+  return [
+    ...balances.filter((b) => b.kind !== "cash"),
+    {
+      kind: "cash",
+      staffId: null,
+      cashAccountId,
+      shopId: null,
+      amount: amounts.length ? total.toFixed(2) : null,
+      note: [...new Set(cash.map((b) => b.note).filter(Boolean))].join(" · "),
+    },
+  ];
 }
 
 export async function openingView(db: Db, access: CompanyAccess): Promise<Opening> {
@@ -383,6 +422,45 @@ async function writeOpeningPrices(
   return written;
 }
 
+export type SeededOpening = {
+  cutoffDate: string;
+  stock: Omit<OpeningStockLine, "sku" | "productName" | "piecesPerCarton">[];
+  balances: (OpeningBalanceLine & { personRoleKind: "dsr" | "sr" | "general" | null })[];
+};
+
+/**
+ * A complete opening written while a company is created (D59, starter dataset). It runs in the
+ * creating transaction, so there is no version to claim; the caller only names cash accounts no
+ * other company has opened. Anything `checkOpening` calls a mistake is a bug in the seed and throws.
+ */
+export async function writeSeededOpening(
+  tx: Tx,
+  company: { id: string; tenantId: string },
+  opening: SeededOpening,
+): Promise<{ sessionId: string; pricesSet: number }> {
+  const { issues } = checkOpening(opening);
+  const mistakes = issues.filter((i) => i.severity === "error");
+  if (mistakes.length) {
+    throw new Error(`seeded opening is invalid: ${mistakes.map((i) => i.code).join(", ")}`);
+  }
+  const session = await tx.openingSession.create({
+    data: {
+      tenantId: company.tenantId,
+      companyId: company.id,
+      cutoffDate: toDbDate(opening.cutoffDate),
+      version: 1,
+    },
+  });
+  if (opening.stock.length) {
+    await tx.openingStockLine.createMany({
+      data: opening.stock.map((line) => ({ sessionId: session.id, ...line })),
+    });
+  }
+  await replaceBalances(tx, session, openingBalanceKinds, opening.balances);
+  const pricesSet = await writeOpeningPrices(tx, company.id, session.id, opening.cutoffDate);
+  await syncOpeningBatches(tx, { tenantId: company.tenantId, companyId: company.id });
+  return { sessionId: session.id, pricesSet };
+}
 /** Saves the go-live date. It cannot change once a daily record exists (D43). */
 export async function saveOpeningCutoff(
   ctx: AppContext,
@@ -530,6 +608,7 @@ export async function saveOpeningSection(
           });
         }
         prices = await writeOpeningPrices(tx, companyId, session.id, cutoffDate);
+        await syncOpeningBatches(tx, { tenantId: access.company.tenantId, companyId });
       } else {
         validateRefs(catalog, [], data.balances);
         const mistakes = balanceMistakes(catalog, data.balances);

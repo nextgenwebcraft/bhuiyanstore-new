@@ -49,20 +49,23 @@ export function fieldRemaining(
 }
 
 /**
- * DSR cash handover (D39, display only). Expected = the DSR's sales − new due given + old due
- * collected − expenses paid from that cash; the difference is handed over − expected.
+ * DSR cash handover (D39, D62, display only). Expected = the DSR's sales − new due given + old due
+ * collected − expenses paid from that cash + staff money (repayments − advances − shortages); the
+ * difference is handed over − expected.
  */
 export function dsrCashSettlement(input: {
   sales: DecimalInput;
   dueGiven: DecimalInput;
   dueCollected: DecimalInput;
   expenses: DecimalInput;
+  staffMoney?: DecimalInput;
   handedOver: DecimalInput | null;
 }): { expected: string; handedOver: string | null; difference: string | null } {
   const expected = toDecimal(input.sales)
     .sub(toDecimal(input.dueGiven))
     .add(toDecimal(input.dueCollected))
-    .sub(toDecimal(input.expenses));
+    .sub(toDecimal(input.expenses))
+    .add(toDecimal(input.staffMoney ?? "0"));
   if (input.handedOver === null) {
     return { expected: roundSettlement(expected), handedOver: null, difference: null };
   }

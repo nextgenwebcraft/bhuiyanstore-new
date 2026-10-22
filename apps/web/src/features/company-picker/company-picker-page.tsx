@@ -15,6 +15,7 @@ import { useWorkspaces } from "@/data/queries";
 import { TopBar } from "@/features/shell/top-bar";
 import { CompanyMark } from "@/features/shell/company-mark";
 import { ConnectionBanner } from "@/features/shell/connection-banner";
+import { MasterPanelCard } from "@/features/master/master-link";
 import { companyHref, FIELD_PATH } from "@/features/shell/navigation";
 import { CompanyForm } from "./company-form";
 
@@ -89,6 +90,7 @@ export function CompanyPickerPage() {
           ) : null}
         </header>
         {creating ? <CompanyForm onClose={() => setCreating(false)} /> : null}
+        <MasterPanelCard />
         {body}
       </main>
     </div>

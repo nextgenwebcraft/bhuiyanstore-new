@@ -1,5 +1,5 @@
-import { DashboardPage } from "@/features/dashboard/dashboard-page";
+import { DashboardSwitch } from "@/features/master/dashboard-switch";
 
 export default function CompanyDashboardRoute() {
-  return <DashboardPage />;
+  return <DashboardSwitch />;
 }

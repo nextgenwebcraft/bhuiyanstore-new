@@ -81,7 +81,7 @@ function opening(): MonthOpening {
     products: {
       [id.alpha]: {
         stock: "200",
-        dueFromCompany: "0",
+        dueFromCompany: "72",
         orderPrice: "9.5",
         costPrice: "9.5",
         salePrice: "11",
@@ -152,7 +152,8 @@ beforeAll(async () => {
         unitCost: "9.5",
         salePrice: "11",
         orderPrice: "9.5",
-        dueFromCompany: "0",
+        // D68: the received pieces arrive into the opening batch, so the opening owes them.
+        dueFromCompany: "72",
         note: "",
       },
     ],
@@ -160,12 +161,17 @@ beforeAll(async () => {
       { kind: "market_due", staffId: id.mamun, cashAccountId: null, amount: "500", note: "" },
     ],
   });
+  const openingBatch = must(
+    await db.productBatch.findFirst({ where: { productId: id.alpha, source: "opening" } }),
+  ).id;
 
   for (const f of FACTS) {
     if (f.received !== "0") {
       await postStockEntries(ctx, company, {
         date: f.date,
-        lines: [{ kind: "receipt", productId: id.alpha, pieces: f.received }],
+        lines: [
+          { kind: "receipt", productId: id.alpha, pieces: f.received, batchId: openingBatch },
+        ],
       });
     }
     const sheet = await saveDsrDay(ctx, company, {

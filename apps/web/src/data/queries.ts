@@ -8,12 +8,11 @@ import type {
   DamageEventRequest,
   DsrDay,
   DsrDaySaveRequest,
+  FieldDayEndRequest,
   FieldShopCreateRequest,
+  FieldVisitDeleteRequest,
   FieldVisitSaveRequest,
   MoneyEntryPostRequest,
-  Opening,
-  OpeningCutoffRequest,
-  OpeningSectionSaveRequest,
   PayrollAction,
   PayrollSaveRequest,
   PayrollTransitionRequest,
@@ -239,6 +238,24 @@ export function useDsrDayCommand(companyId: string) {
   );
 }
 
+/** D71: approve or reject a DSR's field report; approving corrects the sheet. */
+export function useDecideFieldReport(companyId: string) {
+  const service = useService();
+  return usePostingMutation(
+    companyId,
+    "dsrDay",
+    ({
+      reportId,
+      action,
+      version,
+    }: {
+      reportId: string;
+      action: "approve" | "reject";
+      version: number;
+    }) => service.decideFieldReport(companyId, reportId, action, { version }),
+  );
+}
+
 export function useMoneyEntries(
   companyId: string,
   query: { from: string; to?: string; staffId?: string; shopId?: string },
@@ -295,6 +312,50 @@ export function useMonthCommand(companyId: string) {
         ? service.closeMonth(companyId, month)
         : service.reopenMonth(companyId, month),
   );
+}
+
+// ------------------------------------------------------------- master panel (D66)
+
+/** Opens (and on first use creates) the master company; super-admin only. */
+export function useMasterWorkspace(enabled = true) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.masterWorkspace(actorId),
+    queryFn: ({ signal }) => service.getMasterWorkspace({ signal }),
+    enabled,
+  });
+}
+
+export function useMasterSummary(companyId: string, range: ReportRange) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.masterSummary(actorId, companyId, range.from, range.to),
+    queryFn: ({ signal }) => service.getMasterSummary(companyId, range, { signal }),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useMasterMonth(companyId: string, month: string) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.masterMonth(actorId, companyId, month),
+    queryFn: ({ signal }) => service.getMasterMonth(companyId, month, { signal }),
+  });
+}
+
+/** Closing or reopening for every company changes every company's figures: refresh them all. */
+export function useMasterMonthCommand(companyId: string) {
+  const service = useService();
+  const actorId = useActorId();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ action, month }: { action: "close" | "reopen"; month: string }) =>
+      service.masterMonthCommand(companyId, month, action),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.actor(actorId) }),
+  });
 }
 
 export function useReport(companyId: string, report: ReportId, range: ReportRange, enabled = true) {
@@ -544,7 +605,6 @@ export function useSaveStaffAssignment(companyId: string) {
 const configResource: Record<ConfigListId, ResourceId> = {
   staffRoles: resourceIds.staffRole,
   expenseCategories: resourceIds.expenseCategory,
-  cashAccounts: resourceIds.cashAccount,
 };
 
 export function useConfigList<K extends ConfigListId>(list: K) {
@@ -619,65 +679,15 @@ export function useResetUserPassword() {
   );
 }
 
-// ------------------------------------------------------------- opening balances (Phase D)
-
-export function useOpening(companyId: string) {
-  const service = useService();
-  const actorId = useActorId();
-  return useQuery({
-    queryKey: queryKeys.opening(actorId, companyId),
-    queryFn: ({ signal }) => service.getOpening(companyId, { signal }),
-  });
-}
-
-/** Every opening command returns the new snapshot; it replaces the cached one directly. */
-function useOpeningCommand<TInput>(companyId: string, run: (input: TInput) => Promise<Opening>) {
-  const actorId = useActorId();
-  const queryClient = useQueryClient();
-  const refresh = useInvalidate(companyId, "opening");
-  return useMutation({
-    mutationFn: run,
-    onSuccess: (opening) => {
-      queryClient.setQueryData(queryKeys.opening(actorId, companyId), opening);
-      void refresh();
-    },
-  });
-}
-
-export function useSaveOpeningCutoff(companyId: string) {
-  const service = useService();
-  return useOpeningCommand(companyId, (input: OpeningCutoffRequest) =>
-    service.saveOpeningCutoff(companyId, input),
-  );
-}
-
-export function useSaveOpeningSection(companyId: string) {
-  const service = useService();
-  return useOpeningCommand(companyId, (input: OpeningSectionSaveRequest) =>
-    service.saveOpeningSection(companyId, input),
-  );
-}
-
-/** Always refetched on mount: every master and opening change can move a step. */
-export function useSetupStatus(companyId: string, enabled = true) {
-  const service = useService();
-  const actorId = useActorId();
-  return useQuery({
-    queryKey: queryKeys.setupStatus(actorId, companyId),
-    queryFn: ({ signal }) => service.getSetupStatus(companyId, { signal }),
-    staleTime: 0,
-    enabled,
-  });
-}
-
 // ------------------------------------------------------------- DSR field panel (D40)
 
-export function useFieldDay(companyId: string, date: string) {
+export function useFieldDay(companyId: string, date: string, enabled = true) {
   const service = useService();
   const actorId = useActorId();
   return useQuery({
     queryKey: queryKeys.fieldDay(actorId, companyId, date),
     queryFn: ({ signal }) => service.getFieldDay(companyId, date, { signal }),
+    enabled,
   });
 }
 
@@ -706,8 +716,15 @@ export function useDeleteFieldVisit(companyId: string) {
   return usePostingMutation(
     companyId,
     "field",
-    ({ visitId, version }: { visitId: string; version: number }) =>
-      service.deleteFieldVisit(companyId, visitId, { version }),
+    ({ visitId, ...input }: { visitId: string } & FieldVisitDeleteRequest) =>
+      service.deleteFieldVisit(companyId, visitId, input),
+  );
+}
+
+export function useSaveFieldDayEnd(companyId: string) {
+  const service = useService();
+  return usePostingMutation(companyId, "fieldDayEnd", (input: FieldDayEndRequest) =>
+    service.saveFieldDayEnd(companyId, input),
   );
 }
 

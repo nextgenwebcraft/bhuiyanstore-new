@@ -398,7 +398,7 @@ describe("Phase D: opening balances (save = live, D43)", () => {
     view = await saveStock(ctx, company, view, stock("5"));
     await postStockEntries(ctx, company, {
       date: "2026-10-01",
-      lines: [{ kind: "receipt", productId: withDay, pieces: "1" }],
+      lines: [{ kind: "incentive", productId: withDay, pieces: "1" }],
       prices: [{ productId: withDay, kind: "order", price: "7.5" }],
     });
     view = await saveStock(ctx, company, view, stock("6"));
@@ -448,7 +448,7 @@ describe("Phase D: opening balances (save = live, D43)", () => {
     expect(view.cutoffEditable).toBe(true);
     await postStockEntries(ctx, bakery, {
       date: "2026-09-02",
-      lines: [{ kind: "receipt", productId: bakeryProduct, pieces: "1" }],
+      lines: [{ kind: "incentive", productId: bakeryProduct, pieces: "1" }],
     });
     view = await getOpening(ctx, bakery);
     expect(view.cutoffEditable).toBe(false);

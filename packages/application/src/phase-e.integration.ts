@@ -4,6 +4,7 @@ import {
   MONEY_KIND_EFFECTS,
   computeMonth,
   toDecimal,
+  type BatchReceiptInput,
   type DayInput,
   type MonthOpening,
   type MonthResult,
@@ -86,6 +87,10 @@ type StockFact = {
   pieces: string;
   /** D57: taka per carton of an order. */
   rate?: string;
+  /** D68: an order's sale price per piece. */
+  sale?: string;
+  /** D68: the batch a receipt fills (its number) and that batch's prices per piece. */
+  batch?: { seq: number; cost: string; sale: string };
 };
 type PriceFact = { product: string; kind: "order" | "cost" | "sale"; price: string };
 type DsrFact = {
@@ -109,16 +114,29 @@ type DayFacts = {
   money?: MoneyFact[];
 };
 
+const ALPHA_ORDER = { seq: 2, cost: "9.5", sale: "11.5" };
+const BETA_OPENING = { seq: 1, cost: "19", sale: "22.5" };
+
+/** D68: the stored batch ids by product and batch number, the engine's batch keys. */
+const batchIds = new Map<string, string>();
+const batchKey = (product: string, seq: number) => must(batchIds.get(`${product}|${seq}`));
+async function loadBatchIds() {
+  for (const b of await db.productBatch.findMany({ where: { companyId: company } })) {
+    batchIds.set(`${b.productId}|${b.seq}`, b.id);
+  }
+}
+
 /** A month-crossing run covering every input type the engine reads (Excel's raw facts). */
 function facts(): DayFacts[] {
   return [
     {
       date: "2026-08-30",
       stock: [
-        // D57: 228 per carton of 24 = 9.5 a piece, the product's order price.
-        { kind: "order", product: id.alpha, pieces: "48", rate: "228" },
-        { kind: "receipt", product: id.alpha, pieces: "48" },
-        { kind: "receipt", product: id.beta, pieces: "10" },
+        // D57: 228 per carton of 24 = 9.5 a piece, the product's order price. D68: sold at 11.5,
+        // the order is batch 2; beta's 10 pieces due at the opening arrive into its batch 1.
+        { kind: "order", product: id.alpha, pieces: "72", rate: "228", sale: "11.5" },
+        { kind: "receipt", product: id.alpha, pieces: "48", batch: ALPHA_ORDER },
+        { kind: "receipt", product: id.beta, pieces: "10", batch: BETA_OPENING },
         { kind: "damage", product: id.beta, pieces: "1" },
       ],
       prices: [{ product: id.alpha, kind: "sale", price: "11.5" }],
@@ -143,7 +161,7 @@ function facts(): DayFacts[] {
         { kind: "expense", amount: "40", category: id.transport },
         { kind: "staffShortage", amount: "30", staff: id.rohim },
         { kind: "srLoan", amount: "200", staff: id.karim },
-        { kind: "srIncentive", amount: "15" },
+        { kind: "expense", amount: "15", category: id.transport },
         { kind: "supplierDeposit", amount: "500" },
         { kind: "staffAdvance", amount: "100", staff: id.jamal },
         { kind: "marketDueCollected", amount: "25", staff: id.mamun, shop: id.shop },
@@ -168,7 +186,7 @@ function facts(): DayFacts[] {
     },
     {
       date: "2026-09-01",
-      stock: [{ kind: "receipt", product: id.alpha, pieces: "24" }],
+      stock: [{ kind: "receipt", product: id.alpha, pieces: "24", batch: ALPHA_ORDER }],
       dsr: [
         {
           staff: id.rohim,
@@ -205,6 +223,7 @@ const ENGINE_PRICE = { order: "orderPrice", cost: "costPrice", sale: "salePrice"
 function toEngineDay(day: DayFacts): DayInput {
   const products: Record<string, Record<string, string>> = {};
   const orders: Record<string, OrderInput[]> = {};
+  const receipts: Record<string, BatchReceiptInput[]> = {};
   for (const line of day.stock ?? []) {
     if (line.kind === "order" && line.rate !== undefined) {
       (orders[line.product] ??= []).push({
@@ -212,6 +231,16 @@ function toEngineDay(day: DayFacts): DayInput {
         freePieces: "0",
         cartonRate: line.rate,
         piecesPerCarton: line.product === id.alpha ? "24" : "12",
+      });
+      continue;
+    }
+    if (line.kind === "receipt" && line.batch) {
+      (receipts[line.product] ??= []).push({
+        key: batchKey(line.product, line.batch.seq),
+        seq: line.batch.seq,
+        quantity: line.pieces,
+        costPrice: line.batch.cost,
+        salePrice: line.batch.sale,
       });
       continue;
     }
@@ -225,6 +254,9 @@ function toEngineDay(day: DayFacts): DayInput {
   const withOrders = products as Record<string, ProductDayInput>;
   for (const [productId, list] of Object.entries(orders)) {
     withOrders[productId] = { ...(withOrders[productId] ?? {}), orders: list };
+  }
+  for (const [productId, list] of Object.entries(receipts)) {
+    withOrders[productId] = { ...(withOrders[productId] ?? {}), batchReceipts: list };
   }
   return {
     date: day.date,
@@ -267,14 +299,33 @@ function toEngineDay(day: DayFacts): DayInput {
 
 /** Enters one day through the application services, as the screens do. */
 async function enterDay(day: DayFacts): Promise<void> {
-  if (day.stock?.length || day.prices?.length) {
+  // D68: orders first, so the receipts can name the batches they opened.
+  const orders = (day.stock ?? []).filter((l) => l.kind === "order");
+  if (orders.length) {
     await postStockEntries(ctx, company, {
       date: day.date,
-      lines: (day.stock ?? []).map((l) => ({
+      lines: orders.map((l) => ({
         kind: l.kind,
         productId: l.product,
         pieces: l.pieces,
         ...(l.rate === undefined ? {} : { cartonRate: l.rate }),
+        ...(l.sale === undefined ? {} : { salePrice: l.sale }),
+      })),
+      prices: [],
+    });
+    await loadBatchIds();
+  }
+  const rest = (day.stock ?? []).filter((l) => l.kind !== "order");
+  if (rest.length || day.prices?.length) {
+    await postStockEntries(ctx, company, {
+      date: day.date,
+      lines: rest.map((l) => ({
+        kind: l.kind,
+        productId: l.product,
+        pieces: l.pieces,
+        ...(l.batch === undefined
+          ? {}
+          : { batchId: batchKey(l.product, l.batch.seq), salePrice: l.batch.sale }),
       })),
       prices: (day.prices ?? []).map((p) => ({
         productId: p.product,
@@ -333,9 +384,17 @@ function expectedOpening(): MonthOpening {
         orderPrice: "9.5",
         costPrice: "9.5",
         salePrice: "11",
-        // D49: each opening stock line is batch 1, dated at the cutoff (hand-written, not derived).
+        // D49: each opening stock line is batch 1, dated at the cutoff (hand-written, not derived);
+        // D68: keyed by its stored batch.
         batches: [
-          { seq: 1, startDate: "2026-08-30", costPrice: "9.5", salePrice: "11", quantity: "100" },
+          {
+            key: batchKey(id.alpha, 1),
+            seq: 1,
+            startDate: "2026-08-30",
+            costPrice: "9.5",
+            salePrice: "11",
+            quantity: "100",
+          },
         ],
       },
       [id.beta]: {
@@ -345,7 +404,14 @@ function expectedOpening(): MonthOpening {
         costPrice: "19",
         salePrice: "22.5",
         batches: [
-          { seq: 1, startDate: "2026-08-30", costPrice: "19", salePrice: "22.5", quantity: "50" },
+          {
+            key: batchKey(id.beta, 1),
+            seq: 1,
+            startDate: "2026-08-30",
+            costPrice: "19",
+            salePrice: "22.5",
+            quantity: "50",
+          },
         ],
       },
     },
@@ -466,6 +532,7 @@ beforeAll(async () => {
     ],
   };
   await saveWholeOpening(ctx, company, opening);
+  await loadBatchIds();
 });
 
 afterAll(async () => {
@@ -479,12 +546,12 @@ describe("Phase E: daily entry", () => {
 
   it("refuses postings before the cutoff, in the future, or for the wrong person", async () => {
     await expectField(
-      postMoneyEntry(ctx, company, { date: "2026-08-29", kind: "srIncentive", amount: "1" }),
+      postMoneyEntry(ctx, company, { date: "2026-08-29", kind: "supplierDeposit", amount: "1" }),
       "date",
       "validation.daily.beforeCutoff",
     );
     await expectField(
-      postMoneyEntry(ctx, company, { date: "2099-01-01", kind: "srIncentive", amount: "1" }),
+      postMoneyEntry(ctx, company, { date: "2099-01-01", kind: "supplierDeposit", amount: "1" }),
       "date",
       "validation.daily.future",
     );
@@ -523,42 +590,46 @@ describe("Phase E: daily entry", () => {
     );
   });
 
-  it("reproduces the engine's daily cash and closing from facts entered through the services", async () => {
-    const all = facts();
-    for (const day of all) await enterDay(day);
+  it(
+    "reproduces the engine's daily cash and closing from facts entered through the services",
+    { timeout: 180_000 },
+    async () => {
+      const all = facts();
+      for (const day of all) await enterDay(day);
 
-    const catalog = [
-      { id: id.alpha, piecesPerCarton: "24" },
-      { id: id.beta, piecesPerCarton: "12" },
-    ];
-    const august = computeMonth({
-      products: catalog,
-      opening: expectedOpening(),
-      days: all.filter((d) => d.date < "2026-09-01").map(toEngineDay),
-    });
-    const september = computeMonth({
-      products: catalog,
-      opening: august.closing,
-      days: all.filter((d) => d.date >= "2026-09-01").map(toEngineDay),
-    });
+      const catalog = [
+        { id: id.alpha, piecesPerCarton: "24" },
+        { id: id.beta, piecesPerCarton: "12" },
+      ];
+      const august = computeMonth({
+        products: catalog,
+        opening: expectedOpening(),
+        days: all.filter((d) => d.date < "2026-09-01").map(toEngineDay),
+      });
+      const september = computeMonth({
+        products: catalog,
+        opening: august.closing,
+        days: all.filter((d) => d.date >= "2026-09-01").map(toEngineDay),
+      });
 
-    const access = await loadCompanyAccess(ctx, company);
-    const augustRun = must((await runLedger(db, access, "2026-08-31")) ?? undefined);
-    expect(augustRun.output.closing).toEqual(august.closing);
-    expect(sorted(augustRun.output.month)).toEqual(sorted(august.month));
-    const septemberRun = must((await runLedger(db, access, "2026-09-02")) ?? undefined);
-    expect(septemberRun.from).toBe("2026-09-01");
-    expect(septemberRun.output.closing).toEqual(september.closing);
-    expect(sorted(septemberRun.output.month)).toEqual(sorted(september.month));
+      const access = await loadCompanyAccess(ctx, company);
+      const augustRun = must((await runLedger(db, access, "2026-08-31")) ?? undefined);
+      expect(augustRun.output.closing).toEqual(august.closing);
+      expect(sorted(augustRun.output.month)).toEqual(sorted(august.month));
+      const septemberRun = must((await runLedger(db, access, "2026-09-02")) ?? undefined);
+      expect(septemberRun.from).toBe("2026-09-01");
+      expect(septemberRun.output.closing).toEqual(september.closing);
+      expect(sorted(septemberRun.output.month)).toEqual(sorted(september.month));
 
-    for (const expected of [...august.days, ...september.days]) {
-      const view = await getDayView(ctx, company, expected.date);
-      expect(view.money).toEqual(expected.money);
-    }
-    // Sanity: the run is not trivially empty.
-    expect(Number(august.days[0]?.money.sales)).toBeGreaterThan(0);
-    expect(september.closing.marketDue[id.rohim]).toBe("30");
-  });
+      for (const expected of [...august.days, ...september.days]) {
+        const view = await getDayView(ctx, company, expected.date);
+        expect(view.money).toEqual(expected.money);
+      }
+      // Sanity: the run is not trivially empty.
+      expect(Number(august.days[0]?.money.sales)).toBeGreaterThan(0);
+      expect(september.closing.marketDue[id.rohim]).toBe("30");
+    },
+  );
 
   it("shows the day with names and hides cost without the permission", async () => {
     const view = await getDayView(ctx, company, "2026-08-30");
@@ -591,7 +662,11 @@ describe("Phase E: daily entry", () => {
     expect(summary.postedSummaryCount).toBe(2);
     expect(summary.byDsr.find((r) => r.dsrId === id.mamun)?.marketDueCreated).toBe("100.00");
     await expect(
-      postMoneyEntry(viewerCtx, company, { date: "2026-08-30", kind: "srIncentive", amount: "1" }),
+      postMoneyEntry(viewerCtx, company, {
+        date: "2026-08-30",
+        kind: "supplierDeposit",
+        amount: "1",
+      }),
     ).rejects.toSatisfy((e) => e instanceof AppError && e.code === "FORBIDDEN");
     await expect(listMoneyEntries(viewerCtx, company, { from: "2026-08-30" })).rejects.toSatisfy(
       (e) => e instanceof AppError && e.code === "FORBIDDEN",
@@ -688,7 +763,15 @@ describe("Phase E: daily entry", () => {
     const [entry] = await postStockEntries(ctx, company, {
       date,
       // D57: 228 per carton of 24 = 9.5 a piece, so the bill is 10 × 9.5 as before.
-      lines: [{ kind: "order", productId: id.alpha, pieces: "10", cartonRate: "228" }],
+      lines: [
+        {
+          kind: "order",
+          productId: id.alpha,
+          pieces: "10",
+          cartonRate: "228",
+          salePrice: "11.5",
+        },
+      ],
       prices: [],
     });
     const price = must(
@@ -786,7 +869,7 @@ describe("Phase E: daily entry", () => {
       },
     });
     await expectField(
-      postMoneyEntry(ctx, company, { date: "2026-08-31", kind: "srIncentive", amount: "1" }),
+      postMoneyEntry(ctx, company, { date: "2026-08-31", kind: "supplierDeposit", amount: "1" }),
       "date",
       "validation.daily.monthClosed",
     );

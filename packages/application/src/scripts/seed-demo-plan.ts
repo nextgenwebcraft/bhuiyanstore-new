@@ -115,7 +115,7 @@ export type SeedPlan = {
   people: PlanPerson[];
   shops: PlanShop[];
   expenseCategories: string[];
-  cashAccounts: { name: string; kind: "cash" | "bank" }[];
+  cashAccounts: { name: string; kind: "cash" }[];
   opening: {
     stock: PlanOpeningStock[];
     marketDue: PlanOpeningBalance[];
@@ -132,7 +132,6 @@ export type SeedPlan = {
 export const CATEGORY_OFFICE = "অফিস খরচ";
 export const CATEGORY_TRANSPORT = "পরিবহন খরচ";
 export const CASH_ACCOUNT = "নগদ ক্যাশ";
-export const BANK_ACCOUNT = "ব্যাংক হিসাব";
 export const ASSIGNMENT_FROM = "2026-09-01";
 const DEFAULT_CARTON = "24";
 const SAMPLE_NOTE = "নমুনা";
@@ -366,8 +365,7 @@ export function buildSeedPlan(read: SheetReadResult, options: SeedPlanOptions): 
     company.push(line("company_payable", new Decimal("100000"), {}, SAMPLE_NOTE));
   }
   const cash = [
-    line("cash", new Decimal("50000"), { cashAccountName: CASH_ACCOUNT }, SAMPLE_NOTE),
-    line("cash", new Decimal("200000"), { cashAccountName: BANK_ACCOUNT }, SAMPLE_NOTE),
+    line("cash", new Decimal("250000"), { cashAccountName: CASH_ACCOUNT }, SAMPLE_NOTE),
   ];
 
   // ---- the two replayed days
@@ -674,10 +672,7 @@ export function buildSeedPlan(read: SheetReadResult, options: SeedPlanOptions): 
     people,
     shops,
     expenseCategories: [CATEGORY_OFFICE, CATEGORY_TRANSPORT],
-    cashAccounts: [
-      { name: CASH_ACCOUNT, kind: "cash" },
-      { name: BANK_ACCOUNT, kind: "bank" },
-    ],
+    cashAccounts: [{ name: CASH_ACCOUNT, kind: "cash" }],
     opening: { stock, marketDue: [], shopDue, staff, company, cash },
     days,
     notes,

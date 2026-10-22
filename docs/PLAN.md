@@ -180,20 +180,18 @@ an approved shortage reduces it: that sales money never reached the cash box (Ex
 Sort columns). A business cost paid personally by staff is an expense and staff credit, with no
 cash effect. Deposits to the company are reported as "banked", outside `cash_left`, as in Excel.
 
-**Cash and bank book (D52).** `cash_left` is a daily view; the authoritative balance of each cash,
-bank and mobile account is the book. Every money entry whose kind moves cash (`cash` ≠ 0 in
-`MONEY_KIND_EFFECTS`), a supplier deposit and the new `cashTransfer` carry an optional account
-(`money_entry.cash_account_id`; a transfer also `to_cash_account_id`). When omitted, the entry gets
-the company's default account: the first `cash`-kind account among the opening's cash lines, else
-the tenant's first active one (a supplier deposit: the tenant's first bank account, else that
-default); with no account at all the engine uses the bucket `""` ("হিসাব নির্ধারিত নয়"). Movements:
-the entry's amount in or out by its direction; each day's `day_sales` into the default cash account
-(market due given and collected and the handover difference are money entries, so the account ends
-at the real cash); a supplier deposit out of its account while `cash_left` still ignores it; a
-transfer out of one account and into another with no other effect. Opening balances come from the
-opening's cash lines; the month close stores each account's closing balance
-(`closing.cashAccounts`). A snapshot stored before the book has none: the engine starts the accounts
-at 0 and warns `CASH_SNAPSHOT_MISSING` once (reopening and closing again fixes it).
+**Cash book (D52, cash only since D72).** `cash_left` is a daily view; the authoritative cash
+balance is the book. All money is cash: there are no bank or mobile accounts and no transfers.
+Each company has one cash bucket, its cash account: the `cash`-kind account of its opening cash
+lines, else the tenant's first active one (`""` when none exists). The ledger counts every opening
+cash line and every money entry in that bucket, whatever account an entry stored before D72 names,
+and leaves old `cashTransfer` entries out (they net to nothing in one bucket); a new transfer is
+refused (`validation.daily.kindRetired`) and a request no longer names an account. Movements: the
+entry's amount in or out by its direction; each day's `day_sales` in (market due given and collected
+and the handover difference are money entries, so the book ends at the real cash); a supplier
+deposit out while `cash_left` still ignores it. The month close stores the cash balance
+(`closing.cashAccounts`, one key). A snapshot stored before the book has none: the engine starts at
+0 and warns `CASH_SNAPSHOT_MISSING` once (reopening and closing again fixes it).
 
 **DSR cash handover (D54, replaces D39 "display only").** Posting a DSR day sheet with the cash
 handed over entered settles `difference = handed over − expected` (expected = sales − new due +
@@ -235,8 +233,8 @@ company:     payable closing = opening + Σ order bills + Σ excess receipt bill
                                − money incentives − damage refunds     (negative = money with the company, D48)
              balance shown = −payable ("কোম্পানিতে জমা"); undelivered value = Σ due_value
              Σ order bills + Σ excess bills = Σ goods received at bill + closing undelivered − opening undelivered
-cash book:   per account (D52), closing = opening + inflows − outflows, where inflows include the
-             day's sales cash and transfers in (not Excel's cash_left, which is a daily view)
+cash book:   one cash balance (D52, D72), closing = opening + inflows − outflows, where inflows
+             include the day's sales cash (not Excel's cash_left, which is a daily view)
 ```
 
 The software's net profit is lower than Excel's `VV42` by the D:Comition paid, because Excel leaves
@@ -343,7 +341,7 @@ All rows carry `tenant_id`, and company-owned rows carry `company_id`.
   | `expense`                                      | Operating cost and month expenses by category                                                                                                                   |
   | `sr_entry`                                     | Loan, repayment, owed, payment, incentive (D:Comition) (D18, D20)                                                                                               |
   | `staff_money_entry` + `staff_money_allocation` | D27                                                                                                                                                             |
-  | `supplier_deposit`                             | Banking (D19); leaves its cash/bank account (D52). `cashTransfer` moves money between two accounts (D52)                                                        |
+  | `supplier_deposit`                             | Banking (D19); leaves the cash (D52, D72). `cashTransfer` is retired (D72): old entries stay in the history only                                                |
   | `damage_case` legs                             | D17                                                                                                                                                             |
   | `field_visit` / lines (DSR, shop, date; D40)   | None until the DSR day is posted; posting writes per-shop due/collection entries and exchange custody, and locks the visits                                     |
   | `payroll_run` / lines                          | D24, D25                                                                                                                                                        |

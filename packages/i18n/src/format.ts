@@ -1,12 +1,13 @@
 import { toBengaliDigits } from "./digits";
 
 /**
- * bn-BD display of an already-rounded decimal string: Bengali digits with South Asian grouping
- * (১২,৩৪,৫৬৭.৫০). Formatting only; it never rounds or recalculates (guide 21.1).
+ * bn-BD display of a decimal string: Bengali digits with South Asian grouping (১২,৩৪,৫৬৭.৫০),
+ * at most 2 decimal places (D61). Display only; it never recalculates (guide 21.1).
  */
 export function formatAmount(value: string): string {
-  const negative = value.startsWith("-");
-  const [integer = "0", fraction] = (negative ? value.slice(1) : value).split(".");
+  const shown = roundForDisplay(value);
+  const negative = shown.startsWith("-");
+  const [integer = "0", fraction] = (negative ? shown.slice(1) : shown).split(".");
   const lastThree = integer.slice(-3);
   const rest = integer.slice(0, -3);
   const grouped = rest ? `${rest.replace(/\B(?=(\d{2})+(?!\d))/g, ",")},${lastThree}` : lastThree;
@@ -67,17 +68,27 @@ export const weekdayNames = (): string[] =>
   Array.from({ length: 7 }, (_, i) => weekdayShort.format(utc(`2026-10-0${3 + i}`)));
 
 /**
- * A unit cost/price stored at 6-place precision (D08), shown with trailing zeros trimmed to a
- * minimum of 2 places: 25.000000 → ২৫.০০, 21.645400 → ২১.৬৪৫৪. Trimming zeros never rounds.
+ * A unit cost/price stored at 6-place precision (D08), shown with exactly 2 places (D61):
+ * 25.000000 → ২৫.০০, 21.645400 → ২১.৬৫.
  */
 export function formatRate(value: string): string {
-  const [integer = "0", fraction = ""] = value.split(".");
-  return formatAmount(`${integer}.${fraction.replace(/0+$/, "").padEnd(2, "0")}`);
+  const [integer = "0", fraction = ""] = roundForDisplay(value).split(".");
+  return formatAmount(`${integer}.${fraction.padEnd(2, "0")}`);
 }
 
-/** A whole number or count in Bengali digits, no grouping or decimals (e.g. ১২, ৩৪৫). */
+/** A count in Bengali digits, no grouping; a fraction shows at most 2 places (e.g. ১২, ৩৪৫.৫). */
 export function formatCount(value: number | string): string {
-  return toBengaliDigits(String(value));
+  return toBengaliDigits(roundForDisplay(String(value)));
+}
+
+const DECIMAL = /^-?\d+\.\d+$/;
+
+/**
+ * A plain decimal string with more than 2 places rounded to 2 for display (D61); anything else
+ * (whole numbers, text, dates) is returned unchanged.
+ */
+export function roundForDisplay(value: string): string {
+  return DECIMAL.test(value) ? toMoneyPlaces(value) : value;
 }
 
 /**
@@ -105,7 +116,7 @@ function toMoneyPlaces(value: string): string {
 
 /** Money for display, at most 2 decimal places; `null` (hidden or unknown) shows a dash. */
 export function formatMoney(value: string | null): string {
-  return value === null ? "—" : formatAmount(toMoneyPlaces(value));
+  return value === null ? "—" : formatAmount(value);
 }
 
 // Mirrors ENTITY_TIMEZONE in @bsd/domain (the owner, D08); i18n does not depend on domain.

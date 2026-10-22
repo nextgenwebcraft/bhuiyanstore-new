@@ -14,9 +14,10 @@ process.env.BETTER_AUTH_SECRET ??= "integration-test-secret-integration-test-sec
 process.env.BETTER_AUTH_URL ??= "http://localhost:3000";
 
 /**
- * D49 product batches (FIFO) through the application services. Hand-worked numbers:
- * opening 100 pieces at cost 10 / sale 12 on 2026-08-01 (batch 1); 2026-08-02 receives 50 at
- * cost 11 / sale 14 (batch 2); 2026-08-03 one DSR sheet issues 120:
+ * D49 product batches (FIFO) through the application services; a DSR line without a batch (D68)
+ * still takes FIFO. Hand-worked numbers: opening 100 pieces at cost 10 / sale 12 on 2026-08-01
+ * (batch 1); 2026-08-02 receives 50 at cost 11 / sale 14 (batch 2); 2026-08-03 one DSR sheet
+ * issues 120:
  *   100 from batch 1 (100 x 12 = 1200, cost 1000) + 20 from batch 2 (20 x 14 = 280, cost 220)
  *   = sales 1480, cost 1220; 30 pieces of batch 2 are left (value 330).
  */
@@ -30,6 +31,9 @@ let viewerCtx: AppContext;
 let company = "";
 let alpha = "";
 let mamun = "";
+/** D68: the opening batch and the order's batch ids, the engine's batch keys. */
+let opening = "";
+let paid = "";
 
 function must<T>(value: T | undefined | null): T {
   if (value === undefined || value === null) throw new Error("expected a value");
@@ -116,15 +120,30 @@ beforeAll(async () => {
     mustChangePassword: false,
   });
 
+  opening = must(
+    await db.productBatch.findFirst({ where: { productId: alpha, source: "opening" } }),
+  ).id;
+  // D68: 50 pieces ordered at 264 a carton of 24 (= 11 a piece, bill 550) to sell at 14 open
+  // batch 2; they arrive the same day.
+  const [order] = await postStockEntries(ctx, company, {
+    date: "2026-08-02",
+    lines: [
+      {
+        kind: "order",
+        productId: alpha,
+        pieces: "50",
+        freePieces: "0",
+        cartonRate: "264",
+        salePrice: "14",
+      },
+    ],
+    prices: [],
+  });
+  paid = must(must(order).batchId);
   await postStockEntries(ctx, company, {
     date: "2026-08-02",
-    // D57: the receipt batch costs its order bill per piece. 50 pieces ordered at 264 a carton of
-    // 24 (= 11 a piece, bill 550) and received the same day cost 550 / 50 = 11, as before.
-    lines: [
-      { kind: "order", productId: alpha, pieces: "50", freePieces: "0", cartonRate: "264" },
-      { kind: "receipt", productId: alpha, pieces: "50" },
-    ],
-    prices: [{ productId: alpha, kind: "sale", price: "14" }],
+    lines: [{ kind: "receipt", productId: alpha, pieces: "50", batchId: paid }],
+    prices: [],
   });
   const draft = await saveDsrDay(ctx, company, {
     date: "2026-08-03",
@@ -146,6 +165,7 @@ describe("D49: opening batch and receipts", () => {
     const day1 = await row("2026-08-01");
     expect(day1.batches).toEqual([
       {
+        key: opening,
         seq: 1,
         startDate: "2026-08-01",
         costPrice: "10",
@@ -182,8 +202,8 @@ describe("D49: DSR sales, stock report and month close", () => {
     ]);
     expect(p.batches.map((b) => [b.seq, b.quantity])).toEqual([[2, "30"]]);
     expect(view.persons[0]?.allocations).toEqual([
-      { seq: 1, quantity: "100", costPrice: "10", salePrice: "12" },
-      { seq: 2, quantity: "20", costPrice: "11", salePrice: "14" },
+      { key: opening, seq: 1, quantity: "100", costPrice: "10", salePrice: "12" },
+      { key: paid, seq: 2, quantity: "20", costPrice: "11", salePrice: "14" },
     ]);
   });
 
@@ -217,7 +237,14 @@ describe("D49: DSR sales, stock report and month close", () => {
       products: Record<string, { batches?: unknown[] }>;
     };
     expect(closing.products[alpha]?.batches).toEqual([
-      { seq: 2, startDate: "2026-08-02", costPrice: "11", salePrice: "14", quantity: "30" },
+      {
+        key: paid,
+        seq: 2,
+        startDate: "2026-08-02",
+        costPrice: "11",
+        salePrice: "14",
+        quantity: "30",
+      },
     ]);
     const carried = await row("2026-09-01");
     expect(carried.batches.map((b) => [b.seq, b.quantity])).toEqual([[2, "30"]]);
@@ -249,6 +276,7 @@ describe("D49: cost redaction", () => {
     const p = must(view.products.find((x) => x.productId === alpha));
     expect(p.batches).toEqual([
       {
+        key: paid,
         seq: 2,
         startDate: "2026-08-02",
         costPrice: null,

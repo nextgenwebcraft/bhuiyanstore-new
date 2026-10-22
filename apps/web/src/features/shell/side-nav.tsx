@@ -76,7 +76,7 @@ export function SideNav({
   onSearch?: () => void;
 }) {
   const companyId = workspace.company.id;
-  const currentHub = hubOfPath(currentPath)?.id;
+  const currentHub = hubOfPath(currentPath, workspace.company.isMaster)?.id;
 
   return (
     <nav aria-label={t("nav.menu")} className="flex flex-col gap-3 px-3 py-4">

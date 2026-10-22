@@ -2,6 +2,13 @@ export { Decimal, toDecimal, type DecimalInput } from "./decimal";
 export { COST_SCALE, SETTLEMENT_SCALE, roundCost, roundSettlement } from "./money";
 export { netIssuedQuantity, sumQuantities, toBaseQuantity, toCartonDisplay } from "./quantity";
 export {
+  batchUndelivered,
+  cartonFromPiece,
+  pieceFromCarton,
+  samePiecePrice,
+  type BatchMove,
+} from "./batch-lots";
+export {
   allocateByPriority,
   sortByAllocationPriority,
   type AllocatableLayer,
@@ -54,11 +61,31 @@ export {
   type FieldVisitTotals,
 } from "./field";
 export { computeMonth } from "./month/compute-month";
-export { summarizeDay, type DaySummary, type DsrDaySummary } from "./month/day-summary";
+export {
+  depositInvestment,
+  depositInvestmentPreview,
+  fundOrder,
+  orderFundingPreview,
+} from "./month/order-funding";
+export {
+  companyStatement,
+  type CompanyStatementKind,
+  type CompanyStatementLine,
+} from "./month/company-statement";
+export { srCost, summarizeDay, type DaySummary, type DsrDaySummary } from "./month/day-summary";
+export {
+  dashboardTotals,
+  profitLinesOf,
+  salesProfit,
+  type ProfitLine,
+  type ProfitParts,
+} from "./month/sales-profit";
 export {
   MONEY_KIND_EFFECTS,
+  STAFF_COST_SIGN,
   cashBookEffect,
   moneyKindsWithAccount,
+  staffCost,
   type MoneyKindEffect,
 } from "./month/money-kinds";
 export {
@@ -67,6 +94,7 @@ export {
   checkRecovery,
   proposeRecovery,
   recoveryTotal,
+  salaryAfterAbsence,
   type OwedInput,
   type Recovery,
   type RecoveryIssue,
@@ -84,4 +112,4 @@ export {
   type DamageOrigin,
 } from "./month/damage-case";
 export type * from "./month/types";
-export { owedBuckets } from "./month/types";
+export { companyFunds, owedBuckets } from "./month/types";

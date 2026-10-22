@@ -1,6 +1,4 @@
 import type {
-  CashAccount,
-  CashAccountUpsertRequest,
   CompanyCreateRequest,
   CompanyUpsertRequest,
   CompanyWorkspace,
@@ -15,18 +13,18 @@ import type {
   ExpenseCategory,
   ExpenseCategoryUpsertRequest,
   FieldDay,
+  FieldDayEndRequest,
   FieldShopCreateRequest,
   FieldVisit,
   FieldVisitDeleteRequest,
   FieldVisitSaveRequest,
   StaffLoginCreateRequest,
+  MasterMonth,
+  MasterSummary,
   MoneyEntry,
   MoneyEntryPostRequest,
   MonthCloseResult,
   MonthView,
-  Opening,
-  OpeningCutoffRequest,
-  OpeningSectionSaveRequest,
   PayrollAction,
   PayrollRun,
   PayrollSaveRequest,
@@ -43,7 +41,6 @@ import type {
   ReportRange,
   Role,
   RoleUpsertRequest,
-  SetupStatus,
   Shop,
   ShopStatement,
   ShopUpsertRequest,
@@ -140,6 +137,16 @@ export interface DistributionService {
   ): Promise<DsrDay>;
   /** Requires `sale.create`; drafts only. */
   discardDsrDay(companyId: string, dayId: string, input: DocumentTransitionRequest): Promise<void>;
+  /**
+   * D71: decides a DSR's pending field report; approving corrects the sheet (`sale.create`, and
+   * `sale.post` + `sale.reverse` for a posted one).
+   */
+  decideFieldReport(
+    companyId: string,
+    reportId: string,
+    action: "approve" | "reject",
+    input: DocumentTransitionRequest,
+  ): Promise<void>;
   /** Market due kinds need `sale.view`, the others `finance.view`; only visible kinds return. */
   listMoneyEntries(
     companyId: string,
@@ -159,6 +166,25 @@ export interface DistributionService {
   closeMonth(companyId: string, month: string): Promise<MonthCloseResult>;
   /** Requires `period.close`; only the latest closed month. */
   reopenMonth(companyId: string, month: string): Promise<MonthCloseResult>;
+
+  // Master panel (D66), super-admin only; `companyId` is the master company.
+
+  /** The tenant's master company, created on first open. */
+  getMasterWorkspace(options?: RequestOptions): Promise<CompanyWorkspace>;
+  /** Every company's summary, their total and the business's profit and loss. */
+  getMasterSummary(
+    companyId: string,
+    range: ReportRange,
+    options?: RequestOptions,
+  ): Promise<MasterSummary>;
+  /** Each company's and the master's close state for the month. */
+  getMasterMonth(companyId: string, month: string, options?: RequestOptions): Promise<MasterMonth>;
+  /** Closes (or reopens) the month for every company and the master together. */
+  masterMonthCommand(
+    companyId: string,
+    month: string,
+    action: "close" | "reopen",
+  ): Promise<MasterMonth>;
   /** Requires `report.view` (profit also `report.profit_view`, staff balances `finance.view`). */
   getReport(
     companyId: string,
@@ -304,17 +330,6 @@ export interface DistributionService {
   /** Sets a one-time password and signs the user out everywhere. */
   resetUserPassword(userId: string, input: UserPasswordResetRequest): Promise<User>;
 
-  // Opening balances (PLAN §9 Phase D). Requires `opening.prepare` unless noted.
-
-  /** The company's opening (live once its cutoff is saved, D43) with section summaries and totals. */
-  getOpening(companyId: string, options?: RequestOptions): Promise<Opening>;
-  /** Saves the go-live date at `version`; refused once a daily record exists or a month is closed. */
-  saveOpeningCutoff(companyId: string, input: OpeningCutoffRequest): Promise<Opening>;
-  /** Replaces one section's lines only and takes effect at once; refused once a month is closed. */
-  saveOpeningSection(companyId: string, input: OpeningSectionSaveRequest): Promise<Opening>;
-  /** Requires `company.view`: the go-live steps, computed on the server. */
-  getSetupStatus(companyId: string, options?: RequestOptions): Promise<SetupStatus>;
-
   // DSR field panel (D40). The demo mock has none.
 
   /** Requires `field.entry`: the signed-in DSR's own day (samari in hand, visits, shops). */
@@ -337,6 +352,8 @@ export interface DistributionService {
     visitId: string,
     input: FieldVisitDeleteRequest,
   ): Promise<void>;
+  /** Requires `field.entry`: firot and damage into the draft office sheet; returns the day. */
+  saveFieldDayEnd(companyId: string, input: FieldDayEndRequest): Promise<FieldDay>;
   /** Requires `field.shop_create`. */
   createFieldShop(
     companyId: string,
@@ -353,7 +370,6 @@ export interface DistributionService {
 export type ConfigLists = {
   staffRoles: { item: StaffRole; input: StaffRoleUpsertRequest };
   expenseCategories: { item: ExpenseCategory; input: ExpenseCategoryUpsertRequest };
-  cashAccounts: { item: CashAccount; input: CashAccountUpsertRequest };
 };
 
 export type ConfigListId = keyof ConfigLists;

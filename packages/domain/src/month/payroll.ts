@@ -37,6 +37,11 @@ export function recoveryTotal(recovery: Partial<Record<OwedBucket, DecimalInput>
   return RECOVERY_ORDER.reduce((total, b) => total.add(nonNegative(recovery[b])), ZERO).toString();
 }
 
+/** D67: the month's salary after the absent fees entered for it; never negative. */
+export function salaryAfterAbsence(salary: DecimalInput, absent: DecimalInput): string {
+  return Decimal.max(toDecimal(salary).sub(toDecimal(absent)), ZERO).toString();
+}
+
 /** Cash Pabe (D25): salary still to pay after recovery. */
 export function cashPay(salary: DecimalInput, recovery: Partial<Record<OwedBucket, DecimalInput>>) {
   return Decimal.max(toDecimal(salary).sub(recoveryTotal(recovery)), ZERO).toString();

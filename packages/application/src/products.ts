@@ -18,6 +18,7 @@ import type { AppContext, Tx } from "./context";
 import { fromDbDate, toDbDate } from "./dates";
 import { AppError, parseInput } from "./errors";
 import { isForeignKeyViolation, isUniqueViolation, runIdempotent } from "./idempotency";
+import { releaseOpeningLines } from "./opening-lock";
 
 const MAX_PIECES_PER_CARTON = 100_000;
 
@@ -366,9 +367,10 @@ const productInUse = () =>
   new AppError("VALIDATION_FAILED", [{ path: "id", code: "validation.product.inUse" }]);
 
 /**
- * Hard delete of a product that nothing refers to (D51): no opening, godown, DSR, field or damage
- * line. Its own carton sizes and price history go with it (cascade); a used product is refused
- * and should be archived instead.
+ * Hard delete of a product that nothing refers to (D51): no godown, DSR, field or damage line,
+ * and no opening line once the opening is locked (an unlocked opening's line goes with it, D59).
+ * Its own carton sizes, price history and opening batch go with it; a used product is refused and
+ * should be archived instead.
  */
 export async function deleteProduct(
   ctx: AppContext,
@@ -380,20 +382,24 @@ export async function deleteProduct(
     await ctx.db.$transaction(async (tx) => {
       const existing = await findProduct(tx, companyId, productId);
       const refs = await Promise.all([
-        tx.openingStockLine.count({ where: { productId } }),
         tx.stockEntry.count({ where: { productId } }),
         tx.dsrLine.count({ where: { productId } }),
         tx.fieldVisitLine.count({ where: { productId } }),
+        tx.fieldDayReportLine.count({ where: { productId } }),
         tx.damageCaseLine.count({ where: { productId } }),
       ]);
       if (refs.some((n) => n > 0)) throw productInUse();
+      const opening = await releaseOpeningLines(tx, companyId, { productId });
+      if (!opening) throw productInUse();
+      // D68: without stock entries the product's only batch is its opening batch.
+      await tx.productBatch.deleteMany({ where: { productId } });
       await tx.product.delete({ where: { id: productId } });
       await recordAudit(tx, ctx, {
         companyId,
         action: "product.delete",
         resourceType: "product",
         resourceId: productId,
-        before: toProduct(existing),
+        before: { ...toProduct(existing), openingLinesRemoved: opening },
       });
     });
   } catch (error) {

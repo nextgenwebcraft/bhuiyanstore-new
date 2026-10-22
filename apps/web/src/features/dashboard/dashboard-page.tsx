@@ -1,56 +1,36 @@
 "use client";
 
 import { ReportExportButtons, useReportDownload } from "@/features/reports/report-export";
-import { canViewReport, type DayView, type ReportId, type ReportRange } from "@bsd/contracts";
-import { Decimal } from "@bsd/domain";
 import {
-  t,
-  type TranslationKey,
-  toBengaliDigits,
-  formatBusinessDate,
-  formatCount,
-  formatMonth,
-} from "@bsd/i18n";
-import Link from "next/link";
+  canViewReport,
+  type DashboardSummary,
+  type ReportId,
+  type ReportRange,
+} from "@bsd/contracts";
+import { Decimal } from "@bsd/domain";
+import { t, type TranslationKey, formatBusinessDate } from "@bsd/i18n";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
-import { ButtonLink } from "@/components/button";
 import { Icon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { QueryError } from "@/components/query-error";
-import { CardGridSkeleton, StatsSkeleton, TableSkeleton } from "@/components/skeleton";
+import { StatsSkeleton, TableSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
-import { StatTile } from "@/components/stat-tile";
+import { StatTile, type StatTone } from "@/components/stat-tile";
 import { errorCodeOf } from "@/data/ports/service-error";
 import { useDashboardSummary } from "@/data/queries";
-import { SetupBanner, useSetupNext } from "@/features/administration/setup-next";
-import { DayGate } from "@/features/daily/daily-kit";
 import { money } from "@/components/data-table";
+import { useStaffRowActions } from "@/features/accounts/staff-dialogs";
 import { ReportBody, SalesProfitBody } from "@/features/reports/report-view";
-import {
-  companyHref,
-  findNavEntry,
-  navAccess,
-  visibleHubs,
-  type VisibleTab,
-} from "@/features/shell/navigation";
+import { companyHref } from "@/features/shell/navigation";
 import { NavGate } from "@/features/shell/nav-gate";
-import { PageWarnings } from "@/features/shell/notifications";
 import { PrintButton, PrintHeader } from "@/features/shell/print";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 import { useToday } from "@/lib/today";
-import {
-  earlierMonths,
-  parsePeriod,
-  periodParam,
-  periodRange,
-  periodYears,
-  type Period,
-} from "./period";
+import { parsePeriod, periodParam, periodRange, type Period } from "./period";
+import { PeriodPicker } from "./period-picker";
 
 const nonZero = (value: string) => !new Decimal(value).isZero();
-const sum = (values: string[]) =>
-  values.reduce((total, v) => total.plus(v), new Decimal(0)).toString();
 
 // ---------------------------------------------------------------- the period filter
 
@@ -61,45 +41,8 @@ const pillClass = (active: boolean) =>
       : "border-border bg-surface text-text shadow-card hover:border-border-strong hover:bg-surface-hover"
   }`;
 
-function PeriodSelect({
-  label,
-  active,
-  value,
-  options,
-  onPick,
-  showNewest = false,
-}: {
-  label: string;
-  active: boolean;
-  value: string;
-  options: { value: string; label: string }[];
-  onPick: (value: string) => void;
-  /** Show the first (newest) option instead of the label while inactive. */
-  showNewest?: boolean;
-}) {
-  return (
-    <select
-      aria-label={label}
-      disabled={options.length === 0}
-      value={active ? value : ""}
-      onChange={(event) => event.target.value && onPick(event.target.value)}
-      className={`${pillClass(active)} cursor-pointer disabled:cursor-not-allowed disabled:opacity-60`}
-    >
-      {/* Hidden rather than a real option so picking the newest still fires a change. */}
-      <option value="" disabled hidden={showNewest}>
-        {showNewest ? (options[0]?.label ?? label) : label}
-      </option>
-      {options.map((option) => (
-        <option key={option.value} value={option.value}>
-          {option.label}
-        </option>
-      ))}
-    </select>
-  );
-}
-
-/** Today | this month | last month | an earlier month | a year; the choice lives in the URL. */
-function PeriodBar({
+/** Today | this month | last month | any month or year (calendar picker); kept in the URL (D60). */
+export function PeriodBar({
   period,
   cutoffDate,
   today,
@@ -132,26 +75,12 @@ function PeriodBar({
           {item.label}
         </button>
       ))}
-      <PeriodSelect
-        label={t("dashboard.period.earlierMonth")}
-        active={period.kind === "month"}
-        value={period.kind === "month" ? period.month : ""}
-        options={earlierMonths(cutoffDate, today).map((month) => ({
-          value: month,
-          label: formatMonth(month),
-        }))}
-        onPick={(month) => onChange({ kind: "month", month })}
-      />
-      <PeriodSelect
-        label={t("dashboard.period.year")}
-        active={period.kind === "year"}
-        value={period.kind === "year" ? period.year : ""}
-        options={periodYears(cutoffDate, today).map((year) => ({
-          value: year,
-          label: toBengaliDigits(year),
-        }))}
-        onPick={(year) => onChange({ kind: "year", year })}
-        showNewest
+      <PeriodPicker
+        period={period}
+        cutoffDate={cutoffDate}
+        today={today}
+        onChange={onChange}
+        active={period.kind === "month" || period.kind === "year"}
       />
     </div>
   );
@@ -159,193 +88,93 @@ function PeriodBar({
 
 // ---------------------------------------------------------------- the summary
 
-function Summary({ range }: { range: ReportRange }) {
-  const { company } = useCurrentWorkspace();
-  const summary = useDashboardSummary(company.id, range);
-  if (summary.isPending || summary.isPlaceholderData) return <StatsSkeleton count={8} />;
-  if (summary.isError) {
-    return <QueryError error={summary.error} onRetry={() => void summary.refetch()} />;
-  }
-  const d = summary.data;
+type Card = {
+  label: TranslationKey;
+  value: string | undefined;
+  /** Its colour; "result" is success when the value is 0 or more and error below. */
+  tone?: StatTone | "result";
+  /** Its step in the calculation chain: subtracted (−) or a result (=). */
+  op?: "minus" | "equals";
+};
+
+/**
+ * D69: মোট সামারি to ডিএসআর খরচ, and মোট বিক্রি = সামারি minus those five (D74); then মোট প্রফিট (from the DSR lines) − অপারেটিং
+ * + ডিএসআর খরচ = নিট প্রফিট (domain `dashboardTotals`). A card without permission is left out.
+ */
+export function chainCards(d: DashboardSummary): Card[] {
+  return [
+    { label: "dashboard.card.issued", value: d.issuedValue, tone: "info" },
+    { label: "dashboard.card.returned", value: d.returnValue },
+    { label: "dashboard.card.damage", value: d.damageSaleValue },
+    { label: "dashboard.card.commission", value: d.commission },
+    { label: "dashboard.card.operating", value: d.expenses },
+    { label: "dashboard.card.staffCost", value: d.staffCost },
+    { label: "dashboard.card.totalSales", value: d.totalSales, op: "equals", tone: "result" },
+    { label: "dashboard.card.salesProfit", value: d.salesProfit, tone: "result" },
+    { label: "dashboard.card.profitCost", value: d.profitCost, op: "minus", tone: "error" },
+    { label: "dashboard.card.netProfit", value: d.netProfit, op: "equals", tone: "result" },
+  ];
+}
+
+/** The position cards beside the chain: dues, goods and what the SRs owe (D60, D67, D69). */
+export function summaryCards(d: DashboardSummary, singleDay: boolean): Card[] {
+  return [
+    ...(singleDay
+      ? ([
+          { label: "dashboard.card.newDue", value: d.marketDueCreated },
+          { label: "dashboard.card.oldDue", value: d.marketDueOpening },
+        ] satisfies Card[])
+      : []),
+    { label: "dashboard.card.totalDue", value: d.marketDueOutstanding, tone: "warning" },
+    { label: "dashboard.card.totalCost", value: d.totalCost, tone: "error" },
+    { label: "dashboard.card.undelivered", value: d.undeliveredValue },
+    { label: "dashboard.card.stock", value: d.stockValue, tone: "info" },
+    { label: "dashboard.card.srCost", value: d.srCost, tone: "warning" },
+  ];
+}
+
+const OP_SIGN = { minus: "−", equals: "=" } as const;
+
+export function SummaryCards({ cards, columns = 4 }: { cards: Card[]; columns?: 4 | 5 }) {
   return (
-    <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      <StatTile label={t("dashboard.netSales")} value={money(d.netSales)} emphasis />
-      {d.grossProfit !== undefined ? (
-        <StatTile label={t("dashboard.grossProfit")} value={money(d.grossProfit)} />
-      ) : null}
-      <StatTile label={t("dashboard.cashCollected")} value={money(d.cashCollected)} emphasis />
-      <StatTile label={t("dashboard.marketDueCreated")} value={money(d.marketDueCreated)} />
-      <StatTile label={t("dashboard.oldDuesCollected")} value={money(d.oldDuesCollected)} />
-      <StatTile
-        label={t("dashboard.marketDueOutstanding")}
-        value={money(d.marketDueOutstanding)}
-        emphasis
-      />
-      {d.receivedValue !== undefined ? (
-        <StatTile label={t("dashboard.receivedValue")} value={money(d.receivedValue)} />
-      ) : null}
-      {d.stockValue !== undefined ? (
-        <StatTile
-          label={t("dashboard.stockValue")}
-          value={money(d.stockValue)}
-          hint={t("dashboard.stockValueHint")}
-        />
-      ) : null}
-      {(d.cashAccounts ?? []).map((a) => (
-        <StatTile
-          key={a.accountId}
-          label={`${t("dashboard.cashAccounts")} · ${a.accountName || t("cashBook.noAccount")}`}
-          value={money(a.balance)}
-        />
-      ))}
+    <dl
+      className={`grid grid-cols-1 gap-3 sm:grid-cols-2 ${columns === 5 ? "lg:grid-cols-5" : "lg:grid-cols-4"}`}
+    >
+      {cards.flatMap((card) =>
+        card.value === undefined
+          ? []
+          : [
+              <StatTile
+                key={card.label}
+                label={card.op ? `${OP_SIGN[card.op]} ${t(card.label)}` : t(card.label)}
+                value={money(card.value)}
+                tone={
+                  card.tone === "result"
+                    ? card.value.trim().startsWith("-")
+                      ? "error"
+                      : "success"
+                    : card.tone
+                }
+              />,
+            ],
+      )}
     </dl>
   );
 }
 
-// ---------------------------------------------------------------- today's work
-
-/** The day's entry screens in work order (a day block of the workbook). */
-const DAILY_ENTRY_PATHS = [
-  "sales/daily-summaries",
-  "purchases/receipts",
-  "finance/expenses",
-  "dsr/settlements",
-  "finance/supplier-deposits",
-  "purchases/orders",
-  "inventory/damage",
-] as const;
-
-type Status = { done: boolean; detail: string } | null;
-
-/** What the day view already holds for each daily entry screen; null = nothing to show. */
-function entryStatus(path: string, view: DayView): Status {
-  const products = (field: "received" | "ordered" | "damaged") =>
-    view.products.filter((p) => nonZero(p[field]));
-  switch (path) {
-    case "sales/daily-summaries": {
-      const dsrs = new Set(view.persons.filter((p) => nonZero(p.issued)).map((p) => p.staffId));
-      return {
-        done: dsrs.size > 0,
-        detail: `${formatCount(dsrs.size)} ${t("dashboard.work.dsrCount")} · ${money(view.money.sales)}`,
-      };
-    }
-    case "purchases/receipts": {
-      const rows = products("received");
-      return {
-        done: rows.length > 0,
-        detail: `${formatCount(rows.length)} ${t("dashboard.work.productCount")} · ${money(sum(rows.map((r) => r.receiptValue)))}`,
-      };
-    }
-    case "purchases/orders": {
-      const rows = products("ordered");
-      return {
-        done: rows.length > 0,
-        detail: `${formatCount(rows.length)} ${t("dashboard.work.productCount")} · ${money(sum(rows.map((r) => r.orderValue)))}`,
-      };
-    }
-    case "inventory/damage": {
-      const rows = products("damaged");
-      return {
-        done: rows.length > 0,
-        detail: `${formatCount(rows.length)} ${t("dashboard.work.productCount")}`,
-      };
-    }
-    case "finance/expenses":
-      return { done: nonZero(view.money.expenses), detail: money(view.money.expenses) };
-    case "finance/supplier-deposits":
-      return { done: nonZero(view.money.banked), detail: money(view.money.banked) };
-    default:
-      return null;
-  }
-}
-
-/**
- * The day's entry screens, each with what is already entered for today, so the day can be
- * finished top to bottom like a day block in the workbook.
- */
-function WorkChecklist({ view, links }: { view: DayView; links: VisibleTab[] }) {
-  const { company } = useCurrentWorkspace();
-  const rows = links.map((link) => ({ link, status: entryStatus(link.path, view) }));
-  const tracked = rows.filter((r) => r.status);
-  const done = tracked.filter((r) => r.status?.done).length;
-
+/** The chain, then the other cards (D67). */
+export function SummaryGroups({ d, singleDay }: { d: DashboardSummary; singleDay: boolean }) {
   return (
     <>
-      <p className="-mt-2 mb-3 text-xs text-text-muted">
-        {formatCount(done)}/{formatCount(tracked.length)} {t("dashboard.work.progress")}
-      </p>
-      <PageWarnings warnings={view.warnings} />
-      <ol className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
-        {rows.map(({ link, status }, index) => (
-          <li key={link.path}>
-            <Link
-              href={companyHref(company.id, link.path)}
-              className={`group flex h-full flex-col gap-2 rounded-xl border bg-surface p-3.5 shadow-card transition-colors hover:border-brand/40 ${
-                status?.done ? "border-success/30" : "border-border"
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <span
-                  aria-hidden
-                  className={`grid size-7 shrink-0 place-items-center rounded-full text-xs font-semibold ${
-                    status?.done ? "bg-success text-surface" : "bg-surface-muted text-text-muted"
-                  }`}
-                >
-                  {status?.done ? <Icon name="check" className="size-4" /> : formatCount(index + 1)}
-                </span>
-                <span className="min-w-0 flex-1 text-sm leading-snug font-medium">
-                  {t(link.labelKey)}
-                </span>
-                <Icon
-                  name="arrowRight"
-                  className="size-4 text-text-subtle transition-colors group-hover:text-brand"
-                />
-              </div>
-              <div className="flex flex-wrap items-center gap-2 pl-9.5 text-xs">
-                {status ? (
-                  <span className={status.done ? "text-success" : "text-text-muted"}>
-                    {status.done ? t("dashboard.work.done") : t("dashboard.work.pending")}
-                  </span>
-                ) : null}
-                {status?.done ? (
-                  <span className="text-text-muted tabular-nums">{status.detail}</span>
-                ) : null}
-              </div>
-            </Link>
-          </li>
-        ))}
-      </ol>
+      <SummaryCards cards={chainCards(d)} columns={5} />
+      <SummaryCards cards={summaryCards(d, singleDay)} columns={5} />
     </>
-  );
-}
-
-function TodaysWork({ today }: { today: string }) {
-  const workspace = useCurrentWorkspace();
-  const tabs = visibleHubs(workspace).flatMap((hub) => hub.tabs);
-  const links = DAILY_ENTRY_PATHS.flatMap((path) => {
-    const entry = findNavEntry(path);
-    if (!entry || navAccess(workspace, entry.section, entry.item) !== "ok") return [];
-    return [tabs.find((tab) => tab.path === path) ?? { path, labelKey: entry.item.labelKey }];
-  });
-  if (links.length === 0) return null;
-  return (
-    <DayGate
-      companyId={workspace.company.id}
-      date={today}
-      skeleton={<CardGridSkeleton count={links.length} />}
-    >
-      {(view) => (
-        <Section title={t("dashboard.work.title")}>
-          <WorkChecklist view={view} links={links} />
-        </Section>
-      )}
-    </DayGate>
   );
 }
 
 // ---------------------------------------------------------------- report sections
 
-function Section({
+export function Section({
   title,
   collapsible = false,
   defaultOpen = true,
@@ -407,140 +236,52 @@ function ExportButtons({
   );
 }
 
-type ReportSectionSpec = {
-  id: string;
-  titleKey: TranslationKey;
-  reports: readonly ReportId[];
-  defaultOpen: boolean;
-};
-
-/** Report sections in priority order; the closed ones fetch only once opened. */
-const REPORT_SECTIONS: readonly ReportSectionSpec[] = [
-  {
-    id: "dsr",
-    titleKey: "dashboard.section.byDsr",
-    reports: ["dsr-daily", "person-sales"],
-    defaultOpen: true,
-  },
-  {
-    id: "salesProfit",
-    titleKey: "dashboard.section.salesProfit",
-    reports: ["sales", "profit"],
-    defaultOpen: true,
-  },
-  {
-    id: "cash",
-    titleKey: "dashboard.section.cash",
-    reports: ["daily-cash", "cash-book"],
-    defaultOpen: false,
-  },
-  {
-    id: "stock",
-    titleKey: "dashboard.section.stock",
-    reports: ["stock", "cartons"],
-    defaultOpen: false,
-  },
-  {
-    id: "marketDue",
-    titleKey: "dashboard.section.marketDue",
-    reports: ["market-due"],
-    defaultOpen: false,
-  },
-  {
-    id: "company",
-    titleKey: "dashboard.section.company",
-    reports: ["company-due", "company-account"],
-    defaultOpen: false,
-  },
-  { id: "damage", titleKey: "dashboard.section.damage", reports: ["damage"], defaultOpen: false },
-  {
-    id: "staff",
-    titleKey: "dashboard.section.staff",
-    reports: ["staff-balances"],
-    defaultOpen: false,
-  },
-];
-
+/** কর্মীর ব্যালান্স, then পণ্য অনুযায়ী বিক্রি ও লাভ (D60); the other report sections are gone. */
 function ReportSections({ range }: { range: ReportRange }) {
   const { company, permissions } = useCurrentWorkspace();
   const canExport = permissions.includes("report.export");
   const allowed = (id: ReportId) => canViewReport(id, permissions);
+  const staffActions = useStaffRowActions();
   return (
     <>
-      {REPORT_SECTIONS.map((spec) => {
-        const reports = spec.reports.filter(allowed);
-        if (reports.length === 0) return null;
-        if (spec.id === "salesProfit" && reports.includes("sales")) {
-          return (
-            <Section
-              key={spec.id}
-              title={t(spec.titleKey)}
-              collapsible
-              defaultOpen={spec.defaultOpen}
-            >
-              {canExport ? (
-                <div className="flex flex-wrap items-center justify-end gap-x-6 gap-y-2">
-                  {reports.map((id) => (
-                    <div key={id} className="flex items-center gap-2">
-                      <span className="text-xs text-text-muted">
-                        {t(`report.name.${id}` as TranslationKey)}
-                      </span>
-                      <ExportButtons companyId={company.id} report={id} range={range} />
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-              <SalesProfitBody
-                companyId={company.id}
-                range={range}
-                withProfit={reports.includes("profit")}
-              />
-            </Section>
-          );
-        }
-        return (
-          <Section
-            key={spec.id}
-            title={t(spec.titleKey)}
-            collapsible
-            defaultOpen={spec.defaultOpen}
-          >
-            {reports.map((id) => (
-              <div key={id} className="flex flex-col gap-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  {reports.length > 1 ? (
-                    <h3 className="text-sm font-semibold text-text-muted">
-                      {t(`report.name.${id}` as TranslationKey)}
-                    </h3>
-                  ) : (
-                    <span />
-                  )}
-                  {canExport ? (
-                    <ExportButtons companyId={company.id} report={id} range={range} />
-                  ) : null}
-                </div>
-                <ReportBody
-                  companyId={company.id}
-                  report={id}
-                  range={range}
-                  hide={
-                    id === "company-due" && reports.includes("company-account")
-                      ? ["companyPayable"]
-                      : []
-                  }
-                />
-              </div>
-            ))}
-          </Section>
-        );
-      })}
+      {allowed("staff-balances") ? (
+        <Section title={t("dashboard.section.staff")} collapsible>
+          {canExport ? (
+            <div className="flex justify-end">
+              <ExportButtons companyId={company.id} report="staff-balances" range={range} />
+            </div>
+          ) : null}
+          <ReportBody
+            companyId={company.id}
+            report="staff-balances"
+            range={range}
+            rowActions={{ staffBalances: staffActions.rowAction }}
+          />
+          {staffActions.dialog}
+        </Section>
+      ) : null}
+      {allowed("sales") ? (
+        <Section title={t("report.table.salesProfitByProduct")} collapsible>
+          {canExport ? (
+            <div className="flex justify-end">
+              <ExportButtons companyId={company.id} report="sales" range={range} />
+            </div>
+          ) : null}
+          <SalesProfitBody
+            companyId={company.id}
+            range={range}
+            withProfit={allowed("profit")}
+            productOnly
+          />
+        </Section>
+      ) : null}
     </>
   );
 }
 
 // ---------------------------------------------------------------- the page
 
-function RangeHeading({ range, isToday }: { range: ReportRange; isToday: boolean }) {
+export function RangeHeading({ range, isToday }: { range: ReportRange; isToday: boolean }) {
   return (
     <div className="mb-6 flex flex-wrap items-center gap-3">
       <p className="flex items-center gap-2 text-base font-semibold">
@@ -559,13 +300,12 @@ function RangeHeading({ range, isToday }: { range: ReportRange; isToday: boolean
 }
 
 /**
- * Everything below the period filter: the summary, today's work (today only) and the reports.
- * Explains why there is nothing when no opening is live or the period lies before its cutoff.
+ * Everything below the period filter: the summary and the reports. Explains why there is
+ * nothing when no opening is live or the period lies before its cutoff.
  */
-function DashboardBody({ range, isToday }: { range: ReportRange; isToday: boolean }) {
+function DashboardBody({ range }: { range: ReportRange }) {
   const { company, permissions } = useCurrentWorkspace();
   const summary = useDashboardSummary(company.id, range);
-  const next = useSetupNext();
   const canReport = company.modules.includes("reports") && permissions.includes("report.view");
 
   if (summary.isPending || summary.isPlaceholderData) {
@@ -589,7 +329,6 @@ function DashboardBody({ range, isToday }: { range: ReportRange; isToday: boolea
         tone="warning"
         title={t("daily.noOpening.title")}
         hint={t("daily.noOpening.hint")}
-        action={next ? <ButtonLink href={next.href}>{t(next.label)}</ButtonLink> : undefined}
       />
     );
   }
@@ -611,9 +350,8 @@ function DashboardBody({ range, isToday }: { range: ReportRange; isToday: boolea
         <StatePanel title={t("dashboard.noActivity")} hint={t("dashboard.noActivityHint")} />
       ) : null}
       <Section title={t("dashboard.section.summary")}>
-        <Summary range={range} />
+        <SummaryGroups d={d} singleDay={range.from === range.to} />
       </Section>
-      {isToday ? <TodaysWork today={range.to} /> : null}
       {canReport ? <ReportSections range={range} /> : null}
     </div>
   );
@@ -626,7 +364,7 @@ export function DashboardPage() {
   const today = useToday();
   const period = parsePeriod(search.get("period"), today);
   const range = periodRange(period, today);
-  // The opening cutoff comes with the summary and bounds the month and year choices.
+  // The opening cutoff comes with the summary and widens the picker's year list.
   const cutoff = useDashboardSummary(company.id, range).data?.cutoffDate ?? null;
 
   const choose = (next: Period) =>
@@ -645,10 +383,9 @@ export function DashboardPage() {
         actions={<PrintButton />}
       />
       <PrintHeader title={t("nav.dashboard")} from={range.from} to={range.to} />
-      <SetupBanner />
       <PeriodBar period={period} cutoffDate={cutoff} today={today} onChange={choose} />
       <RangeHeading range={range} isToday={period.kind === "today"} />
-      <DashboardBody range={range} isToday={period.kind === "today"} />
+      <DashboardBody range={range} />
     </NavGate>
   );
 }

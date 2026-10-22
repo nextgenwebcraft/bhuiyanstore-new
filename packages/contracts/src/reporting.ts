@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { monthStatuses } from "./month";
 import { businessDateSchema, decimalStringSchema, idSchema } from "./primitives";
 
 /** One DSR's day: what they sold, collected and left due on the market. */
@@ -33,8 +34,37 @@ export const dashboardSummarySchema = z.object({
   cashCollected: decimalStringSchema,
   /** Unpaid part of the range's sales. */
   marketDueCreated: decimalStringSchema,
+  /** All market dues still open at the start of the range (D60 আগের বকেয়া). */
+  marketDueOpening: decimalStringSchema,
   /** All market dues still open at the end of the range. */
   marketDueOutstanding: decimalStringSchema,
+  /** D60: samari value (issued × sale price), returns and shop commission over the range. */
+  issuedValue: decimalStringSchema,
+  returnValue: decimalStringSchema,
+  commission: decimalStringSchema,
+  /** Category expenses and staff shortages over the range; require `finance.view`. */
+  expenses: decimalStringSchema.optional(),
+  staffShortage: decimalStringSchema.optional(),
+  /** D67: money paid out for staff (advance to salary, net of returns); requires `finance.view`. */
+  staffCost: decimalStringSchema.optional(),
+  /** D67 (amended 2026-10-22, domain `srCost`): one day's SR loan change, or what the SRs owe at the end of a longer range; requires `finance.view`. */
+  srCost: decimalStringSchema.optional(),
+  /** D67: DSR-damaged pieces at the sale price. */
+  damageSaleValue: decimalStringSchema,
+  /** D69: ফেরত + ড্যামেজ + কমিশন + অপারেটিং খরচ + ডিএসআর খরচ, shown only; requires `finance.view`. */
+  totalCost: decimalStringSchema.optional(),
+  /** D69: অপারেটিং খরচ + ডিএসআর খরচ, what নিট প্রফিট takes off the profit; requires `finance.view`. */
+  profitCost: decimalStringSchema.optional(),
+  /** D74 মোট বিক্রি: issuedValue − totalCost; requires `finance.view`. */
+  totalSales: decimalStringSchema.optional(),
+  /** D69: the DSR-line profit (domain `salesProfit`); requires `inventory.cost_view` and `report.profit_view`. */
+  salesProfit: decimalStringSchema.optional(),
+  /** D69: salesProfit − অপারেটিং খরচ − ডিএসআর খরচ; requires `finance.view` too. */
+  netProfit: decimalStringSchema.optional(),
+  /** Cost value of damaged pieces; requires `inventory.cost_view`. */
+  damageValue: decimalStringSchema.optional(),
+  /** Billed value of goods ordered and not received at the end (D48); requires `inventory.cost_view`. */
+  undeliveredValue: decimalStringSchema.optional(),
   postedSummaryCount: z.number().int().nonnegative(),
   postedReceiptCount: z.number().int().nonnegative(),
   byDsr: z.array(dsrDayRowSchema),
@@ -44,12 +74,64 @@ export const dashboardSummarySchema = z.object({
   receivedValue: decimalStringSchema.optional(),
   /** Cost-based saleable inventory value at the end of the range; requires `inventory.cost_view`. */
   stockValue: decimalStringSchema.optional(),
-  /** Each cash and bank account's balance at the end of the range (D52); requires `finance.view`. */
-  cashAccounts: z
-    .array(
-      z.object({ accountId: z.string(), accountName: z.string(), balance: decimalStringSchema }),
-    )
-    .optional(),
 });
 
 export type DashboardSummary = z.infer<typeof dashboardSummarySchema>;
+
+/** One company's net profit over the range (engine `month.profit`; salaries paid by it, D67). */
+const companyProfitSchema = z.object({
+  companyId: idSchema,
+  companyName: z.string(),
+  gross: decimalStringSchema,
+  salaries: decimalStringSchema,
+  expenses: decimalStringSchema,
+  srIncentive: decimalStringSchema,
+  net: decimalStringSchema,
+});
+
+/**
+ * The master panel's dashboard (D66): every company's summary, their total, and the profit and
+ * loss of the whole business = Σ company net profit − salaries − master expenses.
+ */
+export const masterSummarySchema = z.object({
+  from: businessDateSchema,
+  to: businessDateSchema,
+  companies: z.array(
+    z.object({ companyId: idSchema, companyName: z.string(), summary: dashboardSummarySchema }),
+  ),
+  total: dashboardSummarySchema,
+  /** Requires `report.profit_view` (a super-admin has every permission). */
+  profit: z
+    .object({
+      companies: z.array(companyProfitSchema),
+      companiesNet: decimalStringSchema,
+      salaries: decimalStringSchema,
+      masterExpenses: decimalStringSchema,
+      net: decimalStringSchema,
+    })
+    .nullable(),
+});
+
+export type MasterSummary = z.infer<typeof masterSummarySchema>;
+
+/**
+ * One month across every company and the master (D66): each one's close state, and whether the
+ * month can be closed or reopened for all of them together.
+ */
+export const masterMonthSchema = z.object({
+  month: z.string(),
+  companies: z.array(
+    z.object({
+      companyId: idSchema,
+      companyName: z.string(),
+      isMaster: z.boolean(),
+      status: z.enum(monthStatuses),
+      /** Why this one can't be closed (an i18n key), or null. */
+      closeBlockedBy: z.string().nullable(),
+    }),
+  ),
+  canCloseAll: z.boolean(),
+  canReopenAll: z.boolean(),
+});
+
+export type MasterMonth = z.infer<typeof masterMonthSchema>;

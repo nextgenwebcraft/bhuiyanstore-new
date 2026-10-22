@@ -28,8 +28,8 @@ const item = (path: string, labelKey: TranslationKey, permission: PermissionId):
  * The single source of access rules (module + permission per path), in a fixed order across
  * companies. Where a path appears in the sidebar is `hubs`; access always comes from here. The SR
  * section follows the guide section 5.3 SR account workspace (loans, repayments, incentives,
- * payables; money only, D18). Only screens backed by the monthly workbook (plus sign-in and
- * opening) are listed; reports live on the dashboard (D44).
+ * payables; money only, D18). Only screens backed by the monthly workbook (plus sign-in) are
+ * listed; reports live on the dashboard (D44). The opening is seeded with a new company (D73).
  */
 export const navigation: readonly NavSection[] = [
   {
@@ -45,6 +45,7 @@ export const navigation: readonly NavSection[] = [
       item("sales/daily-summaries", "nav.sales.dailySummaries", "sale.view"),
       item("sales/shops", "nav.sales.shops", "company.view"),
       item("sales/field", "nav.sales.field", "field.entry"),
+      item("sales/sr", "nav.sales.sr", "sr_loan.view"),
     ],
   },
   {
@@ -62,31 +63,14 @@ export const navigation: readonly NavSection[] = [
     module: "inventory",
     items: [
       item("inventory/stock", "nav.inventory.stock", "inventory.view"),
-      item("inventory/damage", "nav.inventory.damage", "damage.report"),
-      item("inventory/claims", "nav.inventory.claims", "damage.report"),
-    ],
-  },
-  {
-    id: "sr-accounts",
-    labelKey: "nav.srAccounts",
-    module: "srAccounts",
-    items: [
-      item("sr-accounts/representatives", "nav.srAccounts.representatives", "sr_loan.view"),
-      item("sr-accounts/statement", "nav.srAccounts.statement", "sr_loan.view"),
-      item("sr-accounts/incentives", "sr.incentivePayment", "sr_incentive.view"),
-      item("sr-accounts/settlements", "nav.srAccounts.settlements", "sr_loan.view"),
+      item("inventory/undelivered", "nav.inventory.undelivered", "inventory.view"),
     ],
   },
   {
     id: "dsr-staff",
     labelKey: "nav.dsrStaff",
     module: "dsrStaff",
-    items: [
-      item("dsr/settlements", "nav.dsrStaff.settlements", "settlement.view"),
-      item("dsr/accounts", "nav.dsrStaff.accounts", "finance.view"),
-      item("dsr/statement", "nav.dsrStaff.statement", "finance.view"),
-      item("dsr/salary-recovery", "dsr.salaryRecovery", "compensation.view"),
-    ],
+    items: [item("dsr/salary-recovery", "dsr.salaryRecovery", "compensation.view")],
   },
   {
     id: "finance",
@@ -97,9 +81,6 @@ export const navigation: readonly NavSection[] = [
       item("finance/cash-book", "nav.finance.cashBook", "finance.view"),
       item("finance/supplier-deposits", "finance.supplierDeposit", "finance.view"),
       item("finance/expenses", "nav.finance.expenses", "finance.view"),
-      item("finance/receivables", "nav.finance.receivables", "finance.view"),
-      item("finance/payables", "nav.finance.payables", "finance.view"),
-      item("finance/period-close", "nav.finance.periodClose", "period.close"),
     ],
   },
   {
@@ -118,21 +99,12 @@ export const navigation: readonly NavSection[] = [
     items: [
       item("admin/users", "nav.administration.users", "membership.manage"),
       item("admin/roles", "nav.administration.roles", "role.manage"),
-      item("admin/opening", "nav.administration.opening", "opening.prepare"),
     ],
   },
 ];
 
 export type HubId =
-  | "dashboard"
-  | "sales"
-  | "goods"
-  | "shops"
-  | "money"
-  | "ledgers"
-  | "monthEnd"
-  | "opening"
-  | "setup";
+  "dashboard" | "sales" | "goods" | "shops" | "money" | "ledgers" | "monthEnd" | "setup" | "staff";
 
 type HubTab = {
   path: string;
@@ -155,7 +127,7 @@ const hubDefinitions: readonly Omit<Hub, "shortcut">[] = [
     id: "sales",
     labelKey: "nav.hub.sales",
     icon: "sales",
-    tabs: [{ path: "sales/daily-summaries" }, { path: "sales/field" }],
+    tabs: [{ path: "sales/daily-summaries" }, { path: "sales/sr" }, { path: "sales/field" }],
   },
   {
     id: "goods",
@@ -165,8 +137,7 @@ const hubDefinitions: readonly Omit<Hub, "shortcut">[] = [
       { path: "purchases/orders", labelKey: "nav.flow.orders" },
       { path: "purchases/receipts", labelKey: "nav.flow.receipts" },
       { path: "inventory/stock" },
-      { path: "inventory/damage" },
-      { path: "inventory/claims" },
+      { path: "inventory/undelivered" },
     ],
   },
   {
@@ -179,43 +150,17 @@ const hubDefinitions: readonly Omit<Hub, "shortcut">[] = [
     id: "money",
     labelKey: "nav.hub.money",
     icon: "finance",
-    tabs: [
-      { path: "finance/supplier-deposits" },
-      { path: "finance/expenses" },
-      { path: "dsr/settlements", labelKey: "nav.flow.staffCash" },
-      { path: "sr-accounts/settlements" },
-      { path: "sr-accounts/incentives" },
-    ],
+    tabs: [{ path: "finance/supplier-deposits" }, { path: "finance/company-account" }],
   },
   {
     id: "ledgers",
     labelKey: "nav.flow.accounts",
     icon: "reports",
     tabs: [
-      { path: "finance/company-account" },
       { path: "finance/cash-book" },
-      { path: "finance/receivables" },
-      { path: "finance/payables" },
-      { path: "dsr/accounts" },
-      { path: "dsr/statement" },
-      { path: "sr-accounts/representatives" },
-      { path: "sr-accounts/statement" },
-    ],
-  },
-  {
-    id: "monthEnd",
-    labelKey: "nav.flow.monthEnd",
-    icon: "calendar",
-    tabs: [
+      { path: "finance/expenses" },
       { path: "dsr/salary-recovery", labelKey: "nav.flow.payroll" },
-      { path: "finance/period-close", labelKey: "nav.flow.monthClose" },
     ],
-  },
-  {
-    id: "opening",
-    labelKey: "nav.administration.opening",
-    icon: "administration",
-    tabs: [{ path: "admin/opening" }],
   },
   {
     id: "setup",
@@ -224,7 +169,6 @@ const hubDefinitions: readonly Omit<Hub, "shortcut">[] = [
     tabs: [
       { path: "masters/products" },
       { path: "masters/cartons" },
-      { path: "masters/staff" },
       { path: "masters/lists" },
       { path: "admin/users" },
       { path: "admin/roles" },
@@ -233,13 +177,32 @@ const hubDefinitions: readonly Omit<Hub, "shortcut">[] = [
 ];
 
 /**
- * The sidebar: exactly these nine hubs in this order (Alt+1…9), each a row of tabs. Every built
- * screen is a tab of exactly one hub; access still comes from `navigation`. Presentation only.
+ * The master panel's hubs (D66, D67): the all-company dashboard (with the month close) and the
+ * global staff; everything else lives in the companies.
  */
-export const hubs: readonly Hub[] = hubDefinitions.map((hub, index) => ({
-  ...hub,
-  shortcut: index + 1,
-}));
+const masterHubDefinitions: readonly Omit<Hub, "shortcut">[] = [
+  { id: "dashboard", labelKey: "nav.master.dashboard", icon: "dashboard", tabs: [{ path: "" }] },
+  {
+    id: "staff",
+    labelKey: "nav.master.staff",
+    icon: "srAccounts",
+    tabs: [{ path: "masters/staff", labelKey: "nav.master.staff" }],
+  },
+];
+
+const withShortcuts = (definitions: readonly Omit<Hub, "shortcut">[]): readonly Hub[] =>
+  definitions.map((hub, index) => ({ ...hub, shortcut: index + 1 }));
+
+/**
+ * The sidebar: exactly these hubs in this order (Alt+1…n), each a row of tabs. Every built
+ * company screen is a tab of exactly one hub; access still comes from `navigation`. Presentation
+ * only. The master company has its own set (`masterHubs`).
+ */
+export const hubs: readonly Hub[] = withShortcuts(hubDefinitions);
+
+export const masterHubs: readonly Hub[] = withShortcuts(masterHubDefinitions);
+
+const hubsFor = (master: boolean) => (master ? masterHubs : hubs);
 
 export type VisibleTab = { path: string; labelKey: TranslationKey };
 
@@ -253,14 +216,14 @@ export type VisibleHub = {
   tabs: VisibleTab[];
 };
 
-/** The hub whose tabs include this path. */
-export function hubOfPath(path: string): Hub | undefined {
-  return hubs.find((hub) => hub.tabs.some((tab) => tab.path === path));
+/** The hub whose tabs include this path (in the master panel's hubs when `master`). */
+export function hubOfPath(path: string, master = false): Hub | undefined {
+  return hubsFor(master).find((hub) => hub.tabs.some((tab) => tab.path === path));
 }
 
 /** The hubs with at least one screen this person may open in this company, tabs cut down too. */
 export function visibleHubs(workspace: CompanyWorkspace): VisibleHub[] {
-  return hubs.flatMap((hub): VisibleHub[] => {
+  return hubsFor(workspace.company.isMaster).flatMap((hub): VisibleHub[] => {
     const tabs = hub.tabs.flatMap((tab): VisibleTab[] => {
       const found = findNavEntry(tab.path);
       if (!found || navAccess(workspace, found.section, found.item) !== "ok") return [];
@@ -291,13 +254,22 @@ export function findNavEntry(path: string): { section: NavSection; item: NavItem
   return undefined;
 }
 
-/** Effective visibility = enabled module ∩ authorized permission (guide section 4.3). */
+/**
+ * Effective visibility = enabled module ∩ authorized permission (guide section 4.3); a
+ * super-admin opens every module (D59). A company opens only company screens and the master
+ * company only its own (D66).
+ */
 export function navAccess(
   workspace: CompanyWorkspace,
   section: NavSection,
   navItem: NavItem,
 ): NavAccess {
-  if (section.module && !workspace.company.modules.includes(section.module)) {
+  if (!hubOfPath(navItem.path, workspace.company.isMaster)) return "forbidden";
+  if (
+    section.module &&
+    !workspace.allModules &&
+    !workspace.company.modules.includes(section.module)
+  ) {
     return "moduleUnavailable";
   }
   return workspace.permissions.includes(navItem.permission) ? "ok" : "forbidden";

@@ -13,6 +13,8 @@ import {
   checkRecovery,
   proposeRecovery,
   recoveryTotal,
+  roundSettlement,
+  salaryAfterAbsence,
   sumAmounts,
   toDecimal,
   type Recovery,
@@ -27,8 +29,10 @@ import { postingGuard, requireAll } from "./daily";
 import { fromDbDate, toDbDate } from "./dates";
 import { AppError, invalid, parseInput } from "./errors";
 import { runIdempotent } from "./idempotency";
-import { liveOpening, runLedger } from "./ledger";
+import { liveOpening } from "./ledger";
+import { staffCompanyIds } from "./master";
 import { plain } from "./numeric";
+import { staffRun } from "./staff-ledger";
 
 /**
  * Payroll runs (D11, D24, D25, guide §11.6, §11.9): one run per company and month for every
@@ -68,9 +72,9 @@ function defaultDate(month: string): string {
   return last < today ? last : today < firstOfMonth(month) ? firstOfMonth(month) : today;
 }
 
-/** What each person owes at the end of `date` (engine closing balances). */
+/** What each person owes at the end of `date` (the tenant-wide staff run's closing, D65). */
 async function owedOn(db: Db, access: CompanyAccess, date: string): Promise<Map<string, Owed>> {
-  const run = await runLedger(db, access, date);
+  const run = await staffRun(db, access.company.tenantId, date);
   const owed = new Map<string, Owed>();
   for (const [staffId, b] of Object.entries(run?.output.closing.staff ?? {})) {
     owed.set(staffId, { advance: b.advance, loan: b.loan, shortage: b.shortage });
@@ -79,15 +83,16 @@ async function owedOn(db: Db, access: CompanyAccess, date: string): Promise<Map<
 }
 
 /**
- * Distributor employees (not SR) assigned to the company on some day of the month, with the
- * latest assignment's monthly salary as the payroll default (salary master).
+ * Distributor employees (not SR) assigned to the company or globally (master, D65) on some day of
+ * the month, with the latest assignment's monthly salary as the payroll default (salary master).
+ * D67: each company pays salaries from its own sales.
  */
 async function eligibleStaff(db: Db, companyId: string, month: string) {
   const from = toDbDate(firstOfMonth(month));
   const to = toDbDate(lastOfMonth(month));
   const assignments = await db.staffAssignment.findMany({
     where: {
-      companyId,
+      companyId: { in: await staffCompanyIds(db, companyId) },
       from: { lte: to },
       OR: [{ to: null }, { to: { gte: from } }],
       role: { kind: { not: "sr" } },
@@ -113,30 +118,102 @@ async function eligibleStaff(db: Db, companyId: string, month: string) {
   return [...people.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/** D67: Σ absent fees per person entered in the company for the month. */
+async function absentFees(db: Db, companyId: string, month: string) {
+  const rows = await db.moneyEntry.findMany({
+    where: {
+      companyId,
+      kind: "staffAbsent",
+      status: "posted",
+      date: { gte: toDbDate(firstOfMonth(month)), lte: toDbDate(lastOfMonth(month)) },
+    },
+    select: { staffId: true, amount: true },
+  });
+  const byStaff = new Map<string, string[]>();
+  for (const r of rows) {
+    if (r.staffId) byStaff.set(r.staffId, [...(byStaff.get(r.staffId) ?? []), plain(r.amount)]);
+  }
+  return new Map([...byStaff].map(([id, amounts]) => [id, sumAmounts(amounts)]));
+}
+
+/** D75: per person, the run's posted salary accrual and whether Cash Pabe was posted. */
+async function runPostings(db: Db, runId: string) {
+  const rows = await db.moneyEntry.findMany({
+    where: {
+      payrollRunId: runId,
+      status: "posted",
+      kind: { in: ["salaryAccrual", "salaryPaid"] },
+    },
+    select: { staffId: true, kind: true, amount: true },
+  });
+  const byStaff = new Map<string, { accrual: string; paid: boolean }>();
+  for (const r of rows) {
+    if (!r.staffId) continue;
+    const now = byStaff.get(r.staffId) ?? { accrual: "0", paid: false };
+    byStaff.set(
+      r.staffId,
+      r.kind === "salaryAccrual"
+        ? { ...now, accrual: sumAmounts([now.accrual, plain(r.amount)]) }
+        : { ...now, paid: true },
+    );
+  }
+  return byStaff;
+}
+
+/** The monthly salary (salary master, else last month's payroll) of every eligible person. */
+async function proposedSalaries(db: Db, companyId: string, month: string) {
+  const previous = await db.payrollLine.findMany({
+    where: { run: { companyId, status: { not: "reversed" }, month: { lt: month } } },
+    orderBy: { run: { month: "desc" } },
+    select: { staffId: true, salary: true },
+  });
+  const lastSalary = new Map<string, string>();
+  for (const p of previous)
+    if (!lastSalary.has(p.staffId)) lastSalary.set(p.staffId, plain(p.salary));
+  return (await eligibleStaff(db, companyId, month)).map((p) => ({
+    ...p,
+    salary: p.monthlySalary ?? lastSalary.get(p.id) ?? "0",
+  }));
+}
+
 function line(input: {
   staffId: string;
   staffName: string;
   roleName: string;
   salary: string;
+  absent: string;
   owed: Owed;
   recovery: Owed;
   reason: string;
+  paid: boolean;
 }) {
+  const net = salaryAfterAbsence(input.salary, input.absent);
   return {
     ...input,
-    proposed: proposeRecovery(input.salary, input.owed),
+    proposed: proposeRecovery(net, input.owed),
     recoveryTotal: recoveryTotal(input.recovery),
-    cashPay: cashPay(input.salary, input.recovery),
+    cashPay: cashPay(net, input.recovery),
   };
 }
 
 function totalsOf(lines: ReturnType<typeof line>[]) {
   return {
     salary: sumAmounts(lines.map((l) => l.salary)),
+    absent: sumAmounts(lines.map((l) => l.absent)),
     recovery: sumAmounts(lines.map((l) => l.recoveryTotal)),
     cashPay: sumAmounts(lines.map((l) => l.cashPay)),
   };
 }
+
+/** What the person owed when their salary was posted; null until then (D75: posted = paid now). */
+const snapshotOf = (l: {
+  owedAdvance: Prisma.Decimal | null;
+  owedLoan: Prisma.Decimal | null;
+  owedShortage: Prisma.Decimal | null;
+}): Owed | null =>
+  l.owedAdvance && l.owedLoan && l.owedShortage
+    ? { advance: plain(l.owedAdvance), loan: plain(l.owedLoan), shortage: plain(l.owedShortage) }
+    : null;
 
 const recoveryOf = (l: {
   recoverAdvance: Prisma.Decimal;
@@ -161,53 +238,52 @@ async function viewOf(
   const owed =
     live && cutoffDate && date >= cutoffDate ? await owedOn(db, access, date) : new Map();
 
+  const absent = live ? await absentFees(db, access.company.id, month) : new Map<string, string>();
+
   let lines: ReturnType<typeof line>[];
   if (row) {
+    const posted = await runPostings(db, row.id);
     lines = row.lines.map((l) => {
-      const snapshot: Owed | null =
-        l.owedAdvance && l.owedLoan && l.owedShortage
-          ? {
-              advance: plain(l.owedAdvance),
-              loan: plain(l.owedLoan),
-              shortage: plain(l.owedShortage),
-            }
-          : null;
+      const snapshot = snapshotOf(l);
       const personOwed = snapshot ?? owed.get(l.staffId) ?? ZERO_OWED;
       const salary = plain(l.salary);
-      const roleName = l.staff.assignments.find((a) => a.companyId === access.company.id)?.role
-        .name;
+      const done = posted.get(l.staffId);
+      const personAbsent = snapshot
+        ? roundSettlement(toDecimal(salary).sub(toDecimal(done?.accrual ?? "0")))
+        : (absent.get(l.staffId) ?? "0");
+      const net = salaryAfterAbsence(salary, personAbsent);
+      const roleName = (
+        l.staff.assignments.find((a) => a.companyId === access.company.id) ?? l.staff.assignments[0]
+      )?.role.name;
       return line({
         staffId: l.staffId,
         staffName: l.staff.name,
         roleName: roleName ?? "",
         salary,
+        absent: personAbsent,
         owed: personOwed,
-        recovery: live && !l.override ? proposeRecovery(salary, personOwed) : recoveryOf(l),
+        recovery:
+          live && !l.override && !snapshot ? proposeRecovery(net, personOwed) : recoveryOf(l),
         reason: l.reason,
+        paid:
+          row.status === "paid" ||
+          (snapshot !== null && (row.status === "draft" || done?.paid === true)),
       });
     });
   } else {
-    const previous = await db.payrollLine.findMany({
-      where: {
-        run: { companyId: access.company.id, status: { not: "reversed" }, month: { lt: month } },
-      },
-      orderBy: { run: { month: "desc" } },
-      select: { staffId: true, salary: true },
-    });
-    const lastSalary = new Map<string, string>();
-    for (const p of previous)
-      if (!lastSalary.has(p.staffId)) lastSalary.set(p.staffId, plain(p.salary));
-    lines = (await eligibleStaff(db, access.company.id, month)).map((p) => {
-      const salary = p.monthlySalary ?? lastSalary.get(p.id) ?? "0";
+    lines = (await proposedSalaries(db, access.company.id, month)).map((p) => {
+      const personAbsent = absent.get(p.id) ?? "0";
       const personOwed = owed.get(p.id) ?? ZERO_OWED;
       return line({
         staffId: p.id,
         staffName: p.name,
         roleName: p.roleName,
-        salary,
+        salary: p.salary,
+        absent: personAbsent,
         owed: personOwed,
-        recovery: proposeRecovery(salary, personOwed),
+        recovery: proposeRecovery(salaryAfterAbsence(p.salary, personAbsent), personOwed),
         reason: "",
+        paid: false,
       });
     });
   }
@@ -302,34 +378,42 @@ export async function savePayrollRun(
         throw invalid("version", "validation.daily.stale");
       }
       if (live && live.status !== "draft") throw invalid("", "validation.payroll.notDraft");
+      const paid = new Set(live?.lines.filter((l) => snapshotOf(l)).map((l) => l.staffId));
       const owed = await owedOn(tx, access, request.date);
+      const absent = await absentFees(tx, companyId, month);
+      const netOf = (l: { staffId: string; salary: string }) =>
+        salaryAfterAbsence(l.salary, absent.get(l.staffId) ?? "0");
       const eligible = new Set((await eligibleStaff(tx, companyId, month)).map((p) => p.id));
       for (const [index, l] of request.lines.entries()) {
+        if (paid.has(l.staffId)) continue;
         if (!eligible.has(l.staffId)) {
           throw invalid(`lines.${index}.staffId`, "validation.payroll.notEligible");
         }
         if (l.recovery) {
           const error = recoveryIssues(
             index,
-            l.salary,
+            netOf(l),
             owed.get(l.staffId) ?? ZERO_OWED,
             l.recovery,
           );
           if (error) throw error;
         }
       }
-      const lines = request.lines.map((l) => {
-        const recovery = l.recovery ?? proposeRecovery(l.salary, owed.get(l.staffId) ?? ZERO_OWED);
-        return {
-          staffId: l.staffId,
-          salary: l.salary,
-          recoverAdvance: recovery.advance,
-          recoverLoan: recovery.loan,
-          recoverShortage: recovery.shortage,
-          override: l.recovery !== null,
-          reason: l.reason,
-        };
-      });
+      const lines = request.lines
+        .filter((l) => !paid.has(l.staffId))
+        .map((l) => {
+          const recovery =
+            l.recovery ?? proposeRecovery(netOf(l), owed.get(l.staffId) ?? ZERO_OWED);
+          return {
+            staffId: l.staffId,
+            salary: l.salary,
+            recoverAdvance: recovery.advance,
+            recoverLoan: recovery.loan,
+            recoverShortage: recovery.shortage,
+            override: l.recovery !== null,
+            reason: l.reason,
+          };
+        });
       let id: string;
       if (live) {
         const updated = await tx.payrollRun.updateMany({
@@ -340,7 +424,7 @@ export async function savePayrollRun(
           },
         });
         if (updated.count !== 1) throw invalid("version", "validation.daily.stale");
-        await tx.payrollLine.deleteMany({ where: { runId: live.id } });
+        await tx.payrollLine.deleteMany({ where: { runId: live.id, owedAdvance: null } });
         await tx.payrollLine.createMany({ data: lines.map((l) => ({ ...l, runId: live.id })) });
         id = live.id;
       } else {
@@ -373,9 +457,26 @@ const ACTION_PERMISSIONS: Record<PayrollAction, Parameters<typeof requireAll>[1]
   pay: ["compensation.manage", "payment.post"],
   reverse: ["compensation.manage", "payment.reverse"],
   discard: ["compensation.manage"],
+  payStaff: ["compensation.manage", "dsr_due.allocate_to_salary", "payment.post"],
 };
 
-/** approve | pay | reverse | discard the month's live run. */
+/** D75: a draft with every eligible person at the proposed salary, for the first Pay Now. */
+async function openDraft(tx: Tx, ctx: AppContext, access: CompanyAccess, month: string) {
+  const people = await proposedSalaries(tx, access.company.id, month);
+  return tx.payrollRun.create({
+    data: {
+      tenantId: access.company.tenantId,
+      companyId: access.company.id,
+      month,
+      date: toDbDate(defaultDate(month)),
+      createdById: ctx.actor.userId,
+      lines: { create: people.map((p) => ({ staffId: p.id, salary: p.salary })) },
+    },
+    include: runInclude,
+  });
+}
+
+/** approve | pay | reverse | discard the month's live run, or pay one person now (D75). */
 export async function payrollCommand(
   ctx: AppContext,
   companyId: string,
@@ -396,9 +497,12 @@ export async function payrollCommand(
     { scope: companyId, action: `payroll.${action}:${month}`, requestKey },
     { month, ...request },
     async (tx) => {
-      const run = await liveRun(tx, companyId, month);
-      if (!run || run.version !== request.version)
+      const found = await liveRun(tx, companyId, month);
+      const fresh = !found && action === "payStaff" && request.version === 0;
+      if (found ? found.version !== request.version : !fresh) {
         throw invalid("version", "validation.daily.stale");
+      }
+      const run = found ?? (await openDraft(tx, ctx, access, month));
       const date = fromDbDate(run.date);
       const bump = async (from: string, data: Prisma.PayrollRunUpdateManyMutationInput) => {
         const updated = await tx.payrollRun.updateMany({
@@ -418,9 +522,48 @@ export async function payrollCommand(
         reference: `payroll ${month}`,
         createdById: ctx.actor.userId,
       });
+      /** Posts salary − absent and the recovery, and freezes what the person owed. */
+      const postSalary = async (
+        index: number,
+        l: RunRow["lines"][number],
+        net: string,
+        personOwed: Owed,
+        onDate: string,
+      ) => {
+        const recovery = l.override ? recoveryOf(l) : proposeRecovery(net, personOwed);
+        const error = recoveryIssues(index, net, personOwed, recovery);
+        if (error) throw error;
+        const total = recoveryTotal(recovery);
+        if (toDecimal(net).gt(0)) {
+          await tx.moneyEntry.create({ data: entry("salaryAccrual", l.staffId, net, onDate) });
+        }
+        if (toDecimal(total).gt(0)) {
+          await tx.moneyEntry.create({
+            data: {
+              ...entry("salaryRecovery", l.staffId, total, onDate),
+              allocAdvance: recovery.advance,
+              allocLoan: recovery.loan,
+              allocShortage: recovery.shortage,
+            },
+          });
+        }
+        await tx.payrollLine.update({
+          where: { id: l.id },
+          data: {
+            recoverAdvance: recovery.advance,
+            recoverLoan: recovery.loan,
+            recoverShortage: recovery.shortage,
+            owedAdvance: personOwed.advance,
+            owedLoan: personOwed.loan,
+            owedShortage: personOwed.shortage,
+          },
+        });
+        return cashPay(net, recovery);
+      };
 
       if (action === "discard") {
         if (run.status !== "draft") throw invalid("", "validation.payroll.notDraft");
+        if (run.lines.some((l) => snapshotOf(l))) throw invalid("", "validation.payroll.hasPaid");
         await tx.payrollRun.delete({ where: { id: run.id } });
         await recordAudit(tx, ctx, {
           companyId,
@@ -436,37 +579,11 @@ export async function payrollCommand(
         if (run.status !== "draft") throw invalid("", "validation.payroll.notDraft");
         await postingGuard(tx, companyId, date);
         const owed = await owedOn(tx, access, date);
+        const absent = await absentFees(tx, companyId, month);
         for (const [index, l] of run.lines.entries()) {
-          const salary = plain(l.salary);
-          const personOwed = owed.get(l.staffId) ?? ZERO_OWED;
-          const recovery = l.override ? recoveryOf(l) : proposeRecovery(salary, personOwed);
-          const error = recoveryIssues(index, salary, personOwed, recovery);
-          if (error) throw error;
-          const total = recoveryTotal(recovery);
-          if (toDecimal(salary).gt(0)) {
-            await tx.moneyEntry.create({ data: entry("salaryAccrual", l.staffId, salary, date) });
-          }
-          if (toDecimal(total).gt(0)) {
-            await tx.moneyEntry.create({
-              data: {
-                ...entry("salaryRecovery", l.staffId, total, date),
-                allocAdvance: recovery.advance,
-                allocLoan: recovery.loan,
-                allocShortage: recovery.shortage,
-              },
-            });
-          }
-          await tx.payrollLine.update({
-            where: { id: l.id },
-            data: {
-              recoverAdvance: recovery.advance,
-              recoverLoan: recovery.loan,
-              recoverShortage: recovery.shortage,
-              owedAdvance: personOwed.advance,
-              owedLoan: personOwed.loan,
-              owedShortage: personOwed.shortage,
-            },
-          });
+          if (snapshotOf(l)) continue;
+          const net = salaryAfterAbsence(plain(l.salary), absent.get(l.staffId) ?? "0");
+          await postSalary(index, l, net, owed.get(l.staffId) ?? ZERO_OWED, date);
         }
         await bump("draft", {
           status: "approved",
@@ -480,8 +597,11 @@ export async function payrollCommand(
         const payDate = request.payDate ?? todayBusinessDate();
         if (payDate < date) throw invalid("payDate", "validation.payroll.payBeforeRun");
         await postingGuard(tx, companyId, payDate);
+        const posted = await runPostings(tx, run.id);
         for (const l of run.lines) {
-          const amount = cashPay(plain(l.salary), recoveryOf(l));
+          const done = posted.get(l.staffId);
+          if (done?.paid) continue;
+          const amount = cashPay(done?.accrual ?? "0", recoveryOf(l));
           if (toDecimal(amount).gt(0)) {
             await tx.moneyEntry.create({ data: entry("salaryPaid", l.staffId, amount, payDate) });
           }
@@ -494,8 +614,45 @@ export async function payrollCommand(
         });
       }
 
+      if (action === "payStaff") {
+        if (run.status !== "draft") throw invalid("", "validation.payroll.notDraft");
+        const index = run.lines.findIndex((l) => l.staffId === request.staffId);
+        const l = run.lines[index];
+        if (!l) throw invalid("staffId", "validation.payroll.notEligible");
+        if (snapshotOf(l)) throw invalid("staffId", "validation.payroll.alreadyPaid");
+        const payDate = request.payDate ?? todayBusinessDate();
+        if (payDate < firstOfMonth(month)) {
+          throw invalid("payDate", "validation.payroll.payBeforeRun");
+        }
+        const onDate = payDate < lastOfMonth(month) ? payDate : lastOfMonth(month);
+        await postingGuard(tx, companyId, onDate);
+        if (payDate !== onDate) await postingGuard(tx, companyId, payDate);
+        const absent = (await absentFees(tx, companyId, month)).get(l.staffId) ?? "0";
+        const net = salaryAfterAbsence(plain(l.salary), absent);
+        const owed = (await owedOn(tx, access, onDate)).get(l.staffId) ?? ZERO_OWED;
+        const amount = await postSalary(index, l, net, owed, onDate);
+        if (toDecimal(amount).gt(0)) {
+          await tx.moneyEntry.create({ data: entry("salaryPaid", l.staffId, amount, payDate) });
+        }
+        const everyone = run.lines.every((other) => other.id === l.id || snapshotOf(other));
+        await bump(
+          "draft",
+          everyone
+            ? {
+                status: "paid",
+                approvedAt: new Date(),
+                approvedById: ctx.actor.userId,
+                payDate: toDbDate(payDate),
+                paidAt: new Date(),
+                paidById: ctx.actor.userId,
+              }
+            : {},
+        );
+      }
+
       if (action === "reverse") {
-        if (run.status !== "approved" && run.status !== "paid") {
+        const paidSome = run.status === "draft" && run.lines.some((l) => snapshotOf(l));
+        if (run.status !== "approved" && run.status !== "paid" && !paidSome) {
           throw invalid("", "validation.payroll.notApproved");
         }
         const entries = await tx.moneyEntry.findMany({

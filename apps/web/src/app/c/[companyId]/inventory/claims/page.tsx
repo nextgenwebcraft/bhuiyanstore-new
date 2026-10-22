@@ -1,5 +1,7 @@
-import { DamageCasesPage } from "@/features/damage/damage-cases-page";
+import { redirect } from "next/navigation";
 
-export default function ClaimsRoute() {
-  return <DamageCasesPage path="inventory/claims" />;
+/** Damage goes to the company as a ড্যামেজ জমা deposit now (D63); keep old links working. */
+export default async function ClaimsRoute({ params }: { params: Promise<{ companyId: string }> }) {
+  const { companyId } = await params;
+  redirect(`/c/${companyId}/finance/supplier-deposits`);
 }

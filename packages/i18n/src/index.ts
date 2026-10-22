@@ -10,6 +10,7 @@ export {
   formatRate,
   formatShortDate,
   monthNames,
+  roundForDisplay,
   weekdayNames,
 } from "./format";
 export { matchesSearch, normalizeSearchText } from "./search";

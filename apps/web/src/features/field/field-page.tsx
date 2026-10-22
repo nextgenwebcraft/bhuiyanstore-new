@@ -24,13 +24,18 @@ import { ListSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
 import { StatusBadge } from "@/components/status-badge";
 import { describeError, type DescribedError } from "@/data/ports/service-error";
+import { useSession } from "@/data/http/http-provider";
 import {
   useCreateFieldShop,
   useDeleteFieldVisit,
+  useDsrFieldDay,
   useFieldDay,
+  useSaveFieldDayEnd,
   useSaveFieldVisit,
+  useStaffRecords,
 } from "@/data/queries";
 import { clean, DateBar, useWorkingDate } from "@/features/daily/daily-kit";
+import { dsrsOn } from "@/features/daily/dsr-days-page";
 import { CartonQty, StatusChip } from "@/components/data-table";
 import { NavGate } from "@/features/shell/nav-gate";
 import { FIELD_PATH } from "@/features/shell/navigation";
@@ -142,12 +147,17 @@ function VisitCard({
   );
 }
 
+/** The DSR a super-admin acts for (D59); absent on a DSR's own login. */
+const forStaff = (staffId: string | undefined) => (staffId ? { staffId } : {});
+
 function ShopDialog({
   companyId,
+  staffId,
   onCreated,
   onClose,
 }: {
   companyId: string;
+  staffId: string | undefined;
   onCreated: (shopId: string) => void;
   onClose: () => void;
 }) {
@@ -163,7 +173,7 @@ function ShopDialog({
     }
     setErrors(noErrors);
     try {
-      const shop = await create.mutateAsync(values);
+      const shop = await create.mutateAsync({ ...values, ...forStaff(staffId) });
       onCreated(shop.id);
     } catch (error) {
       setErrors(describeError(error, ["name", "ownerName", "phone", "area"]));
@@ -224,11 +234,13 @@ function deliveredOf(draft: LineDraft, piecesPerCarton: string): string | null {
 
 function VisitEditor({
   companyId,
+  staffId,
   day,
   visit,
   onDone,
 }: {
   companyId: string;
+  staffId: string | undefined;
   day: FieldDay;
   visit: FieldVisit | null;
   onDone: () => void;
@@ -323,6 +335,7 @@ function VisitEditor({
       dueCollected: collectedText,
       note: note.trim(),
       lines,
+      ...forStaff(staffId),
     };
     try {
       await save.mutateAsync({ ...(visit ? { visitId: visit.id } : {}), input });
@@ -515,6 +528,7 @@ function VisitEditor({
       {addingShop ? (
         <ShopDialog
           companyId={companyId}
+          staffId={staffId}
           onCreated={(created) => {
             setShopId(created);
             setAddingShop(false);
@@ -526,10 +540,137 @@ function VisitEditor({
   );
 }
 
-function FieldDayView() {
+/**
+ * The DSR's day end: firot and damage per product, saved into the office's draft sheet. The
+ * office reviews, edits and posts it from the daily sales sheet.
+ */
+function DayEnd({
+  companyId,
+  staffId,
+  day,
+}: {
+  companyId: string;
+  staffId: string | undefined;
+  day: FieldDay;
+}) {
+  const save = useSaveFieldDayEnd(companyId);
+  const blank = (value: string) => (value === "0" ? "" : value);
+  const [rows, setRows] = useState(() =>
+    Object.fromEntries(
+      day.dayEnd.map((p) => [
+        p.productId,
+        { returned: blank(p.returned), damaged: blank(p.damaged) },
+      ]),
+    ),
+  );
+  const [error, setError] = useState<string | undefined>();
+  const [done, setDone] = useState(false);
+  const set = (productId: string, patch: Partial<{ returned: string; damaged: string }>) => {
+    setDone(false);
+    setRows((current) => ({
+      ...current,
+      [productId]: { returned: "", damaged: "", ...current[productId], ...patch },
+    }));
+  };
+
+  async function submit() {
+    setError(undefined);
+    const lines = day.dayEnd.map((p) => ({
+      productId: p.productId,
+      returned: pieces(rows[p.productId]?.returned ?? ""),
+      damaged: pieces(rows[p.productId]?.damaged ?? ""),
+    }));
+    if (lines.some((l) => !WHOLE.test(l.returned) || !WHOLE.test(l.damaged))) {
+      setError(t("validation.wholeNumber"));
+      return;
+    }
+    try {
+      await save.mutateAsync({ date: day.date, lines, ...forStaff(staffId) });
+      setDone(true);
+    } catch (e) {
+      setError(describeError(e, []).form);
+    }
+  }
+
+  return (
+    <section className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-3">
+      <h2 className="text-sm font-semibold">{t("field.dayEnd.title")}</h2>
+      <p className="text-xs text-text-muted">
+        {t(day.locked ? "field.dayEnd.hintPosted" : "field.dayEnd.hint")}
+      </p>
+      {day.reportPending ? (
+        <p role="status" className="rounded-md bg-warning/10 px-2 py-1.5 text-xs text-warning">
+          {t("field.dayEnd.pending")}
+        </p>
+      ) : null}
+      <ul className="flex flex-col gap-3">
+        {day.dayEnd.map((p) => (
+          <li key={p.productId} className="flex flex-col gap-2 border-t border-border pt-2">
+            <div className="flex items-center justify-between gap-2 text-sm">
+              <span className="truncate font-medium">{p.productName}</span>
+              <span className="text-xs text-text-muted tabular-nums">
+                {t("field.inHand")}:{" "}
+                <CartonQty pieces={p.remaining} piecesPerCarton={p.piecesPerCarton} />
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Field id={`dayend-${p.productId}-r`} label={t("field.dayEnd.returned")}>
+                <input
+                  id={`dayend-${p.productId}-r`}
+                  inputMode="numeric"
+                  value={rows[p.productId]?.returned ?? ""}
+                  onChange={(event) => set(p.productId, { returned: event.target.value })}
+                  className={inputClass}
+                />
+              </Field>
+              <Field id={`dayend-${p.productId}-d`} label={t("field.dayEnd.damaged")}>
+                <input
+                  id={`dayend-${p.productId}-d`}
+                  inputMode="numeric"
+                  value={rows[p.productId]?.damaged ?? ""}
+                  onChange={(event) => set(p.productId, { damaged: event.target.value })}
+                  className={inputClass}
+                />
+              </Field>
+            </div>
+          </li>
+        ))}
+      </ul>
+      {error ? (
+        <p role="alert" className="text-sm text-error">
+          {error}
+        </p>
+      ) : null}
+      {done ? (
+        <p className="text-sm text-success">
+          {t(day.locked ? "field.dayEnd.sent" : "field.dayEnd.saved")}
+        </p>
+      ) : null}
+      <div className="flex flex-wrap gap-2">
+        <Button
+          onClick={() => {
+            for (const p of day.dayEnd)
+              set(p.productId, { returned: p.remaining === "0" ? "" : p.remaining });
+          }}
+        >
+          {t("field.dayEnd.fillRemaining")}
+        </Button>
+        <Button variant="primary" disabled={save.isPending} onClick={() => void submit()}>
+          {save.isPending
+            ? t("common.saving")
+            : t(day.locked ? "field.dayEnd.send" : "field.dayEnd.save")}
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+function FieldDayView({ staffId }: { staffId?: string }) {
   const { company } = useCurrentWorkspace();
   const [date, setDate] = useWorkingDate();
-  const day = useFieldDay(company.id, date);
+  const ownDay = useFieldDay(company.id, date, staffId === undefined);
+  const dsrDay = useDsrFieldDay(company.id, staffId ?? "", date, staffId !== undefined);
+  const day = staffId === undefined ? ownDay : dsrDay;
   const remove = useDeleteFieldVisit(company.id);
   const [editing, setEditing] = useState<FieldVisit | "new" | null>(null);
   const [deleteError, setDeleteError] = useState<string | undefined>();
@@ -552,6 +693,7 @@ function FieldDayView() {
       <VisitEditor
         key={editing === "new" ? "new" : editing.id}
         companyId={company.id}
+        staffId={staffId}
         day={data}
         visit={editing === "new" ? null : editing}
         onDone={() => setEditing(null)}
@@ -564,7 +706,11 @@ function FieldDayView() {
     if (!window.confirm(t("field.deleteConfirm"))) return;
     setDeleteError(undefined);
     try {
-      await remove.mutateAsync({ visitId: visit.id, version: visit.version });
+      await remove.mutateAsync({
+        visitId: visit.id,
+        version: visit.version,
+        ...forStaff(staffId),
+      });
     } catch (error) {
       setDeleteError(describeError(error, []).form);
     }
@@ -623,6 +769,15 @@ function FieldDayView() {
         )}
       </section>
 
+      {data.dayEnd.length > 0 ? (
+        <DayEnd
+          key={`${date}-${data.staffId}-${data.locked}-${data.reportPending}`}
+          companyId={company.id}
+          staffId={staffId}
+          day={data}
+        />
+      ) : null}
+
       {data.products.length > 0 ? (
         <details className="rounded-lg border border-border bg-surface p-3">
           <summary className="cursor-pointer text-sm font-semibold">{t("field.inHand")}</summary>
@@ -642,14 +797,61 @@ function FieldDayView() {
   );
 }
 
+/** A super-admin has no DSR login of their own: they pick the DSR to enter for (D59). */
+function ActForDsr() {
+  const { company } = useCurrentWorkspace();
+  const records = useStaffRecords(company.id);
+  const [chosen, setChosen] = useState("");
+  const id = useId();
+
+  if (records.isPending) return <ListSkeleton rows={4} detail />;
+  if (records.isError) {
+    return (
+      <StatePanel
+        tone="error"
+        title={describeError(records.error, []).form ?? t("error.INTERNAL")}
+        action={<Button onClick={() => void records.refetch()}>{t("state.retry")}</Button>}
+      />
+    );
+  }
+  const dsrs = dsrsOn(records.data);
+  const staffId = dsrs.some((d) => d.id === chosen) ? chosen : dsrs[0]?.id;
+
+  return (
+    <div className="flex flex-col gap-4">
+      <Field id={`${id}-dsr`} label={t("field.actingAs")}>
+        <select
+          id={`${id}-dsr`}
+          value={staffId ?? ""}
+          disabled={dsrs.length === 0}
+          onChange={(event) => setChosen(event.target.value)}
+          className={inputClass}
+        >
+          {dsrs.map((d) => (
+            <option key={d.id} value={d.id}>
+              {d.name}
+            </option>
+          ))}
+        </select>
+      </Field>
+      {staffId ? (
+        <FieldDayView key={staffId} staffId={staffId} />
+      ) : (
+        <StatePanel title={t("dsr.sheet.noDsr")} hint={t("dsr.sheet.noDsrHint")} />
+      )}
+    </div>
+  );
+}
+
 /** DSR phone panel (D40): shop-wise delivery, cash, old due and damage exchange per visit. */
 export function FieldPage() {
   const { permissions } = useCurrentWorkspace();
+  const session = useSession();
   if (isFieldOnly(permissions)) return <FieldDayView />;
   return (
     <NavGate path={FIELD_PATH}>
       <div className="mx-auto max-w-xl">
-        <FieldDayView />
+        {session?.me.isSuperAdmin ? <ActForDsr /> : <FieldDayView />}
       </div>
     </NavGate>
   );

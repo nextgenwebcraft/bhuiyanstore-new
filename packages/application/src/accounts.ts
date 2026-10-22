@@ -13,9 +13,9 @@ import { loadCompanyAccess, type CompanyAccess } from "./access";
 import type { AppContext } from "./context";
 import { businessDate } from "./daily";
 import { AppError, invalid } from "./errors";
-import { liveOpening, rangeRun, runLedger } from "./ledger";
 import { toReportFile, type ReportFile } from "./month";
 import { parseReportRange } from "./report-range";
+import { staffInScope, staffRun } from "./staff-ledger";
 
 /**
  * Staff and SR money accounts (D27, D18, guide §11.9): balances and statements are month-engine
@@ -30,22 +30,8 @@ function canView(access: CompanyAccess, kind: StaffAccountKind): boolean {
   return kind === "sr" && access.permissions.includes("sr_loan.view");
 }
 
-/** People assigned to the company at any time, with their account kind (SR = supplier-employed). */
-async function companyPeople(ctx: AppContext, companyId: string) {
-  const assignments = await ctx.db.staffAssignment.findMany({
-    where: { companyId },
-    include: { staff: { select: { id: true, name: true, employer: true } } },
-  });
-  const people = new Map<string, { id: string; name: string; kind: StaffAccountKind }>();
-  for (const a of assignments) {
-    people.set(a.staff.id, {
-      id: a.staff.id,
-      name: a.staff.name,
-      kind: a.staff.employer === "supplier" ? "sr" : "distributor",
-    });
-  }
-  return [...people.values()].sort((a, b) => a.name.localeCompare(b.name));
-}
+const companyPeople = (ctx: AppContext, access: CompanyAccess) =>
+  staffInScope(ctx.db, access.company);
 
 /** Every person's balances at the end of `date` (default today), for one account kind. */
 export async function getStaffAccounts(
@@ -59,11 +45,10 @@ export async function getStaffAccounts(
   const today = todayBusinessDate();
   const asked = query.date === undefined || query.date === null ? today : businessDate(query.date);
   const date = asked > today ? today : asked;
-  const active = await liveOpening(ctx.db, companyId);
-  const run = await runLedger(ctx.db, access, date, active);
+  const run = await staffRun(ctx.db, access.company.tenantId, date);
   const closing = run?.output.closing.staff ?? {};
   const owesUs = new Map(run?.output.month.staff.map((s) => [s.staffId, s]) ?? []);
-  const rows = (await companyPeople(ctx, companyId))
+  const rows = (await companyPeople(ctx, access))
     .filter((p) => p.kind === kind)
     .map((p) => {
       const balances = closing[p.id] ?? ZERO_BALANCES;
@@ -77,7 +62,7 @@ export async function getStaffAccounts(
         weOwe: totals?.weOwe ?? "0",
       };
     });
-  return staffAccountsSchema.parse({ date, cutoffDate: active?.cutoffDate ?? null, rows });
+  return staffAccountsSchema.parse({ date, cutoffDate: run?.cutoffDate ?? null, rows });
 }
 
 /** One person's account over [from, to]: opening, every entry with its effect, closing. */
@@ -88,18 +73,17 @@ export async function getStaffStatement(
   query: unknown,
 ): Promise<StaffStatement> {
   const access = await loadCompanyAccess(ctx, companyId);
-  const person = (await companyPeople(ctx, companyId)).find((p) => p.id === staffId);
+  const person = (await companyPeople(ctx, access)).find((p) => p.id === staffId);
   if (!person) throw invalid("staffId", "validation.daily.staffNotAssigned");
   if (!canView(access, person.kind)) throw new AppError("FORBIDDEN");
   const range = parseReportRange(query);
-  const active = await liveOpening(ctx.db, companyId);
-  const run = await rangeRun(ctx.db, access, range.from, range.to, active);
+  const run = await staffRun(ctx.db, access.company.tenantId, range.to, range.from);
   const month = run?.output.month.staff.find((s) => s.staffId === staffId);
   const entries = (run?.output.staffEntries ?? []).filter((e) => e.staffId === staffId);
   const refs = entries.flatMap((e) => (e.ref ? [e.ref] : []));
   const rows = refs.length
     ? await ctx.db.moneyEntry.findMany({
-        where: { id: { in: refs }, companyId },
+        where: { id: { in: refs }, tenantId: access.company.tenantId },
         select: { id: true, payrollRunId: true, srLoanType: true },
       })
     : [];
@@ -110,7 +94,7 @@ export async function getStaffStatement(
     kind: person.kind,
     from: run?.from ?? range.from,
     to: range.to,
-    cutoffDate: active?.cutoffDate ?? null,
+    cutoffDate: run?.cutoffDate ?? null,
     opening: month?.opening ?? ZERO_BALANCES,
     closing: month?.closing ?? ZERO_BALANCES,
     owesUs: month?.owesUs ?? "0",

@@ -9,6 +9,7 @@ import {
   shiftBusinessDate,
   sumQuantities,
   toMonthOpening,
+  type CompanyFund,
   type DayInput,
   type DsrLineInput,
   type MoneyEntryInput,
@@ -25,6 +26,7 @@ import type { AppContext, Tx } from "./context";
 import { fromDbDate, toDbDate } from "./dates";
 import { plain } from "./numeric";
 import { packOn } from "./products";
+import { openingBatches } from "./batches";
 
 /**
  * Runs the month engine over posted documents (PLAN §4). Nothing here calculates: it only turns
@@ -42,7 +44,7 @@ const ENGINE_PRICE: Record<string, PriceKind> = {
 
 /** D53: godown damage is its own engine input (stock and cost fall, no sales), not product-level damaged. */
 const STOCK_FIELD: Record<
-  StockEntryKind,
+  Exclude<StockEntryKind, "damageDeposit">,
   "ordered" | "received" | "godownDamaged" | "incentiveReceived"
 > = {
   order: "ordered",
@@ -52,22 +54,15 @@ const STOCK_FIELD: Record<
 };
 
 /**
- * The accounts that take money when none is named (D52): the default cash account is the first
- * active `cash` account of the company's opening cash lines, else the tenant's first active one;
- * a supplier deposit goes to the tenant's first active bank account, else the cash default.
- * `""` = no account exists, the engine's "no account" bucket.
+ * D72: all money is cash, so each company has one cash bucket: the first active `cash` account
+ * of its opening cash lines, else the tenant's first active one; `""` when none exists. Every
+ * opening cash line and money entry counts in this bucket, whatever account it was stored with.
  */
-export type CashDefaults = { cash: string; deposit: string };
-
-export async function cashDefaults(
-  db: Db,
-  tenantId: string,
-  companyId: string,
-): Promise<CashDefaults> {
+export async function cashAccountOf(db: Db, tenantId: string, companyId: string): Promise<string> {
   const [accounts, lines] = await Promise.all([
     db.cashAccount.findMany({
-      where: { tenantId, active: true },
-      select: { id: true, kind: true },
+      where: { tenantId, active: true, kind: "cash" },
+      select: { id: true },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     }),
     db.openingBalanceLine.findMany({
@@ -76,10 +71,17 @@ export async function cashDefaults(
     }),
   ]);
   const opened = new Set(lines.map((l) => l.cashAccountId));
-  const cashKind = accounts.filter((a) => a.kind === "cash");
-  const cash = cashKind.find((a) => opened.has(a.id)) ?? cashKind[0];
-  const bank = accounts.find((a) => a.kind === "bank");
-  return { cash: cash?.id ?? "", deposit: bank?.id ?? cash?.id ?? "" };
+  return (accounts.find((a) => opened.has(a.id)) ?? accounts[0])?.id ?? "";
+}
+
+/** D72: an opening's account balances as one cash bucket. */
+function singleCash(opening: MonthOpening, cash: string): MonthOpening {
+  if (!opening.cashAccounts) return opening;
+  const total = Object.values(opening.cashAccounts).reduce<Decimal>(
+    (sum, amount) => sum.add(amount),
+    new Decimal(0),
+  );
+  return { ...opening, cashAccounts: total.isZero() ? {} : { [cash]: total.toString() } };
 }
 
 type DecimalColumn = Parameters<typeof plain>[0];
@@ -155,6 +157,7 @@ export async function liveOpening(db: Db, companyId: string): Promise<ActiveOpen
   });
   if (!session || !session.cutoffDate) return null;
   const cutoffDate = fromDbDate(session.cutoffDate);
+  const batches = await openingBatches(db, companyId);
   const opening = toMonthOpening({
     cutoffDate,
     stock: session.stock.map((line) => ({
@@ -164,6 +167,7 @@ export async function liveOpening(db: Db, companyId: string): Promise<ActiveOpen
       salePrice: plain(line.salePrice),
       orderPrice: plain(line.orderPrice),
       dueFromCompany: plain(line.dueFromCompany),
+      batch: batches.get(line.productId) ?? null,
     })),
     balances: session.balances.map((line) => ({
       kind: line.kind as OpeningKind,
@@ -186,7 +190,7 @@ async function rangeInput(
   opening: MonthOpening,
 ) {
   const range = { gte: toDbDate(from), lte: toDbDate(to) };
-  const [products, prices, stock, dsrDays, money, damage, defaults] = await Promise.all([
+  const [products, prices, stock, dsrDays, money, damage, cash] = await Promise.all([
     db.product.findMany({
       where: { companyId },
       include: { packs: true },
@@ -198,6 +202,7 @@ async function rangeInput(
     }),
     db.stockEntry.findMany({
       where: { companyId, status: "posted", date: range },
+      include: { batch: { select: { seq: true } } },
       orderBy: { createdAt: "asc" },
     }),
     db.dsrDay.findMany({
@@ -207,8 +212,9 @@ async function rangeInput(
       },
       orderBy: [{ postedAt: "asc" }, { createdAt: "asc" }],
     }),
+    // D72: an old transfer between two accounts nets to nothing in the single cash bucket.
     db.moneyEntry.findMany({
-      where: { companyId, status: "posted", date: range },
+      where: { companyId, status: "posted", date: range, kind: { not: "cashTransfer" } },
       orderBy: { createdAt: "asc" },
     }),
     // Only these damage legs reach the engine: stock (D17), money back from the company (D33)
@@ -237,7 +243,7 @@ async function rangeInput(
       include: { line: { select: { productId: true } } },
       orderBy: { createdAt: "asc" },
     }),
-    cashDefaults(db, tenantId, companyId),
+    cashAccountOf(db, tenantId, companyId),
   ]);
 
   // D49: prices strictly before `from` open the range (latest wins); a price effective on a day
@@ -250,10 +256,7 @@ async function rangeInput(
   const days = new Map<string, Required<Pick<DayInput, "products" | "dsrLines" | "money">>>(
     datesBetween(from, to).map((date) => [date, { products: {}, dsrLines: [], money: [] }]),
   );
-  const dayDefaults = {
-    defaultCashAccount: defaults.cash,
-    defaultDepositAccount: defaults.deposit,
-  };
+  const dayDefaults = { defaultCashAccount: cash, defaultDepositAccount: cash };
   const dayOf = (date: string) => {
     const day = days.get(date);
     if (!day) throw new Error(`ledger: ${date} is outside ${from}..${to}`);
@@ -289,12 +292,41 @@ async function rangeInput(
           cartonRate: plain(entry.cartonRate),
           piecesPerCarton: String(entry.piecesPerCarton),
           ref: entry.id,
+          ...(entry.fundFrom.length > 0 ? { fundFrom: entry.fundFrom as CompanyFund[] } : {}),
+          ...(entry.orderGroup ? { group: entry.orderGroup } : {}),
         },
       ];
       continue;
     }
+    if (entry.kind === "receipt" && entry.batchId && entry.batch) {
+      // D68: received into the named batch at the receipt's own prices.
+      const product = dayProduct(fromDbDate(entry.date), entry.productId);
+      product.batchReceipts = [
+        ...(product.batchReceipts ?? []),
+        {
+          key: entry.batchId,
+          seq: entry.batch.seq,
+          quantity: plain(entry.pieces),
+          costPrice: plain(entry.costPrice) ?? "0",
+          salePrice: plain(entry.salePrice) ?? "0",
+        },
+      ];
+      continue;
+    }
+    if (entry.kind === "damageDeposit") {
+      // D63: damaged pieces handed to the company for money: they leave damaged stock and the
+      // company returns their value at once (a dispatch plus a money return).
+      const target = dayProduct(fromDbDate(entry.date), entry.productId);
+      const pieces = plain(entry.pieces);
+      target.companyDispatched = sumQuantities([target.companyDispatched ?? "0", pieces]);
+      target.companyRefunds = [
+        ...(target.companyRefunds ?? []),
+        { quantity: pieces, unitCost: plain(entry.unitPrice) ?? "0", ref: entry.id },
+      ];
+      continue;
+    }
     const target = dayProduct(fromDbDate(entry.date), entry.productId) as Record<string, string>;
-    const field = STOCK_FIELD[entry.kind as StockEntryKind] ?? "godownDamaged";
+    const field = STOCK_FIELD[entry.kind as keyof typeof STOCK_FIELD] ?? "godownDamaged";
     target[field] = sumQuantities([target[field] ?? "0", plain(entry.pieces)]);
   }
 
@@ -312,6 +344,16 @@ async function rangeInput(
           quantity: plain(s.quantity),
           unitPrice: plain(s.unitPrice),
         })),
+        ...(line.batchKey !== "" && line.batchSeq !== null
+          ? {
+              batch: {
+                key: line.batchKey,
+                seq: line.batchSeq,
+                ...(line.costPrice === null ? {} : { costPrice: plain(line.costPrice) }),
+                ...(line.salePrice === null ? {} : { salePrice: plain(line.salePrice) }),
+              },
+            }
+          : {}),
       });
     }
     for (const kind of ["marketDueNew", "marketDueCollected"] as const) {
@@ -357,8 +399,6 @@ async function rangeInput(
       ...(entry.shopId ? { shopId: entry.shopId } : {}),
       ...(entry.expenseCategoryId ? { category: entry.expenseCategoryId } : {}),
       ...(allocation ? { allocation } : {}),
-      ...(entry.cashAccountId ? { account: entry.cashAccountId } : {}),
-      ...(entry.toCashAccountId ? { toAccount: entry.toCashAccountId } : {}),
     });
   }
 
@@ -367,8 +407,9 @@ async function rangeInput(
       id: p.id,
       piecesPerCarton: String(packOn(p.packs, from)?.piecesPerCarton ?? 1),
     })),
-    opening: { ...opening, products: openingProducts },
+    opening: { ...singleCash(opening, cash), products: openingProducts },
     days: [...days].map(([date, day]) => ({ date, ...dayDefaults, ...day })),
+    staffWarnings: false,
   };
 }
 
@@ -470,7 +511,7 @@ export async function rangeRun(
 
 /** Product names and carton sizes on `date`, and every tenant staff name, for engine rows. */
 export async function namesFor(db: Db, access: CompanyAccess, date: string) {
-  const [products, staff, accounts] = await Promise.all([
+  const [products, staff] = await Promise.all([
     db.product.findMany({
       where: { companyId: access.company.id },
       include: { packs: true },
@@ -479,11 +520,6 @@ export async function namesFor(db: Db, access: CompanyAccess, date: string) {
     db.staff.findMany({
       where: { tenantId: access.company.tenantId },
       select: { id: true, name: true },
-    }),
-    db.cashAccount.findMany({
-      where: { tenantId: access.company.tenantId },
-      select: { id: true, name: true, active: true },
-      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     }),
   ]);
   return {
@@ -494,7 +530,5 @@ export async function namesFor(db: Db, access: CompanyAccess, date: string) {
       piecesPerCarton: String(packOn(p.packs, date)?.piecesPerCarton ?? 1),
     })),
     staff: new Map(staff.map((s) => [s.id, s.name])),
-    /** Cash and bank accounts (D52), in creation order. */
-    accounts,
   };
 }

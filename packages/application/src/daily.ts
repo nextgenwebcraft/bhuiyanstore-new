@@ -4,7 +4,6 @@ import {
   documentTransitionRequestSchema,
   dsrDaySaveRequestSchema,
   dsrDaySchema,
-  moneyAccountKinds,
   moneyAllocationKinds,
   moneyCategoryKinds,
   moneyEntryPostRequestSchema,
@@ -20,19 +19,24 @@ import {
   type MoneyEntry,
   type MoneyEntryKind,
   type PermissionId,
+  type ProductLot,
   type StockEntry,
   type StockEntryKind,
 } from "@bsd/contracts";
 import type { Prisma } from "@bsd/database";
+import { randomUUID } from "node:crypto";
 import {
   MONEY_KIND_EFFECTS,
-  dsrCashSettlement,
   monthOf,
   sumAmounts,
   sumQuantities,
   summarizeDay,
+  dashboardTotals,
+  srCost as srCostOf,
+  pieceFromCarton,
   toDecimal,
   todayBusinessDate,
+  type MonthOutput,
 } from "@bsd/domain";
 import {
   loadCompanyAccess,
@@ -46,7 +50,9 @@ import { fromDbDate, toDbDate } from "./dates";
 import { AppError, invalid, parseInput } from "./errors";
 import { hasFieldVisits, postFieldVisits, reverseFieldVisits } from "./field-posting";
 import { isUniqueViolation, runIdempotent } from "./idempotency";
-import { cashDefaults, liveOpening, allocationOf, namesFor, rangeRun, runLedger } from "./ledger";
+import { liveOpening, allocationOf, namesFor, rangeRun, runLedger } from "./ledger";
+import { staffCompanyIds } from "./master";
+import { staffRun } from "./staff-ledger";
 import { parseReportRange } from "./report-range";
 import { plain } from "./numeric";
 import { insertShop } from "./shop-rows";
@@ -54,6 +60,15 @@ import { packOn } from "./products";
 
 const isZero = (amount: string) => toDecimal(amount).isZero();
 import { ensureStockCovers } from "./stock-guard";
+import {
+  batchOf,
+  dsrLineBatch,
+  ensureBatchDue,
+  ensureOrderReversible,
+  orderBatch,
+  productLots,
+  useBatchPrices,
+} from "./batches";
 
 /**
  * Daily entry (PLAN §9 Phase E): posted raw facts only. Every figure shown back comes from the
@@ -107,10 +122,18 @@ export async function roleOn(
   date: string,
 ): Promise<RoleKind | null> {
   const day = toDbDate(date);
-  const assignment = await db.staffAssignment.findFirst({
-    where: { companyId, staffId, from: { lte: day }, OR: [{ to: null }, { to: { gte: day } }] },
+  const companyIds = await staffCompanyIds(db, companyId);
+  const assignments = await db.staffAssignment.findMany({
+    where: {
+      companyId: { in: companyIds },
+      staffId,
+      from: { lte: day },
+      OR: [{ to: null }, { to: { gte: day } }],
+    },
     include: { role: true },
   });
+  const assignment =
+    assignments.find((a) => a.companyId === companyId) ?? assignments.at(0) ?? null;
   return assignment ? (assignment.role.kind as RoleKind) : null;
 }
 
@@ -121,12 +144,16 @@ const STOCK_PERMISSION: Record<StockEntryKind, PermissionId> = {
   receipt: "purchase.post",
   damage: "damage.report",
   incentive: "purchase.post",
+  damageDeposit: "payment.post",
 };
 
-const stockInclude = { product: { select: { sku: true, name: true } } } as const;
+const stockInclude = {
+  product: { select: { sku: true, name: true } },
+  batch: { select: { seq: true } },
+} as const;
 type StockRow = Prisma.StockEntryGetPayload<{ include: typeof stockInclude }>;
 
-function toStockEntry(row: StockRow): StockEntry {
+function toStockEntry(row: StockRow, canSeeCost: boolean): StockEntry {
   return stockEntrySchema.parse({
     id: row.id,
     date: fromDbDate(row.date),
@@ -138,19 +165,28 @@ function toStockEntry(row: StockRow): StockEntry {
     freePieces: row.freePieces === null ? null : plain(row.freePieces),
     cartonRate: row.cartonRate === null ? null : plain(row.cartonRate),
     piecesPerCarton: row.piecesPerCarton,
+    unitPrice: row.unitPrice === null ? null : plain(row.unitPrice),
+    fundFrom: row.fundFrom,
+    orderGroup: row.orderGroup,
+    batchId: row.batchId,
+    batchSeq: row.batch?.seq ?? null,
+    costPrice: canSeeCost && row.costPrice !== null ? plain(row.costPrice) : null,
+    salePrice: row.salePrice === null ? null : plain(row.salePrice),
     status: row.status,
     createdAt: row.createdAt.toISOString(),
     reversedAt: iso(row.reversedAt),
   });
 }
 
-async function stockEntriesOn(db: Db, companyId: string, date: string): Promise<StockEntry[]> {
+const seesCost = (access: CompanyAccess) => access.permissions.includes("inventory.cost_view");
+
+async function stockEntriesOn(db: Db, access: CompanyAccess, date: string): Promise<StockEntry[]> {
   const rows = await db.stockEntry.findMany({
-    where: { companyId, date: toDbDate(date) },
+    where: { companyId: access.company.id, date: toDbDate(date) },
     include: stockInclude,
     orderBy: { createdAt: "asc" },
   });
-  return rows.map(toStockEntry);
+  return rows.map((row) => toStockEntry(row, seesCost(access)));
 }
 
 export async function listStockEntries(
@@ -158,8 +194,8 @@ export async function listStockEntries(
   companyId: string,
   date: unknown,
 ): Promise<StockEntry[]> {
-  await requirePermission(ctx, companyId, "purchase.view");
-  return stockEntriesOn(ctx.db, companyId, businessDate(date));
+  const access = await requirePermission(ctx, companyId, "purchase.view");
+  return stockEntriesOn(ctx.db, access, businessDate(date));
 }
 
 /** Posts a day's godown lines and price changes together (one Excel row edit). */
@@ -208,41 +244,68 @@ export async function postStockEntries(
       // D57: an order's per-piece price (carton rate ÷ carton size) becomes the current order
       // price, so excess receipts and the order price display follow the latest order.
       const orderPrices = new Map<string, string>();
-      if (request.lines.length) {
-        await tx.stockEntry.createMany({
-          data: request.lines.map((line) => {
-            if (line.kind !== "order") {
-              return {
-                tenantId: access.company.tenantId,
-                companyId,
-                date,
-                kind: line.kind,
-                productId: line.productId,
-                pieces: line.pieces,
-                createdById: ctx.actor.userId,
-              };
-            }
-            const piecesPerCarton = packOf(line.productId);
-            const cartonRate = line.cartonRate ?? "0";
-            if (line.pieces !== "0") {
-              orderPrices.set(
-                line.productId,
-                toDecimal(cartonRate).div(piecesPerCarton).toDecimalPlaces(6).toFixed(),
-              );
-            }
-            return {
-              tenantId: access.company.tenantId,
-              companyId,
-              date,
-              kind: line.kind,
-              productId: line.productId,
-              pieces: line.pieces,
-              freePieces: line.freePieces ?? "0",
-              cartonRate,
-              piecesPerCarton,
-              createdById: ctx.actor.userId,
-            };
-          }),
+      // D63: orders posted together share a group and the balance parts named to pay them.
+      const orderGroup = randomUUID();
+      const owner = { tenantId: access.company.tenantId, companyId };
+      // D68: a receipt brings no more into a batch than is still due on it.
+      const receipts = request.lines.flatMap((line, index) =>
+        line.kind === "receipt" && line.batchId
+          ? [{ batchId: line.batchId, productId: line.productId, pieces: line.pieces, index }]
+          : [],
+      );
+      await ensureBatchDue(tx, companyId, request.date, receipts);
+      for (const [index, line] of request.lines.entries()) {
+        const base = {
+          ...owner,
+          date,
+          kind: line.kind,
+          productId: line.productId,
+          pieces: line.pieces,
+          createdById: ctx.actor.userId,
+        };
+        if (line.kind === "receipt") {
+          const batch = await batchOf(
+            tx,
+            companyId,
+            line.productId,
+            line.batchId ?? "",
+            `lines.${index}.batchId`,
+          );
+          const prices = await useBatchPrices(tx, batch, line);
+          await tx.stockEntry.create({ data: { ...base, batchId: batch.id, ...prices } });
+          continue;
+        }
+        if (line.kind !== "order") {
+          await tx.stockEntry.create({
+            data: {
+              ...base,
+              ...(line.kind === "damageDeposit" ? { unitPrice: line.unitPrice ?? "0" } : {}),
+            },
+          });
+          continue;
+        }
+        const piecesPerCarton = packOf(line.productId);
+        const salePrice = line.salePrice ?? "0";
+        const costPrice =
+          line.cartonRate === undefined
+            ? null
+            : pieceFromCarton(line.cartonRate, String(piecesPerCarton));
+        if (line.pieces !== "0" && costPrice !== null) orderPrices.set(line.productId, costPrice);
+        // D68: unchanged prices keep the product's latest batch, changed ones start a new one;
+        // the free pieces go into the same batch at its prices.
+        const batch = await orderBatch(tx, owner, line.productId, { costPrice, salePrice });
+        await tx.stockEntry.create({
+          data: {
+            ...base,
+            freePieces: line.freePieces ?? "0",
+            cartonRate: line.cartonRate ?? "0",
+            piecesPerCarton,
+            fundFrom: request.fundFrom,
+            orderGroup,
+            batchId: batch.id,
+            costPrice: batch.costPrice,
+            salePrice,
+          },
         });
       }
       // D53: pieces found damaged in the godown leave saleable stock.
@@ -273,7 +336,7 @@ export async function postStockEntries(
         ...(Object.keys(before).length ? { before: { prices: before } } : {}),
         after: { lines: request.lines, prices: request.prices },
       });
-      return stockEntriesOn(tx, companyId, request.date);
+      return stockEntriesOn(tx, access, request.date);
     },
   );
 }
@@ -299,6 +362,7 @@ export async function reverseStockEntry(
         data: { status: "reversed", reversedAt: new Date(), reversedById: ctx.actor.userId },
       });
       if (updated.count !== 1) throw invalid("", "validation.daily.alreadyReversed");
+      if (row.kind === "order") await ensureOrderReversible(tx, companyId, row);
       if (row.kind === "receipt" || row.kind === "incentive") {
         await ensureStockCovers(tx, access, fromDbDate(row.date), [row.productId]);
       }
@@ -312,6 +376,7 @@ export async function reverseStockEntry(
       });
       return toStockEntry(
         await tx.stockEntry.findUniqueOrThrow({ where: { id: entryId }, include: stockInclude }),
+        seesCost(access),
       );
     },
   );
@@ -323,12 +388,12 @@ const dsrInclude = {
   staff: { select: { name: true } },
   lines: {
     include: { product: { select: { sku: true, name: true } } },
-    orderBy: { product: { sku: "asc" } },
+    orderBy: [{ product: { sku: "asc" } }, { batchSeq: "asc" }],
   },
-} as const;
+} satisfies Prisma.DsrDayInclude;
 type DsrRow = Prisma.DsrDayGetPayload<{ include: typeof dsrInclude }>;
 
-function toDsrDay(row: DsrRow): DsrDay {
+function toDsrDay(row: DsrRow, canSeeCost: boolean): DsrDay {
   return dsrDaySchema.parse({
     id: row.id,
     date: fromDbDate(row.date),
@@ -348,6 +413,10 @@ function toDsrDay(row: DsrRow): DsrDay {
       returned: plain(line.returned),
       damaged: plain(line.damaged),
       commission: plain(line.commission),
+      batchKey: line.batchKey,
+      batchSeq: line.batchSeq,
+      costPrice: canSeeCost && line.costPrice !== null ? plain(line.costPrice) : null,
+      salePrice: line.salePrice === null ? null : plain(line.salePrice),
     })),
     postedAt: iso(row.postedAt),
     reversedAt: iso(row.reversedAt),
@@ -359,13 +428,42 @@ export async function listDsrDays(
   companyId: string,
   date: unknown,
 ): Promise<DsrDay[]> {
-  await requirePermission(ctx, companyId, "sale.view");
-  const rows = await ctx.db.dsrDay.findMany({
-    where: { companyId, date: toDbDate(businessDate(date)) },
-    include: dsrInclude,
-    orderBy: [{ staff: { name: "asc" } }, { createdAt: "asc" }],
-  });
-  return rows.map(toDsrDay);
+  const access = await requirePermission(ctx, companyId, "sale.view");
+  const day = toDbDate(businessDate(date));
+  const [rows, reports] = await Promise.all([
+    ctx.db.dsrDay.findMany({
+      where: { companyId, date: day },
+      include: dsrInclude,
+      orderBy: [{ staff: { name: "asc" } }, { createdAt: "asc" }],
+    }),
+    ctx.db.fieldDayReport.findMany({
+      where: { companyId, date: day, status: "pending" },
+      include: { lines: { include: { product: { select: { name: true, sku: true } } } } },
+    }),
+  ]);
+  // D71: a pending field report shows on the DSR's live sheet.
+  const reportOf = new Map(
+    reports.map((r) => [
+      r.staffId,
+      {
+        id: r.id,
+        version: r.version,
+        createdAt: r.createdAt.toISOString(),
+        lines: [...r.lines]
+          .sort((a, b) => a.product.sku.localeCompare(b.product.sku))
+          .map((l) => ({
+            productId: l.productId,
+            productName: l.product.name,
+            returned: plain(l.returned),
+            damaged: plain(l.damaged),
+          })),
+      },
+    ]),
+  );
+  return rows.map((row) => ({
+    ...toDsrDay(row, seesCost(access)),
+    fieldReport: row.status === "reversed" ? null : (reportOf.get(row.staffId) ?? null),
+  }));
 }
 
 async function loadDsrDay(db: Db, companyId: string, id: string): Promise<DsrRow> {
@@ -386,183 +484,159 @@ export async function saveDsrDay(
 ): Promise<DsrDay> {
   const access = await requirePermission(ctx, companyId, "sale.create", { write: true });
   const request = parseInput(dsrDaySaveRequestSchema, input);
+  return runIdempotent(
+    ctx,
+    { scope: companyId, action: "dsr_day.save", requestKey },
+    request,
+    async (tx) => {
+      const id = await saveDsrDayIn(tx, ctx, access, request);
+      return toDsrDay(await loadDsrDay(tx, companyId, id), seesCost(access));
+    },
+  );
+}
+
+type DsrDaySaveInput = ReturnType<typeof dsrDaySaveRequestSchema.parse>;
+
+/**
+ * A sheet save inside the caller's transaction (also the D71 approval's correction); returns the
+ * id of the sheet now live.
+ */
+export async function saveDsrDayIn(
+  tx: Tx,
+  ctx: AppContext,
+  access: CompanyAccess,
+  request: DsrDaySaveInput,
+): Promise<string> {
+  const companyId = access.company.id;
   const seen = new Set<string>();
   const lines = request.lines.filter(
     (l) => l.issued !== "0" || l.returned !== "0" || l.damaged !== "0" || !isZero(l.commission),
   );
   lines.forEach((line) => {
     const index = request.lines.indexOf(line);
-    if (seen.has(line.productId))
-      throw invalid(`lines.${index}`, "validation.daily.duplicateProduct");
-    seen.add(line.productId);
+    // D68: one line per product and batch.
+    const key = `${line.productId}|${line.batchKey}`;
+    if (seen.has(key)) throw invalid(`lines.${index}`, "validation.daily.duplicateProduct");
+    seen.add(key);
     const sold = toDecimal(line.issued).sub(line.returned).sub(line.damaged);
     if (!isZero(line.commission) && sold.lte(0)) {
       throw invalid(`lines.${index}.commission`, "validation.daily.commissionWithoutSale");
     }
   });
 
-  return runIdempotent(
-    ctx,
-    { scope: companyId, action: "dsr_day.save", requestKey },
-    request,
-    async (tx) => {
-      await postingGuard(tx, companyId, request.date);
-      if ((await roleOn(tx, companyId, request.staffId, request.date)) !== "dsr") {
-        throw invalid("staffId", "validation.daily.dsrOnly");
-      }
-      const products = await tx.product.findMany({
-        where: { companyId, id: { in: lines.map((l) => l.productId) } },
-        include: { packs: true },
-      });
-      if (products.length !== lines.length)
-        throw invalid("lines", "validation.daily.unknownProduct");
-      const packs = new Map(
-        products.map((p) => [p.id, packOn(p.packs, request.date)?.piecesPerCarton ?? 1]),
-      );
+  await postingGuard(tx, companyId, request.date);
+  if ((await roleOn(tx, companyId, request.staffId, request.date)) !== "dsr") {
+    throw invalid("staffId", "validation.daily.dsrOnly");
+  }
+  const productIds = [...new Set(lines.map((l) => l.productId))];
+  const products = await tx.product.findMany({
+    where: { companyId, id: { in: productIds } },
+    include: { packs: true },
+  });
+  if (products.length !== productIds.length)
+    throw invalid("lines", "validation.daily.unknownProduct");
+  const packs = new Map(
+    products.map((p) => [p.id, packOn(p.packs, request.date)?.piecesPerCarton ?? 1]),
+  );
 
-      const date = toDbDate(request.date);
-      const live = await tx.dsrDay.findFirst({
-        where: { companyId, staffId: request.staffId, date, status: { not: "reversed" } },
-      });
-      if ((live?.version ?? 0) !== request.version) {
+  const date = toDbDate(request.date);
+  const live = await tx.dsrDay.findFirst({
+    where: { companyId, staffId: request.staffId, date, status: { not: "reversed" } },
+  });
+  if ((live?.version ?? 0) !== request.version) {
+    throw invalid("version", "validation.daily.stale");
+  }
+  // D56: saving a posted sheet corrects it; the posted one is reversed with all it owns and
+  // the edited sheet is posted in its place, in this transaction.
+  const corrected = live?.status === "posted" ? await loadDsrDay(tx, companyId, live.id) : null;
+  if (corrected) {
+    if (!access.permissions.includes("sale.post") || !access.permissions.includes("sale.reverse")) {
+      throw new AppError("FORBIDDEN");
+    }
+    await moveDsrDay(tx, ctx, access, corrected, "reversed");
+  }
+  const data = {
+    ...(request.marketDueNew === undefined ? {} : { marketDueNew: request.marketDueNew }),
+    ...(request.marketDueCollected === undefined
+      ? {}
+      : { marketDueCollected: request.marketDueCollected }),
+    ...(request.cashHandedOver === undefined ? {} : { cashHandedOver: request.cashHandedOver }),
+  };
+  let id: string;
+  if (live && !corrected) {
+    const updated = await tx.dsrDay.updateMany({
+      where: { id: live.id, version: live.version, status: "draft" },
+      data: { ...data, version: { increment: 1 } },
+    });
+    if (updated.count !== 1) throw invalid("version", "validation.daily.stale");
+    await tx.dsrLine.deleteMany({ where: { dsrDayId: live.id } });
+    id = live.id;
+  } else {
+    try {
+      id = (
+        await tx.dsrDay.create({
+          data: {
+            ...(corrected
+              ? {
+                  // Above the corrected sheet's, so a screen still holding it is stale.
+                  version: corrected.version + 1,
+                  marketDueNew: corrected.marketDueNew,
+                  marketDueCollected: corrected.marketDueCollected,
+                  cashHandedOver: corrected.cashHandedOver,
+                }
+              : {}),
+            ...data,
+            tenantId: access.company.tenantId,
+            companyId,
+            staffId: request.staffId,
+            date,
+            createdById: ctx.actor.userId,
+          },
+        })
+      ).id;
+    } catch (error) {
+      if ((error as { code?: string }).code === "P2002") {
         throw invalid("version", "validation.daily.stale");
       }
-      // D56: saving a posted sheet corrects it; the posted one is reversed with all it owns and
-      // the edited sheet is posted in its place, in this transaction.
-      const corrected = live?.status === "posted" ? await loadDsrDay(tx, companyId, live.id) : null;
-      if (corrected) {
-        if (
-          !access.permissions.includes("sale.post") ||
-          !access.permissions.includes("sale.reverse")
-        ) {
-          throw new AppError("FORBIDDEN");
-        }
-        await moveDsrDay(tx, ctx, access, corrected, "reversed");
-      }
-      const data = {
-        ...(request.marketDueNew === undefined ? {} : { marketDueNew: request.marketDueNew }),
-        ...(request.marketDueCollected === undefined
-          ? {}
-          : { marketDueCollected: request.marketDueCollected }),
-        ...(request.cashHandedOver === undefined ? {} : { cashHandedOver: request.cashHandedOver }),
-      };
-      let id: string;
-      if (live && !corrected) {
-        const updated = await tx.dsrDay.updateMany({
-          where: { id: live.id, version: live.version, status: "draft" },
-          data: { ...data, version: { increment: 1 } },
-        });
-        if (updated.count !== 1) throw invalid("version", "validation.daily.stale");
-        await tx.dsrLine.deleteMany({ where: { dsrDayId: live.id } });
-        id = live.id;
-      } else {
-        try {
-          id = (
-            await tx.dsrDay.create({
-              data: {
-                ...(corrected
-                  ? {
-                      // Above the corrected sheet's, so a screen still holding it is stale.
-                      version: corrected.version + 1,
-                      marketDueNew: corrected.marketDueNew,
-                      marketDueCollected: corrected.marketDueCollected,
-                      cashHandedOver: corrected.cashHandedOver,
-                    }
-                  : {}),
-                ...data,
-                tenantId: access.company.tenantId,
-                companyId,
-                staffId: request.staffId,
-                date,
-                createdById: ctx.actor.userId,
-              },
-            })
-          ).id;
-        } catch (error) {
-          if ((error as { code?: string }).code === "P2002") {
-            throw invalid("version", "validation.daily.stale");
-          }
-          throw error;
-        }
-      }
-      for (const line of lines) {
-        await tx.dsrLine.create({
-          data: {
-            dsrDayId: id,
-            productId: line.productId,
-            piecesPerCarton: packs.get(line.productId) ?? 1,
-            issued: line.issued,
-            returned: line.returned,
-            damaged: line.damaged,
-            commission: line.commission,
-          },
-        });
-      }
-      if (corrected) {
-        const draft = await loadDsrDay(tx, companyId, id);
-        await moveDsrDay(tx, ctx, access, draft, "posted");
-        await ensureStockCovers(tx, access, request.date, [
-          ...new Set([...stockTakenOut(corrected, "reversed"), ...stockTakenOut(draft, "posted")]),
-        ]);
-      }
-      await recordAudit(tx, ctx, {
-        companyId,
-        action: corrected ? "dsr_day.correct" : "dsr_day.save",
-        resourceType: "dsr_day",
-        resourceId: id,
-        ...(corrected ? { before: { id: corrected.id, version: corrected.version } } : {}),
-        after: { ...data, staffId: request.staffId, date: request.date, lines },
-      });
-      return toDsrDay(await loadDsrDay(tx, companyId, id));
-    },
-  );
+      throw error;
+    }
+  }
+  for (const line of lines) {
+    await tx.dsrLine.create({
+      data: {
+        dsrDayId: id,
+        productId: line.productId,
+        piecesPerCarton: packs.get(line.productId) ?? 1,
+        issued: line.issued,
+        returned: line.returned,
+        damaged: line.damaged,
+        commission: line.commission,
+        ...(await dsrLineBatch(tx, companyId, seesCost(access), line, request.lines.indexOf(line))),
+      },
+    });
+  }
+  if (corrected) {
+    const draft = await loadDsrDay(tx, companyId, id);
+    await moveDsrDay(tx, ctx, access, draft, "posted");
+    await ensureStockCovers(tx, access, request.date, [
+      ...new Set([...stockTakenOut(corrected, "reversed"), ...stockTakenOut(draft, "posted")]),
+    ]);
+  }
+  await recordAudit(tx, ctx, {
+    companyId,
+    action: corrected ? "dsr_day.correct" : "dsr_day.save",
+    resourceType: "dsr_day",
+    resourceId: id,
+    ...(corrected ? { before: { id: corrected.id, version: corrected.version } } : {}),
+    after: { ...data, staffId: request.staffId, date: request.date, lines },
+  });
+  return id;
 }
 
 /**
- * D54: posting a sheet with the cash handed over settles the difference to what was expected
- * (D39 formula): short becomes a staff shortage, over a staff excess, both owned by the day (they
- * carry its id, are refused individual reversal and are reversed with the day). Runs in the posting
- * transaction after the sheet is posted, so the engine day already counts it.
- */
-async function settleHandover(
-  tx: Tx,
-  ctx: AppContext,
-  access: CompanyAccess,
-  day: { id: string; staffId: string; date: string; cashHandedOver: Parameters<typeof plain>[0] },
-): Promise<void> {
-  if (day.cashHandedOver === null) return;
-  const run = await runLedger(tx, access, day.date);
-  const money = run?.output.days
-    .find((d) => d.date === day.date)
-    ?.dsrs.find((d) => d.staffId === day.staffId);
-  const cash = dsrCashSettlement({
-    sales: money?.sales ?? "0",
-    dueGiven: money?.marketDueNew ?? "0",
-    dueCollected: money?.marketDueCollected ?? "0",
-    expenses: money?.costPaid ?? "0",
-    handedOver: plain(day.cashHandedOver),
-  });
-  const difference = toDecimal(cash.difference ?? "0");
-  if (difference.isZero()) return;
-  const defaults = await cashDefaults(tx, access.company.tenantId, access.company.id);
-  await tx.moneyEntry.create({
-    data: {
-      tenantId: access.company.tenantId,
-      companyId: access.company.id,
-      date: toDbDate(day.date),
-      kind: difference.isNegative() ? "staffShortage" : "staffExcess",
-      amount: difference.abs().toString(),
-      staffId: day.staffId,
-      dsrDayId: day.id,
-      cashAccountId: defaults.cash || null,
-      createdById: ctx.actor.userId,
-    },
-  });
-}
-
-/**
- * Posts or reverses a sheet with everything it owns: the field visits' dues and exchange case (D40)
- * and the handover settlement (D54). The stock check is left to the caller.
+ * Posts or reverses a sheet with everything it owns: the field visits' dues and exchange case
+ * (D40). The handover difference is shown only (D62); reversing still removes entries an earlier
+ * posting created (D54 history). The stock check is left to the caller.
  */
 async function moveDsrDay(
   tx: Tx,
@@ -584,7 +658,6 @@ async function moveDsrDay(
   const day = { id: row.id, staffId: row.staffId, date: fromDbDate(row.date) };
   if (to === "posted") {
     await postFieldVisits(tx, ctx, access, { ...row, ...day });
-    await settleHandover(tx, ctx, access, { ...day, cashHandedOver: row.cashHandedOver });
   } else {
     await reverseFieldVisits(tx, ctx, access.company.id, day);
   }
@@ -635,7 +708,7 @@ async function transitionDsrDay(
         before: { status: move.from, version },
         after: { status: move.to, version: version + 1 },
       });
-      return toDsrDay(await loadDsrDay(tx, companyId, id));
+      return toDsrDay(await loadDsrDay(tx, companyId, id), seesCost(access));
     },
   );
 }
@@ -703,14 +776,11 @@ const CATEGORY_KINDS = new Set<MoneyEntryKind>(moneyCategoryKinds);
 const ALLOCATION_KINDS = new Set<MoneyEntryKind>(moneyAllocationKinds);
 const MARKET_KINDS = new Set<MoneyEntryKind>(["marketDueNew", "marketDueCollected"]);
 const SR_LOAN_TYPE_KINDS = new Set<MoneyEntryKind>(srLoanTypeKinds);
-const ACCOUNT_KINDS = new Set<MoneyEntryKind>(moneyAccountKinds);
 
 const moneyInclude = {
   staff: { select: { name: true } },
   shop: { select: { name: true } },
   expenseCategory: { select: { name: true } },
-  cashAccount: { select: { name: true } },
-  toCashAccount: { select: { name: true } },
 } as const;
 type MoneyRow = Prisma.MoneyEntryGetPayload<{ include: typeof moneyInclude }>;
 
@@ -728,10 +798,6 @@ function toMoneyEntry(row: MoneyRow): MoneyEntry {
     categoryName: row.expenseCategory?.name ?? null,
     allocation: allocationOf(row),
     srLoanType: row.srLoanType,
-    cashAccountId: row.cashAccountId,
-    cashAccountName: row.cashAccount?.name ?? null,
-    toCashAccountId: row.toCashAccountId,
-    toCashAccountName: row.toCashAccount?.name ?? null,
     payrollRunId: row.payrollRunId,
     dsrDayId: row.dsrDayId,
     status: row.status,
@@ -752,7 +818,7 @@ async function checkOwedLimits(
 ): Promise<void> {
   const offset = request.kind === "staffOffset" || request.kind === "srOffset";
   if (!request.staffId || (!allocation && !offset)) return;
-  const run = await runLedger(tx, access, request.date);
+  const run = await staffRun(tx, access.company.tenantId, request.date);
   const b = run?.output.closing.staff[request.staffId];
   const owed = (key: "advance" | "loan" | "shortage" | "credit" | "srLoan" | "owedToSr") =>
     toDecimal(b?.[key] ?? "0");
@@ -814,6 +880,11 @@ export async function postMoneyEntry(
   requestKey?: string,
 ): Promise<MoneyEntry> {
   const request = parseInput(moneyEntryPostRequestSchema, input);
+  // D69: SR incentive paid in cash is retired; D72: so is a transfer between accounts (all money
+  // is cash). Old entries stay in the history.
+  if (request.kind === "srIncentive" || request.kind === "cashTransfer") {
+    throw invalid("kind", "validation.daily.kindRetired");
+  }
   const access = await requirePermission(ctx, companyId, moneyKindPermission[request.kind], {
     write: true,
   });
@@ -908,28 +979,6 @@ export async function postMoneyEntry(
           throw invalid("shopId", "validation.field.manualDueBlocked");
         }
         await checkOwedLimits(tx, access, request, allocation);
-        // D52: named accounts must be active and the tenant's; an omitted one gets the default
-        // when the entry is stored, so the book never moves if the default changes later.
-        const named = [request.cashAccountId, request.toCashAccountId].filter(
-          (id): id is string => id !== null,
-        );
-        if (named.length) {
-          const found = await tx.cashAccount.count({
-            where: { id: { in: named }, tenantId: access.company.tenantId, active: true },
-          });
-          if (found !== new Set(named).size) {
-            throw invalid(
-              request.cashAccountId === null ? "toCashAccountId" : "cashAccountId",
-              "validation.money.unknownAccount",
-            );
-          }
-        }
-        let cashAccountId = request.cashAccountId;
-        if (cashAccountId === null && ACCOUNT_KINDS.has(request.kind)) {
-          const defaults = await cashDefaults(tx, access.company.tenantId, companyId);
-          cashAccountId =
-            (request.kind === "supplierDeposit" ? defaults.deposit : defaults.cash) || null;
-        }
         const row = await tx.moneyEntry.create({
           data: {
             tenantId: access.company.tenantId,
@@ -944,8 +993,6 @@ export async function postMoneyEntry(
             allocLoan: allocation?.loan ?? null,
             allocShortage: allocation?.shortage ?? null,
             srLoanType: request.srLoanType,
-            cashAccountId,
-            toCashAccountId: request.toCashAccountId,
             createdById: ctx.actor.userId,
           },
           include: moneyInclude,
@@ -1047,6 +1094,14 @@ export async function getDayView(
   const day = run?.output.days.find((d) => d.date === date);
   const byId = new Map(day?.products.map((p) => [p.productId, p]));
   const cost = (value: string) => (canSeeCost ? value : null);
+  const inStock = new Set(
+    (day?.products ?? []).flatMap((p) =>
+      p.batches.filter((b) => !toDecimal(b.quantity).isZero()).map((b) => b.key),
+    ),
+  );
+  const lots = day
+    ? await productLots(ctx.db, companyId, date, inStock, canSeeCost)
+    : new Map<string, ProductLot[]>();
 
   return dayViewSchema.parse({
     date,
@@ -1072,6 +1127,7 @@ export async function getDayView(
                 costPrice: cost(b.costPrice),
                 value: cost(b.value),
               })),
+              lots: lots.get(product.id) ?? [],
             },
           ];
         })
@@ -1091,6 +1147,9 @@ export async function getDayView(
               "0",
               ...run.output.month.products.map((p) => p.dueFromCompany),
             ]),
+            damageBalance: run.output.month.companyPayable.damageBalance,
+            incentiveBalance: run.output.month.companyPayable.incentiveBalance,
+            totalCash: sumAmounts(["0", ...run.output.month.cashBook.map((a) => a.closing)]),
           }
         : null,
     marketDueOutstanding: run?.output.month.marketDue.closing ?? "0",
@@ -1117,12 +1176,24 @@ export async function getDashboardSummary(
   query: unknown,
 ): Promise<DashboardSummary> {
   const access = await requirePermission(ctx, companyId, "company.view");
-  const range = parseReportRange(query);
+  return (await dashboardOf(ctx, access, parseReportRange(query))).summary;
+}
+
+/** The dashboard summary plus the engine's profit over the range (the master panel's P&L). */
+export async function dashboardOf(
+  ctx: AppContext,
+  access: CompanyAccess,
+  range: { from: string; to: string },
+): Promise<{
+  summary: DashboardSummary;
+  profit: MonthOutput["month"]["profit"] | null;
+}> {
+  const companyId = access.company.id;
   const canSeeCost = access.permissions.includes("inventory.cost_view");
   const canSeeProfit = canSeeCost && access.permissions.includes("report.profit_view");
   const dates = { gte: toDbDate(range.from), lte: toDbDate(range.to) };
   const active = await liveOpening(ctx.db, companyId);
-  const [run, names, sheets, receipts, accounts] = await Promise.all([
+  const [run, names, sheets, receipts] = await Promise.all([
     rangeRun(ctx.db, access, range.from, range.to, active),
     ctx.db.staff.findMany({
       where: { tenantId: access.company.tenantId },
@@ -1132,13 +1203,7 @@ export async function getDashboardSummary(
     ctx.db.stockEntry.count({
       where: { companyId, date: dates, status: "posted", kind: "receipt" },
     }),
-    ctx.db.cashAccount.findMany({
-      where: { tenantId: access.company.tenantId },
-      select: { id: true, name: true, active: true },
-      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-    }),
   ]);
-  const accountNames = new Map(accounts.map((a) => [a.id, a.name]));
   const summaries = run
     ? run.output.days.flatMap((day, index) => {
         const input = run.input[index];
@@ -1162,46 +1227,63 @@ export async function getDashboardSummary(
     };
   });
 
-  return dashboardSummarySchema.parse({
+  const seesFinance = access.permissions.includes("finance.view");
+  const srCost = srCostOf(run?.output.month.staff ?? [], run !== null && run.from === run.to);
+  const salesProfit = total((s) => s.salesProfit);
+  const totals = dashboardTotals({
+    issuedValue: total((s) => s.issuedValue),
+    returnValue: total((s) => s.returnValue),
+    damageSaleValue: total((s) => s.damageSaleValue),
+    commission: total((s) => s.commission),
+    expenses: total((s) => s.expenses),
+    staffCost: total((s) => s.staffCost),
+    salesProfit,
+  });
+
+  const summary = dashboardSummarySchema.parse({
     from: range.from,
     to: range.to,
     cutoffDate: active?.cutoffDate ?? null,
+    damageSaleValue: total((s) => s.damageSaleValue),
     netSales: total((s) => s.netSales),
     salesCash: total((s) => s.salesCash),
     oldDuesCollected: total((s) => s.oldDuesCollected),
     cashCollected: total((s) => s.cashCollected),
     marketDueCreated: total((s) => s.marketDueCreated),
+    marketDueOpening: run?.output.month.marketDue.opening ?? "0.00",
     marketDueOutstanding: run?.output.month.marketDue.closing ?? "0.00",
+    issuedValue: total((s) => s.issuedValue),
+    returnValue: total((s) => s.returnValue),
+    commission: total((s) => s.commission),
+    ...(seesFinance
+      ? {
+          expenses: total((s) => s.expenses),
+          staffShortage: total((s) => s.staffShortage),
+          staffCost: total((s) => s.staffCost),
+          srCost,
+          totalCost: totals.totalCost,
+          profitCost: totals.profitCost,
+          totalSales: totals.totalSales,
+        }
+      : {}),
     postedSummaryCount: sheets,
     postedReceiptCount: receipts,
     byDsr,
     ...(canSeeProfit && run
       ? {
           grossProfit: total((s) => s.grossProfit),
-        }
-      : {}),
-    ...(access.permissions.includes("finance.view") && run
-      ? {
-          // Every active account shows, with 0 when it has no opening or movement yet.
-          cashAccounts: [
-            ...run.output.month.cashBook.map((a) => ({
-              accountId: a.accountId,
-              accountName: accountNames.get(a.accountId) ?? "",
-              balance: a.closing,
-            })),
-            ...accounts
-              .filter(
-                (a) => a.active && !run.output.month.cashBook.some((b) => b.accountId === a.id),
-              )
-              .map((a) => ({ accountId: a.id, accountName: a.name, balance: "0" })),
-          ],
+          salesProfit,
+          ...(seesFinance && totals.netProfit !== null ? { netProfit: totals.netProfit } : {}),
         }
       : {}),
     ...(canSeeCost && run
       ? {
           receivedValue: total((s) => s.receivedValue),
           stockValue: summaries.at(-1)?.stockValue ?? "0.00",
+          damageValue: total((s) => s.damageValue),
+          undeliveredValue: run.output.month.companyPayable.undeliveredClosing,
         }
       : {}),
   });
+  return { summary, profit: canSeeProfit && run ? run.output.month.profit : null };
 }

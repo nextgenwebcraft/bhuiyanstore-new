@@ -1,0 +1,33 @@
+id: 2026-10-22-staff-actions-pay-now
+reason: >-
+  Owner 2026-10-22 (D75) - কর্মীর ব্যালান্স only on the dashboard and listing every staff member;
+  a row menu with এন্ট্রি and বিবরণী for every staff member; absent fee only off the salary; payroll
+  অনুপস্থিতি ফি column and a per-person Pay Now with a confirm dialog.
+owners: [domain, contracts, application, web, i18n, docs]
+changes:
+  - apps/web navigation.ts - হিসাব খাতা drops the কর্মীর ব্যালান্স tab (dsr/accounts route and accounts-page.tsx removed)
+  - apps/web staff-dialogs.tsx - shared staff dialog, এন্ট্রি dialog (date + StaffCashEntry), বিবরণী dialog, useStaffRowActions (⋮ menu)
+  - apps/web report-view.tsx - optional row action column (ReportTableView rowAction, ReportBody rowActions)
+  - apps/web dashboard-page.tsx - ⋮ menu on the staffBalances table
+  - apps/web icons.tsx - dots icon
+  - packages/contracts month.ts - report row id (the staff id on staff balances)
+  - packages/application month.ts - staff balances list every person in scope (not only those with entries); after the month's salary accrual, ক্যাশ পাবে is the unpaid salary and only later absent fees count
+  - packages/domain compute-month.ts - staffAbsent is a statement line with no balance change
+  - packages/contracts accounts.ts - payroll line absent and paid, totals.absent, action payStaff, transition staffId and version 0
+  - packages/application payroll.ts - line salary is gross; absent fees shown separately and taken off at approval; payStaff posts accrual, recovery and Cash Pabe for one person (draft created if none); paid people kept on save, skipped on approve and pay; discard refused once someone is paid; reverse allowed on such a draft; run becomes paid when everyone is
+  - apps/web payroll-page.tsx - অনুপস্থিতি ফি column and total, Pay Now button and confirm dialog, paid rows locked
+  - packages/i18n - common.actions, staffEntry.*, payroll.absent, payroll.totalAbsent, payroll.payNow.*, validation.payroll.alreadyPaid, validation.payroll.hasPaid; unused accounts.description.*, accounts.empty, nav.dsrStaff.accounts removed
+  - docs - D75
+affectedActionIds: []
+financialImpact: >-
+  No change to how salary, recovery or cash are computed for a run approved after this change: the
+  posted accrual is still monthly salary − absent fees. A draft saved before this change stored the
+  salary already net of absent fees and would now take the absent fee off again; re-enter the
+  salary in such a draft before approving. Pay Now posts the same three entries as approve + pay,
+  for one person and on the pay date (accrual and recovery on the month's last day when paid later).
+backfill: none
+tests:
+  - pnpm check:types, pnpm lint, pnpm test (domain staff-accounts.test.ts - absent fee statement line)
+  - pnpm test:integration phase-g (Pay Now with absent fee, alreadyPaid, kept on save, hasPaid, reverse)
+rollout: deploy the app; no migration
+recovery: revert the commit; runs paid per person are ordinary posted payroll entries and stay valid

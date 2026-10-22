@@ -153,6 +153,11 @@ export const openingSchema = z.object({
   cutoffDate: businessDateSchema.nullable(),
   stock: z.array(openingStockLineSchema),
   balances: z.array(openingBalanceLineSchema),
+  /**
+   * D72: all money is cash; the one account the opening cash is written to (null = none exists).
+   * Every cash line shows as one line on it.
+   */
+  cashAccountId: idSchema.nullable(),
   issues: z.array(openingIssueSchema),
   totals: openingTotalsSchema,
   sections: z.array(openingSectionSummarySchema),

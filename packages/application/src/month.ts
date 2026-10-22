@@ -14,12 +14,21 @@ import {
 } from "@bsd/contracts";
 import type { Prisma } from "@bsd/database";
 import {
+  STAFF_COST_SIGN,
+  cashPay,
+  srCost,
   dsrCashSettlement,
   fieldRemaining,
+  proposeRecovery,
+  salaryAfterAbsence,
+  staffCost,
+  type MoneyKind,
   firstOfMonth,
   lastOfMonth,
   monthOf,
   shiftBusinessDate,
+  companyStatement,
+  sumAmounts,
   sumQuantities,
   toDecimal,
   type MonthClosing,
@@ -36,9 +45,10 @@ import { runIdempotent } from "./idempotency";
 import { liveOpening, namesFor, rangeRun, runLedger, type ActiveOpening } from "./ledger";
 import { plain } from "./numeric";
 import { parseReportRange } from "./report-range";
+import { staffInScope, staffRun } from "./staff-ledger";
 
 /**
- * Month view, month close/reopen and range reports (PLAN §9 Phase F). Every figure is a field of
+ * Month view, month close/reopen and range reports (PLAN Â§9 Phase F). Every figure is a field of
  * one month-engine run; nothing is summed here.
  */
 
@@ -98,6 +108,41 @@ async function closeBlocker(
   return drafts > 0 ? "validation.month.drafts" : null;
 }
 
+/** A company's close state for `month` and, while open, why it can't be closed yet (D66). */
+export async function monthCloseState(
+  db: Db,
+  companyId: string,
+  month: string,
+): Promise<{ status: MonthStatus; blocker: string | null }> {
+  const [active, closed] = await Promise.all([
+    liveOpening(db, companyId),
+    db.monthClose.findUnique({
+      where: { companyId_month: { companyId, month } },
+      select: { id: true },
+    }),
+  ]);
+  const status = monthStatus(month, active, Boolean(closed));
+  return {
+    status,
+    blocker: status === "open" && active ? await closeBlocker(db, companyId, month, active) : null,
+  };
+}
+
+/** D65: staff balances shown anywhere are the tenant-wide staff run's, for the people in scope. */
+async function globalStaff(
+  db: Db,
+  access: CompanyAccess,
+  from: string,
+  to: string,
+): Promise<MonthOutput["month"]["staff"]> {
+  const [run, people] = await Promise.all([
+    staffRun(db, access.company.tenantId, to, from),
+    staffInScope(db, access.company),
+  ]);
+  const ids = new Set(people.map((p) => p.id));
+  return (run?.output.month.staff ?? []).filter((s) => ids.has(s.staffId));
+}
+
 async function categoryNames(db: Db, tenantId: string): Promise<Map<string, string>> {
   const rows = await db.expenseCategory.findMany({
     where: { tenantId },
@@ -108,7 +153,7 @@ async function categoryNames(db: Db, tenantId: string): Promise<Map<string, stri
 
 // ---------------------------------------------------------------- month view
 
-/** The workbook's right side for one month (PLAN §2.5), with its close state. */
+/** The workbook's right side for one month (PLAN Â§2.5), with its close state. */
 export async function getMonthView(
   ctx: AppContext,
   companyId: string,
@@ -137,13 +182,14 @@ export async function getMonthView(
     active && (status === "open" || status === "closed")
       ? await runLedger(ctx.db, access, to, active)
       : null;
-  const [names, categories, closedBy, blocker] = await Promise.all([
+  const [names, categories, closedBy, blocker, staff] = await Promise.all([
     namesFor(ctx.db, access, run?.from ?? firstOfMonth(month)),
     categoryNames(ctx.db, access.company.tenantId),
     close
       ? ctx.db.user.findUnique({ where: { id: close.closedById }, select: { name: true } })
       : null,
     active && status === "open" && mayClose ? closeBlocker(ctx.db, companyId, month, active) : null,
+    run && seen.canSeeStaff ? globalStaff(ctx.db, access, run.from, to) : [],
   ]);
 
   const output = run?.output;
@@ -211,9 +257,7 @@ export async function getMonthView(
         staffName: staffName(d.staffId),
       })),
     },
-    staff: seen.canSeeStaff
-      ? (output?.month.staff ?? []).map((s) => ({ ...s, staffName: staffName(s.staffId) }))
-      : [],
+    staff: staff.map((s) => ({ ...s, staffName: staffName(s.staffId) })),
     companyPayable: {
       ...(output?.month.companyPayable ?? {
         opening: "0",
@@ -360,7 +404,7 @@ const col = (key: string, kind: ReportColumnKind, needs?: Column["needs"]): Colu
 function table(
   title: string,
   columns: Column[],
-  rows: { piecesPerCarton?: string; cells: Cells }[],
+  rows: { id?: string; piecesPerCarton?: string; cells: Cells }[],
   totals: Cells | null,
   seen: Visibility,
 ): ReportTable {
@@ -396,6 +440,8 @@ function buildTables(
   seen: Visibility,
   from: string,
   dsrExtras?: DsrExtras,
+  staffExtras?: StaffExtras,
+  singleDay = false,
 ): ReportTable[] {
   const m = output.month;
   const staffName = (sid: string) => names.staff.get(sid) ?? "";
@@ -638,6 +684,10 @@ function buildTables(
             col("orders", "money"),
             col("incentives", "money"),
             col("damageRefunds", "money"),
+            col("damageBalance", "money"),
+            col("incentiveBalance", "money"),
+            col("investments", "money"),
+            col("totalCash", "money"),
           ],
           [
             {
@@ -649,6 +699,11 @@ function buildTables(
                 orders: c.orders,
                 incentives: c.incentives,
                 damageRefunds: c.damageRefunds,
+                damageBalance: c.damageBalance,
+                incentiveBalance: c.incentiveBalance,
+                investments: c.investments,
+                // D63: the company's total cash and bank balance (Î£ its cash book).
+                totalCash: sumAmounts(["0", ...m.cashBook.map((a) => a.closing)]),
               },
             },
           ],
@@ -667,6 +722,8 @@ function buildTables(
             col("moneyIn", "money"),
             col("moneyOut", "money"),
             col("balance", "money"),
+            col("damageBalance", "money"),
+            col("incentiveBalance", "money"),
             col("undelivered", "money"),
             col("memoValue", "money"),
           ],
@@ -678,30 +735,37 @@ function buildTables(
                 line: "report.line.company.opening",
                 product: "",
                 balance: balanceOf(c.opening),
+                damageBalance: c.damageBalanceOpening,
+                incentiveBalance: c.incentiveBalanceOpening,
                 undelivered: c.undeliveredOpening,
               },
             },
-            ...output.companyEntries.map((e) => {
-              // Money in (deposit, incentive, damage refund) and out (order bill, excess receipt
-              // bill); free goods and replacement goods are memos that move no balance.
+            ...companyStatement(output.companyEntries).map((e) => {
+              // Money in (deposit, incentive, damage refund) and out (orders by the balance part
+              // that paid them, D63; excess receipt bill); free goods, replacement goods and
+              // investment are memos that move no balance.
               const isIn =
                 e.kind === "deposit" || e.kind === "incentive" || e.kind === "damageRefund";
-              const isOut = e.kind === "order" || (e.kind === "receipt" && e.amount !== "0");
+              const isOut =
+                e.kind.startsWith("orderFrom") || (e.kind === "receipt" && e.amount !== "0");
+              const [onlyProduct] = e.productIds.length === 1 ? e.productIds : [];
               return {
-                ...(e.productId ? { piecesPerCarton: sizes.get(e.productId) ?? "1" } : {}),
+                ...(onlyProduct ? { piecesPerCarton: sizes.get(onlyProduct) ?? "1" } : {}),
                 cells: {
                   ...blank,
                   date: e.date,
                   line: `report.line.company.${e.kind}`,
-                  product: e.productId ? (productNames.get(e.productId) ?? "") : "",
+                  product: e.productIds.map((id) => productNames.get(id) ?? "").join(", "),
                   quantity: e.quantity ?? null,
                   // D57: free pieces and the carton rate of an order.
                   freeQuantity: e.freeQuantity ?? null,
                   cartonRate: e.cartonRate ?? null,
                   moneyIn: isIn ? e.amount : null,
                   moneyOut: isOut ? e.amount : null,
-                  memoValue: e.kind === "replacement" ? e.amount : null,
+                  memoValue: e.kind === "replacement" || e.kind === "investment" ? e.amount : null,
                   balance: balanceOf(e.balance),
+                  damageBalance: e.damageBalance,
+                  incentiveBalance: e.incentiveBalance,
                   undelivered: e.undelivered,
                 },
               };
@@ -795,27 +859,70 @@ function buildTables(
       ];
     }
     case "staff-balances": {
-      const keys = ["advance", "loan", "shortage", "credit", "salaryPayable", "srLoan", "owedToSr"];
+      // D67: DSRs (salary, shortage, advance, absent fee, Cash Pabe, staff cost) and SRs (advance
+      // as the dashboard's SR cost) in two tables, each with a totals row so they match the
+      // dashboard cards.
+      const totalsOf = (rows: { cells: Cells }[], keys: readonly string[]) =>
+        rows.length === 0
+          ? null
+          : Object.fromEntries(
+              keys.map((key) => [
+                key,
+                sumAmounts(["0", ...rows.flatMap((r) => r.cells[key] ?? [])]),
+              ]),
+            );
+      // D75: every person in scope has a row (the DSRs of the sales sheets included), keyed by id.
+      const people = [...(staffExtras ?? new Map<string, never>()).entries()];
+      const ledger = new Map(m.staff.map((s) => [s.staffId, s]));
+      const srRows = people.flatMap(([staffId, extra]) => {
+        if (extra.kind !== "sr") return [];
+        const s = ledger.get(staffId);
+        return [
+          { id: staffId, cells: { staff: extra.name, advance: srCost(s ? [s] : [], singleDay) } },
+        ];
+      });
+      const srKeys = ["advance"] as const;
+      const dsrKeys = ["salary", "shortage", "advance", "absent", "cashPabe", "staffCost"] as const;
+      const dsrRows = people.flatMap(([staffId, extra]): { id: string; cells: Cells }[] => {
+        if (extra.kind === "sr") return [];
+        const closing = ledger.get(staffId)?.closing;
+        const owed = {
+          advance: closing?.advance ?? "0",
+          loan: closing?.loan ?? "0",
+          shortage: closing?.shortage ?? "0",
+        };
+        const net = salaryAfterAbsence(extra.salary, extra.absent);
+        return [
+          {
+            id: staffId,
+            cells: {
+              staff: extra.name,
+              salary: extra.salary,
+              shortage: owed.shortage,
+              advance: sumAmounts([owed.advance, owed.loan]),
+              absent: extra.absent,
+              // After this month's salary is accrued, Cash Pabe is what is still unpaid of it.
+              cashPabe: extra.salaryDone
+                ? (closing?.salaryPayable ?? "0")
+                : cashPay(net, proposeRecovery(net, owed)),
+              staffCost: extra.cost,
+            },
+          },
+        ];
+      });
       return [
         table(
           "staffBalances",
-          [
-            col("staff", "text"),
-            ...keys.map((k) => col(k, "money")),
-            col("owesUs", "money"),
-            col("weOwe", "money"),
-          ],
-          m.staff.map((s) => ({
-            cells: {
-              staff: staffName(s.staffId),
-              ...Object.fromEntries(
-                keys.map((k) => [k, (s.closing as Record<string, string>)[k] ?? null]),
-              ),
-              owesUs: s.owesUs,
-              weOwe: s.weOwe,
-            },
-          })),
-          null,
+          [col("staff", "text"), ...dsrKeys.map((key) => col(key, "money"))],
+          dsrRows,
+          totalsOf(dsrRows, dsrKeys),
+          seen,
+        ),
+        table(
+          "srBalances",
+          [col("staff", "text"), ...srKeys.map((key) => col(key, "money"))],
+          srRows,
+          totalsOf(srRows, srKeys),
           seen,
         ),
       ];
@@ -845,38 +952,29 @@ function buildTables(
       ];
     }
     case "cash-book": {
-      // D52: every active account shows, even with no opening or movement yet; the "" bucket
-      // (money with no account) shows only when it holds something.
-      const accountName = (accountId: string) =>
-        accountId === ""
-          ? "cashBook.noAccount"
-          : (names.accounts.find((a) => a.id === accountId)?.name ?? "");
-      const book = [
-        ...m.cashBook,
-        ...names.accounts
-          .filter((a) => a.active && !m.cashBook.some((b) => b.accountId === a.id))
-          .map((a) => ({ accountId: a.id, opening: "0", in: "0", out: "0", closing: "0" })),
-      ];
-      const blank = { counterAccount: null };
+      // D72: all money is cash, one bucket (the ledger folds every account into it).
+      const total = (pick: (a: (typeof m.cashBook)[number]) => string) =>
+        sumAmounts(["0", ...m.cashBook.map(pick)]);
+      const opening = total((a) => a.opening);
       return [
         table(
           "cashBookSummary",
           [
-            col("account", "label"),
             col("opening", "money"),
             col("cashIn", "money"),
             col("cashOut", "money"),
             col("closing", "money"),
           ],
-          book.map((a) => ({
-            cells: {
-              account: accountName(a.accountId),
-              opening: a.opening,
-              cashIn: a.in,
-              cashOut: a.out,
-              closing: a.closing,
+          [
+            {
+              cells: {
+                opening,
+                cashIn: total((a) => a.in),
+                cashOut: total((a) => a.out),
+                closing: total((a) => a.closing),
+              },
             },
-          })),
+          ],
           null,
           seen,
         ),
@@ -885,31 +983,27 @@ function buildTables(
           [
             col("date", "text"),
             col("line", "label"),
-            col("account", "label"),
-            col("counterAccount", "label"),
             col("cashIn", "money"),
             col("cashOut", "money"),
             col("cashBalance", "money"),
           ],
           [
-            ...m.cashBook.map((a) => ({
+            {
               cells: {
-                ...blank,
                 date: from,
                 line: "report.line.cash.opening",
-                account: accountName(a.accountId),
                 cashIn: null,
                 cashOut: null,
-                cashBalance: a.opening,
+                cashBalance: opening,
               },
-            })),
+            },
             ...output.cashEntries.map((e) => ({
               cells: {
                 date: e.date,
-                line: e.type === "sales" ? "report.line.cash.sales" : `money.kind.${e.type}`,
-                account: accountName(e.account),
-                counterAccount:
-                  e.counterAccount === undefined ? null : accountName(e.counterAccount),
+                line:
+                  e.type === "sales" || e.type === "investment"
+                    ? `report.line.cash.${e.type}`
+                    : `money.kind.${e.type}`,
                 cashIn: e.in === "0" ? null : e.in,
                 cashOut: e.out === "0" ? null : e.out,
                 cashBalance: e.balance,
@@ -933,6 +1027,7 @@ function buildTables(
             col("marketDueNew", "money"),
             col("marketDueCollected", "money"),
             col("costPaid", "money"),
+            col("staffMoney", "money"),
             col("expectedCash", "money"),
             col("handedOver", "money"),
             col("difference", "money"),
@@ -946,6 +1041,7 @@ function buildTables(
                 dueGiven: r.marketDueNew,
                 dueCollected: r.marketDueCollected,
                 expenses: r.costPaid,
+                staffMoney: r.staffMoney,
                 handedOver: extra?.handedOver ?? null,
               });
               return {
@@ -956,6 +1052,7 @@ function buildTables(
                   marketDueNew: r.marketDueNew,
                   marketDueCollected: r.marketDueCollected,
                   costPaid: r.costPaid,
+                  staffMoney: r.staffMoney,
                   expectedCash: cash.expected,
                   handedOver: cash.handedOver,
                   difference: cash.difference,
@@ -1002,6 +1099,96 @@ function buildTables(
       ];
     }
   }
+}
+
+type StaffExtras = Map<
+  string,
+  {
+    name: string;
+    kind: "sr" | "distributor";
+    salary: string;
+    absent: string;
+    cost: string;
+    /** D75: this month's salary is already accrued (paid now or approved). */
+    salaryDone: boolean;
+  }
+>;
+
+/**
+ * D67: per person in scope, the monthly salary (latest assignment that has one) and, over
+ * [from, to], the absent fees and staff cost entered in this company (every company for the
+ * master). D75: absent fees entered before the person's last salary accrual are settled.
+ */
+async function loadStaffExtras(
+  db: Db,
+  access: CompanyAccess,
+  from: string,
+  to: string,
+): Promise<StaffExtras> {
+  const company = access.company;
+  const scope = company.isMaster ? { tenantId: company.tenantId } : { companyId: company.id };
+  const [people, assignments, entries, accruals] = await Promise.all([
+    staffInScope(db, company),
+    db.staffAssignment.findMany({
+      where: { company: { tenantId: company.tenantId }, monthlySalary: { not: null } },
+      select: { staffId: true, monthlySalary: true },
+      orderBy: { from: "desc" },
+    }),
+    db.moneyEntry.findMany({
+      where: {
+        ...scope,
+        status: "posted",
+        staffId: { not: null },
+        kind: { in: ["staffAbsent", ...(Object.keys(STAFF_COST_SIGN) as MoneyKind[])] },
+        date: { gte: toDbDate(from), lte: toDbDate(to) },
+      },
+      select: { staffId: true, kind: true, amount: true, createdAt: true },
+    }),
+    db.moneyEntry.findMany({
+      where: {
+        ...scope,
+        status: "posted",
+        staffId: { not: null },
+        kind: "salaryAccrual",
+        date: { lte: toDbDate(to) },
+      },
+      select: { staffId: true, date: true, createdAt: true },
+      orderBy: { createdAt: "asc" },
+    }),
+  ]);
+  const salary = new Map<string, string>();
+  for (const a of assignments) {
+    if (a.monthlySalary !== null && !salary.has(a.staffId)) {
+      salary.set(a.staffId, plain(a.monthlySalary));
+    }
+  }
+  const lastAccrual = new Map<string, { date: string; createdAt: Date }>();
+  for (const a of accruals) {
+    if (a.staffId) lastAccrual.set(a.staffId, { date: fromDbDate(a.date), createdAt: a.createdAt });
+  }
+  const extras: StaffExtras = new Map();
+  for (const p of people) {
+    const accrued = lastAccrual.get(p.id);
+    const mine = entries.flatMap((e) =>
+      e.staffId === p.id
+        ? [{ kind: e.kind as MoneyKind, amount: plain(e.amount), createdAt: e.createdAt }]
+        : [],
+    );
+    extras.set(p.id, {
+      name: p.name,
+      kind: p.kind,
+      salary: salary.get(p.id) ?? "0",
+      absent: sumAmounts([
+        "0",
+        ...mine
+          .filter((e) => e.kind === "staffAbsent" && (!accrued || e.createdAt > accrued.createdAt))
+          .map((e) => e.amount),
+      ]),
+      cost: staffCost(mine),
+      salaryDone: accrued !== undefined && monthOf(accrued.date) === monthOf(to),
+    });
+  }
+  return extras;
 }
 
 type DsrExtras = Map<string, { handedOver: string | null; stockMismatch: boolean }>;
@@ -1069,7 +1256,7 @@ async function loadDsrExtras(
   return extras;
 }
 
-/** One report over [from, to] from a single engine run (PLAN §6). `to` stops at today. */
+/** One report over [from, to] from a single engine run (PLAN Â§6). `to` stops at today. */
 export async function getReport(
   ctx: AppContext,
   companyId: string,
@@ -1088,17 +1275,33 @@ export async function getReport(
 
   const active = await liveOpening(ctx.db, companyId);
   const run = await rangeRun(ctx.db, access, range.from, to, active);
-  const [names, categories, dsrExtras] = await Promise.all([
+  const [names, categories, dsrExtras, staff, staffExtras] = await Promise.all([
     namesFor(ctx.db, access, run?.from ?? range.from),
     categoryNames(ctx.db, access.company.tenantId),
     run && id === "dsr-daily" ? loadDsrExtras(ctx.db, companyId, run.from, to) : undefined,
+    run && id === "staff-balances" ? globalStaff(ctx.db, access, run.from, to) : undefined,
+    run && id === "staff-balances" ? loadStaffExtras(ctx.db, access, run.from, to) : undefined,
   ]);
+  const output =
+    run && staff ? { ...run.output, month: { ...run.output.month, staff } } : run?.output;
   return reportSchema.parse({
     report: id,
     from: run?.from ?? range.from,
     to,
     cutoffDate: active?.cutoffDate ?? null,
-    tables: run ? buildTables(id, run.output, names, categories, seen, run.from, dsrExtras) : [],
+    tables: output
+      ? buildTables(
+          id,
+          output,
+          names,
+          categories,
+          seen,
+          run?.from ?? range.from,
+          dsrExtras,
+          staffExtras,
+          run?.from === to,
+        )
+      : [],
     warnings: run?.output.warnings ?? [],
   });
 }
