@@ -27,6 +27,8 @@ const TABLES = [
   "month_close",
   "field_visit_line",
   "field_visit",
+  "field_day_report_line",
+  "field_day_report",
   "damage_event",
   "damage_case_line",
   "damage_case",

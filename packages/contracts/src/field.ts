@@ -95,6 +95,11 @@ export const fieldDaySchema = z.object({
   sheetStatus: z.enum(["none", "draft", "posted"]),
   /** True once the office posted the day; visits can no longer change. */
   locked: z.boolean(),
+  /**
+   * D71: after posting the day end goes to the office as a report to approve; true while one
+   * waits (`dayEnd` then shows its firot and damage).
+   */
+  reportPending: z.boolean(),
   products: z.array(fieldProductSchema),
   /** Every active product for the day end (firot and damage), with or without samari. */
   dayEnd: z.array(fieldProductSchema),

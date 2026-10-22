@@ -32,10 +32,8 @@ export const STANDARD_EXPENSE_CATEGORIES = [
   "গোডাউন ভাড়া",
 ] as const;
 
-export const STANDARD_CASH_ACCOUNTS = [
-  { name: "ক্যাশ", kind: "cash" },
-  { name: "ব্যাংক", kind: "bank" },
-] as const;
+/** D72: all money is cash; a tenant has one cash account. */
+export const STANDARD_CASH_ACCOUNTS = [{ name: "ক্যাশ", kind: "cash" }] as const;
 
 export const STANDARD_STAFF_ROLES = [
   { name: "ডিএসআর", kind: "dsr" },

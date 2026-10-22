@@ -1,6 +1,6 @@
 "use client";
 
-import { cashAccountKinds, staffRoleKinds } from "@bsd/contracts";
+import { staffRoleKinds } from "@bsd/contracts";
 import { t, type TranslationKey } from "@bsd/i18n";
 import { useId, useState } from "react";
 import { Button } from "@/components/button";
@@ -30,10 +30,6 @@ const specs: { [K in ConfigListId]: ListSpec } = {
     kinds: staffRoleKinds.map((kind) => ({ value: kind, labelKey: `staff.kind.${kind}` })),
   },
   expenseCategories: { titleKey: "settings.expenseCategories" },
-  cashAccounts: {
-    titleKey: "settings.cashAccounts",
-    kinds: cashAccountKinds.map((kind) => ({ value: kind, labelKey: `cashAccount.kind.${kind}` })),
-  },
 };
 
 type Item = { id: string; name: string; active: boolean; kind?: string };
@@ -188,7 +184,7 @@ function ListSection<K extends ConfigListId>({ list, canEdit }: { list: K; canEd
   );
 }
 
-/** Tenant lists (guide 4.4): staff roles, expense categories, cash/bank/mobile accounts. */
+/** Tenant lists (guide 4.4): staff roles and expense categories. */
 function Lists() {
   const session = useSession();
   const canEdit = session?.me.isSuperAdmin === true;
@@ -200,8 +196,7 @@ function Lists() {
       />
       <div className="flex flex-col gap-8">
         <ListSection list="staffRoles" canEdit={canEdit} />
-        <ListSection list="expenseCategories" canEdit={canEdit} />
-        <ListSection list="cashAccounts" canEdit={canEdit} />
+        <ListSection list="expenseCategories" canEdit={canEdit} />{" "}
       </div>
     </>
   );

@@ -96,8 +96,8 @@ export function receiveInto(
 }
 
 /**
- * D68: free goods without an order (company incentive, damage replacements) join the newest named
- * batch and count at its prices; with no named batch they arrive as zero-cost pieces.
+ * D68: company free goods and replacements join the newest named batch at its prices. Before any
+ * named batch they arrive like other unbatched pieces, at zero cost.
  */
 export function receiveFree(
   batches: BatchLayer[],

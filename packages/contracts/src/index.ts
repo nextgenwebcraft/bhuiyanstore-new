@@ -76,7 +76,6 @@ export {
   moneyCategoryKinds,
   moneyEntryKinds,
   owedAllocationSchema,
-  moneyAccountKinds,
   moneyKindPermission,
   moneyKindPerson,
   moneyEntryPostRequestSchema,

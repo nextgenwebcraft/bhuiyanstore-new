@@ -10,7 +10,7 @@ import {
 } from "@bsd/domain";
 import { formatBusinessDate, formatCount, normalizeDigits, t } from "@bsd/i18n";
 import { useSyncExternalStore } from "react";
-import { Button, ButtonLink } from "@/components/button";
+import { Button } from "@/components/button";
 import { tdClass } from "@/components/data-table";
 import { DatePicker } from "@/components/date-picker";
 import { Icon } from "@/components/icons";
@@ -19,8 +19,6 @@ import { TableSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
 import { useDayView } from "@/data/queries";
 import { useToday } from "@/lib/today";
-import { useSetupNext } from "@/features/administration/setup-next";
-
 // ---------------------------------------------------------------- the working date
 
 const listeners = new Set<() => void>();
@@ -119,7 +117,6 @@ export function DayGate({
 }) {
   const today = useToday();
   const view = useDayView(companyId, date);
-  const next = useSetupNext();
   if (view.isPending) return skeleton;
   if (view.isError) return <QueryError error={view.error} onRetry={() => void view.refetch()} />;
   const data = view.data;
@@ -129,7 +126,6 @@ export function DayGate({
         tone="warning"
         title={t("daily.noOpening.title")}
         hint={t("daily.noOpening.hint")}
-        action={next ? <ButtonLink href={next.href}>{t(next.label)}</ButtonLink> : undefined}
       />
     );
   }

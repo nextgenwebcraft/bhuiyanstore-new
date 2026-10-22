@@ -225,6 +225,23 @@ export const dsrDaySchema = z.object({
   lines: z.array(dsrLineSchema),
   postedAt: z.string().nullable(),
   reversedAt: z.string().nullable(),
+  /** D71: firot and damage the DSR sent after posting, waiting for the office's approval. */
+  fieldReport: z
+    .object({
+      id: idSchema,
+      version: z.number().int().positive(),
+      createdAt: z.string(),
+      lines: z.array(
+        z.object({
+          productId: idSchema,
+          productName: z.string(),
+          returned: decimalStringSchema,
+          damaged: decimalStringSchema,
+        }),
+      ),
+    })
+    .nullable()
+    .optional(),
 });
 
 export type DsrDay = z.infer<typeof dsrDaySchema>;
@@ -327,29 +344,6 @@ export const moneyKindPermission: Record<MoneyEntryKind, PermissionId> = {
   cashTransfer: "payment.post",
 };
 
-/**
- * Kinds that name a cash or bank account on entry (D52): every kind that moves cash, a supplier
- * deposit and a transfer. Asserted equal to the engine's list in `application/src/kinds.test.ts`.
- */
-export const moneyAccountKinds: readonly MoneyEntryKind[] = [
-  "marketDueNew",
-  "marketDueCollected",
-  "srIncentive",
-  "expense",
-  "staffAdvance",
-  "staffLoan",
-  "staffShortage",
-  "staffRepayment",
-  "staffExcess",
-  "staffCreditPaid",
-  "salaryPaid",
-  "srLoan",
-  "srRepayment",
-  "srPayment",
-  "supplierDeposit",
-  "cashTransfer",
-];
-
 /** Kinds that need an expense category. */
 export const moneyCategoryKinds: readonly MoneyEntryKind[] = ["expense", "staffCostPaid"];
 
@@ -393,14 +387,6 @@ export const moneyEntryPostRequestSchema = z
      * name exists, reused) in the same atomic request; mutually exclusive with `shopId`.
      */
     newShop: newShopSchema.nullable().default(null),
-    /**
-     * D52: the account the money moves, only for `moneyAccountKinds`. Omitted = the company's
-     * default account (the first bank account for a supplier deposit, if any). A transfer names
-     * both accounts.
-     */
-    cashAccountId: idSchema.nullable().default(null),
-    /** The receiving account of a `cashTransfer`. */
-    toCashAccountId: idSchema.nullable().default(null),
   })
   .superRefine((value, ctx) => {
     if (value.newShop !== null) {
@@ -413,42 +399,6 @@ export const moneyEntryPostRequestSchema = z
       } else if (!newShopKinds.includes(value.kind)) {
         ctx.addIssue({ code: "custom", path: ["newShop"], message: "validation.shop.notForKind" });
       }
-    }
-    const transfer = value.kind === "cashTransfer";
-    if (value.cashAccountId !== null && !moneyAccountKinds.includes(value.kind)) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["cashAccountId"],
-        message: "validation.money.noAccountForKind",
-      });
-    }
-    if (transfer) {
-      if (value.cashAccountId === null) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["cashAccountId"],
-          message: "validation.money.accountRequired",
-        });
-      }
-      if (value.toCashAccountId === null) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["toCashAccountId"],
-          message: "validation.money.accountRequired",
-        });
-      } else if (value.toCashAccountId === value.cashAccountId) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["toCashAccountId"],
-          message: "validation.money.sameAccount",
-        });
-      }
-    } else if (value.toCashAccountId !== null) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["toCashAccountId"],
-        message: "validation.money.noAccountForKind",
-      });
     }
   });
 
@@ -467,12 +417,6 @@ export const moneyEntrySchema = z.object({
   categoryName: z.string().nullable(),
   allocation: owedAllocationSchema.nullable(),
   srLoanType: z.enum(srLoanTypes).nullable(),
-  /** D52: the account the entry moved (null = the default account, resolved when read). */
-  cashAccountId: idSchema.nullable(),
-  cashAccountName: z.string().nullable(),
-  /** The receiving account of a transfer. */
-  toCashAccountId: idSchema.nullable(),
-  toCashAccountName: z.string().nullable(),
   /** Set when a payroll run posted the entry; it is then reversed only with the run. */
   payrollRunId: idSchema.nullable(),
   /** Set when a posted DSR day created the entry (field visits, D40; handover difference, D54). */
@@ -492,8 +436,8 @@ const costMoney = decimalStringSchema.nullable();
 
 /**
  * One FIFO batch of a product (D49): pieces received at one cost and sale price, oldest first.
- * `costPrice` and `value` are null without `inventory.cost_view`; a zero cost is a free batch
- * (free goods, company replacement). `startDate` is a business date, or `opening` for stock
+ * `costPrice` and `value` are null without `inventory.cost_view`; an automatic batch at zero
+ * cost holds free goods that arrived before any named batch (D68). `startDate` is a business date, or `opening` for stock
  * counted at the opening without a known date.
  */
 export const batchRowSchema = z.object({
@@ -581,7 +525,7 @@ export const dayProductRowSchema = z.object({
   batches: z.array(batchRowSchema),
   /**
    * D68: the product's stored batches that still matter on the date: those with goods due from
-   * the company or in stock, and the latest paid one (its prices pre-fill the next order).
+   * the company or in stock, and the latest one (its prices pre-fill the next order).
    */
   lots: z.array(productLotSchema),
 });

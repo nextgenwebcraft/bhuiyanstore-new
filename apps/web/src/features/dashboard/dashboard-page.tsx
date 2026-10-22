@@ -11,17 +11,16 @@ import { Decimal } from "@bsd/domain";
 import { t, type TranslationKey, formatBusinessDate } from "@bsd/i18n";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
-import { ButtonLink } from "@/components/button";
 import { Icon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { QueryError } from "@/components/query-error";
 import { StatsSkeleton, TableSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
-import { StatTile } from "@/components/stat-tile";
+import { StatTile, type StatTone } from "@/components/stat-tile";
 import { errorCodeOf } from "@/data/ports/service-error";
 import { useDashboardSummary } from "@/data/queries";
-import { SetupBanner, useSetupNext } from "@/features/administration/setup-next";
 import { money } from "@/components/data-table";
+import { useStaffRowActions } from "@/features/accounts/staff-dialogs";
 import { ReportBody, SalesProfitBody } from "@/features/reports/report-view";
 import { companyHref } from "@/features/shell/navigation";
 import { NavGate } from "@/features/shell/nav-gate";
@@ -92,32 +91,32 @@ export function PeriodBar({
 type Card = {
   label: TranslationKey;
   value: string | undefined;
-  emphasis?: boolean;
+  /** Its colour; "result" is success when the value is 0 or more and error below. */
+  tone?: StatTone | "result";
   /** Its step in the calculation chain: subtracted (−) or a result (=). */
   op?: "minus" | "equals";
 };
 
 /**
- * D67: the calculation chain in order: মোট সামারি − ফেরত − ড্যামেজ − কমিশন − অপারেটিং খরচ
- * − ডিএসআর খরচ − এসআর খরচ = নিট ব্যালান্স − বিক্রিত পণ্যের ক্রয়মূল্য = নিট লাভ (domain
- * `dashboardChain`). A card without permission is left out.
+ * D69: মোট সামারি to ডিএসআর খরচ, and মোট বিক্রি = সামারি minus those five (D74); then মোট প্রফিট (from the DSR lines) − অপারেটিং
+ * + ডিএসআর খরচ = নিট প্রফিট (domain `dashboardTotals`). A card without permission is left out.
  */
 export function chainCards(d: DashboardSummary): Card[] {
   return [
-    { label: "dashboard.card.issued", value: d.issuedValue, emphasis: true },
-    { label: "dashboard.card.returned", value: d.returnValue, op: "minus" },
-    { label: "dashboard.card.damage", value: d.damageSaleValue, op: "minus" },
-    { label: "dashboard.card.commission", value: d.commission, op: "minus" },
-    { label: "dashboard.card.operating", value: d.expenses, op: "minus" },
-    { label: "dashboard.card.staffCost", value: d.staffCost, op: "minus" },
-    { label: "dashboard.card.srCost", value: d.srCost, op: "minus" },
-    { label: "dashboard.card.netBalance", value: d.netBalance, op: "equals", emphasis: true },
-    { label: "dashboard.card.costOfSold", value: d.costOfSold, op: "minus" },
-    { label: "dashboard.card.netProfit", value: d.netProfit, op: "equals", emphasis: true },
+    { label: "dashboard.card.issued", value: d.issuedValue, tone: "info" },
+    { label: "dashboard.card.returned", value: d.returnValue },
+    { label: "dashboard.card.damage", value: d.damageSaleValue },
+    { label: "dashboard.card.commission", value: d.commission },
+    { label: "dashboard.card.operating", value: d.expenses },
+    { label: "dashboard.card.staffCost", value: d.staffCost },
+    { label: "dashboard.card.totalSales", value: d.totalSales, op: "equals", tone: "result" },
+    { label: "dashboard.card.salesProfit", value: d.salesProfit, tone: "result" },
+    { label: "dashboard.card.profitCost", value: d.profitCost, op: "minus", tone: "error" },
+    { label: "dashboard.card.netProfit", value: d.netProfit, op: "equals", tone: "result" },
   ];
 }
 
-/** The position cards beside the chain: dues, SR advance and goods (D60, D67). */
+/** The position cards beside the chain: dues, goods and what the SRs owe (D60, D67, D69). */
 export function summaryCards(d: DashboardSummary, singleDay: boolean): Card[] {
   return [
     ...(singleDay
@@ -126,9 +125,11 @@ export function summaryCards(d: DashboardSummary, singleDay: boolean): Card[] {
           { label: "dashboard.card.oldDue", value: d.marketDueOpening },
         ] satisfies Card[])
       : []),
-    { label: "dashboard.card.totalDue", value: d.marketDueOutstanding, emphasis: true },
+    { label: "dashboard.card.totalDue", value: d.marketDueOutstanding, tone: "warning" },
+    { label: "dashboard.card.totalCost", value: d.totalCost, tone: "error" },
     { label: "dashboard.card.undelivered", value: d.undeliveredValue },
-    { label: "dashboard.card.stock", value: d.stockValue, emphasis: true },
+    { label: "dashboard.card.stock", value: d.stockValue, tone: "info" },
+    { label: "dashboard.card.srCost", value: d.srCost, tone: "warning" },
   ];
 }
 
@@ -147,7 +148,13 @@ export function SummaryCards({ cards, columns = 4 }: { cards: Card[]; columns?: 
                 key={card.label}
                 label={card.op ? `${OP_SIGN[card.op]} ${t(card.label)}` : t(card.label)}
                 value={money(card.value)}
-                emphasis={card.emphasis ?? false}
+                tone={
+                  card.tone === "result"
+                    ? card.value.trim().startsWith("-")
+                      ? "error"
+                      : "success"
+                    : card.tone
+                }
               />,
             ],
       )}
@@ -234,6 +241,7 @@ function ReportSections({ range }: { range: ReportRange }) {
   const { company, permissions } = useCurrentWorkspace();
   const canExport = permissions.includes("report.export");
   const allowed = (id: ReportId) => canViewReport(id, permissions);
+  const staffActions = useStaffRowActions();
   return (
     <>
       {allowed("staff-balances") ? (
@@ -243,7 +251,13 @@ function ReportSections({ range }: { range: ReportRange }) {
               <ExportButtons companyId={company.id} report="staff-balances" range={range} />
             </div>
           ) : null}
-          <ReportBody companyId={company.id} report="staff-balances" range={range} />
+          <ReportBody
+            companyId={company.id}
+            report="staff-balances"
+            range={range}
+            rowActions={{ staffBalances: staffActions.rowAction }}
+          />
+          {staffActions.dialog}
         </Section>
       ) : null}
       {allowed("sales") ? (
@@ -292,7 +306,6 @@ export function RangeHeading({ range, isToday }: { range: ReportRange; isToday: 
 function DashboardBody({ range }: { range: ReportRange }) {
   const { company, permissions } = useCurrentWorkspace();
   const summary = useDashboardSummary(company.id, range);
-  const next = useSetupNext();
   const canReport = company.modules.includes("reports") && permissions.includes("report.view");
 
   if (summary.isPending || summary.isPlaceholderData) {
@@ -316,7 +329,6 @@ function DashboardBody({ range }: { range: ReportRange }) {
         tone="warning"
         title={t("daily.noOpening.title")}
         hint={t("daily.noOpening.hint")}
-        action={next ? <ButtonLink href={next.href}>{t(next.label)}</ButtonLink> : undefined}
       />
     );
   }
@@ -371,7 +383,6 @@ export function DashboardPage() {
         actions={<PrintButton />}
       />
       <PrintHeader title={t("nav.dashboard")} from={range.from} to={range.to} />
-      <SetupBanner />
       <PeriodBar period={period} cutoffDate={cutoff} today={today} onChange={choose} />
       <RangeHeading range={range} isToday={period.kind === "today"} />
       <DashboardBody range={range} />

@@ -1,0 +1,21 @@
+id: 2026-10-22-master-panel-empty
+reason: >-
+  Owner 2026-10-22 (D70) - the master panel page is emptied for content still to come; নতুন কর্মী
+  gets SR / DSR / অন্যান্য tabs. Also the master summary computes its companies in parallel.
+owners: [application, i18n, web]
+changes:
+  - apps/web master-dashboard - only the page title; summary, profit and loss, staff balances and month close removed from the page
+  - apps/web master-link - no prefetch (nothing to load)
+  - apps/web staff-page - in the master panel, every tenant person from listAllStaff in SR / DSR / other tabs with counts; no assign button for SRs there
+  - packages/i18n - staff.tab.sr, dsr, other, empty
+  - packages/application master-panel - getMasterSummary and getMasterMonth read their companies in parallel (same results)
+affectedActionIds: []
+financialImpact: >-
+  None in figures. The all-company month close is not reachable from the UI until it is placed
+  again (the API stays).
+backfill: none
+tests:
+  - pnpm check (format, lint, types, 308 unit tests)
+  - integration tests not run
+rollout: deploy the app
+recovery: revert the commit

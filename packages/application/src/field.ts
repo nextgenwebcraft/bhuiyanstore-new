@@ -1,5 +1,6 @@
 import { hashPassword } from "@bsd/auth";
 import {
+  documentTransitionRequestSchema,
   fieldDayEndRequestSchema,
   fieldDaySchema,
   fieldPermissionIds,
@@ -30,9 +31,9 @@ import {
   type CompanyAccess,
 } from "./access";
 import { recordAudit } from "./audit";
-import { lastBatchLine, linesByProduct } from "./batches";
+import { lastBatchLine, linesByProduct, type SheetLine } from "./batches";
 import type { AppContext, Tx } from "./context";
-import { businessDate, postingGuard, roleOn } from "./daily";
+import { businessDate, postingGuard, roleOn, saveDsrDayIn } from "./daily";
 import { fromDbDate, toDbDate } from "./dates";
 import { invalid, parseInput } from "./errors";
 import { isUniqueViolation, runIdempotent } from "./idempotency";
@@ -157,6 +158,10 @@ function toVisit(row: VisitRow): FieldVisit {
   });
 }
 
+/** A reported value when there is one, else the sheet's. */
+const plainOr = (reported: Prisma.Decimal | undefined, sheet: string | undefined) =>
+  reported === undefined ? (sheet ?? "0") : plain(reported);
+
 /** One DSR's field day: samari in hand per product, the visits and the shop list with dues. */
 async function buildFieldDay(
   db: Db,
@@ -166,7 +171,7 @@ async function buildFieldDay(
 ): Promise<FieldDay> {
   const companyId = access.company.id;
   const day = toDbDate(date);
-  const [staff, sheet, visitRows, shops, run] = await Promise.all([
+  const [staff, sheet, visitRows, shops, run, report] = await Promise.all([
     db.staff.findFirst({
       where: { id: staffId, tenantId: access.company.tenantId },
       select: { name: true },
@@ -186,8 +191,13 @@ async function buildFieldDay(
       select: { id: true, name: true, area: true, addedByStaffId: true },
     }),
     runLedger(db, access, date < todayBusinessDate() ? date : todayBusinessDate()),
+    db.fieldDayReport.findFirst({
+      where: { companyId, staffId, date: day, status: "pending" },
+      include: { lines: true },
+    }),
   ]);
   if (!staff) throw invalid("staffId", "validation.staff.unknown");
+  const reported = new Map((report?.lines ?? []).map((l) => [l.productId, l]));
   const visits = visitRows.map(toVisit);
 
   const sheetLine = linesByProduct(sheet?.lines ?? []);
@@ -233,8 +243,8 @@ async function buildFieldDay(
       delivered: sumQuantities(lines.map((l) => l.delivered)),
       exchanged: sumQuantities(lines.map((l) => l.exchanged)),
       remaining: fieldRemaining(issued.get(p.id) ?? "0", lines),
-      returned: sheetLine.get(p.id)?.returned ?? "0",
-      damaged: sheetLine.get(p.id)?.damaged ?? "0",
+      returned: plainOr(reported.get(p.id)?.returned, sheetLine.get(p.id)?.returned),
+      damaged: plainOr(reported.get(p.id)?.damaged, sheetLine.get(p.id)?.damaged),
     };
   };
 
@@ -244,6 +254,7 @@ async function buildFieldDay(
     staffName: staff.name,
     sheetStatus: sheet ? sheet.status : "none",
     locked: sheet?.status === "posted",
+    reportPending: report !== null,
     products: catalog.filter((p) => inHand.has(p.id)).map(toProduct),
     dayEnd: catalog.map(toProduct),
     visits,
@@ -483,8 +494,15 @@ export async function saveFieldDayEnd(
       if ((await roleOn(tx, companyId, staffId, request.date)) !== "dsr") {
         throw invalid("", "validation.daily.dsrOnly");
       }
-      await refuseIfPosted(tx, companyId, staffId, request.date);
       const date = toDbDate(request.date);
+      const posted = await tx.dsrDay.findFirst({
+        where: { companyId, staffId, date, status: "posted" },
+        include: { lines: true },
+      });
+      if (posted) {
+        await saveFieldReport(tx, ctx, access, staffId, request, posted.lines);
+        return staffId;
+      }
       const existing = await tx.dsrDay.findFirst({
         where: { companyId, staffId, date, status: "draft" },
         include: { lines: true },
@@ -566,6 +584,197 @@ export async function saveFieldDayEnd(
     },
   );
   return buildFieldDay(ctx.db, access, staffId, request.date);
+}
+
+type DayEndRequest = ReturnType<typeof fieldDayEndRequestSchema.parse>;
+
+/**
+ * D71: the day end after the office posted the day. What differs from the posted sheet waits as
+ * the DSR's one pending report (replaced on every send, removed when nothing differs).
+ */
+async function saveFieldReport(
+  tx: Tx,
+  ctx: AppContext,
+  access: CompanyAccess,
+  staffId: string,
+  request: DayEndRequest,
+  sheetLines: readonly SheetLine[],
+): Promise<void> {
+  const companyId = access.company.id;
+  await tx.$queryRaw`SELECT id FROM staff WHERE id = ${staffId} FOR UPDATE`;
+  const ids = request.lines.map((l) => l.productId);
+  const known = await tx.product.count({ where: { companyId, id: { in: ids } } });
+  if (known !== new Set(ids).size) throw invalid("lines", "validation.daily.unknownProduct");
+  const byProduct = linesByProduct(sheetLines);
+  const same = (a: string, b: string | undefined) => toDecimal(a).eq(toDecimal(b ?? "0"));
+  const changed = request.lines.filter((line, index) => {
+    const sheet = byProduct.get(line.productId);
+    const issued = toDecimal(sheet?.issued ?? "0");
+    if (issued.gt(0) && toDecimal(line.returned).add(line.damaged).gt(issued)) {
+      throw invalid(`lines.${index}`, "validation.field.exceedsSamari");
+    }
+    return !same(line.returned, sheet?.returned) || !same(line.damaged, sheet?.damaged);
+  });
+
+  const date = toDbDate(request.date);
+  const existing = await tx.fieldDayReport.findFirst({
+    where: { companyId, staffId, date, status: "pending" },
+  });
+  if (existing) await tx.fieldDayReport.delete({ where: { id: existing.id } });
+  if (changed.length === 0) return;
+  const report = await tx.fieldDayReport.create({
+    data: {
+      tenantId: access.company.tenantId,
+      companyId,
+      staffId,
+      date,
+      version: (existing?.version ?? 0) + 1,
+      createdById: ctx.actor.userId,
+      lines: {
+        create: changed.map((l) => ({
+          productId: l.productId,
+          returned: l.returned,
+          damaged: l.damaged,
+        })),
+      },
+    },
+  });
+  await recordAudit(tx, ctx, {
+    companyId,
+    action: "field_day_report.save",
+    resourceType: "field_day_report",
+    resourceId: report.id,
+    after: { staffId, date: request.date, lines: changed },
+  });
+}
+
+async function loadPendingReport(tx: Tx, companyId: string, reportId: string, version: number) {
+  const report = await tx.fieldDayReport.findFirst({
+    where: { id: reportId, companyId },
+    include: { lines: true },
+  });
+  if (!report || report.status !== "pending" || report.version !== version) {
+    throw invalid("version", "validation.daily.stale");
+  }
+  return report;
+}
+
+/**
+ * D71: approving a DSR's report corrects the DSR's live sheet (D56 when posted): each reported
+ * product's firot and damage go to its last batch line issued, its other lines get none.
+ */
+export async function approveFieldDayReport(
+  ctx: AppContext,
+  companyId: string,
+  reportId: string,
+  input: unknown,
+  requestKey?: string,
+): Promise<void> {
+  const access = await requirePermission(ctx, companyId, "sale.create", { write: true });
+  const { version } = parseInput(documentTransitionRequestSchema, input);
+  await runIdempotent(
+    ctx,
+    { scope: companyId, action: `field_day_report.approve:${reportId}`, requestKey },
+    { reportId, version },
+    async (tx) => {
+      const report = await loadPendingReport(tx, companyId, reportId, version);
+      const sheet = await tx.dsrDay.findFirst({
+        where: {
+          companyId,
+          staffId: report.staffId,
+          date: report.date,
+          status: { not: "reversed" },
+        },
+        include: { lines: true },
+      });
+      if (!sheet) throw invalid("", "validation.field.reportNoSheet");
+      const lines = sheet.lines.map((l) => ({
+        productId: l.productId,
+        batchKey: l.batchKey,
+        issued: plain(l.issued),
+        returned: plain(l.returned),
+        damaged: plain(l.damaged),
+        commission: plain(l.commission),
+        ...(l.salePrice === null ? {} : { salePrice: plain(l.salePrice) }),
+        ...(l.costPrice === null ? {} : { costPrice: plain(l.costPrice) }),
+      }));
+      for (const r of report.lines) {
+        const target = lastBatchLine(sheet.lines, r.productId);
+        const values = { returned: plain(r.returned), damaged: plain(r.damaged) };
+        if (!target) {
+          lines.push({
+            productId: r.productId,
+            batchKey: "",
+            issued: "0",
+            commission: "0",
+            ...values,
+          });
+          continue;
+        }
+        for (const line of lines) {
+          if (line.productId !== r.productId) continue;
+          Object.assign(
+            line,
+            line.batchKey === target.batchKey ? values : { returned: "0", damaged: "0" },
+          );
+        }
+      }
+      await saveDsrDayIn(tx, ctx, access, {
+        date: fromDbDate(sheet.date),
+        staffId: sheet.staffId,
+        version: sheet.version,
+        lines,
+      });
+      await tx.fieldDayReport.update({
+        where: { id: report.id },
+        data: {
+          status: "approved",
+          version: { increment: 1 },
+          decidedById: ctx.actor.userId,
+          decidedAt: new Date(),
+        },
+      });
+      await recordAudit(tx, ctx, {
+        companyId,
+        action: "field_day_report.approve",
+        resourceType: "field_day_report",
+        resourceId: report.id,
+        before: { status: "pending", version },
+        after: { status: "approved", sheetId: sheet.id },
+      });
+    },
+  );
+}
+
+/** D71: the office turns a DSR's report down; the sheet stays as it is. */
+export async function rejectFieldDayReport(
+  ctx: AppContext,
+  companyId: string,
+  reportId: string,
+  input: unknown,
+): Promise<void> {
+  await requirePermission(ctx, companyId, "sale.create", { write: true });
+  const { version } = parseInput(documentTransitionRequestSchema, input);
+  await ctx.db.$transaction(async (tx) => {
+    const report = await loadPendingReport(tx, companyId, reportId, version);
+    await tx.fieldDayReport.update({
+      where: { id: report.id },
+      data: {
+        status: "rejected",
+        version: { increment: 1 },
+        decidedById: ctx.actor.userId,
+        decidedAt: new Date(),
+      },
+    });
+    await recordAudit(tx, ctx, {
+      companyId,
+      action: "field_day_report.reject",
+      resourceType: "field_day_report",
+      resourceId: report.id,
+      before: { status: "pending", version },
+      after: { status: "rejected" },
+    });
+  });
 }
 
 /** Deletes an own open visit while the office has not posted the day. */

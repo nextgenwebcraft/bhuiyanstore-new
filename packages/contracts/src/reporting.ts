@@ -47,15 +47,19 @@ export const dashboardSummarySchema = z.object({
   staffShortage: decimalStringSchema.optional(),
   /** D67: money paid out for staff (advance to salary, net of returns); requires `finance.view`. */
   staffCost: decimalStringSchema.optional(),
-  /** D67 (amended 2026-10-22): what the SRs owe at the end of the range; requires `finance.view`. */
+  /** D67 (amended 2026-10-22, domain `srCost`): one day's SR loan change, or what the SRs owe at the end of a longer range; requires `finance.view`. */
   srCost: decimalStringSchema.optional(),
-  /** D67: DSR-damaged pieces at the sale price (the chain's damage). */
+  /** D67: DSR-damaged pieces at the sale price. */
   damageSaleValue: decimalStringSchema,
-  /** D67: মোট সামারি − every deduction and cost (domain `dashboardChain`); requires `finance.view`. */
-  netBalance: decimalStringSchema.optional(),
-  /** D67: purchase cost of the goods sold; requires `inventory.cost_view`. */
-  costOfSold: decimalStringSchema.optional(),
-  /** D67: netBalance − costOfSold; requires `finance.view` and `report.profit_view`. */
+  /** D69: ফেরত + ড্যামেজ + কমিশন + অপারেটিং খরচ + ডিএসআর খরচ, shown only; requires `finance.view`. */
+  totalCost: decimalStringSchema.optional(),
+  /** D69: অপারেটিং খরচ + ডিএসআর খরচ, what নিট প্রফিট takes off the profit; requires `finance.view`. */
+  profitCost: decimalStringSchema.optional(),
+  /** D74 মোট বিক্রি: issuedValue − totalCost; requires `finance.view`. */
+  totalSales: decimalStringSchema.optional(),
+  /** D69: the DSR-line profit (domain `salesProfit`); requires `inventory.cost_view` and `report.profit_view`. */
+  salesProfit: decimalStringSchema.optional(),
+  /** D69: salesProfit − অপারেটিং খরচ − ডিএসআর খরচ; requires `finance.view` too. */
   netProfit: decimalStringSchema.optional(),
   /** Cost value of damaged pieces; requires `inventory.cost_view`. */
   damageValue: decimalStringSchema.optional(),
@@ -70,12 +74,6 @@ export const dashboardSummarySchema = z.object({
   receivedValue: decimalStringSchema.optional(),
   /** Cost-based saleable inventory value at the end of the range; requires `inventory.cost_view`. */
   stockValue: decimalStringSchema.optional(),
-  /** Each cash and bank account's balance at the end of the range (D52); requires `finance.view`. */
-  cashAccounts: z
-    .array(
-      z.object({ accountId: z.string(), accountName: z.string(), balance: decimalStringSchema }),
-    )
-    .optional(),
 });
 
 export type DashboardSummary = z.infer<typeof dashboardSummarySchema>;

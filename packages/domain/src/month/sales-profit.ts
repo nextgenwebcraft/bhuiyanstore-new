@@ -1,0 +1,131 @@
+import { Decimal, toDecimal, type DecimalInput } from "../decimal";
+import { roundSettlement } from "../money";
+import type { DayResult } from "./types";
+
+/** One DSR line for the profit (D69): its pieces, shop commission and batch prices per piece. */
+export type ProfitLine = {
+  issued: DecimalInput;
+  returned: DecimalInput;
+  damaged: DecimalInput;
+  commission: DecimalInput;
+  salePrice: DecimalInput;
+  costPrice: DecimalInput;
+};
+
+/** The parts of the profit, each a positive amount, and the pieces behind them. */
+export type ProfitParts = {
+  issued: string;
+  returned: string;
+  damaged: string;
+  /** samari − firot (damaged pieces count as delivered). */
+  delivered: string;
+  issuedValue: string;
+  returnValue: string;
+  damageValue: string;
+  commission: string;
+  /** D74 মোট বিক্রি: delivered × sale − damage × sale − commission. */
+  netSales: string;
+  deliveredCost: string;
+  /** damaged × (sale price − purchase price). */
+  damageMargin: string;
+  profit: string;
+};
+
+const ZERO = new Decimal(0);
+
+/**
+ * D69, amended by D74 (owner 2026-10-22): profit of DSR lines =
+ * samari × sale − firot × sale − commission − delivered × purchase − damage × (sale − purchase),
+ * where delivered = samari − firot; the damage at the sale price is not taken off the profit.
+ */
+export function salesProfit(lines: readonly ProfitLine[]): ProfitParts {
+  const t = {
+    issued: ZERO,
+    returned: ZERO,
+    damaged: ZERO,
+    issuedValue: ZERO,
+    returnValue: ZERO,
+    damageValue: ZERO,
+    commission: ZERO,
+    deliveredCost: ZERO,
+    damageMargin: ZERO,
+  };
+  for (const l of lines) {
+    const issued = toDecimal(l.issued);
+    const returned = toDecimal(l.returned);
+    const damaged = toDecimal(l.damaged);
+    const sale = toDecimal(l.salePrice);
+    const cost = toDecimal(l.costPrice);
+    t.issued = t.issued.add(issued);
+    t.returned = t.returned.add(returned);
+    t.damaged = t.damaged.add(damaged);
+    t.issuedValue = t.issuedValue.add(issued.mul(sale));
+    t.returnValue = t.returnValue.add(returned.mul(sale));
+    t.damageValue = t.damageValue.add(damaged.mul(sale));
+    t.commission = t.commission.add(toDecimal(l.commission));
+    t.deliveredCost = t.deliveredCost.add(issued.sub(returned).mul(cost));
+    t.damageMargin = t.damageMargin.add(damaged.mul(sale.sub(cost)));
+  }
+  const deliveredValue = t.issuedValue.sub(t.returnValue);
+  const profit = deliveredValue.sub(t.commission).sub(t.deliveredCost).sub(t.damageMargin);
+  return {
+    issued: t.issued.toString(),
+    returned: t.returned.toString(),
+    damaged: t.damaged.toString(),
+    delivered: t.issued.sub(t.returned).toString(),
+    issuedValue: roundSettlement(t.issuedValue),
+    returnValue: roundSettlement(t.returnValue),
+    damageValue: roundSettlement(t.damageValue),
+    commission: roundSettlement(t.commission),
+    netSales: roundSettlement(deliveredValue.sub(t.damageValue).sub(t.commission)),
+    deliveredCost: roundSettlement(t.deliveredCost),
+    damageMargin: roundSettlement(t.damageMargin),
+    profit: roundSettlement(profit),
+  };
+}
+
+/** A posted day's DSR lines at the prices of the batch each line took from. */
+export function profitLinesOf(day: DayResult): ProfitLine[] {
+  return day.persons.map((p) => {
+    const product = day.products.find((x) => x.productId === p.productId);
+    const batch = p.allocations[0];
+    return {
+      issued: p.issued,
+      returned: p.returned,
+      damaged: p.damaged,
+      commission: p.commission,
+      salePrice: batch?.salePrice ?? product?.salePrice ?? "0",
+      costPrice: batch?.costPrice ?? product?.costPrice ?? "0",
+    };
+  });
+}
+
+/**
+ * D69: the dashboard. মোট খরচ = ফেরত + ড্যামেজ + কমিশন + অপারেটিং খরচ + ডিএসআর খরচ (shown only);
+ * profitCost = অপারেটিং খরচ + ডিএসআর খরচ; নিট প্রফিট = মোট প্রফিট − profitCost (ফেরত and
+ * কমিশন are already in the profit). D74 মোট বিক্রি = মোট সামারি − মোট খরচ.
+ */
+export function dashboardTotals(input: {
+  issuedValue: DecimalInput;
+  returnValue: DecimalInput;
+  damageSaleValue: DecimalInput;
+  commission: DecimalInput;
+  expenses: DecimalInput;
+  staffCost: DecimalInput;
+  salesProfit?: DecimalInput;
+}): { totalCost: string; profitCost: string; totalSales: string; netProfit: string | null } {
+  const running = toDecimal(input.expenses).add(toDecimal(input.staffCost));
+  const totalCost = running
+    .add(toDecimal(input.returnValue))
+    .add(toDecimal(input.damageSaleValue))
+    .add(toDecimal(input.commission));
+  return {
+    profitCost: roundSettlement(running),
+    totalCost: roundSettlement(totalCost),
+    totalSales: roundSettlement(toDecimal(input.issuedValue).sub(totalCost)),
+    netProfit:
+      input.salesProfit === undefined
+        ? null
+        : roundSettlement(toDecimal(input.salesProfit).sub(running)),
+  };
+}

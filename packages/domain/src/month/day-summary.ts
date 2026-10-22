@@ -1,6 +1,7 @@
-import { Decimal, toDecimal, type DecimalInput } from "../decimal";
+import { Decimal, toDecimal } from "../decimal";
 import { roundSettlement } from "../money";
 import { staffCost } from "./money-kinds";
+import { profitLinesOf, salesProfit } from "./sales-profit";
 import type { DayInput, DayResult, MoneyKind, StaffId } from "./types";
 
 export type DsrDaySummary = {
@@ -39,6 +40,8 @@ export type DaySummary = {
   staffShortage: string;
   /** D67: money paid out for distributor staff that day, net of returns (`staffCost`). */
   staffCost: string;
+  /** D69: the day's DSR-line profit (`salesProfit`). */
+  salesProfit: string;
   byDsr: DsrDaySummary[];
 };
 
@@ -46,35 +49,23 @@ const sum = (values: readonly string[]) =>
   values.reduce((total, v) => total.add(toDecimal(v)), new Decimal(0));
 
 /**
- * D67: the dashboard's calculation chain over summed period figures.
- * নিট ব্যালান্স = মোট সামারি − ফেরত − ড্যামেজ (sale price) − কমিশন − অপারেটিং খরচ − ডিএসআর খরচ
- * − এসআর খরচ (what the SRs owe at the end of the period); নিট লাভ = নিট ব্যালান্স − বিক্রিত পণ্যের
- * ক্রয়মূল্য.
+ * D67 (amended 2026-10-22): এসআর খরচ. For a single day it is that day's change in what the SRs owe
+ * (loans − repayments − offsets, negative on a repayment day); for a longer range it is what the
+ * SRs owe at the end of the range.
  */
-export function dashboardChain(input: {
-  issuedValue: DecimalInput;
-  returnValue: DecimalInput;
-  damageSaleValue: DecimalInput;
-  commission: DecimalInput;
-  expenses: DecimalInput;
-  staffCost: DecimalInput;
-  srCost: DecimalInput;
-  costOfSold?: DecimalInput;
-}): { netBalance: string; netProfit: string | null } {
-  const netBalance = toDecimal(input.issuedValue)
-    .sub(toDecimal(input.returnValue))
-    .sub(toDecimal(input.damageSaleValue))
-    .sub(toDecimal(input.commission))
-    .sub(toDecimal(input.expenses))
-    .sub(toDecimal(input.staffCost))
-    .sub(toDecimal(input.srCost));
-  return {
-    netBalance: roundSettlement(netBalance),
-    netProfit:
-      input.costOfSold === undefined
-        ? null
-        : roundSettlement(netBalance.sub(toDecimal(input.costOfSold))),
-  };
+export function srCost(
+  staff: readonly { opening: { srLoan: string }; closing: { srLoan: string } }[],
+  singleDay: boolean,
+): string {
+  return roundSettlement(
+    staff.reduce(
+      (total, s) =>
+        total
+          .add(toDecimal(s.closing.srLoan))
+          .sub(singleDay ? toDecimal(s.opening.srLoan) : new Decimal(0)),
+      new Decimal(0),
+    ),
+  );
 }
 
 /**
@@ -131,6 +122,7 @@ export function summarizeDay(day: DayResult, input: DayInput): DaySummary {
     expenses: roundSettlement(toDecimal(day.money.expenses)),
     staffShortage: roundSettlement(ofKind("staffShortage")),
     staffCost: roundSettlement(toDecimal(staffCost(input.money ?? []))),
+    salesProfit: salesProfit(profitLinesOf(day)).profit,
     byDsr: [...dsr].map(([staffId, v]) => ({
       staffId,
       netSales: roundSettlement(v.sales),

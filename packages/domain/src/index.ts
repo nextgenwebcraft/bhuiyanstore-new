@@ -72,12 +72,14 @@ export {
   type CompanyStatementKind,
   type CompanyStatementLine,
 } from "./month/company-statement";
+export { srCost, summarizeDay, type DaySummary, type DsrDaySummary } from "./month/day-summary";
 export {
-  dashboardChain,
-  summarizeDay,
-  type DaySummary,
-  type DsrDaySummary,
-} from "./month/day-summary";
+  dashboardTotals,
+  profitLinesOf,
+  salesProfit,
+  type ProfitLine,
+  type ProfitParts,
+} from "./month/sales-profit";
 export {
   MONEY_KIND_EFFECTS,
   STAFF_COST_SIGN,

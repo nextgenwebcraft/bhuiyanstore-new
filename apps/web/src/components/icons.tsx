@@ -121,6 +121,13 @@ const paths = {
     </>
   ),
   moon: <path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z" />,
+  dots: (
+    <>
+      <circle cx="12" cy="5.5" r="1.25" fill="currentColor" />
+      <circle cx="12" cy="12" r="1.25" fill="currentColor" />
+      <circle cx="12" cy="18.5" r="1.25" fill="currentColor" />
+    </>
+  ),
 } as const;
 
 export type IconName = keyof typeof paths;

@@ -161,7 +161,7 @@ function facts(): DayFacts[] {
         { kind: "expense", amount: "40", category: id.transport },
         { kind: "staffShortage", amount: "30", staff: id.rohim },
         { kind: "srLoan", amount: "200", staff: id.karim },
-        { kind: "srIncentive", amount: "15" },
+        { kind: "expense", amount: "15", category: id.transport },
         { kind: "supplierDeposit", amount: "500" },
         { kind: "staffAdvance", amount: "100", staff: id.jamal },
         { kind: "marketDueCollected", amount: "25", staff: id.mamun, shop: id.shop },
@@ -546,12 +546,12 @@ describe("Phase E: daily entry", () => {
 
   it("refuses postings before the cutoff, in the future, or for the wrong person", async () => {
     await expectField(
-      postMoneyEntry(ctx, company, { date: "2026-08-29", kind: "srIncentive", amount: "1" }),
+      postMoneyEntry(ctx, company, { date: "2026-08-29", kind: "supplierDeposit", amount: "1" }),
       "date",
       "validation.daily.beforeCutoff",
     );
     await expectField(
-      postMoneyEntry(ctx, company, { date: "2099-01-01", kind: "srIncentive", amount: "1" }),
+      postMoneyEntry(ctx, company, { date: "2099-01-01", kind: "supplierDeposit", amount: "1" }),
       "date",
       "validation.daily.future",
     );
@@ -662,7 +662,11 @@ describe("Phase E: daily entry", () => {
     expect(summary.postedSummaryCount).toBe(2);
     expect(summary.byDsr.find((r) => r.dsrId === id.mamun)?.marketDueCreated).toBe("100.00");
     await expect(
-      postMoneyEntry(viewerCtx, company, { date: "2026-08-30", kind: "srIncentive", amount: "1" }),
+      postMoneyEntry(viewerCtx, company, {
+        date: "2026-08-30",
+        kind: "supplierDeposit",
+        amount: "1",
+      }),
     ).rejects.toSatisfy((e) => e instanceof AppError && e.code === "FORBIDDEN");
     await expect(listMoneyEntries(viewerCtx, company, { from: "2026-08-30" })).rejects.toSatisfy(
       (e) => e instanceof AppError && e.code === "FORBIDDEN",
@@ -865,7 +869,7 @@ describe("Phase E: daily entry", () => {
       },
     });
     await expectField(
-      postMoneyEntry(ctx, company, { date: "2026-08-31", kind: "srIncentive", amount: "1" }),
+      postMoneyEntry(ctx, company, { date: "2026-08-31", kind: "supplierDeposit", amount: "1" }),
       "date",
       "validation.daily.monthClosed",
     );

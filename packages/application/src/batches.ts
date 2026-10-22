@@ -58,9 +58,9 @@ async function nextSeq(tx: Tx, productId: string): Promise<number> {
 }
 
 /**
- * The batch an order line (paid and free pieces alike) goes into: the product's latest batch when
- * its prices equal the line's, else a new one. A null purchase price (a free-only order without a
- * rate) means the latest batch's.
+ * The batch an order line (its paid and free pieces) goes into: the product's latest batch when
+ * its prices equal the line's, else a new one. A free-only line (no cost) takes the latest
+ * batch's purchase price.
  */
 export async function orderBatch(
   tx: Tx,
@@ -112,7 +112,7 @@ export async function batchOf(
 }
 
 /**
- * The prices a receipt or DSR line uses for its batch: the entered ones, else the batch's. A
+ * The prices a receipt or DSR line uses for its batch: entered ones win over the batch's, and a
  * changed price is stored on the batch for later use.
  */
 export async function useBatchPrices(
@@ -132,7 +132,7 @@ export async function useBatchPrices(
 
 const AUTO_KEY = /^auto:([1-9]\d*)$/;
 
-type SheetLine = {
+export type SheetLine = {
   productId: string;
   issued: DecimalLike;
   returned: DecimalLike;
@@ -235,7 +235,6 @@ export async function batchDue(
         status: "posted",
         kind: { in: ["order", "receipt"] },
         date: { lte: toDbDate(to) },
-        ...product,
         batchId: { not: null },
       },
       select: { kind: true, pieces: true, freePieces: true, batchId: true },
@@ -367,7 +366,7 @@ export async function openingBatches(
 }
 
 /**
- * The batches each product shows on a date: those with pieces due from the company or in stock
+ * D68: each product's batches worth choosing on `date`: still due from the company, in stock
  * (`inStock` = engine batch keys with pieces), and the latest one.
  */
 export async function productLots(

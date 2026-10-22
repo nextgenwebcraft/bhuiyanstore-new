@@ -36,10 +36,6 @@ export const queryKeys = {
       from,
       to,
     ] as const,
-  opening: (actorId: string, companyId: string) =>
-    companyResource(actorId, companyId, resourceIds.opening),
-  setupStatus: (actorId: string, companyId: string) =>
-    companyResource(actorId, companyId, resourceIds.setupStatus),
   fieldDay: (actorId: string, companyId: string, date: string) =>
     [...companyResource(actorId, companyId, resourceIds.fieldDay), date] as const,
   dayView: (actorId: string, companyId: string, date: string) =>
@@ -122,14 +118,6 @@ export const postingEffects = {
   workspace: [resourceIds.companyWorkspace],
   /** A new staff login also changes the staff's record (the role count is tenant-scoped). */
   staffLogin: [resourceIds.staffRecord],
-  /** A saved opening is live at once (D43), so the setup status, prices and reports follow it. */
-  opening: [
-    resourceIds.setupStatus,
-    resourceIds.product,
-    resourceIds.productHistory,
-    resourceIds.ledger,
-    resourceIds.dashboardSummary,
-  ],
   stock: [
     resourceIds.stockEntry,
     resourceIds.productHistory,

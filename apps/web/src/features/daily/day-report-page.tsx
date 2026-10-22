@@ -59,7 +59,8 @@ function visible(columns: Column[], view: DayView) {
 /** Batches worth showing: the newest batch may be empty (D49). */
 export const visibleBatches = (row: DayProductRow): BatchRow[] =>
   row.batches.filter((b) => !toDecimal(b.quantity).isZero());
-/** The batch cell under each stock column; columns a batch has no value for stay empty. */
+
+/** A batch's figure under a product column; columns without one stay blank. */
 const BATCH_CELLS: Partial<
   Record<TranslationKey, (b: BatchRow, row: DayProductRow) => React.ReactNode>
 > = {

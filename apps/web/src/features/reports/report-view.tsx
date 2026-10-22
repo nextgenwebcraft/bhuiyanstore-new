@@ -75,18 +75,23 @@ function groupDepth(columns: readonly Column[]): number {
 
 const tableTitle = (title: string) => `report.table.${title}`;
 
+export type RowAction = (row: ReportTable["rows"][number]) => React.ReactNode;
+
 export function ReportTableView({
   table,
   heading = true,
   summary = true,
+  rowAction,
 }: {
   table: ReportTable;
   heading?: boolean;
   /** Row count and column totals as cards above the table. */
   summary?: boolean;
+  /** A last cell per row (a row menu). */
+  rowAction?: RowAction | undefined;
 }) {
   const only = table.rows.length === 1 ? table.rows[0] : undefined;
-  if (only && table.columns.every((c) => numeric(c.kind))) {
+  if (only && !rowAction && table.columns.every((c) => numeric(c.kind))) {
     return (
       <section className="flex flex-col gap-2">
         {heading ? <h2 className="text-sm font-semibold">{labelOf(table.title)}</h2> : null}
@@ -152,6 +157,11 @@ export function ReportTableView({
                     </th>
                   ),
                 )}
+                {rowAction ? (
+                  <th scope="col" className={thClass}>
+                    <span className="sr-only">{t("common.actions")}</span>
+                  </th>
+                ) : null}
               </tr>
             </thead>
             <tbody>
@@ -174,6 +184,9 @@ export function ReportTableView({
                         : cellText(c.kind, c.key, row.cells[c.key] ?? null, row.piecesPerCarton)}
                     </td>
                   ))}
+                  {rowAction ? (
+                    <td className={`${tdClass} text-right print:hidden`}>{rowAction(row)}</td>
+                  ) : null}
                 </tr>
               ))}
             </tbody>
@@ -195,6 +208,7 @@ export function ReportTableView({
                       </td>
                     );
                   })}
+                  {rowAction ? <td className="print:hidden" /> : null}
                 </tr>
               </tfoot>
             ) : null}
@@ -550,12 +564,15 @@ export function ReportBody({
   report,
   range,
   hide = [],
+  rowActions = {},
 }: {
   companyId: string;
   report: ReportId;
   range: ReportRange;
   /** Table names (e.g. `companyPayable`) another report on the same screen already shows. */
   hide?: readonly string[];
+  /** A row menu per table name (e.g. `staffBalances`). */
+  rowActions?: Readonly<Record<string, RowAction>>;
 }) {
   const state = reportState(useReport(companyId, report, range), range);
   if ("node" in state) return state.node;
@@ -581,7 +598,11 @@ export function ReportBody({
       {data.tables
         .filter((table) => !grouped.has(table))
         .map((table) => (
-          <ReportTableView key={table.title} table={table} />
+          <ReportTableView
+            key={table.title}
+            table={table}
+            rowAction={rowActions[table.title.replace(/^report\.table\./, "")]}
+          />
         ))}
     </div>
   );

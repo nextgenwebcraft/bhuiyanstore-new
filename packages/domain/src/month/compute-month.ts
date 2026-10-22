@@ -503,8 +503,8 @@ export function computeMonth(input: MonthInput): MonthOutput {
     // Prices for the day: carry forward, changed by today's values. D49: the day's stock inflows
     // come first. A receipt's pieces take the day's cost and sale price (merging into the newest
     // batch only when both are equal, else a new batch); a price change on a day without a receipt
-    // re-prices the newest batch only. D68: a receipt into a named batch takes the receipt's own
-    // prices instead; free goods and company replacements join the newest named batch.
+    // re-prices the newest batch only. Free goods and company replacements are zero-cost pieces.
+    // D68: a receipt into a named batch takes the receipt's own prices instead.
     for (const [id, state] of products) {
       const p = dayProducts[id];
       for (const kind of ["orderPrice", "costPrice", "salePrice"] as const) {
@@ -1173,6 +1173,18 @@ export function computeMonth(input: MonthInput): MonthOutput {
           kind: entry.kind,
           amount: str(amount),
           change: balanceStrings(change),
+          balances: balanceStrings(b),
+        });
+      } else if (entry.kind === "staffAbsent" && entry.staffId) {
+        // D75: the absent fee moves no balance (payroll takes it off the salary) but is listed.
+        const b = staffOf(entry.staffId);
+        staffEntries.push({
+          date: day.date,
+          ...(entry.ref === undefined ? {} : { ref: entry.ref }),
+          staffId: entry.staffId,
+          kind: entry.kind,
+          amount: str(amount),
+          change: balanceStrings(emptyBalances()),
           balances: balanceStrings(b),
         });
       }

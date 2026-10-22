@@ -282,7 +282,7 @@ describe("Phase G: staff and SR accounts", () => {
     await expectField(
       postMoneyEntry(ctx, company, {
         date: "2026-09-04",
-        kind: "srIncentive",
+        kind: "supplierDeposit",
         amount: "5",
         allocation: { advance: "5", loan: "0", shortage: "0" },
       }),
@@ -565,6 +565,86 @@ describe("Phase G: payroll runs", () => {
       version: draft.version,
     });
     expect(discarded.status).toBe("none");
+  });
+
+  it("D75: Pay Now pays one person after the absent fee and keeps them through the draft", async () => {
+    const absent = await money("2026-09-10", "staffAbsent", "500", id.selim);
+    const proposal = await savePayrollRun(ctx, company, "2026-09", {
+      version: 0,
+      date: "2026-09-30",
+      lines: lines(),
+    });
+    // Salary stays the gross 10,500; the absent fee only lowers what is paid.
+    expect(lineOf(proposal, id.selim)).toMatchObject({
+      salary: "10500",
+      absent: "500.00",
+      recoveryTotal: "3500",
+      cashPay: "6500",
+      paid: false,
+    });
+    expect((await closingOn("2026-09-30")).closing.staff[id.selim]).toMatchObject({
+      advance: "2000",
+    });
+
+    await expectField(
+      payrollCommand(ctx, company, "2026-09", "payStaff", {
+        version: 0,
+        payDate: "2026-09-30",
+        staffId: id.selim,
+      }),
+      "version",
+      "validation.daily.stale",
+    );
+    let paid = await payrollCommand(ctx, company, "2026-09", "payStaff", {
+      version: proposal.version,
+      payDate: "2026-09-30",
+      staffId: id.selim,
+    });
+    expect(paid.status).toBe("draft");
+    expect(lineOf(paid, id.selim)).toMatchObject({
+      absent: "500.00",
+      cashPay: "6500",
+      paid: true,
+    });
+    expect(lineOf(paid, id.rohim).paid).toBe(false);
+    expect((await closingOn("2026-09-30")).closing.staff[id.selim]).toMatchObject({
+      advance: "0",
+      loan: "0",
+      shortage: "0",
+      salaryPayable: "0",
+    });
+    expect((await getDayView(ctx, company, "2026-09-30")).money.cashOut).toBe("6500");
+
+    await expectField(
+      payrollCommand(ctx, company, "2026-09", "payStaff", {
+        version: paid.version,
+        payDate: "2026-09-30",
+        staffId: id.selim,
+      }),
+      "staffId",
+      "validation.payroll.alreadyPaid",
+    );
+    paid = await savePayrollRun(ctx, company, "2026-09", {
+      version: paid.version,
+      date: "2026-09-30",
+      lines: lines({ [id.selim]: { salary: "1" } }),
+    });
+    expect(lineOf(paid, id.selim)).toMatchObject({ salary: "10500", paid: true });
+    await expectField(
+      payrollCommand(ctx, company, "2026-09", "discard", { version: paid.version }),
+      "",
+      "validation.payroll.hasPaid",
+    );
+
+    const reversed = await payrollCommand(ctx, company, "2026-09", "reverse", {
+      version: paid.version,
+    });
+    expect(reversed.status).toBe("none");
+    expect((await closingOn("2026-09-30")).closing.staff[id.selim]).toMatchObject({
+      advance: "2000",
+      salaryPayable: "0",
+    });
+    await reverseMoneyEntry(ctx, company, absent.id);
   });
 });
 

@@ -67,11 +67,13 @@ export {
 } from "./products";
 export {
   FIELD_ROLE_NAME,
+  approveFieldDayReport,
   createFieldShop,
   createStaffLogin,
   deleteFieldVisit,
   getDsrFieldDay,
   getFieldDay,
+  rejectFieldDayReport,
   saveFieldDayEnd,
   saveFieldVisit,
 } from "./field";

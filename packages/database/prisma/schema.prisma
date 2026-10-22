@@ -66,6 +66,7 @@ model Company {
   suppliers              Supplier[]
   shops                  Shop[]
   fieldVisits            FieldVisit[]
+  fieldDayReports        FieldDayReport[]
   staffAssignments       StaffAssignment[]
   opening                OpeningSession?
   stockEntries           StockEntry[]
@@ -245,17 +246,17 @@ model IdempotencyRecord {
 // ---------------------------------------------------------------- catalog
 
 model Product {
-  id           String             @id @default(cuid())
-  tenantId     String             @map("tenant_id")
-  companyId    String             @map("company_id")
+  id           String               @id @default(cuid())
+  tenantId     String               @map("tenant_id")
+  companyId    String               @map("company_id")
   sku          String
   name         String
   aliases      String[]
-  baseUnit     String             @default("piece") @map("base_unit")
-  status       String             @default("active")
-  createdAt    DateTime           @default(now()) @map("created_at")
-  updatedAt    DateTime           @updatedAt @map("updated_at")
-  company      Company            @relation(fields: [companyId], references: [id])
+  baseUnit     String               @default("piece") @map("base_unit")
+  status       String               @default("active")
+  createdAt    DateTime             @default(now()) @map("created_at")
+  updatedAt    DateTime             @updatedAt @map("updated_at")
+  company      Company              @relation(fields: [companyId], references: [id])
   packs        ProductPack[]
   prices       PriceChange[]
   openingStock OpeningStockLine[]
@@ -263,6 +264,7 @@ model Product {
   dsrLines     DsrLine[]
   damageLines  DamageCaseLine[]
   fieldLines   FieldVisitLine[]
+  reportLines  FieldDayReportLine[]
   batches      ProductBatch[]
 
   @@unique([companyId, sku])
@@ -306,20 +308,20 @@ model PriceChange {
 /// product's `opening` lot. Receipts and DSR lines name it; editing its prices on a receipt or
 /// line changes them from then on, while posted lines keep their own copy.
 model ProductBatch {
-  id           String       @id @default(cuid())
-  tenantId     String       @map("tenant_id")
-  companyId    String       @map("company_id")
-  productId    String       @map("product_id")
+  id         String       @id @default(cuid())
+  tenantId   String       @map("tenant_id")
+  companyId  String       @map("company_id")
+  productId  String       @map("product_id")
   /// 1, 2, … per product, in creation order.
-  seq          Int
+  seq        Int
   /// `order` or `opening`.
-  source       String       @default("order")
-  costPrice    Decimal      @map("cost_price") @db.Decimal(20, 6)
-  salePrice    Decimal      @map("sale_price") @db.Decimal(20, 6)
-  createdAt    DateTime     @default(now()) @map("created_at")
-  updatedAt    DateTime     @updatedAt @map("updated_at")
-  product      Product      @relation(fields: [productId], references: [id])
-  orderLines   StockEntry[] @relation("StockEntryBatch")
+  source     String       @default("order")
+  costPrice  Decimal      @map("cost_price") @db.Decimal(20, 6)
+  salePrice  Decimal      @map("sale_price") @db.Decimal(20, 6)
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
+  product    Product      @relation(fields: [productId], references: [id])
+  orderLines StockEntry[] @relation("StockEntryBatch")
 
   @@unique([productId, seq])
   @@index([companyId])
@@ -387,6 +389,7 @@ model Staff {
   user            User?                @relation(fields: [userId], references: [id], onDelete: SetNull)
   shopsAdded      Shop[]               @relation("ShopAddedBy")
   fieldVisits     FieldVisit[]
+  fieldReports    FieldDayReport[]
   assignments     StaffAssignment[]
   openingBalances OpeningBalanceLine[]
   dsrDays         DsrDay[]
@@ -533,41 +536,41 @@ model OpeningBalanceLine {
 
 /// Godown facts per product and date: order (Excel C), receipt (G) or damage (N), in pieces.
 model StockEntry {
-  id              String    @id @default(cuid())
-  tenantId        String    @map("tenant_id")
-  companyId       String    @map("company_id")
-  date            DateTime  @db.Date
+  id              String        @id @default(cuid())
+  tenantId        String        @map("tenant_id")
+  companyId       String        @map("company_id")
+  date            DateTime      @db.Date
   kind            String
-  productId       String    @map("product_id")
-  pieces          Decimal   @db.Decimal(20, 6)
+  productId       String        @map("product_id")
+  pieces          Decimal       @db.Decimal(20, 6)
   /// D57 (kind order only): free pieces, taka per carton and the carton size at posting.
-  freePieces      Decimal?  @map("free_pieces") @db.Decimal(20, 6)
-  cartonRate      Decimal?  @map("carton_rate") @db.Decimal(20, 2)
-  piecesPerCarton Int?      @map("pieces_per_carton")
+  freePieces      Decimal?      @map("free_pieces") @db.Decimal(20, 6)
+  cartonRate      Decimal?      @map("carton_rate") @db.Decimal(20, 2)
+  piecesPerCarton Int?          @map("pieces_per_carton")
   /// D63 (kind damageDeposit only): taka per piece returned to the company as money.
-  unitPrice       Decimal?  @map("unit_price") @db.Decimal(20, 6)
+  unitPrice       Decimal?      @map("unit_price") @db.Decimal(20, 6)
   /// D63 (kind order only): balance parts that pay the bill first ('damage', 'incentive').
-  fundFrom        String[]  @default([]) @map("fund_from")
+  fundFrom        String[]      @default([]) @map("fund_from")
   /// D63 (kind order only): orders posted together.
-  orderGroup      String?   @map("order_group")
+  orderGroup      String?       @map("order_group")
   /// D68: the batch of an order (its paid and free pieces) or of a receipt. A receipt keeps the
   /// per-piece prices it was received at.
-  batchId         String?   @map("batch_id")
-  costPrice       Decimal?  @map("cost_price") @db.Decimal(20, 6)
-  salePrice       Decimal?  @map("sale_price") @db.Decimal(20, 6)
-  supplierId      String?   @map("supplier_id")
-  reference       String    @default("")
+  batchId         String?       @map("batch_id")
+  costPrice       Decimal?      @map("cost_price") @db.Decimal(20, 6)
+  salePrice       Decimal?      @map("sale_price") @db.Decimal(20, 6)
+  supplierId      String?       @map("supplier_id")
+  reference       String        @default("")
   lot             String?
-  expiry          DateTime? @db.Date
-  note            String    @default("")
-  status          String    @default("posted")
-  createdById     String    @map("created_by_id")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  reversedById    String?   @map("reversed_by_id")
-  reversedAt      DateTime? @map("reversed_at")
-  company         Company   @relation(fields: [companyId], references: [id])
-  product         Product   @relation(fields: [productId], references: [id])
-  supplier        Supplier? @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  expiry          DateTime?     @db.Date
+  note            String        @default("")
+  status          String        @default("posted")
+  createdById     String        @map("created_by_id")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  reversedById    String?       @map("reversed_by_id")
+  reversedAt      DateTime?     @map("reversed_at")
+  company         Company       @relation(fields: [companyId], references: [id])
+  product         Product       @relation(fields: [productId], references: [id])
+  supplier        Supplier?     @relation(fields: [supplierId], references: [id], onDelete: Restrict)
   batch           ProductBatch? @relation("StockEntryBatch", fields: [batchId], references: [id], onDelete: Restrict)
 
   @@index([companyId, date])
@@ -686,6 +689,43 @@ model FieldVisitLine {
 
   @@unique([visitId, productId])
   @@map("field_visit_line")
+}
+
+/// D71: firot and damage a DSR sends from the field after the office posted the day. It waits as
+/// `pending` (at most one per DSR and date) until the office approves it, which corrects the
+/// posted sheet (D56), or rejects it.
+model FieldDayReport {
+  id          String               @id @default(cuid())
+  tenantId    String               @map("tenant_id")
+  companyId   String               @map("company_id")
+  staffId     String               @map("staff_id")
+  date        DateTime             @db.Date
+  status      String               @default("pending")
+  version     Int                  @default(1)
+  createdById String               @map("created_by_id")
+  createdAt   DateTime             @default(now()) @map("created_at")
+  updatedAt   DateTime             @updatedAt @map("updated_at")
+  decidedById String?              @map("decided_by_id")
+  decidedAt   DateTime?            @map("decided_at")
+  company     Company              @relation(fields: [companyId], references: [id])
+  staff       Staff                @relation(fields: [staffId], references: [id])
+  lines       FieldDayReportLine[]
+
+  @@index([companyId, date])
+  @@map("field_day_report")
+}
+
+model FieldDayReportLine {
+  id        String         @id @default(cuid())
+  reportId  String         @map("report_id")
+  productId String         @map("product_id")
+  returned  Decimal        @default(0) @db.Decimal(20, 6)
+  damaged   Decimal        @default(0) @db.Decimal(20, 6)
+  report    FieldDayReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  product   Product        @relation(fields: [productId], references: [id])
+
+  @@unique([reportId, productId])
+  @@map("field_day_report_line")
 }
 
 /// A typed money entry (D27): the kind decides the direction (MONEY_KIND_EFFECTS); amount > 0.

@@ -595,7 +595,14 @@ function DayEnd({
   return (
     <section className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-3">
       <h2 className="text-sm font-semibold">{t("field.dayEnd.title")}</h2>
-      <p className="text-xs text-text-muted">{t("field.dayEnd.hint")}</p>
+      <p className="text-xs text-text-muted">
+        {t(day.locked ? "field.dayEnd.hintPosted" : "field.dayEnd.hint")}
+      </p>
+      {day.reportPending ? (
+        <p role="status" className="rounded-md bg-warning/10 px-2 py-1.5 text-xs text-warning">
+          {t("field.dayEnd.pending")}
+        </p>
+      ) : null}
       <ul className="flex flex-col gap-3">
         {day.dayEnd.map((p) => (
           <li key={p.productId} className="flex flex-col gap-2 border-t border-border pt-2">
@@ -634,7 +641,11 @@ function DayEnd({
           {error}
         </p>
       ) : null}
-      {done ? <p className="text-sm text-success">{t("field.dayEnd.saved")}</p> : null}
+      {done ? (
+        <p className="text-sm text-success">
+          {t(day.locked ? "field.dayEnd.sent" : "field.dayEnd.saved")}
+        </p>
+      ) : null}
       <div className="flex flex-wrap gap-2">
         <Button
           onClick={() => {
@@ -645,7 +656,9 @@ function DayEnd({
           {t("field.dayEnd.fillRemaining")}
         </Button>
         <Button variant="primary" disabled={save.isPending} onClick={() => void submit()}>
-          {save.isPending ? t("common.saving") : t("field.dayEnd.save")}
+          {save.isPending
+            ? t("common.saving")
+            : t(day.locked ? "field.dayEnd.send" : "field.dayEnd.save")}
         </Button>
       </div>
     </section>
@@ -756,9 +769,9 @@ function FieldDayView({ staffId }: { staffId?: string }) {
         )}
       </section>
 
-      {!data.locked && data.dayEnd.length > 0 ? (
+      {data.dayEnd.length > 0 ? (
         <DayEnd
-          key={`${date}-${data.staffId}`}
+          key={`${date}-${data.staffId}-${data.locked}-${data.reportPending}`}
           companyId={company.id}
           staffId={staffId}
           day={data}

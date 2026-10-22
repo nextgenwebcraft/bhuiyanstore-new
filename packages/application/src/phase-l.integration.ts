@@ -16,10 +16,10 @@ process.env.BETTER_AUTH_URL ??= "http://localhost:3000";
 /**
  * D57 carton rate on the order, D68 batches. Hand-worked numbers: opening 24 pieces at cost 10 /
  * sale 12 (batch 1, the opening). 2026-08-02 the owner example: 10 cartons of 24 ordered at 480 a
- * carton (20 a piece) to sell at 30, plus 1 free carton: bill 240 × 480 / 24 = 4800; batch 2 = 240
- * paid pieces at 20 / 30, batch 3 = 24 free pieces at 0 / 30. 2026-08-03 both arrive. 2026-08-04
- * one DSR sheet takes 24 from batch 1 (cost 240, sales 288), 10 from batch 2 (cost 200, sales 300)
- * and 4 free pieces from batch 3 at an edited sale price of 25 (cost 0, sales 100).
+ * carton (20 a piece) to sell at 30, plus 1 free carton: bill 240 × 480 / 24 = 4800; batch 2 = the
+ * 240 paid and 24 free pieces at 20 / 30. 2026-08-03 they arrive. 2026-08-04 one DSR sheet takes 24
+ * from batch 1 (cost 240, sales 288) and 14 from batch 2 at an edited sale price of 25 (cost 280,
+ * sales 350).
  */
 
 const { db, schema } = testDatabase();
@@ -148,7 +148,7 @@ describe("D68: product batches from orders", () => {
     ).rejects.toThrow();
   });
 
-  it("the owner example bills 4800 and puts paid and free pieces in one batch", async () => {
+  it("the owner example bills 4800 and puts its free pieces in the same batch", async () => {
     const before = await balance("2026-08-02");
     const entry = must(
       (

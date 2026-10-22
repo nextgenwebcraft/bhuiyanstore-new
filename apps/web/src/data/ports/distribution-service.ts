@@ -1,6 +1,4 @@
 import type {
-  CashAccount,
-  CashAccountUpsertRequest,
   CompanyCreateRequest,
   CompanyUpsertRequest,
   CompanyWorkspace,
@@ -27,9 +25,6 @@ import type {
   MoneyEntryPostRequest,
   MonthCloseResult,
   MonthView,
-  Opening,
-  OpeningCutoffRequest,
-  OpeningSectionSaveRequest,
   PayrollAction,
   PayrollRun,
   PayrollSaveRequest,
@@ -46,7 +41,6 @@ import type {
   ReportRange,
   Role,
   RoleUpsertRequest,
-  SetupStatus,
   Shop,
   ShopStatement,
   ShopUpsertRequest,
@@ -143,6 +137,16 @@ export interface DistributionService {
   ): Promise<DsrDay>;
   /** Requires `sale.create`; drafts only. */
   discardDsrDay(companyId: string, dayId: string, input: DocumentTransitionRequest): Promise<void>;
+  /**
+   * D71: decides a DSR's pending field report; approving corrects the sheet (`sale.create`, and
+   * `sale.post` + `sale.reverse` for a posted one).
+   */
+  decideFieldReport(
+    companyId: string,
+    reportId: string,
+    action: "approve" | "reject",
+    input: DocumentTransitionRequest,
+  ): Promise<void>;
   /** Market due kinds need `sale.view`, the others `finance.view`; only visible kinds return. */
   listMoneyEntries(
     companyId: string,
@@ -326,17 +330,6 @@ export interface DistributionService {
   /** Sets a one-time password and signs the user out everywhere. */
   resetUserPassword(userId: string, input: UserPasswordResetRequest): Promise<User>;
 
-  // Opening balances (PLAN §9 Phase D). Requires `opening.prepare` unless noted.
-
-  /** The company's opening (live once its cutoff is saved, D43) with section summaries and totals. */
-  getOpening(companyId: string, options?: RequestOptions): Promise<Opening>;
-  /** Saves the go-live date at `version`; refused once a daily record exists or a month is closed. */
-  saveOpeningCutoff(companyId: string, input: OpeningCutoffRequest): Promise<Opening>;
-  /** Replaces one section's lines only and takes effect at once; refused once a month is closed. */
-  saveOpeningSection(companyId: string, input: OpeningSectionSaveRequest): Promise<Opening>;
-  /** Requires `company.view`: the go-live steps, computed on the server. */
-  getSetupStatus(companyId: string, options?: RequestOptions): Promise<SetupStatus>;
-
   // DSR field panel (D40). The demo mock has none.
 
   /** Requires `field.entry`: the signed-in DSR's own day (samari in hand, visits, shops). */
@@ -377,7 +370,6 @@ export interface DistributionService {
 export type ConfigLists = {
   staffRoles: { item: StaffRole; input: StaffRoleUpsertRequest };
   expenseCategories: { item: ExpenseCategory; input: ExpenseCategoryUpsertRequest };
-  cashAccounts: { item: CashAccount; input: CashAccountUpsertRequest };
 };
 
 export type ConfigListId = keyof ConfigLists;

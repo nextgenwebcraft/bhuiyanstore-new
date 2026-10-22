@@ -6,6 +6,7 @@ import { createCompany, getWorkspace } from "./companies";
 import { staffRoles } from "./configuration";
 import type { AppContext } from "./context";
 import {
+  listDsrDays,
   listMoneyEntries,
   postDsrDay,
   postStockEntries,
@@ -15,11 +16,14 @@ import {
 } from "./daily";
 import { AppError } from "./errors";
 import {
+  approveFieldDayReport,
   createFieldShop,
   createStaffLogin,
   deleteFieldVisit,
   getDsrFieldDay,
   getFieldDay,
+  rejectFieldDayReport,
+  saveFieldDayEnd,
   saveFieldVisit,
 } from "./field";
 import { runLedger } from "./ledger";
@@ -385,5 +389,54 @@ describe("DSR field panel (D40)", () => {
     const after = await listMoneyEntries(ctx, company, { from: date, to: date, shopId: id.shop });
     expect(after.filter((e) => e.status === "posted")).toEqual([]);
     expect(must((await getFieldDay(rohim, company, date)).visits[0]).status).toBe("open");
+  });
+
+  it("after posting, the DSR's day end waits as a report the office approves (D71)", async () => {
+    const draft = await saveDsrDay(ctx, company, {
+      date,
+      staffId: id.rohim,
+      version: 0,
+      lines: [{ productId: id.alpha, issued: "48", returned: "26", damaged: "2" }],
+    });
+    const posted = await postDsrDay(ctx, company, draft.id, { version: draft.version });
+    const dayEnd = (returned: string, damaged: string) =>
+      saveFieldDayEnd(rohim, company, {
+        date,
+        lines: [{ productId: id.alpha, returned, damaged }],
+      });
+    const sheetOf = async (sheetId: string) =>
+      must((await listDsrDays(ctx, company, date)).find((s) => s.id === sheetId));
+
+    await expectField(dayEnd("40", "10"), "lines.0", "validation.field.exceedsSamari");
+    const sent = await dayEnd("20", "3");
+    expect(sent.reportPending).toBe(true);
+    expect(must(sent.dayEnd.find((p) => p.productId === id.alpha)).returned).toBe("20");
+    const waiting = await sheetOf(posted.id);
+    expect(must(waiting.lines[0]).returned).toBe("26");
+    const report = must(waiting.fieldReport);
+    expect(report.lines).toEqual([
+      { productId: id.alpha, productName: "Alpha 250ml", returned: "20", damaged: "3" },
+    ]);
+
+    await approveFieldDayReport(ctx, company, report.id, { version: report.version });
+    const live = must(
+      (await listDsrDays(ctx, company, date)).find(
+        (s) => s.staffId === id.rohim && s.status === "posted",
+      ),
+    );
+    expect(live.id).not.toBe(posted.id);
+    expect(must(live.lines[0]).returned).toBe("20");
+    expect(must(live.lines[0]).damaged).toBe("3");
+    expect(live.fieldReport).toBeNull();
+    expect((await getFieldDay(rohim, company, date)).reportPending).toBe(false);
+
+    await dayEnd("21", "3");
+    const second = must((await sheetOf(live.id)).fieldReport);
+    await rejectFieldDayReport(ctx, company, second.id, { version: second.version });
+    const kept = await sheetOf(live.id);
+    expect(kept.fieldReport).toBeNull();
+    expect(must(kept.lines[0]).returned).toBe("20");
+
+    expect((await dayEnd("20", "3")).reportPending).toBe(false);
   });
 });

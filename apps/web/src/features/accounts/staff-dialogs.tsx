@@ -7,21 +7,19 @@ import type {
   StaffStatement,
 } from "@bsd/contracts";
 import { formatBusinessDate, t, type TranslationKey } from "@bsd/i18n";
-import { useSearchParams } from "next/navigation";
-import { Suspense, useState } from "react";
-import { Button, ButtonLink } from "@/components/button";
+import { useEffect, useRef, useState } from "react";
+import { Button } from "@/components/button";
 import { presetRange } from "@/components/calendar-math";
-import { DateRangePicker } from "@/components/date-picker";
-import { Field, inputClass } from "@/components/field";
-import { PageHeader } from "@/components/page-header";
+import { DatePicker, DateRangePicker, Popover } from "@/components/date-picker";
+import { Field } from "@/components/field";
+import { Icon } from "@/components/icons";
 import { QueryError } from "@/components/query-error";
-import { SummarySkeleton, TableSkeleton } from "@/components/skeleton";
+import { SummarySkeleton } from "@/components/skeleton";
 import { StatTile } from "@/components/stat-tile";
 import { StatePanel } from "@/components/state-panel";
 import { describeError } from "@/data/ports/service-error";
-import { useStaffAccounts, useStaffStatement } from "@/data/queries";
+import { useStaffStatement } from "@/data/queries";
 import { useService } from "@/data/service-context";
-import { DateBar, useWorkingDate } from "@/features/daily/daily-kit";
 import {
   money,
   tableClass,
@@ -32,9 +30,9 @@ import {
   theadClass,
 } from "@/components/data-table";
 import { TableScroller } from "@/components/table-scroller";
-import { NavGate } from "@/features/shell/nav-gate";
+import { StaffCashEntry } from "@/features/daily/staff-cash-entry";
+import type { RowAction } from "@/features/reports/report-view";
 import { PrintButton, PrintHeader } from "@/features/shell/print";
-import { companyHref } from "@/features/shell/navigation";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 import { downloadBlob } from "@/lib/download";
 import { useToday } from "@/lib/today";
@@ -47,113 +45,13 @@ const KIND_KEYS: Record<StaffAccountKind, readonly StaffBalanceKey[]> = {
 
 const balanceLabel = (key: string) => t(`report.column.${key}` as TranslationKey);
 
+export type StaffPerson = { staffId: string; staffName: string };
+
 function Empty({ text }: { text: string }) {
   return (
     <p className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-sm text-text-muted">
       {text}
     </p>
-  );
-}
-
-/** Every person's balances at the end of the working date; never netted (D27). */
-export function StaffAccountsPage({
-  path,
-  title,
-  kind,
-  statementPath,
-}: {
-  path: string;
-  title: TranslationKey;
-  kind: StaffAccountKind;
-  statementPath: string;
-}) {
-  const { company } = useCurrentWorkspace();
-  const [date, setDate] = useWorkingDate();
-  const query = useStaffAccounts(company.id, kind, date);
-  const keys = KIND_KEYS[kind];
-
-  return (
-    <NavGate path={path}>
-      <PageHeader
-        title={t(title)}
-        description={t(`accounts.description.${kind}`)}
-        actions={
-          <>
-            <DateBar date={date} onChange={setDate} />
-            <PrintButton />
-          </>
-        }
-      />
-      <PrintHeader title={t(title)} from={date} />
-      {query.isPending ? (
-        <TableSkeleton rows={6} columns={8} />
-      ) : query.isError ? (
-        <QueryError error={query.error} onRetry={() => void query.refetch()} />
-      ) : !query.data.cutoffDate ? (
-        <StatePanel
-          tone="warning"
-          title={t("daily.noOpening.title")}
-          hint={t("daily.noOpening.hint")}
-        />
-      ) : query.data.rows.length === 0 ? (
-        <Empty text={t("accounts.empty")} />
-      ) : (
-        <TableScroller>
-          <table className={tableClass}>
-            <thead className={theadClass}>
-              <tr>
-                <th scope="col" className={thClass}>
-                  {t("common.name")}
-                </th>
-                {keys.map((k) => (
-                  <th key={k} scope="col" className={thNum}>
-                    {balanceLabel(k)}
-                  </th>
-                ))}
-                {kind === "distributor" ? (
-                  <>
-                    <th scope="col" className={thNum}>
-                      {t("report.column.owesUs")}
-                    </th>
-                    <th scope="col" className={thNum}>
-                      {t("report.column.weOwe")}
-                    </th>
-                  </>
-                ) : null}
-                <th scope="col" className={thClass}>
-                  <span className="sr-only">{t("accounts.statement")}</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {query.data.rows.map((row) => (
-                <tr key={row.staffId} className="border-t border-border">
-                  <td className={tdClass}>{row.staffName}</td>
-                  {keys.map((k) => (
-                    <td key={k} className={tdNum}>
-                      {money(row.balances[k])}
-                    </td>
-                  ))}
-                  {kind === "distributor" ? (
-                    <>
-                      <td className={`${tdNum} font-semibold`}>{money(row.owesUs)}</td>
-                      <td className={`${tdNum} font-semibold`}>{money(row.weOwe)}</td>
-                    </>
-                  ) : null}
-                  <td className={`${tdClass} text-right`}>
-                    <ButtonLink
-                      href={`${companyHref(company.id, statementPath)}?staff=${encodeURIComponent(row.staffId)}`}
-                    >
-                      {t("accounts.statement")}
-                    </ButtonLink>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </TableScroller>
-      )}
-    </NavGate>
   );
 }
 
@@ -167,7 +65,7 @@ function StatementBody({ statement }: { statement: StaffStatement }) {
           {formatBusinessDate(statement.to)}
         </p>
       ) : null}
-      <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      {/* <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {keys.map((k) => (
           <StatTile
             key={k}
@@ -181,7 +79,7 @@ function StatementBody({ statement }: { statement: StaffStatement }) {
             <StatTile label={t("report.column.weOwe")} value={money(statement.weOwe)} emphasis />
           </>
         ) : null}
-      </dl>
+      </dl> */}
       {statement.lines.length === 0 ? (
         <Empty text={t("report.empty")} />
       ) : (
@@ -283,21 +181,131 @@ function Statement({
   return <StatementBody statement={query.data} />;
 }
 
-function StatementContent({
-  path,
-  title,
-  kind,
+/** A modal `<dialog>` opened on mount; closing it (Esc, the close button) calls `onClose`. */
+export function StaffDialog({
+  person,
+  description,
+  printTitle,
+  actions,
+  onClose,
+  children,
 }: {
-  path: string;
-  title: TranslationKey;
-  kind: StaffAccountKind;
+  person: StaffPerson;
+  description: string;
+  /** Print heading; the dialog prints only when given. */
+  printTitle?: { title: string; range?: ReportRange };
+  actions?: React.ReactNode;
+  onClose: () => void;
+  children: React.ReactNode;
 }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    ref.current?.showModal();
+  }, []);
+  return (
+    <dialog
+      ref={ref}
+      data-print={printTitle ? true : undefined}
+      onClose={onClose}
+      aria-label={person.staffName}
+      className="m-auto w-full max-w-5xl rounded-2xl border border-border bg-surface p-0 text-text shadow-raised"
+    >
+      <div className="flex flex-col gap-4 p-5 sm:p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h2 className="text-lg font-semibold tracking-tight">{person.staffName}</h2>
+            <p className="text-sm text-text-muted">{description}</p>
+          </div>
+          <div className="flex flex-wrap gap-2 print:hidden">
+            {actions}
+            {printTitle ? <PrintButton /> : null}
+            <Button onClick={() => ref.current?.close()}>{t("nav.close")}</Button>
+          </div>
+        </div>
+        {printTitle ? <PrintHeader title={printTitle.title} {...printTitle.range} /> : null}
+        {children}
+      </div>
+    </dialog>
+  );
+}
+
+const menuItem =
+  "flex min-h-(--touch-target) w-full items-center px-4 text-left text-sm hover:bg-surface-muted focus-visible:bg-surface-muted focus-visible:outline-none";
+
+/**
+ * D75: the ⋮ menu of a staff balance row (এন্ট্রি, বিবরণী) and the dialog it opens. Rows without
+ * an id get no menu.
+ */
+export function useStaffRowActions(): { rowAction: RowAction; dialog: React.ReactNode } {
+  const { permissions } = useCurrentWorkspace();
+  const canEnter = permissions.includes("payment.post");
+  const [open, setOpen] = useState<{ person: StaffPerson; mode: "entry" | "statement" } | null>(
+    null,
+  );
+  const rowAction: RowAction = (row) => {
+    if (!row.id) return null;
+    const person = { staffId: row.id, staffName: row.cells.staff ?? "" };
+    const pick = (mode: "entry" | "statement", close: () => void) => {
+      close();
+      setOpen({ person, mode });
+    };
+    return (
+      <Popover
+        label={`${person.staffName}: ${t("common.actions")}`}
+        align="end"
+        triggerClassName="inline-flex size-9 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-surface-muted hover:text-text aria-expanded:bg-surface-muted"
+        trigger={<Icon name="dots" />}
+      >
+        {({ close }) => (
+          <div className="flex min-w-40 flex-col py-1">
+            {canEnter ? (
+              <button type="button" className={menuItem} onClick={() => pick("entry", close)}>
+                {t("staffEntry.entry")}
+              </button>
+            ) : null}
+            <button type="button" className={menuItem} onClick={() => pick("statement", close)}>
+              {t("accounts.statement")}
+            </button>
+          </div>
+        )}
+      </Popover>
+    );
+  };
+  const dialog = !open ? null : open.mode === "entry" ? (
+    <EntryDialog person={open.person} onClose={() => setOpen(null)} />
+  ) : (
+    <StatementDialog person={open.person} onClose={() => setOpen(null)} />
+  );
+  return { rowAction, dialog };
+}
+
+/** D75: a staff member's advance, shortage, returns and absent fee for a chosen date. */
+export function EntryDialog({ person, onClose }: { person: StaffPerson; onClose: () => void }) {
+  const { company } = useCurrentWorkspace();
+  const today = useToday();
+  const [date, setDate] = useState(today);
+  return (
+    <StaffDialog person={person} description={t("staffEntry.description")} onClose={onClose}>
+      <Field id="staff-entry-date" label={t("common.date")} className="w-56">
+        <DatePicker
+          id="staff-entry-date"
+          value={date}
+          max={today}
+          label={t("common.date")}
+          onChange={(next) => next && setDate(next)}
+          className="w-full"
+        />
+      </Field>
+      <StaffCashEntry companyId={company.id} staffId={person.staffId} date={date} />
+    </StaffDialog>
+  );
+}
+
+/** One person's ledger lines, date by date, with the running balance of every bucket (D73). */
+export function StatementDialog({ person, onClose }: { person: StaffPerson; onClose: () => void }) {
   const { company, permissions } = useCurrentWorkspace();
   const service = useService();
-  const initial = useSearchParams().get("staff") ?? "";
   const today = useToday();
-  const people = useStaffAccounts(company.id, kind, today);
-  const [staffId, setStaffId] = useState(initial);
   const [range, setRange] = useState(() => presetRange("thisMonth", today));
   const [error, setError] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
@@ -309,7 +317,7 @@ function StatementContent({
     try {
       const { file, fileName } = await service.downloadStaffStatement(
         company.id,
-        staffId,
+        person.staffId,
         range,
         format,
       );
@@ -322,69 +330,29 @@ function StatementContent({
   }
 
   return (
-    <NavGate path={path}>
-      <PageHeader
-        title={t(title)}
-        description={t("accounts.statementDescription")}
-        actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <DateRangePicker value={range} onChange={setRange} max={today} />
-            {canExport && staffId ? (
-              <>
-                <Button disabled={busy} onClick={() => void exportAs("csv")}>
-                  {t("report.exportCsv")}
-                </Button>
-                <Button disabled={busy} onClick={() => void exportAs("xlsx")}>
-                  {t("report.exportExcel")}
-                </Button>
-              </>
-            ) : null}
-            {staffId ? <PrintButton /> : null}
-          </div>
-        }
-      />
-      <PrintHeader
-        title={`${t(title)} — ${people.data?.rows.find((p) => p.staffId === staffId)?.staffName ?? ""}`}
-        {...range}
-      />
-      <div className="mb-6 max-w-sm print:hidden">
-        <Field id="statement-person" label={t(`money.person.${kind}`)}>
-          <select
-            id="statement-person"
-            value={staffId}
-            onChange={(event) => setStaffId(event.target.value)}
-            className={inputClass}
-          >
-            <option value="">{t("common.select")}</option>
-            {(people.data?.rows ?? []).map((p) => (
-              <option key={p.staffId} value={p.staffId}>
-                {p.staffName}
-              </option>
-            ))}
-          </select>
-        </Field>
+    <StaffDialog
+      person={person}
+      description={t("accounts.statementDescription")}
+      printTitle={{ title: `${t("accounts.statement")} — ${person.staffName}`, range }}
+      onClose={onClose}
+      actions={
+        canExport ? (
+          <>
+            <Button disabled={busy} onClick={() => void exportAs("csv")}>
+              {t("report.exportCsv")}
+            </Button>
+            <Button disabled={busy} onClick={() => void exportAs("xlsx")}>
+              {t("report.exportExcel")}
+            </Button>
+          </>
+        ) : null
+      }
+    >
+      <div className="print:hidden">
+        <DateRangePicker value={range} onChange={setRange} max={today} />
       </div>
       {error ? <StatePanel tone="error" title={error} /> : null}
-      {people.isError ? (
-        <QueryError error={people.error} onRetry={() => void people.refetch()} />
-      ) : staffId ? (
-        <Statement companyId={company.id} staffId={staffId} range={range} />
-      ) : (
-        <Empty text={t("accounts.pickPerson")} />
-      )}
-    </NavGate>
-  );
-}
-
-/** One person's ledger lines with the running balance of every bucket. */
-export function StaffStatementPage(props: {
-  path: string;
-  title: TranslationKey;
-  kind: StaffAccountKind;
-}) {
-  return (
-    <Suspense fallback={<SummarySkeleton stats={4} rows={8} />}>
-      <StatementContent {...props} />
-    </Suspense>
+      <Statement companyId={company.id} staffId={person.staffId} range={range} />
+    </StaffDialog>
   );
 }

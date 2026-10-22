@@ -1,6 +1,5 @@
 import {
   apiErrorSchema,
-  cashAccountSchema,
   companyWorkspaceSchema,
   damageCaseSchema,
   dashboardSummarySchema,
@@ -16,7 +15,6 @@ import {
   masterSummarySchema,
   monthCloseResultSchema,
   monthViewSchema,
-  openingSchema,
   payrollRunSchema,
   priceChangeSchema,
   productHistorySchema,
@@ -24,7 +22,6 @@ import {
   productSchema,
   reportSchema,
   roleSchema,
-  setupStatusSchema,
   staffAccountsSchema,
   staffMemberSchema,
   shopSchema,
@@ -255,6 +252,12 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
         method: "POST",
         body: input,
       }),
+    decideFieldReport: (companyId, reportId, action, input) =>
+      request(
+        z.undefined(),
+        `${company(companyId)}/field/reports/${id(reportId)}/${action}`,
+        write("POST", input),
+      ),
     listMoneyEntries: (companyId, query, options) => {
       const params = new URLSearchParams({ from: query.from });
       if (query.to) params.set("to", query.to);
@@ -338,15 +341,6 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
     updateUser: (userId, input) => request(userSchema, `/users/${id(userId)}`, write("PUT", input)),
     resetUserPassword: (userId, input) =>
       request(userSchema, `/users/${id(userId)}/password`, write("POST", input)),
-
-    getOpening: (companyId, options) =>
-      request(openingSchema, `${company(companyId)}/opening`, options),
-    saveOpeningCutoff: (companyId, input) =>
-      request(openingSchema, `${company(companyId)}/opening/cutoff`, write("PUT", input)),
-    saveOpeningSection: (companyId, input) =>
-      request(openingSchema, `${company(companyId)}/opening/section`, write("PUT", input)),
-    getSetupStatus: (companyId, options) =>
-      request(setupStatusSchema, `${company(companyId)}/setup`, options),
 
     getFieldDay: (companyId, date, options) =>
       request(fieldDaySchema, `${company(companyId)}/field/day?date=${id(date)}`, options),
@@ -508,5 +502,4 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
 const configLists: Record<ConfigListId, { path: string; schema: z.ZodType }> = {
   staffRoles: { path: "/staff-roles", schema: staffRoleSchema },
   expenseCategories: { path: "/expense-categories", schema: expenseCategorySchema },
-  cashAccounts: { path: "/cash-accounts", schema: cashAccountSchema },
 };

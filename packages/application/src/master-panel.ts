@@ -55,9 +55,11 @@ const SUMMED_OPTIONAL = [
   "staffShortage",
   "staffCost",
   "srCost",
-  "netBalance",
+  "totalCost",
+  "profitCost",
+  "totalSales",
+  "salesProfit",
   "netProfit",
-  "costOfSold",
   "damageValue",
   "undeliveredValue",
   "grossProfit",
@@ -98,12 +100,14 @@ export async function getMasterSummary(
   const master = await requireMaster(ctx, companyId);
   const range = parseReportRange(query);
   const companies = await companiesOf(ctx);
-  const results = [];
-  for (const company of companies) {
-    const access = await loadCompanyAccess(ctx, company.id);
-    results.push({ company, ...(await dashboardOf(ctx, access, range)) });
-  }
-  const own = await dashboardOf(ctx, master, range);
+  // Read-only and independent per company, so they run together: the wait is the slowest company.
+  const [own, ...results] = await Promise.all([
+    dashboardOf(ctx, master, range),
+    ...companies.map(async (company) => {
+      const access = await loadCompanyAccess(ctx, company.id);
+      return { company, ...(await dashboardOf(ctx, access, range)) };
+    }),
+  ]);
   const profits = results.flatMap((r) =>
     r.profit
       ? [
@@ -158,17 +162,18 @@ export async function getMasterMonth(
     ...(await companiesOf(ctx)).map((c) => ({ ...c, isMaster: false })),
     { id: master.company.id, name: master.company.name, isMaster: true },
   ];
-  const rows = [];
-  for (const c of all) {
-    const state = await monthCloseState(ctx.db, c.id, month);
-    rows.push({
-      companyId: c.id,
-      companyName: c.name,
-      isMaster: c.isMaster,
-      status: state.status,
-      closeBlockedBy: state.blocker,
-    });
-  }
+  const rows = await Promise.all(
+    all.map(async (c) => {
+      const state = await monthCloseState(ctx.db, c.id, month);
+      return {
+        companyId: c.id,
+        companyName: c.name,
+        isMaster: c.isMaster,
+        status: state.status,
+        closeBlockedBy: state.blocker,
+      };
+    }),
+  );
   const live = rows.filter((r) => r.status === "open" || r.status === "closed");
   return masterMonthSchema.parse({
     month,

@@ -214,6 +214,7 @@ export function createMockService(
     postDsrDay: demoReadOnly,
     reverseDsrDay: demoReadOnly,
     discardDsrDay: demoReadOnly,
+    decideFieldReport: demoReadOnly,
     listMoneyEntries: demoReadOnly,
     postMoneyEntry: demoReadOnly,
     reverseMoneyEntry: demoReadOnly,
@@ -315,10 +316,6 @@ export function createMockService(
     updateUser: demoReadOnly,
     resetUserPassword: demoReadOnly,
 
-    getOpening: demoReadOnly,
-    saveOpeningCutoff: demoReadOnly,
-    saveOpeningSection: demoReadOnly,
-    getSetupStatus: demoReadOnly,
     getFieldDay: demoReadOnly,
     getDsrFieldDay: demoReadOnly,
     saveFieldVisit: demoReadOnly,

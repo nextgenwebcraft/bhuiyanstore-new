@@ -9,14 +9,7 @@ import type {
   MoneyEntry,
   StaffRecord,
 } from "@bsd/contracts";
-import {
-  dsrCashSettlement,
-  sumAmounts,
-  sumQuantities,
-  toBaseQuantity,
-  toCartonDisplay,
-  toDecimal,
-} from "@bsd/domain";
+import { dsrCashSettlement, salesProfit, sumAmounts, sumQuantities, toDecimal } from "@bsd/domain";
 import { useAsyncAction } from "@/lib/async-action";
 import { formatCount, formatDateTime, formatRate, t } from "@bsd/i18n";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -24,7 +17,6 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/button";
 import { QueryError } from "@/components/query-error";
 import { ListSkeleton } from "@/components/skeleton";
-import { StatTile } from "@/components/stat-tile";
 import { StatePanel } from "@/components/state-panel";
 import { TableSummary, type SummaryItem } from "@/components/table-summary";
 import {
@@ -37,6 +29,7 @@ import {
 } from "@/data/queries";
 import { ShopDueEntry } from "@/features/shops/shop-due-entry";
 import { StaffCashEntry } from "./staff-cash-entry";
+import { FieldReportCard } from "./field-report-card";
 import { NavGate } from "@/features/shell/nav-gate";
 import { PrintButton, PrintHeader } from "@/features/shell/print";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
@@ -181,11 +174,28 @@ function allocationText(allocations: LineAllocation[]): string {
     .join(", ");
 }
 
+const isNumber = (value: string) => /^\d+(\.\d+)?$/.test(value);
+
+/**
+ * The other field of a linked carton/piece pair (D69, owner 2026-10-22: both show the same
+ * quantity; pieces are what is saved): pieces = cartons × size, cartons = pieces ÷ size. Blank
+ * gives blank; null when the typed value is not a number yet.
+ */
+function linkedValue(value: string, size: string, from: "cartons" | "pieces"): string | null {
+  const typed = clean(value);
+  if (typed === "") return "";
+  if (!isNumber(typed)) return null;
+  const scaled =
+    from === "cartons"
+      ? toDecimal(typed).mul(toDecimal(size))
+      : toDecimal(typed).div(toDecimal(size)).toDecimalPlaces(4);
+  return scaled.toFixed();
+}
+
+/** A saved quantity as its carton and piece fields. */
 function split(pieces: string, size: string): [string, string] {
   if (pieces === "0") return ["", ""];
-  if (size === "1") return ["", pieces];
-  const { cartons, loosePieces } = toCartonDisplay(pieces, size);
-  return [cartons === "0" ? "" : cartons, loosePieces === "0" ? "" : loosePieces];
+  return [linkedValue(pieces, size, "pieces") ?? "", pieces];
 }
 
 const priceText = (value: string | null) =>
@@ -233,22 +243,12 @@ function linesOf(draft: SheetDraft, product: Product, view: DayView): LineDraft[
   });
 }
 
-/** Pieces of one line, or null when a quantity is not a whole number. */
-function piecesOf(line: LineDraft, size: string) {
-  const parts = [
-    line.issuedCartons,
-    line.issuedPieces,
-    line.returnedCartons,
-    line.returnedPieces,
-    line.damaged,
-  ].map(whole);
+/** Pieces of one line (the piece fields; cartons only mirror them), or null when not whole. */
+function piecesOf(line: LineDraft) {
+  const parts = [line.issuedPieces, line.returnedPieces, line.damaged].map(whole);
   if (!parts.every(isWhole)) return null;
-  const [ic, ip, rc, rp, damaged] = parts as [string, string, string, string, string];
-  return {
-    issued: toBaseQuantity(ic, ip, size),
-    returned: toBaseQuantity(rc, rp, size),
-    damaged,
-  };
+  const [issued, returned, damaged] = parts as [string, string, string];
+  return { issued, returned, damaged };
 }
 
 function requestOf(
@@ -262,7 +262,7 @@ function requestOf(
   for (const product of view.products) {
     const seen = new Set<string>();
     for (const d of linesOf(draft, product, view)) {
-      const pieces = piecesOf(d, product.piecesPerCarton);
+      const pieces = piecesOf(d);
       if (!pieces) return t("validation.wholeNumber");
       const commission = clean(d.commission) || "0";
       if (!isAmount(commission)) return t("validation.opening.amount");
@@ -305,6 +305,19 @@ function saleOf(
   const key = line.batchKey ?? "";
   const batch = batchOptions(product, view, [key]).find((o) => o.key === key);
   return batch?.salePrice ?? product.salePrice ?? "0";
+}
+
+/** The purchase price a line uses: its own, else its batch's, else the product's. */
+function costOf(
+  line: { productId: string; batchKey?: string | undefined; costPrice?: string | undefined },
+  view: DayView,
+) {
+  if (line.costPrice !== undefined) return line.costPrice;
+  const product = view.products.find((p) => p.productId === line.productId);
+  if (!product) return "0";
+  const key = line.batchKey ?? "";
+  const batch = batchOptions(product, view, [key]).find((o) => o.key === key);
+  return batch?.costPrice ?? product.costPrice ?? "0";
 }
 
 /** Pieces sold × the line's price − commission, before posting (the engine owns the posted figure). */
@@ -353,11 +366,9 @@ function FieldEntries({
       return today !== null && today !== undefined && !toDecimal(today).eq(toDecimal(l.unitPrice));
     }),
   );
-  const product = (id: string) => view.products.find((p) => p.productId === id);
   const mismatch = (kind: "returned" | "damaged") =>
     field.products.some((p) => {
-      const size = product(p.productId)?.piecesPerCarton ?? p.piecesPerCarton;
-      const lines = (draft.lines[p.productId] ?? []).map((d) => piecesOf(d, size));
+      const lines = (draft.lines[p.productId] ?? []).map((d) => piecesOf(d));
       if (lines.some((l) => l === null)) return true;
       const pieces = sumQuantities(["0", ...lines.map((l) => l?.[kind] ?? "0")]);
       const expected = kind === "returned" ? p.remaining : p.exchanged;
@@ -616,7 +627,7 @@ function SheetEditor({
         );
         if (options.length === 0) continue;
         const issued = own.filter((l) => {
-          const pieces = piecesOf(l, size);
+          const pieces = piecesOf(l);
           return pieces !== null && pieces.issued !== "0";
         });
         const target = (issued.length ? issued : own).reduce((best, l) =>
@@ -637,29 +648,48 @@ function SheetEditor({
       return { ...d, lines };
     });
   }
+  // D69: the table's amounts as the profit's parts (domain `salesProfit`), pieces underneath.
+  const parts = salesProfit(
+    entered.map((l) => ({
+      issued: l.issued,
+      returned: l.returned,
+      damaged: l.damaged,
+      commission: l.commission ?? "0",
+      salePrice: saleOf(l, view),
+      costPrice: costOf(l, view),
+    })),
+  );
+  const pieces = (value: string) => `${quantity(value)} ${t("common.pieces")}`;
   const sheetSummary: SummaryItem[] = [
-    { label: t("table.summary.products"), value: quantity(String(entered.length)) },
     {
-      label: `${t("dsr.sheet.issued")} (${t("godown.column.pieces")})`,
-      value: quantity(sumQuantities(entered.map((l) => l.issued))),
+      label: t("dsr.profit.issued"),
+      value: money(parts.issuedValue),
+      hint: pieces(parts.issued),
     },
     {
-      label: `${t("dsr.sheet.returned")} (${t("godown.column.pieces")})`,
-      value: quantity(sumQuantities(entered.map((l) => l.returned))),
+      label: `− ${t("dsr.profit.returned")}`,
+      value: money(parts.returnValue),
+      hint: pieces(parts.returned),
     },
     {
-      label: `${t("dsr.sheet.damaged")} (${t("godown.column.pieces")})`,
-      value: quantity(sumQuantities(entered.map((l) => l.damaged))),
+      label: `− ${t("dsr.profit.damaged")}`,
+      value: money(parts.damageValue),
+      hint: pieces(parts.damaged),
     },
-    { label: t("dsr.summary.commission"), value: money(commissionOf(entered)) },
-    ...(posted
+    { label: `− ${t("dsr.profit.commission")}`, value: money(parts.commission) },
+    { label: `= ${t("dsr.profit.netSales")}`, value: money(parts.netSales), emphasis: true },
+    ...(view.canSeeCost
       ? [
           {
-            label: t("dsr.sheet.engineAmount"),
-            value: money(sumAmounts([...amounts.values()])),
-            emphasis: true,
+            label: `− ${t("dsr.profit.deliveredCost")}`,
+            value: money(parts.deliveredCost),
+            hint: pieces(parts.delivered),
           },
+          { label: `− ${t("dsr.profit.damageMargin")}`, value: money(parts.damageMargin) },
         ]
+      : []),
+    ...(view.canSeeCost && view.canSeeProfit
+      ? [{ label: `= ${t("dsr.profit.profit")}`, value: money(parts.profit), emphasis: true }]
       : []),
   ];
 
@@ -723,6 +753,23 @@ function SheetEditor({
   }
 
   type QuantityField = Exclude<keyof LineDraft, "id" | "batchKey" | "salePrice" | "costPrice">;
+  const PAIR = {
+    issuedCartons: ["issuedPieces", "cartons"],
+    issuedPieces: ["issuedCartons", "pieces"],
+    returnedCartons: ["returnedPieces", "cartons"],
+    returnedPieces: ["returnedCartons", "pieces"],
+  } as const;
+  /** Typing in a carton or piece field fills the other of its pair. */
+  const change = (productId: string, line: LineDraft, field: QuantityField, value: string) => {
+    if (!(field in PAIR)) return setLine(productId, line.id, { [field]: value });
+    const [other, from] = PAIR[field as keyof typeof PAIR];
+    const size = view.products.find((p) => p.productId === productId)?.piecesPerCarton ?? "1";
+    const linked = linkedValue(value, size, from);
+    setLine(productId, line.id, {
+      [field]: value,
+      ...(linked === null ? {} : { [other]: linked }),
+    });
+  };
   const cell = (
     productId: string,
     line: LineDraft,
@@ -734,7 +781,7 @@ function SheetEditor({
     <CellInput
       label={label}
       value={line[field]}
-      onChange={(value) => setLine(productId, line.id, { [field]: value })}
+      onChange={(value) => change(productId, line, field, value)}
       disabled={off}
       mode={mode}
       width={mode === "decimal" ? "w-20" : "w-14"}
@@ -743,6 +790,14 @@ function SheetEditor({
 
   return (
     <div className="flex flex-col gap-4">
+      {sheet?.fieldReport ? (
+        <FieldReportCard
+          companyId={companyId}
+          sheet={sheet}
+          report={sheet.fieldReport}
+          canDecide={permissions.includes("sale.create") && (!posted || canCorrect)}
+        />
+      ) : null}
       {posted ? (
         <StatePanel title={t(canCorrect ? "dsr.sheet.postedEditHint" : "dsr.sheet.postedHint")} />
       ) : null}
@@ -1095,29 +1150,10 @@ function Sheets({
       />
     );
   }
-  const statuses = dsrs.map((d) => live(d.id)?.status ?? "none");
-  const count = (status: string) => quantity(String(statuses.filter((s) => s === status).length));
-  const dayPieces = (field: "issued" | "returned" | "damaged") =>
-    quantity(sumQuantities(view.products.map((p) => p[field])));
-  return (
-    <div className="flex flex-col gap-4">
-      <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <StatTile label={t("dsr.summary.dsrs")} value={quantity(String(dsrs.length))} />
-        <StatTile label={t("dsr.summary.posted")} value={count("posted")} />
-        <StatTile label={t("dsr.summary.draft")} value={count("draft")} />
-        <StatTile label={t("dsr.summary.notStarted")} value={count("none")} />
-        <StatTile label={pieceLabel("dsr.sheet.issued")} value={dayPieces("issued")} />
-        <StatTile label={pieceLabel("dsr.sheet.returned")} value={dayPieces("returned")} />
-        <StatTile label={pieceLabel("dsr.sheet.damaged")} value={dayPieces("damaged")} />
-        <StatTile label={t("dsr.summary.commission")} value={money(view.money.commission)} />
-        <StatTile label={t("dsr.summary.sales")} value={money(view.money.sales)} emphasis />
-      </dl>
-      {dsrs.length === 0 ? (
-        <StatePanel title={t("dsr.sheet.noDsr")} hint={t("dsr.sheet.noDsrHint")} />
-      ) : (
-        <DsrList dsrs={dsrs} live={live} view={view} onOpen={setOpen} />
-      )}
-    </div>
+  return dsrs.length === 0 ? (
+    <StatePanel title={t("dsr.sheet.noDsr")} hint={t("dsr.sheet.noDsrHint")} />
+  ) : (
+    <DsrList dsrs={dsrs} live={live} view={view} onOpen={setOpen} />
   );
 }
 
@@ -1175,6 +1211,11 @@ function DsrList({
               <div className="flex items-center gap-3">
                 <span className="font-medium">{dsr.name}</span>
                 <StatusChip status={sheet?.status ?? "none"} />
+                {sheet?.fieldReport ? (
+                  <span className="rounded-full bg-warning/15 px-2 py-0.5 text-xs font-medium text-warning">
+                    {t("dsr.report.badge")}
+                  </span>
+                ) : null}
               </div>
               <Button variant={sheet ? "secondary" : "primary"} onClick={() => setOpen(dsr.id)}>
                 {t(sheet ? "dsr.sheet.open" : "dsr.sheet.start")}

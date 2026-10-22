@@ -13,9 +13,6 @@ import type {
   FieldVisitDeleteRequest,
   FieldVisitSaveRequest,
   MoneyEntryPostRequest,
-  Opening,
-  OpeningCutoffRequest,
-  OpeningSectionSaveRequest,
   PayrollAction,
   PayrollSaveRequest,
   PayrollTransitionRequest,
@@ -238,6 +235,24 @@ export function useDsrDayCommand(companyId: string) {
       await service.discardDsrDay(companyId, dayId, { version });
       return null;
     },
+  );
+}
+
+/** D71: approve or reject a DSR's field report; approving corrects the sheet. */
+export function useDecideFieldReport(companyId: string) {
+  const service = useService();
+  return usePostingMutation(
+    companyId,
+    "dsrDay",
+    ({
+      reportId,
+      action,
+      version,
+    }: {
+      reportId: string;
+      action: "approve" | "reject";
+      version: number;
+    }) => service.decideFieldReport(companyId, reportId, action, { version }),
   );
 }
 
@@ -590,7 +605,6 @@ export function useSaveStaffAssignment(companyId: string) {
 const configResource: Record<ConfigListId, ResourceId> = {
   staffRoles: resourceIds.staffRole,
   expenseCategories: resourceIds.expenseCategory,
-  cashAccounts: resourceIds.cashAccount,
 };
 
 export function useConfigList<K extends ConfigListId>(list: K) {
@@ -663,57 +677,6 @@ export function useResetUserPassword() {
     ({ userId, input }: { userId: string; input: UserPasswordResetRequest }) =>
       service.resetUserPassword(userId, input),
   );
-}
-
-// ------------------------------------------------------------- opening balances (Phase D)
-
-export function useOpening(companyId: string) {
-  const service = useService();
-  const actorId = useActorId();
-  return useQuery({
-    queryKey: queryKeys.opening(actorId, companyId),
-    queryFn: ({ signal }) => service.getOpening(companyId, { signal }),
-  });
-}
-
-/** Every opening command returns the new snapshot; it replaces the cached one directly. */
-function useOpeningCommand<TInput>(companyId: string, run: (input: TInput) => Promise<Opening>) {
-  const actorId = useActorId();
-  const queryClient = useQueryClient();
-  const refresh = useInvalidate(companyId, "opening");
-  return useMutation({
-    mutationFn: run,
-    onSuccess: (opening) => {
-      queryClient.setQueryData(queryKeys.opening(actorId, companyId), opening);
-      void refresh();
-    },
-  });
-}
-
-export function useSaveOpeningCutoff(companyId: string) {
-  const service = useService();
-  return useOpeningCommand(companyId, (input: OpeningCutoffRequest) =>
-    service.saveOpeningCutoff(companyId, input),
-  );
-}
-
-export function useSaveOpeningSection(companyId: string) {
-  const service = useService();
-  return useOpeningCommand(companyId, (input: OpeningSectionSaveRequest) =>
-    service.saveOpeningSection(companyId, input),
-  );
-}
-
-/** Always refetched on mount: every master and opening change can move a step. */
-export function useSetupStatus(companyId: string, enabled = true) {
-  const service = useService();
-  const actorId = useActorId();
-  return useQuery({
-    queryKey: queryKeys.setupStatus(actorId, companyId),
-    queryFn: ({ signal }) => service.getSetupStatus(companyId, { signal }),
-    staleTime: 0,
-    enabled,
-  });
 }
 
 // ------------------------------------------------------------- DSR field panel (D40)

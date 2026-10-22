@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { dashboardChain } from "./day-summary";
+import { srCost } from "./day-summary";
+import { dashboardTotals, salesProfit } from "./sales-profit";
 import { MONEY_KIND_EFFECTS, staffCost } from "./money-kinds";
 import { cashPay, proposeRecovery, salaryAfterAbsence } from "./payroll";
 
@@ -17,19 +18,58 @@ describe("staff cost (D67)", () => {
     ).toBe("10000");
   });
 
-  it("chains the dashboard to net balance and net profit", () => {
+  it("works out the DSR-line profit part by part (D69)", () => {
+    const parts = salesProfit([
+      {
+        issued: "100",
+        returned: "10",
+        damaged: "5",
+        commission: "50",
+        salePrice: "25",
+        costPrice: "20",
+      },
+    ]);
+    // D74: 2500 − 250 − 50 − 90 × 20 − 5 × (25 − 20) = 375; মোট বিক্রি 2500 − 250 − 125 − 50.
+    expect(parts).toMatchObject({
+      delivered: "90",
+      issuedValue: "2500.00",
+      returnValue: "250.00",
+      damageValue: "125.00",
+      commission: "50.00",
+      netSales: "2075.00",
+      deliveredCost: "1800.00",
+      damageMargin: "25.00",
+      profit: "375.00",
+    });
+  });
+
+  it("totals the dashboard costs and takes only running costs off the profit (D69)", () => {
     expect(
-      dashboardChain({
-        issuedValue: "10000",
-        returnValue: "1500",
-        damageSaleValue: "200",
-        commission: "300",
+      dashboardTotals({
+        issuedValue: "2500",
+        returnValue: "250",
+        damageSaleValue: "125",
+        commission: "50",
         expenses: "400",
         staffCost: "1000",
-        srCost: "100",
-        costOfSold: "5000",
+        salesProfit: "250",
       }),
-    ).toEqual({ netBalance: "6500.00", netProfit: "1500.00" });
+    ).toEqual({
+      totalCost: "1825.00",
+      profitCost: "1400.00",
+      totalSales: "675.00",
+      netProfit: "-1150.00",
+    });
+  });
+
+  it("counts a single day's SR loan change, a longer range's SR loan at its end", () => {
+    const staff = [
+      { opening: { srLoan: "8000" }, closing: { srLoan: "10000" } },
+      { opening: { srLoan: "5000" }, closing: { srLoan: "4500" } },
+    ];
+    expect(srCost(staff, true)).toBe("1500.00");
+    expect(srCost(staff, false)).toBe("14500.00");
+    expect(srCost(staff.slice(1), true)).toBe("-500.00");
   });
 
   it("takes the absent fee off the salary, never below zero", () => {

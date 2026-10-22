@@ -27,14 +27,21 @@ export function createDatabase(connectionString: string): Database {
   return new PrismaClient({ adapter, transactionOptions: { maxWait: 10_000, timeout: 60_000 } });
 }
 
-const globalForDb = globalThis as unknown as { bsdDatabase?: Database };
+const globalForDb = globalThis as unknown as {
+  bsdDatabase?: Database | { $disconnect(): Promise<void> };
+};
 
-/** The app's shared client (pooled `DATABASE_URL`), reused across dev hot reloads. */
+/**
+ * The app's shared client (pooled `DATABASE_URL`), reused across dev hot reloads. A client built
+ * from an older generated `PrismaClient` (before a migration added models) is replaced.
+ */
 export function database(): Database {
-  if (!globalForDb.bsdDatabase) {
-    const url = process.env.DATABASE_URL;
-    if (!url) throw new Error("DATABASE_URL is not set");
-    globalForDb.bsdDatabase = createDatabase(url);
-  }
-  return globalForDb.bsdDatabase;
+  const cached = globalForDb.bsdDatabase;
+  if (cached && cached instanceof PrismaClient) return cached;
+  const url = process.env.DATABASE_URL;
+  if (!url) throw new Error("DATABASE_URL is not set");
+  void cached?.$disconnect().catch(() => undefined);
+  const fresh = createDatabase(url);
+  globalForDb.bsdDatabase = fresh;
+  return fresh;
 }

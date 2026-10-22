@@ -33,7 +33,6 @@ import {
   useStaffRecords,
 } from "@/data/queries";
 import { PersonDialog, type PersonDraft } from "@/features/catalog/staff-page";
-import { AccountSelect } from "@/features/daily/account-select";
 import { clean, DateBar, useWorkingDate } from "@/features/daily/daily-kit";
 import { NavGate } from "@/features/shell/nav-gate";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
@@ -42,15 +41,14 @@ import { useAsyncAction } from "@/lib/async-action";
 const PATH = "sales/sr";
 
 /**
- * D67: the SR entries of this tab; an advance lowers the day's cash, a return adds to it, an
- * incentive paid lowers the cash and is an expense.
+ * D67: the SR entries of this tab; an advance lowers the day's cash, a return adds to it. D69:
+ * no SR incentive paid in cash.
  */
-type SrKind = "srLoan" | "srRepayment" | "srIncentive";
-const SR_KINDS: readonly SrKind[] = ["srLoan", "srRepayment", "srIncentive"];
+type SrKind = "srLoan" | "srRepayment";
+const SR_KINDS: readonly SrKind[] = ["srLoan", "srRepayment"];
 const LABEL: Record<SrKind, TranslationKey> = {
   srLoan: "sr.entry.advance",
   srRepayment: "sr.entry.return",
-  srIncentive: "sr.entry.incentive",
 };
 const isSrKind = (kind: string): kind is SrKind => (SR_KINDS as readonly string[]).includes(kind);
 
@@ -73,7 +71,6 @@ function EntryDialog({
   const post = usePostMoneyEntry(companyId);
   const [kind, setKind] = useState<SrKind>(kinds[0] ?? "srLoan");
   const [amount, setAmount] = useState("");
-  const [accountId, setAccountId] = useState("");
   const [error, setError] = useState<string | undefined>();
 
   async function submit() {
@@ -88,8 +85,7 @@ function EntryDialog({
         kind,
         amount: value,
         staffId: sr.staffId,
-        srLoanType: kind === "srIncentive" ? null : "cash",
-        cashAccountId: accountId || null,
+        srLoanType: "cash",
       });
       onClose();
     } catch (e) {
@@ -134,7 +130,6 @@ function EntryDialog({
           className={inputClass}
         />
       </Field>
-      <AccountSelect id={`${id}-account`} value={accountId} onChange={setAccountId} />
       <p className="text-xs text-text-muted">{t("sr.entry.hint")}</p>
     </FormDialog>
   );
@@ -265,9 +260,6 @@ function SrAccounts() {
                 {t("sr.entry.returnToday")}
               </th>
               <th scope="col" className={thNum}>
-                {t("sr.entry.incentiveToday")}
-              </th>
-              <th scope="col" className={thNum}>
                 {t("sr.entry.due")}
               </th>
               <th scope="col" className={thClass}>
@@ -283,7 +275,6 @@ function SrAccounts() {
                   <td className={tdClass}>{row.staffName}</td>
                   <td className={tdNum}>{money(dayTotal(row.staffId, "srLoan"))}</td>
                   <td className={tdNum}>{money(dayTotal(row.staffId, "srRepayment"))}</td>
-                  <td className={tdNum}>{money(dayTotal(row.staffId, "srIncentive"))}</td>
                   <td className={`${tdNum} font-semibold`}>{money(row.balances.srLoan)}</td>
                   <td className={`${tdClass} text-right`}>
                     <div className="flex justify-end gap-2">
@@ -318,9 +309,6 @@ function SrAccounts() {
               </td>
               <td className={tdNum}>
                 {money(sumAmounts(["0", ...rows.map((r) => dayTotal(r.staffId, "srRepayment"))]))}
-              </td>
-              <td className={tdNum}>
-                {money(sumAmounts(["0", ...rows.map((r) => dayTotal(r.staffId, "srIncentive"))]))}
               </td>
               <td className={tdNum}>
                 {money(sumAmounts(["0", ...rows.map((r) => r.balances.srLoan)]))}

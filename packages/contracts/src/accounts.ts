@@ -72,16 +72,21 @@ export const payrollLineSchema = z.object({
   staffId: idSchema,
   staffName: z.string(),
   roleName: z.string(),
+  /** The monthly salary before the absent fee. */
   salary: money,
-  /** What the person owes on the run date (snapshot once approved). */
+  /** D75: the month's absent fees (frozen once the salary is posted), taken off the salary only. */
+  absent: money,
+  /** What the person owes on the run date (snapshot once approved or paid). */
   owed: owedSchema,
-  /** The default recovery: advance → loan → shortage, capped at the salary. */
+  /** The default recovery: advance → loan → shortage, capped at salary − absent. */
   proposed: owedSchema,
   recovery: owedSchema,
   recoveryTotal: money,
-  /** Cash Pabe (D25): salary − recovery, never negative. */
+  /** Cash Pabe (D25): salary − absent − recovery, never negative. */
   cashPay: money,
   reason: z.string(),
+  /** D75: this person's salary is posted and paid (Pay Now, or the whole run paid). */
+  paid: z.boolean(),
 });
 export type PayrollLine = z.infer<typeof payrollLineSchema>;
 
@@ -94,7 +99,7 @@ export const payrollRunSchema = z.object({
   payDate: businessDateSchema.nullable(),
   cutoffDate: businessDateSchema.nullable(),
   lines: z.array(payrollLineSchema),
-  totals: z.object({ salary: money, recovery: money, cashPay: money }),
+  totals: z.object({ salary: money, absent: money, recovery: money, cashPay: money }),
   approvedAt: z.string().nullable(),
   paidAt: z.string().nullable(),
 });
@@ -116,12 +121,16 @@ export const payrollSaveRequestSchema = z.object({
 });
 export type PayrollSaveRequest = z.input<typeof payrollSaveRequestSchema>;
 
-export const payrollActions = ["approve", "pay", "reverse", "discard"] as const;
+/** `payStaff` (D75): post and pay one person's salary now, before the rest of the run. */
+export const payrollActions = ["approve", "pay", "reverse", "discard", "payStaff"] as const;
 export type PayrollAction = (typeof payrollActions)[number];
 
 export const payrollTransitionRequestSchema = z.object({
-  version: z.number().int().positive(),
-  /** Date Cash Pabe is paid (`pay` only); on or after the run date. */
+  /** 0 only for `payStaff` when the month has no run yet. */
+  version: z.number().int().nonnegative(),
+  /** Date Cash Pabe is paid (`pay`, `payStaff`); on or after the run date. */
   payDate: businessDateSchema.nullable().default(null),
+  /** The person `payStaff` pays. */
+  staffId: idSchema.nullable().default(null),
 });
 export type PayrollTransitionRequest = z.input<typeof payrollTransitionRequestSchema>;

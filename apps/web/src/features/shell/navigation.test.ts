@@ -67,10 +67,9 @@ describe("hubs", () => {
       "shops",
       "money",
       "ledgers",
-      "opening",
       "setup",
     ]);
-    expect(hubs.map((h) => h.shortcut)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(hubs.map((h) => h.shortcut)).toEqual([1, 2, 3, 4, 5, 6, 7]);
     expect(hubs[0]?.tabs.map((tab) => tab.path)).toEqual([""]);
     for (const hub of [...hubs, ...masterHubs]) {
       expect(bn[hub.labelKey]).toBeTruthy();
@@ -88,20 +87,25 @@ describe("hubs", () => {
       "inventory/undelivered",
     ]);
     expect(paths("shops")).toEqual(["sales/shops"]);
-    expect(paths("money")).toEqual([
-      "finance/supplier-deposits",
-      "finance/company-account",
+    expect(paths("money")).toEqual(["finance/supplier-deposits", "finance/company-account"]);
+    expect(paths("ledgers")).toEqual([
+      "finance/cash-book",
       "finance/expenses",
       "dsr/salary-recovery",
     ]);
-    expect(paths("ledgers")).toEqual([
-      "finance/cash-book",
+  });
+
+  it("has no entry for the removed statement, receivable, payable and opening screens (D73)", () => {
+    for (const path of [
+      "dsr/statement",
+      "dsr/accounts",
       "finance/receivables",
       "finance/payables",
-      "dsr/accounts",
-      "dsr/statement",
-    ]);
-    expect(paths("opening")).toEqual(["admin/opening"]);
+      "admin/opening",
+    ]) {
+      expect(findNavEntry(path)).toBeUndefined();
+      expect(hubOfPath(path)).toBeUndefined();
+    }
   });
 
   it("gives the master panel only its dashboard and new staff (D67)", () => {

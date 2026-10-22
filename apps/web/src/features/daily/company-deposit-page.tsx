@@ -34,7 +34,6 @@ import {
 import { NavGate } from "@/features/shell/nav-gate";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 import { useAsyncAction } from "@/lib/async-action";
-import { AccountSelect } from "./account-select";
 import {
   CellInput,
   DateBar,
@@ -118,7 +117,6 @@ function DepositForm({
   const postStock = usePostStockEntries(companyId);
   const [kind, setKind] = useState<DepositKind>(kinds[0]);
   const [amount, setAmount] = useState("");
-  const [accountId, setAccountId] = useState("");
   const [rows, setRows] = useState<DamageRow[]>(() => [emptyRow()]);
   const [error, setError] = useState<string | undefined>();
   const [done, setDone] = useState(false);
@@ -174,8 +172,6 @@ function DepositForm({
           staffId: null,
           expenseCategoryId: null,
           allocation: null,
-          // D52: a deposit leaves an account; the company's money incentive touches none.
-          cashAccountId: kind === "supplierDeposit" && accountId ? accountId : null,
         });
         setAmount("");
       }
@@ -216,9 +212,6 @@ function DepositForm({
               className={inputClass}
             />
           </Field>
-        ) : null}
-        {kind === "supplierDeposit" ? (
-          <AccountSelect id={`${id}-account`} value={accountId} onChange={setAccountId} />
         ) : null}
       </div>
       {kind === "companyIncentive" ? (
@@ -520,7 +513,6 @@ export function SupplierDepositsPage() {
                   label: "common.kind",
                   cell: (e) => t(`money.kind.${e.kind}` as TranslationKey),
                 },
-                { label: "money.account", cell: (e) => e.cashAccountName ?? "—" },
                 { label: "common.amount", numeric: true, cell: (e) => money(e.amount) },
               ]}
             />

@@ -28,8 +28,8 @@ const item = (path: string, labelKey: TranslationKey, permission: PermissionId):
  * The single source of access rules (module + permission per path), in a fixed order across
  * companies. Where a path appears in the sidebar is `hubs`; access always comes from here. The SR
  * section follows the guide section 5.3 SR account workspace (loans, repayments, incentives,
- * payables; money only, D18). Only screens backed by the monthly workbook (plus sign-in and
- * opening) are listed; reports live on the dashboard (D44).
+ * payables; money only, D18). Only screens backed by the monthly workbook (plus sign-in) are
+ * listed; reports live on the dashboard (D44). The opening is seeded with a new company (D73).
  */
 export const navigation: readonly NavSection[] = [
   {
@@ -70,11 +70,7 @@ export const navigation: readonly NavSection[] = [
     id: "dsr-staff",
     labelKey: "nav.dsrStaff",
     module: "dsrStaff",
-    items: [
-      item("dsr/accounts", "nav.dsrStaff.accounts", "finance.view"),
-      item("dsr/statement", "nav.dsrStaff.statement", "finance.view"),
-      item("dsr/salary-recovery", "dsr.salaryRecovery", "compensation.view"),
-    ],
+    items: [item("dsr/salary-recovery", "dsr.salaryRecovery", "compensation.view")],
   },
   {
     id: "finance",
@@ -85,8 +81,6 @@ export const navigation: readonly NavSection[] = [
       item("finance/cash-book", "nav.finance.cashBook", "finance.view"),
       item("finance/supplier-deposits", "finance.supplierDeposit", "finance.view"),
       item("finance/expenses", "nav.finance.expenses", "finance.view"),
-      item("finance/receivables", "nav.finance.receivables", "finance.view"),
-      item("finance/payables", "nav.finance.payables", "finance.view"),
     ],
   },
   {
@@ -105,22 +99,12 @@ export const navigation: readonly NavSection[] = [
     items: [
       item("admin/users", "nav.administration.users", "membership.manage"),
       item("admin/roles", "nav.administration.roles", "role.manage"),
-      item("admin/opening", "nav.administration.opening", "opening.prepare"),
     ],
   },
 ];
 
 export type HubId =
-  | "dashboard"
-  | "sales"
-  | "goods"
-  | "shops"
-  | "money"
-  | "ledgers"
-  | "monthEnd"
-  | "opening"
-  | "setup"
-  | "staff";
+  "dashboard" | "sales" | "goods" | "shops" | "money" | "ledgers" | "monthEnd" | "setup" | "staff";
 
 type HubTab = {
   path: string;
@@ -166,12 +150,7 @@ const hubDefinitions: readonly Omit<Hub, "shortcut">[] = [
     id: "money",
     labelKey: "nav.hub.money",
     icon: "finance",
-    tabs: [
-      { path: "finance/supplier-deposits" },
-      { path: "finance/company-account" },
-      { path: "finance/expenses" },
-      { path: "dsr/salary-recovery", labelKey: "nav.flow.payroll" },
-    ],
+    tabs: [{ path: "finance/supplier-deposits" }, { path: "finance/company-account" }],
   },
   {
     id: "ledgers",
@@ -179,17 +158,9 @@ const hubDefinitions: readonly Omit<Hub, "shortcut">[] = [
     icon: "reports",
     tabs: [
       { path: "finance/cash-book" },
-      { path: "finance/receivables" },
-      { path: "finance/payables" },
-      { path: "dsr/accounts" },
-      { path: "dsr/statement" },
+      { path: "finance/expenses" },
+      { path: "dsr/salary-recovery", labelKey: "nav.flow.payroll" },
     ],
-  },
-  {
-    id: "opening",
-    labelKey: "nav.administration.opening",
-    icon: "administration",
-    tabs: [{ path: "admin/opening" }],
   },
   {
     id: "setup",

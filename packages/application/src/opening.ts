@@ -12,6 +12,7 @@ import {
 } from "@bsd/contracts";
 import type { Prisma } from "@bsd/database";
 import {
+  Decimal,
   OPENING_KIND_EFFECTS,
   checkOpening,
   type OpeningKindEffect,
@@ -49,7 +50,7 @@ type Catalog = {
     piecesPerCarton: string;
   }[];
   staff: { id: string; name: string; roleKind: "dsr" | "sr" | "general" }[];
-  cashAccounts: { id: string; name: string }[];
+  cashAccounts: { id: string; name: string; kind: string }[];
   shops: { id: string; active: boolean }[];
 };
 
@@ -80,7 +81,7 @@ async function loadCatalog(
     }),
     db.cashAccount.findMany({
       where: { legalEntityId: access.company.legalEntityId, active: true },
-      orderBy: { name: "asc" },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     }),
     db.shop.findMany({ where: { companyId }, select: { id: true, status: true } }),
   ]);
@@ -104,7 +105,7 @@ async function loadCatalog(
         roleKind: (covering?.role.kind ?? "general") as "dsr" | "sr" | "general",
       };
     }),
-    cashAccounts: cashAccounts.map((a) => ({ id: a.id, name: a.name })),
+    cashAccounts: cashAccounts.map((a) => ({ id: a.id, name: a.name, kind: a.kind })),
     shops: shops.map((s) => ({ id: s.id, active: s.status === "active" })),
   };
 }
@@ -166,20 +167,20 @@ function toView(
         note: line?.note ?? "",
       };
     });
-  const balances: OpeningBalanceLine[] = (session?.balances ?? [])
-    .map((b) => ({
-      kind: b.kind as OpeningBalanceKind,
-      staffId: b.staffId,
-      cashAccountId: b.cashAccountId,
-      shopId: b.shopId,
-      amount: b.amount === null ? null : b.amount.toFixed(2),
-      note: b.note,
-    }))
-    .sort(
-      (a, b) =>
-        openingBalanceKinds.indexOf(a.kind) - openingBalanceKinds.indexOf(b.kind) ||
-        partyKey(a).localeCompare(partyKey(b)),
-    );
+  const stored: OpeningBalanceLine[] = (session?.balances ?? []).map((b) => ({
+    kind: b.kind as OpeningBalanceKind,
+    staffId: b.staffId,
+    cashAccountId: b.cashAccountId,
+    shopId: b.shopId,
+    amount: b.amount === null ? null : b.amount.toFixed(2),
+    note: b.note,
+  }));
+  const cashAccountId = singleCashAccount(catalog, stored);
+  const balances = foldCash(stored, cashAccountId).sort(
+    (a, b) =>
+      openingBalanceKinds.indexOf(a.kind) - openingBalanceKinds.indexOf(b.kind) ||
+      partyKey(a).localeCompare(partyKey(b)),
+  );
   const roleOf = new Map(catalog.staff.map((s) => [s.id, s.roleKind]));
   const cutoffDate = session?.cutoffDate ? fromDbDate(session.cutoffDate) : null;
   const { issues, totals } = checkOpening({
@@ -196,6 +197,7 @@ function toView(
     cutoffDate,
     stock,
     balances,
+    cashAccountId,
     issues,
     totals,
     sections: summarizeSections(
@@ -204,11 +206,43 @@ function toView(
         dsrIds: catalog.staff.filter((m) => m.roleKind === "dsr").map((m) => m.id),
         staffIds: catalog.staff.map((m) => m.id),
         shopIds: catalog.shops.filter((x) => x.active).map((x) => x.id),
-        cashAccountIds: catalog.cashAccounts.map((a) => a.id),
+        cashAccountIds: cashAccountId ? [cashAccountId] : [],
       },
     ),
     ...flags,
   });
+}
+
+/**
+ * D72: the company's cash account: the `cash` account its opening cash is on, else the first
+ * active one (as the ledger's cash bucket).
+ */
+function singleCashAccount(catalog: Catalog, balances: OpeningBalanceLine[]): string | null {
+  const cash = catalog.cashAccounts.filter((a) => a.kind === "cash");
+  const opened = new Set(balances.filter((b) => b.kind === "cash").map((b) => b.cashAccountId));
+  return (cash.find((a) => opened.has(a.id)) ?? cash[0])?.id ?? null;
+}
+
+/** D72: every opening cash line (an old bank account's too) as one line on the cash account. */
+function foldCash(
+  balances: OpeningBalanceLine[],
+  cashAccountId: string | null,
+): OpeningBalanceLine[] {
+  const cash = balances.filter((b) => b.kind === "cash");
+  if (!cashAccountId || cash.every((b) => b.cashAccountId === cashAccountId)) return balances;
+  const amounts = cash.flatMap((b) => (b.amount === null ? [] : [b.amount]));
+  const total = amounts.reduce((sum, amount) => sum.add(amount), new Decimal(0));
+  return [
+    ...balances.filter((b) => b.kind !== "cash"),
+    {
+      kind: "cash",
+      staffId: null,
+      cashAccountId,
+      shopId: null,
+      amount: amounts.length ? total.toFixed(2) : null,
+      note: [...new Set(cash.map((b) => b.note).filter(Boolean))].join(" · "),
+    },
+  ];
 }
 
 export async function openingView(db: Db, access: CompanyAccess): Promise<Opening> {
