@@ -24,7 +24,6 @@ const item = (path: string, labelKey: TranslationKey, permission: PermissionId):
 });
 
 /**
-/**
  * The single source of access rules (module + permission per path), in a fixed order across
  * companies. Where a path appears in the sidebar is `hubs`; access always comes from here. The SR
  * section follows the guide section 5.3 SR account workspace (loans, repayments, incentives,
