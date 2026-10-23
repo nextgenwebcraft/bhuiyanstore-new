@@ -4,6 +4,7 @@ import { moneyKindPermission, type MoneyEntry, type MoneyEntryPostRequest } from
 import { sumAmounts } from "@bsd/domain";
 import { t, type TranslationKey } from "@bsd/i18n";
 import { useId, useState } from "react";
+import { DsrSelect, type DsrChoice } from "@/features/daily/dsr-select";
 import { Button } from "@/components/button";
 import {
   money,
@@ -81,11 +82,13 @@ function EntryForm({
   staffId,
   date,
   kinds,
+  dsr,
 }: {
   companyId: string;
   staffId: string;
   date: string;
   kinds: StaffCashKind[];
+  dsr?: { id: string; dsrs: readonly DsrChoice[]; onChange: (staffId: string) => void };
 }) {
   const id = useId();
   const post = usePostMoneyEntry(companyId);
@@ -109,7 +112,10 @@ function EntryForm({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className={`grid gap-3 ${dsr ? "grid-cols-3" : "grid-cols-2"}`}>
+        {dsr ? (
+          <DsrSelect id={`${id}-dsr`} value={dsr.id} dsrs={dsr.dsrs} onChange={dsr.onChange} />
+        ) : null}
         <Field id={`${id}-kind`} label={t("common.kind")}>
           <select
             id={`${id}-kind`}
@@ -231,13 +237,20 @@ export function StaffCashEntry({
   companyId,
   staffId,
   date,
+  dsrs,
 }: {
   companyId: string;
   staffId: string;
   date: string;
+  /** DSRs the card can post for. Omitted on a person's own entry dialog. */
+  dsrs?: readonly DsrChoice[];
 }) {
   const { permissions } = useCurrentWorkspace();
-  const entries = useMoneyEntries(companyId, { from: date, to: date, staffId });
+  const [picked, setPicked] = useState(staffId);
+  const activeId = dsrs?.some((dsr) => dsr.id === picked)
+    ? picked
+    : (dsrs?.find((dsr) => dsr.id === staffId)?.id ?? dsrs?.[0]?.id ?? staffId);
+  const entries = useMoneyEntries(companyId, { from: date, to: date, staffId: activeId });
   const kinds = KINDS.filter((k) =>
     permissions.includes(moneyKindPermission[staffCashRequest(k, "0").kind]),
   );
@@ -246,11 +259,12 @@ export function StaffCashEntry({
       <h3 className="font-semibold">{t("staffCash.title")}</h3>
       {kinds.length > 0 ? (
         <EntryForm
-          key={`${staffId}-${date}`}
+          key={`${activeId}-${date}`}
           companyId={companyId}
-          staffId={staffId}
+          staffId={activeId}
           date={date}
           kinds={kinds}
+          {...(dsrs && dsrs.length > 0 ? { dsr: { id: activeId, dsrs, onChange: setPicked } } : {})}
         />
       ) : null}
       {entries.isPending ? (

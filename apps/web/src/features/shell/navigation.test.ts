@@ -108,10 +108,13 @@ describe("hubs", () => {
     }
   });
 
-  it("gives the master panel only its dashboard and new staff (D67)", () => {
+  it("gives the master panel its dashboard, monthly account and new staff (D67, D76)", () => {
     const paths = (id: string) => masterHubs.find((h) => h.id === id)?.tabs.map((tab) => tab.path);
-    expect(masterHubs.map((h) => h.id)).toEqual(["dashboard", "staff"]);
+    expect(masterHubs.map((h) => h.id)).toEqual(["dashboard", "shares", "staff"]);
+    expect(paths("shares")).toEqual(["master/monthly-account"]);
     expect(paths("staff")).toEqual(["masters/staff"]);
+    expect(hubOfPath("master/monthly-account", true)?.id).toBe("shares");
+    expect(hubOfPath("master/monthly-account")).toBeUndefined();
     expect(hubOfPath("masters/staff")).toBeUndefined();
     for (const path of ["sr-accounts/representatives", "dsr/settlements", "master/month-close"]) {
       expect(findNavEntry(path)).toBeUndefined();

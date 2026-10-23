@@ -13,6 +13,9 @@ import {
   moneyEntrySchema,
   masterMonthSchema,
   masterSummarySchema,
+  shareMonthSchema,
+  shareYearSchema,
+  shareholderSchema,
   monthCloseResultSchema,
   monthViewSchema,
   payrollRunSchema,
@@ -402,6 +405,30 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
         masterMonthSchema,
         `${company(companyId)}/master-months/${id(month)}/${action}`,
         write("POST", {}),
+      ),
+    getShareMonth: (companyId, month, options) =>
+      request(shareMonthSchema, `${company(companyId)}/share-months/${id(month)}`, options),
+    getShareYear: (companyId, year, options) =>
+      request(shareYearSchema, `${company(companyId)}/share-years/${id(year)}`, options),
+    createShareholder: (companyId, input) =>
+      request(shareholderSchema, `${company(companyId)}/shareholders`, write("POST", input)),
+    updateShareholder: (companyId, shareholderId, input) =>
+      request(
+        shareholderSchema,
+        `${company(companyId)}/shareholders/${id(shareholderId)}`,
+        write("PUT", input),
+      ),
+    saveShareHolding: (companyId, shareholderId, input) =>
+      request(
+        shareholderSchema,
+        `${company(companyId)}/shareholders/${id(shareholderId)}/holdings`,
+        write("PUT", input),
+      ),
+    saveSharePolicy: (companyId, targetCompanyId, input) =>
+      request(
+        z.object({ companyId: z.string(), danBasis: z.enum(["net", "profit"]) }),
+        `${company(companyId)}/share-policies/${id(targetCompanyId)}`,
+        write("PUT", input),
       ),
     getReport: (companyId, report, range, options) =>
       request(

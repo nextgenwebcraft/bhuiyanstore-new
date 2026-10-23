@@ -1,0 +1,24 @@
+id: 2026-10-23-dsr-sr-advance
+reason: >-
+  Owner 2026-10-23 (D79). দৈনিক বিক্রয় হিসাব opens from the SR list, not the DSR list.
+  The sheet keeps shop due and ডিএসআরের অগ্রিম ও শর্ট, each with a DSR dropdown, and adds
+  এসআর অগ্রিম ও শর্ট for the open SR. এসআর হিসাব is only new SR, the list and edit.
+owners: [web, i18n, contracts, database, docs]
+changes:
+  - apps/web দৈনিক বিক্রয় হিসাব lists the same supplier-employed people as এসআর হিসাব and opens that person's sheet; shop due and ডিএসআরের অগ্রিম ও শর্ট pick a searchable DSR beside the other fields; এসআর অগ্রিম ও শর্ট posts for the open person; the day-end net counts that SR loan
+  - apps/web the handover note no longer tells the user to copy a short difference onto the DSR card
+  - apps/web এসআর হিসাব keeps new SR, the list and edit
+  - packages/application saveDsrDayIn accepts a supplier-employed person as well as a DSR; srLoan accepts the same people
+  - packages/contracts srLoanTypes gains shortage, a label on the existing SR loan balance
+  - packages/database migration 20261023020000_sr_shortage_loan_type widens the sr_loan_type check
+affectedActionIds: [money.post, dsr_day.save]
+financialImpact: >-
+  A shortage entry is an SR loan labeled shortage. Cash falls and the SR's one loan balance
+  rises, the same as a cash advance. A shortage return is an SR repayment of that label.
+  Distributor staff advance, shortage, absent fee and payroll are unchanged.
+backfill: none - existing rows stay cash or commission
+tests:
+  - pnpm exec eslint on the changed web files
+  - pnpm exec tsc for web, contracts
+rollout: deploy the app and apply the migration
+recovery: revert the commit; shortage rows already posted stay valid labels on the SR loan

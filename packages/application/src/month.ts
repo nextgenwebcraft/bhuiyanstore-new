@@ -662,17 +662,8 @@ function buildTables(
     }
     case "company-account": {
       const c = m.companyPayable;
-      const productNames = new Map(names.products.map((p) => [p.id, p.name]));
-      const sizes = new Map(names.products.map((p) => [p.id, p.piecesPerCarton]));
       const undeliveredPieces = sumQuantities(["0", ...m.products.map((p) => p.dueFromCompany)]);
-      const blank = {
-        quantity: null,
-        freeQuantity: null,
-        cartonRate: null,
-        moneyIn: null,
-        moneyOut: null,
-        memoValue: null,
-      };
+      const shown = (value: string) => (toDecimal(value).isZero() ? null : value);
       return [
         table(
           "companyAccountSummary",
@@ -714,62 +705,42 @@ function buildTables(
           "companyAccountStatement",
           [
             col("date", "text"),
+            col("stmtCredit", "money"),
+            col("stmtDebit", "money"),
             col("line", "label"),
-            col("product", "text"),
-            col("quantity", "quantity"),
-            col("freeQuantity", "quantity"),
-            col("cartonRate", "money"),
-            col("moneyIn", "money"),
-            col("moneyOut", "money"),
-            col("balance", "money"),
-            col("damageBalance", "money"),
-            col("incentiveBalance", "money"),
+            col("orderCash", "money"),
+            col("orderIncentive", "money"),
+            col("orderDamage", "money"),
             col("undelivered", "money"),
-            col("memoValue", "money"),
+            col("companyBalance", "money"),
           ],
           [
             {
               cells: {
-                ...blank,
                 date: from,
+                stmtCredit: null,
+                stmtDebit: null,
                 line: "report.line.company.opening",
-                product: "",
-                balance: balanceOf(c.opening),
-                damageBalance: c.damageBalanceOpening,
-                incentiveBalance: c.incentiveBalanceOpening,
+                orderCash: null,
+                orderIncentive: null,
+                orderDamage: null,
                 undelivered: c.undeliveredOpening,
+                companyBalance: balanceOf(c.opening),
               },
             },
-            ...companyStatement(output.companyEntries).map((e) => {
-              // Money in (deposit, incentive, damage refund) and out (orders by the balance part
-              // that paid them, D63; excess receipt bill); free goods, replacement goods and
-              // investment are memos that move no balance.
-              const isIn =
-                e.kind === "deposit" || e.kind === "incentive" || e.kind === "damageRefund";
-              const isOut =
-                e.kind.startsWith("orderFrom") || (e.kind === "receipt" && e.amount !== "0");
-              const [onlyProduct] = e.productIds.length === 1 ? e.productIds : [];
-              return {
-                ...(onlyProduct ? { piecesPerCarton: sizes.get(onlyProduct) ?? "1" } : {}),
-                cells: {
-                  ...blank,
-                  date: e.date,
-                  line: `report.line.company.${e.kind}`,
-                  product: e.productIds.map((id) => productNames.get(id) ?? "").join(", "),
-                  quantity: e.quantity ?? null,
-                  // D57: free pieces and the carton rate of an order.
-                  freeQuantity: e.freeQuantity ?? null,
-                  cartonRate: e.cartonRate ?? null,
-                  moneyIn: isIn ? e.amount : null,
-                  moneyOut: isOut ? e.amount : null,
-                  memoValue: e.kind === "replacement" || e.kind === "investment" ? e.amount : null,
-                  balance: balanceOf(e.balance),
-                  damageBalance: e.damageBalance,
-                  incentiveBalance: e.incentiveBalance,
-                  undelivered: e.undelivered,
-                },
-              };
-            }),
+            ...companyStatement(output.companyEntries).map((e) => ({
+              cells: {
+                date: e.date,
+                stmtCredit: shown(e.credit),
+                stmtDebit: shown(e.debit),
+                line: `report.line.company.${e.kind}`,
+                orderCash: shown(e.cash),
+                orderIncentive: shown(e.incentive),
+                orderDamage: shown(e.damage),
+                undelivered: e.undelivered,
+                companyBalance: balanceOf(e.balance),
+              },
+            })),
           ],
           null,
           seen,

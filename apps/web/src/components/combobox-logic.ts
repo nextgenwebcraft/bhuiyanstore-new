@@ -4,7 +4,7 @@ import { matchesSearch, normalizeSearchText } from "@bsd/i18n";
 export type ComboboxOption = {
   id: string;
   label: string;
-  /** Muted second line (for a shop: owner · area). */
+  /** Muted second line (for a shop: mobile · address). */
   secondary?: string;
   /** Right-aligned figure (for a shop: its current due). */
   trailing?: string;

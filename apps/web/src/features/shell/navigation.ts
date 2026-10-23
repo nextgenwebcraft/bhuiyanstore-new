@@ -34,7 +34,10 @@ export const navigation: readonly NavSection[] = [
   {
     id: "dashboard",
     labelKey: "nav.dashboard",
-    items: [item("", "nav.dashboard", "company.view")],
+    items: [
+      item("", "nav.dashboard", "company.view"),
+      item("master/monthly-account", "nav.master.monthly", "company.view"),
+    ],
   },
   {
     id: "sales",
@@ -103,7 +106,16 @@ export const navigation: readonly NavSection[] = [
 ];
 
 export type HubId =
-  "dashboard" | "sales" | "goods" | "shops" | "money" | "ledgers" | "monthEnd" | "setup" | "staff";
+  | "dashboard"
+  | "sales"
+  | "goods"
+  | "shops"
+  | "money"
+  | "ledgers"
+  | "monthEnd"
+  | "setup"
+  | "staff"
+  | "shares";
 
 type HubTab = {
   path: string;
@@ -176,11 +188,17 @@ const hubDefinitions: readonly Omit<Hub, "shortcut">[] = [
 ];
 
 /**
- * The master panel's hubs (D66, D67): the all-company dashboard (with the month close) and the
+ * The master panel's hubs (D66, D67, D76): the dashboard, the monthly share account, and the
  * global staff; everything else lives in the companies.
  */
 const masterHubDefinitions: readonly Omit<Hub, "shortcut">[] = [
   { id: "dashboard", labelKey: "nav.master.dashboard", icon: "dashboard", tabs: [{ path: "" }] },
+  {
+    id: "shares",
+    labelKey: "nav.master.monthly",
+    icon: "finance",
+    tabs: [{ path: "master/monthly-account", labelKey: "nav.master.monthly" }],
+  },
   {
     id: "staff",
     labelKey: "nav.master.staff",

@@ -147,6 +147,8 @@ type OrderStage = {
   dueQtyAfter: Decimal;
   dueValueAfter: Decimal;
   excessBill: Decimal;
+  /** Undelivered value cleared by this receipt (D82). Does not move the company balance. */
+  released: Decimal;
   /** Billed value of the goods received: released undelivered value + excess billed now. */
   receiptValue: Decimal;
 };
@@ -211,6 +213,7 @@ function orderStage(
     dueQtyAfter,
     dueValueAfter: dueValue.sub(released),
     excessBill,
+    released,
     receiptValue: released.add(excessBill),
   };
 }
@@ -845,8 +848,11 @@ export function computeMonth(input: MonthInput): MonthOutput {
       // is billed. The pool was computed with the day's stock inflows above.
       const stage = orderStages.get(id) as OrderStage;
       state.dueFromCompany = stage.dueQtyAfter;
-      state.dueValue = stage.dueValueAfter;
+      // Each order line's undelivered is after that bill and before today's receipt (D82).
+      let dueValueWalk = stage.dueValueAfter.add(stage.released).sub(stage.orderBill);
       for (const o of stage.entries) {
+        dueValueWalk = dueValueWalk.add(o.bill);
+        state.dueValue = dueValueWalk;
         companyOrders = companyOrders.add(o.bill);
         companyPayable = companyPayable.add(o.bill);
         const { fromDamage, fromIncentive, fromDeposit } = fundOrder(o.bill, o.fundFrom, {
@@ -874,6 +880,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
           undelivered: str(totalDueValue()),
         });
       }
+      state.dueValue = stage.dueValueAfter;
       const orderBill = stage.orderBill;
       const excessBill = stage.excessBill;
       companyPayable = companyPayable.add(excessBill);
@@ -884,6 +891,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
           date: day.date,
           kind: "receipt",
           amount: str(excessBill),
+          released: str(stage.released),
           productId: id,
           quantity: str(received),
           balance: str(companyPayable),

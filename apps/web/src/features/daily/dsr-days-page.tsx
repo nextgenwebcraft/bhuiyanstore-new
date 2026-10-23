@@ -28,6 +28,7 @@ import {
   useStaffRecords,
 } from "@/data/queries";
 import { ShopDueEntry } from "@/features/shops/shop-due-entry";
+import { SrCashEntry } from "./sr-cash-entry";
 import { StaffCashEntry } from "./staff-cash-entry";
 import { FieldReportCard } from "./field-report-card";
 import { NavGate } from "@/features/shell/nav-gate";
@@ -160,6 +161,13 @@ function nextBatch(options: BatchOption[], taken: readonly string[]): string {
 /** Every DSR, always (D65: DSRs are global staff of the master company; any DSR assignment counts). */
 export function dsrsOn(records: StaffRecord[]) {
   return records.filter((s) => s.assignments.some((a) => a.roleKind === "dsr"));
+}
+/**
+ * The same people as এসআর হিসাব (D65, D79): supplier-employed, whatever the assignment
+ * role is called. A supplier-employed manager still belongs on this list.
+ */
+export function srsOn(records: StaffRecord[]) {
+  return records.filter((s) => s.employer === "supplier");
 }
 /** One line's batch allocation as small muted text: "ব্যাচ ১: ৪০ পিস @ ৳২০"; a net return reads "ফেরত ব্যাচ ১: ৫ পিস" (D49). */
 function allocationText(allocations: LineAllocation[]): string {
@@ -585,12 +593,24 @@ function SheetEditor({
     view.persons.filter((p) => p.staffId === staff.id).map((p) => [p.productId, p.allocations]),
   );
   const entered = typeof built === "string" ? [] : built.lines;
-  const fieldDay = useDsrFieldDay(companyId, staff.id, date);
+  const fieldDay = useDsrFieldDay(
+    companyId,
+    staff.id,
+    date,
+    staff.assignments.some((a) => a.roleKind === "dsr"),
+  );
+  const records = useStaffRecords(companyId);
+  const dsrChoices = dsrsOn(records.data ?? []).map((dsr) => ({ id: dsr.id, name: dsr.name }));
   const entries = useMoneyEntries(companyId, { from: date, to: date, staffId: staff.id });
   const field = fieldDay.data && fieldDay.data.visits.length > 0 ? fieldDay.data : null;
   const posts = (entries.data ?? []).filter((e) => e.status === "posted");
   const entrySum = (kind: MoneyEntry["kind"]) =>
     sumAmounts(["0", ...posts.filter((e) => e.kind === kind).map((e) => e.amount)]);
+  const srMove = (kind: "srLoan" | "srRepayment") =>
+    sumAmounts([
+      "0",
+      ...posts.filter((e) => e.kind === kind && e.srLoanType !== "commission").map((e) => e.amount),
+    ]);
   const sheetDue = (value: string | undefined) => value ?? "0";
   const cash = {
     sales: posted && !dirty ? sumAmounts(["0", ...amounts.values()]) : previewSales(entered, view),
@@ -601,9 +621,13 @@ function SheetEditor({
       ? field.totals.dueCollected
       : sumAmounts([entrySum("marketDueCollected"), sheetDue(sheet?.marketDueCollected)]),
     expenses: entrySum("staffCostPaid"),
+    // D79: the open person's advance and short. An SR's are srLoan (cash or shortage);
+    // a DSR sheet still counts staffAdvance and staffShortage. Commission is not this line.
     staffMoney: toDecimal(entrySum("staffRepayment"))
+      .add(srMove("srRepayment"))
       .sub(toDecimal(entrySum("staffAdvance")))
       .sub(toDecimal(entrySum("staffShortage")))
+      .sub(srMove("srLoan"))
       .toString(),
   };
 
@@ -1036,6 +1060,13 @@ function SheetEditor({
           </tbody>
         </table>
       </TableScroller>
+      {!posted && permissions.includes("sale.create") ? (
+        <div className="flex">
+          <Button disabled={pending || (!dirty && Boolean(sheet))} onClick={() => void run("save")}>
+            {save.isPending ? t("common.saving") : t("dsr.sheet.saveDraft")}
+          </Button>
+        </div>
+      ) : null}
       <p className="text-xs text-text-muted">
         {t("dsr.sheet.hint")} {t("dsr.sheet.batchHint")}
       </p>
@@ -1053,8 +1084,10 @@ function SheetEditor({
         staffId={staff.id}
         date={date}
         fieldOwned={field !== null}
+        dsrs={dsrChoices}
       />
-      <StaffCashEntry companyId={companyId} staffId={staff.id} date={date} />
+      <StaffCashEntry companyId={companyId} staffId={staff.id} date={date} dsrs={dsrChoices} />
+      <SrCashEntry companyId={companyId} staffId={staff.id} date={date} />
       <CashCheck
         {...cash}
         handedOver={draft.handedOver}
@@ -1063,11 +1096,6 @@ function SheetEditor({
       />
       {shownError ? <StatePanel tone="error" title={shownError} /> : null}
       <div className="flex flex-wrap gap-2">
-        {!posted && permissions.includes("sale.create") ? (
-          <Button disabled={pending || (!dirty && Boolean(sheet))} onClick={() => void run("save")}>
-            {save.isPending ? t("common.saving") : t("dsr.sheet.saveDraft")}
-          </Button>
-        ) : null}
         {!posted && permissions.includes("sale.post") ? (
           <Button variant="primary" disabled={pending} onClick={() => void run("post")}>
             {command.isPending ? t("common.posting") : t("common.post")}
@@ -1132,10 +1160,10 @@ function Sheets({
   if (sheets.isError)
     return <QueryError error={sheets.error} onRetry={() => void sheets.refetch()} />;
 
-  const dsrs = dsrsOn(records.data);
+  const srs = srsOn(records.data);
   const live = (staffId: string) =>
     sheets.data.find((s) => s.staffId === staffId && s.status !== "reversed");
-  const selected = dsrs.find((d) => d.id === open);
+  const selected = srs.find((d) => d.id === open);
   if (selected) {
     const sheet = live(selected.id);
     return (
@@ -1150,10 +1178,38 @@ function Sheets({
       />
     );
   }
-  return dsrs.length === 0 ? (
-    <StatePanel title={t("dsr.sheet.noDsr")} hint={t("dsr.sheet.noDsrHint")} />
-  ) : (
-    <DsrList dsrs={dsrs} live={live} view={view} onOpen={setOpen} />
+  return (
+    <>
+      {/* <HandoverShorts rows={view.handoverShorts} /> */}
+      {srs.length === 0 ? (
+        <StatePanel title={t("sr.empty")} />
+      ) : (
+        <DsrList dsrs={srs} live={live} view={view} onOpen={setOpen} />
+      )}
+    </>
+  );
+}
+
+/** Today's handover shorts (D81): shown above the SR list, and not a balance. */
+function HandoverShorts({ rows }: { rows: DayView["handoverShorts"] }) {
+  if (rows.length === 0) return null;
+  const total = sumAmounts(["0", ...rows.map((row) => row.amount)]);
+  return (
+    <section className="mb-4 rounded-lg border border-border bg-surface p-4">
+      <h2 className="font-semibold">{t("dsr.cash.shortList")}</h2>
+      <p className="mt-1 text-xs text-text-muted">{t("dsr.cash.shortListHint")}</p>
+      <ul className="mt-3 flex flex-col gap-2 text-sm">
+        {rows.map((row) => (
+          <li key={row.staffId} className="flex items-center justify-between gap-3">
+            <span>{row.staffName}</span>
+            <span className="font-medium text-error tabular-nums">{money(row.amount)}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-3 text-sm font-semibold">
+        {t("dsr.cash.shortTotal")}: <span className="tabular-nums">{money(total)}</span>
+      </p>
+    </section>
   );
 }
 
@@ -1252,7 +1308,7 @@ function OpenDsr({
   const sheet = sheets.data?.find((s) => s.staffId === staffId && s.status !== "reversed");
   return (
     <div className="flex flex-wrap items-center gap-3">
-      <Button onClick={onBack}>← {t("dsr.sheet.back")}</Button>
+      <Button onClick={onBack}>← {t("sr.sheet.back")}</Button>
       <h2 className="text-lg font-semibold">{name}</h2>
       <StatusChip status={sheet?.status ?? "none"} />
     </div>
@@ -1266,11 +1322,11 @@ export function DsrDaysPage() {
   const pathname = usePathname();
   const search = useSearchParams();
   // The open DSR lives in the address (?dsr=), so a reload keeps the sheet and Back returns to the list.
-  const open = search.get("dsr");
+  const open = search.get("sr");
   const setOpen = (staffId: string | null) => {
     const query = new URLSearchParams(search.toString());
-    if (staffId) query.set("dsr", staffId);
-    else query.delete("dsr");
+    if (staffId) query.set("sr", staffId);
+    else query.delete("sr");
     const text = query.toString();
     router.push(text ? `${pathname}?${text}` : pathname, { scroll: true });
   };

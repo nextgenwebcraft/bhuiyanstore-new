@@ -11,6 +11,7 @@ import { Decimal } from "@bsd/domain";
 import { t, type TranslationKey, formatBusinessDate } from "@bsd/i18n";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
+import { DateRangePicker } from "@/components/date-picker";
 import { Icon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { QueryError } from "@/components/query-error";
@@ -27,8 +28,7 @@ import { NavGate } from "@/features/shell/nav-gate";
 import { PrintButton, PrintHeader } from "@/features/shell/print";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 import { useToday } from "@/lib/today";
-import { parsePeriod, periodParam, periodRange, type Period } from "./period";
-import { PeriodPicker } from "./period-picker";
+import { parsePeriod, periodForRange, periodParam, periodRange, type Period } from "./period";
 
 const nonZero = (value: string) => !new Decimal(value).isZero();
 
@@ -41,7 +41,7 @@ const pillClass = (active: boolean) =>
       : "border-border bg-surface text-text shadow-card hover:border-border-strong hover:bg-surface-hover"
   }`;
 
-/** Today | this month | last month | any month or year (calendar picker); kept in the URL (D60). */
+/** Today, this month, last month, then a calendar for one day or a range (D83). */
 export function PeriodBar({
   period,
   cutoffDate,
@@ -75,12 +75,11 @@ export function PeriodBar({
           {item.label}
         </button>
       ))}
-      <PeriodPicker
-        period={period}
-        cutoffDate={cutoffDate}
-        today={today}
-        onChange={onChange}
-        active={period.kind === "month" || period.kind === "year"}
+      <DateRangePicker
+        value={periodRange(period, today)}
+        min={cutoffDate ?? undefined}
+        max={today}
+        onChange={(range) => onChange(periodForRange(range.from, range.to, today))}
       />
     </div>
   );
@@ -130,6 +129,7 @@ export function summaryCards(d: DashboardSummary, singleDay: boolean): Card[] {
     { label: "dashboard.card.undelivered", value: d.undeliveredValue },
     { label: "dashboard.card.stock", value: d.stockValue, tone: "info" },
     { label: "dashboard.card.srCost", value: d.srCost, tone: "warning" },
+    { label: "dashboard.card.handoverShort", value: d.handoverShort, tone: "warning" },
   ];
 }
 

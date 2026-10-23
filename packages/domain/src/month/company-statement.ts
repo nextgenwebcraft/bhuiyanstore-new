@@ -1,89 +1,88 @@
 import { toDecimal } from "../decimal";
 import type { CompanyEntryKind, CompanyEntryResult, ProductId } from "./types";
 
-export type CompanyStatementKind =
-  | Exclude<CompanyEntryKind, "order">
-  | "orderFromDamage"
-  | "orderFromIncentive"
-  | "orderFromDeposit";
-
-/** One company statement line (D63): a ledger entry, or one balance part of an order group. */
-export type CompanyStatementLine = Omit<CompanyEntryResult, "kind" | "productId"> & {
-  kind: CompanyStatementKind;
-  /** The products of the line (an order group may hold several). */
+/** One company statement line (D82): one movement, with the balance after it. */
+export type CompanyStatementLine = {
+  date: string;
+  kind: CompanyEntryKind;
+  /** Amount that cuts the company balance (an order bill, or the excess on a receipt). */
+  credit: string;
+  /**
+   * Amount that raises the company balance (a deposit, money incentive or damage return),
+   * or the undelivered value released when ordered goods arrive (that part moves no balance).
+   */
+  debit: string;
+  /** Order only: the bill taken from মোট জমা, the incentive part and the damage part. */
+  cash: string;
+  incentive: string;
+  damage: string;
+  /** What we owe the company after this line (negative = money deposited with it). */
+  balance: string;
+  /** Billed value of goods ordered and not yet received, after this line. */
+  undelivered: string;
   productIds: ProductId[];
 };
 
-const FUND_PARTS = [
-  ["fromDamage", "orderFromDamage"],
-  ["fromIncentive", "orderFromIncentive"],
-  ["fromDeposit", "orderFromDeposit"],
-] as const;
+const ZERO = "0";
 
 /**
- * The company statement (D63): the ledger in posting order, with each day's orders posted together
- * (one group) shown as one line per balance part that paid them â€” damage, incentive, à¦®à§‹à¦Ÿ à¦œà¦®à¦¾ â€”
- * each with the balances after it. A group of a single order keeps its quantities and rate.
+ * The company statement (D82): the ledger in posting order. Orders posted together are one line.
+ * The whole bill is credit; cash, incentive and damage are how that bill was paid. A receipt's
+ * debit is the ordered goods now in hand, and its credit is only the excess bill.
  */
 export function companyStatement(entries: readonly CompanyEntryResult[]): CompanyStatementLine[] {
   const groups = new Map<string, CompanyEntryResult[]>();
   const ordered: (CompanyEntryResult | CompanyEntryResult[])[] = [];
-  entries.forEach((e, index) => {
-    if (e.kind !== "order") return void ordered.push(e);
-    const key = `${e.date}|${e.group ?? `#${index}`}`;
+  entries.forEach((entry, index) => {
+    if (entry.kind !== "order") return void ordered.push(entry);
+    const key = `${entry.date}|${entry.group ?? `#${index}`}`;
     const group = groups.get(key);
-    if (group) return void group.push(e);
-    const fresh = [e];
+    if (group) return void group.push(entry);
+    const fresh = [entry];
     groups.set(key, fresh);
     ordered.push(fresh);
   });
-  return ordered.flatMap((item): CompanyStatementLine[] => {
-    if (!Array.isArray(item)) {
-      const { productId, kind, ...rest } = item;
-      return [
-        {
-          ...rest,
-          kind: kind as CompanyStatementLine["kind"],
-          productIds: productId ? [productId] : [],
-        },
-      ];
-    }
-    return orderGroupLines(item);
-  });
+  return ordered.map((item) => (Array.isArray(item) ? orderGroupLine(item) : singleLine(item)));
 }
 
-function orderGroupLines(group: readonly CompanyEntryResult[]): CompanyStatementLine[] {
+function orderGroupLine(group: readonly CompanyEntryResult[]): CompanyStatementLine {
   const first = group[0] as CompanyEntryResult;
   const last = group[group.length - 1] as CompanyEntryResult;
-  const total = (pick: (e: CompanyEntryResult) => string | undefined) =>
-    group.reduce((sum, e) => sum.add(toDecimal(pick(e) ?? "0")), toDecimal("0"));
-  const parts = FUND_PARTS.map(([field, kind]) => ({
-    kind,
-    // An order line without funding (older rows) is paid from à¦®à§‹à¦Ÿ à¦œà¦®à¦¾.
-    amount: total((e) => e[field] ?? (field === "fromDeposit" ? e.amount : "0")),
-  }));
-  const shown = parts.filter((p) => !p.amount.isZero());
-  const single = group.length === 1;
-  const productIds = [...new Set(group.flatMap((e) => (e.productId ? [e.productId] : [])))];
-  let payable = toDecimal(first.balance).sub(toDecimal(first.amount));
-  let incentiveLeft = total((e) => e.fromIncentive);
-  return (shown.length ? shown : parts.slice(-1)).map((p) => {
-    payable = payable.add(p.amount);
-    if (p.kind === "orderFromIncentive") incentiveLeft = toDecimal("0");
-    return {
-      date: first.date,
-      kind: p.kind,
-      amount: p.amount.toString(),
-      ...(first.ref === undefined ? {} : { ref: first.ref }),
-      productIds,
-      ...(single && first.quantity !== undefined ? { quantity: first.quantity } : {}),
-      ...(single && first.freeQuantity !== undefined ? { freeQuantity: first.freeQuantity } : {}),
-      ...(single && first.cartonRate !== undefined ? { cartonRate: first.cartonRate } : {}),
-      ...(first.group === undefined ? {} : { group: first.group }),
-      balance: payable.toString(),
-      damageBalance: last.damageBalance,
-      incentiveBalance: toDecimal(last.incentiveBalance).add(incentiveLeft).toString(),
-      undelivered: last.undelivered,
-    };
-  });
+  const total = (pick: (entry: CompanyEntryResult) => string | undefined) =>
+    group.reduce((sum, entry) => sum.add(toDecimal(pick(entry) ?? ZERO)), toDecimal(ZERO));
+  const credit = total((entry) => entry.amount);
+  let cash = total((entry) => entry.fromDeposit);
+  const incentive = total((entry) => entry.fromIncentive);
+  const damage = total((entry) => entry.fromDamage);
+  // An order without a funding split (older rows) is paid from মোট জমা.
+  if (cash.isZero() && incentive.isZero() && damage.isZero()) cash = credit;
+  return {
+    date: first.date,
+    kind: "order",
+    credit: credit.toString(),
+    debit: ZERO,
+    cash: cash.toString(),
+    incentive: incentive.toString(),
+    damage: damage.toString(),
+    balance: last.balance,
+    undelivered: last.undelivered,
+    productIds: [...new Set(group.flatMap((entry) => (entry.productId ? [entry.productId] : [])))],
+  };
+}
+
+function singleLine(entry: CompanyEntryResult): CompanyStatementLine {
+  const raises =
+    entry.kind === "deposit" || entry.kind === "incentive" || entry.kind === "damageRefund";
+  return {
+    date: entry.date,
+    kind: entry.kind,
+    credit: entry.kind === "receipt" ? entry.amount : ZERO,
+    debit: entry.kind === "receipt" ? (entry.released ?? ZERO) : raises ? entry.amount : ZERO,
+    cash: ZERO,
+    incentive: ZERO,
+    damage: ZERO,
+    balance: entry.balance,
+    undelivered: entry.undelivered,
+    productIds: entry.productId ? [entry.productId] : [],
+  };
 }

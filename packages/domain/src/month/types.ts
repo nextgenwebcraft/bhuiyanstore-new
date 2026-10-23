@@ -646,6 +646,11 @@ export type CompanyEntryResult = {
   productId?: ProductId;
   /** Pieces ordered (paid), received, given free or replaced. */
   quantity?: string;
+  /**
+   * Receipt only (D82): billed value of ordered goods now in hand. It lowers the undelivered
+   * value and does not move the company balance. `amount` on that row is only the excess bill.
+   */
+  released?: string;
   /** Order only (D57): free pieces ordered with it, and the carton rate. */
   freeQuantity?: string;
   cartonRate?: string;

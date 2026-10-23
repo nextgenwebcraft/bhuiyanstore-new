@@ -51,6 +51,11 @@ export const dashboardSummarySchema = z.object({
   srCost: decimalStringSchema.optional(),
   /** D67: DSR-damaged pieces at the sale price. */
   damageSaleValue: decimalStringSchema,
+  /**
+   * Cash handed over below the expected cash, summed over the range (D81). Display only: it is
+   * not taken off cash, a staff balance, or profit.
+   */
+  handoverShort: decimalStringSchema.default("0.00"),
   /** D69: ফেরত + ড্যামেজ + কমিশন + অপারেটিং খরচ + ডিএসআর খরচ, shown only; requires `finance.view`. */
   totalCost: decimalStringSchema.optional(),
   /** D69: অপারেটিং খরচ + ডিএসআর খরচ, what নিট প্রফিট takes off the profit; requires `finance.view`. */

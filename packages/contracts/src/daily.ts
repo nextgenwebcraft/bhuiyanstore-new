@@ -284,8 +284,11 @@ export const moneyEntryKinds = [
 
 export type MoneyEntryKind = (typeof moneyEntryKinds)[number];
 
-/** D42: an SR loan is a direct cash loan or a product commission advance; repayments name one. */
-export const srLoanTypes = ["cash", "commission"] as const;
+/**
+ * D42: an SR loan is a direct cash loan or a product commission advance; repayments name one.
+ * D79: `shortage` is a third label on that same balance. It does not split the figure.
+ */
+export const srLoanTypes = ["cash", "commission", "shortage"] as const;
 export type SrLoanType = (typeof srLoanTypes)[number];
 export const srLoanTypeKinds: readonly MoneyEntryKind[] = ["srLoan", "srRepayment"];
 
@@ -579,6 +582,19 @@ export const dayViewSchema = z.object({
   /** All market due still open at the end of the date. */
   marketDueOutstanding: money,
   marketDueByDsr: z.array(z.object({ staffId: z.string(), staffName: z.string(), amount: money })),
+  /**
+   * Handover below the expected cash (D81). Shown only: not a money entry, and no balance moves.
+   */
+  handoverShorts: z
+    .array(
+      z.object({
+        staffId: idSchema,
+        staffName: z.string(),
+        date: businessDateSchema,
+        amount: money,
+      }),
+    )
+    .default([]),
   /**
    * The company account at the end of the date (D48): money with the company (negative = we owe
    * it) and the billed value / pieces of goods ordered and not yet received. Needs cost view.

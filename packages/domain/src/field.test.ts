@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dsrCashSettlement, fieldRemaining, fieldVisitTotals } from "./field";
+import { dsrCashSettlement, fieldRemaining, fieldVisitTotals, handoverShortOf } from "./field";
 
 describe("field visits (D40)", () => {
   it("sells delivered pieces at the day price; the unpaid part is the shop's new due", () => {
@@ -42,6 +42,10 @@ describe("DSR cash handover (D39)", () => {
         handedOver: "4300",
       }),
     ).toEqual({ expected: "4350.00", handedOver: "4300.00", difference: "-50.00" });
+    expect(handoverShortOf("-50.00")).toBe("50.00");
+    expect(handoverShortOf("10.00")).toBeNull();
+    expect(handoverShortOf("0.00")).toBeNull();
+    expect(handoverShortOf(null)).toBeNull();
   });
 
   it("without a handover only the expected cash is known", () => {

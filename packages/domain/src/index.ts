@@ -54,6 +54,7 @@ export {
 } from "./opening";
 export {
   dsrCashSettlement,
+  handoverShortOf,
   fieldRemaining,
   fieldVisitTotals,
   lineValue,
@@ -67,11 +68,7 @@ export {
   fundOrder,
   orderFundingPreview,
 } from "./month/order-funding";
-export {
-  companyStatement,
-  type CompanyStatementKind,
-  type CompanyStatementLine,
-} from "./month/company-statement";
+export { companyStatement, type CompanyStatementLine } from "./month/company-statement";
 export { srCost, summarizeDay, type DaySummary, type DsrDaySummary } from "./month/day-summary";
 export {
   dashboardTotals,
@@ -80,6 +77,15 @@ export {
   type ProfitLine,
   type ProfitParts,
 } from "./month/sales-profit";
+export {
+  DAN_RATE,
+  shareMonth,
+  shareYearIncome,
+  type DanBasis,
+  type ShareCompanyInput,
+  type ShareHolderInput,
+  type ShareMonthResult,
+} from "./share-month";
 export {
   MONEY_KIND_EFFECTS,
   STAFF_COST_SIGN,
