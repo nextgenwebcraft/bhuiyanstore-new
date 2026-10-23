@@ -150,10 +150,24 @@ describe("company order billed at once (D48)", () => {
     expect(out.companyEntries[1]).toMatchObject({
       kind: "receipt",
       amount: "0",
+      released: "40000",
       quantity: "40",
       balance: "-20000",
       undelivered: "0",
     });
+    expect(
+      companyStatement(out.companyEntries).map((line) => [
+        line.kind,
+        line.credit,
+        line.debit,
+        line.cash,
+        line.undelivered,
+        line.balance,
+      ]),
+    ).toEqual([
+      ["order", "40000", "0", "40000", "40000", "-20000"],
+      ["receipt", "0", "40000", "0", "0", "-20000"],
+    ]);
   });
 
   it("bills only the excess when more is received than was ordered", () => {
@@ -169,6 +183,19 @@ describe("company order billed at once (D48)", () => {
       receiptBill: "5000",
       receiptValue: "20000", // 15,000 released + 5,000 excess
     });
+    // The ordered goods are debit (undelivered falls); only the extra 5,000 cuts the balance.
+    expect(
+      companyStatement(out.companyEntries).map((line) => [
+        line.kind,
+        line.credit,
+        line.debit,
+        line.undelivered,
+        line.balance,
+      ]),
+    ).toEqual([
+      ["order", "5000", "0", "15000", "5000"],
+      ["receipt", "5000", "15000", "0", "10000"],
+    ]);
   });
 
   it("values the undelivered goods proportionally and is exactly 0 when the due clears", () => {
@@ -273,20 +300,20 @@ describe("company balance parts, order funding and investment (D63)", () => {
       companyDamageBalance: "0",
       companyIncentiveBalance: "0",
     });
-    // The statement shows the order as one line per balance part, each with the balance after it.
+    // One order line: the whole bill is credit, split across cash, incentive and damage.
     expect(
-      companyStatement(out.companyEntries).map((l) => [
-        l.kind,
-        l.amount,
-        l.balance,
-        l.damageBalance,
-        l.incentiveBalance,
+      companyStatement(out.companyEntries).map((line) => [
+        line.kind,
+        line.credit,
+        line.debit,
+        line.cash,
+        line.incentive,
+        line.damage,
+        line.balance,
       ]),
     ).toEqual([
-      ["incentive", "4000", "-14000", "6000", "4000"],
-      ["orderFromDamage", "6000", "-8000", "0", "4000"],
-      ["orderFromIncentive", "4000", "-4000", "0", "0"],
-      ["orderFromDeposit", "5000", "1000", "0", "0"],
+      ["incentive", "0", "4000", "0", "0", "0", "-14000"],
+      ["order", "15000", "0", "5000", "4000", "6000", "1000"],
     ]);
   });
 
@@ -315,10 +342,9 @@ describe("company balance parts, order funding and investment (D63)", () => {
       ],
     });
     const lines = companyStatement(out.companyEntries);
-    expect(lines.map((l) => [l.kind, l.amount, l.productIds, l.quantity])).toEqual([
-      ["orderFromDamage", "500", ["A", "B"], undefined],
-      ["orderFromDeposit", "2500", ["A", "B"], undefined],
-    ]);
+    expect(
+      lines.map((line) => [line.kind, line.credit, line.damage, line.cash, line.productIds]),
+    ).toEqual([["order", "3000", "500", "2500", ["A", "B"]]]);
     expect(lines.at(-1)?.balance).toBe(out.month.companyPayable.closing);
   });
 

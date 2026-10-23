@@ -1,0 +1,19 @@
+id: 2026-10-23-master-year-grid
+reason: >-
+  Owner 2026-10-23 (D77) - the master dashboard shows every company's monthly total together,
+  one row per month, the way the workbook Master Page does. Same statement as D76.
+owners: [application, contracts, web, i18n, docs]
+changes:
+  - packages/application getShareYear - twelve months of the D76 statement; months after today are zero without another ledger run
+  - apps/web master dashboard - company columns, distributable, দান, per unit, units, shareholder units and income, year total
+  - docs - D77
+affectedActionIds: []
+financialImpact: >-
+  A statement only. Company profit, cash, stock and payroll are unchanged. The grid reads the
+  same derived figures as মাসিক হিসাব and posts nothing.
+backfill: none
+tests:
+  - pnpm check:types, pnpm lint, pnpm test
+  - pnpm test:integration share-month
+rollout: deploy the app; no migration
+recovery: revert the commit; shareholder rows are unchanged

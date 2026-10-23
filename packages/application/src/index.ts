@@ -27,6 +27,14 @@ export {
 } from "./companies";
 export { MASTER_COMPANY_NAME, ensureMasterCompany } from "./master";
 export { closeMonthAll, getMasterMonth, getMasterSummary, reopenMonthAll } from "./master-panel";
+export {
+  createShareholder,
+  getShareMonth,
+  getShareYear,
+  saveShareHolding,
+  saveSharePolicy,
+  updateShareholder,
+} from "./shares";
 export { cashAccounts, expenseCategories, staffRoles } from "./configuration";
 export type { AppContext, Tx } from "./context";
 export {

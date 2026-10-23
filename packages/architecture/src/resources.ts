@@ -26,6 +26,8 @@ export const resourceIds = {
   fieldDay: "field-day",
   /** Engine output for a date or month; every posting changes it. */
   ledger: "ledger",
+  /** D76: the master monthly account (shareholders and the calculated split). */
+  shareMonth: "share-month",
 } as const;
 
 export type ResourceId = (typeof resourceIds)[keyof typeof resourceIds];

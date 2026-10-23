@@ -76,3 +76,14 @@ export function dsrCashSettlement(input: {
     difference: roundSettlement(handed.sub(expected)),
   };
 }
+
+/**
+ * Cash handed over below what was expected (D81). The amount is only shown: it is not a shortage
+ * posting and it does not move cash or any balance. Null when the handover is missing or not short.
+ */
+export function handoverShortOf(difference: string | null): string | null {
+  if (difference === null) return null;
+  const gap = toDecimal(difference);
+  if (!gap.isNegative()) return null;
+  return roundSettlement(gap.abs());
+}

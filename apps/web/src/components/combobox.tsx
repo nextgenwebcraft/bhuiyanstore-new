@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { inputClass } from "./field";
+import { Icon } from "./icons";
 import {
   buildItems,
   initialActive,
@@ -40,9 +41,11 @@ export function Combobox({
   placeholder,
   emptyLabel,
   listLabel,
+  clearLabel,
   disabled = false,
   invalid = false,
   onEnterWithoutChoice,
+  onBlur,
 }: {
   id: string;
   text: string;
@@ -57,10 +60,14 @@ export function Combobox({
   emptyLabel: string;
   /** Accessible name of the listbox. */
   listLabel: string;
+  /** Shown as a clear control when the field has text. */
+  clearLabel?: string;
   disabled?: boolean;
   invalid?: boolean;
   /** Enter pressed with nothing highlighted (e.g. submit the form). */
   onEnterWithoutChoice?: () => void;
+  /** After the field loses focus. The list has already closed. */
+  onBlur?: () => void;
 }) {
   const listId = useId();
   const [open, setOpen] = useState(false);
@@ -82,6 +89,13 @@ export function Combobox({
   function show(next: string) {
     setOpen(true);
     setActive(initialActive(buildItems(options, next, createLabel !== undefined), next));
+  }
+
+  function clear() {
+    onTextChange("");
+    setOpen(false);
+    setActive(-1);
+    document.getElementById(id)?.focus();
   }
 
   function choose(item: ComboboxItem) {
@@ -156,10 +170,25 @@ export function Combobox({
           show(event.target.value);
         }}
         onFocus={() => show(text)}
-        onBlur={() => setOpen(false)}
+        onBlur={() => {
+          setOpen(false);
+          onBlur?.();
+        }}
         onKeyDown={onKeyDown}
-        className={inputClass}
+        className={clearLabel && text ? `${inputClass} pr-16` : inputClass}
       />
+      {clearLabel && text && !disabled ? (
+        <button
+          type="button"
+          aria-label={clearLabel}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={clear}
+          className="absolute inset-y-0 right-1 flex items-center gap-1 rounded-md px-2 text-xs font-medium text-text-muted hover:text-text"
+        >
+          <Icon name="close" className="size-3.5" />
+          {clearLabel}
+        </button>
+      ) : null}
       <ul
         id={listId}
         ref={listRef}
@@ -168,7 +197,7 @@ export function Combobox({
         hidden={!open}
         // Keep focus in the input while the pointer picks a row.
         onMouseDown={(event) => event.preventDefault()}
-        className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border border-border bg-surface py-1 shadow-raised"
+        className="absolute z-20 mt-1 max-h-64 w-max max-w-[min(36rem,calc(100vw-2rem))] min-w-full overflow-y-auto rounded-lg border border-border bg-surface py-1 shadow-raised"
       >
         {items.length === 0 ? (
           <li role="presentation" className="px-3 py-2 text-sm text-text-muted">
@@ -205,9 +234,11 @@ export function Combobox({
               className={base}
             >
               <span className="min-w-0">
-                <span className="block truncate font-semibold">{option.label}</span>
+                <span className="block font-semibold break-words">{option.label}</span>
                 {option.secondary ? (
-                  <span className="block truncate text-xs text-text-muted">{option.secondary}</span>
+                  <span className="block text-xs break-words whitespace-normal text-text-muted">
+                    {option.secondary}
+                  </span>
                 ) : null}
               </span>
               {option.trailing ? (

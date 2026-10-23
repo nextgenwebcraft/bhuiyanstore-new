@@ -21,6 +21,10 @@ import type {
   ProductPackRequest,
   ReportId,
   ReportRange,
+  ShareHoldingRequest,
+  SharePolicyRequest,
+  ShareholderCreateRequest,
+  ShareholderUpdateRequest,
   RoleUpsertRequest,
   StaffAccountKind,
   StaffAssignmentRequest,
@@ -356,6 +360,60 @@ export function useMasterMonthCommand(companyId: string) {
       service.masterMonthCommand(companyId, month, action),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.actor(actorId) }),
   });
+}
+
+export function useShareYear(companyId: string, year: string) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.shareYear(actorId, companyId, year),
+    queryFn: ({ signal }) => service.getShareYear(companyId, year, { signal }),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useShareMonth(companyId: string, month: string) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.shareMonth(actorId, companyId, month),
+    queryFn: ({ signal }) => service.getShareMonth(companyId, month, { signal }),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useCreateShareholder(companyId: string) {
+  const service = useService();
+  return useMasterMutation([resourceIds.shareMonth], (input: ShareholderCreateRequest) =>
+    service.createShareholder(companyId, input),
+  );
+}
+
+export function useUpdateShareholder(companyId: string) {
+  const service = useService();
+  return useMasterMutation(
+    [resourceIds.shareMonth],
+    ({ shareholderId, input }: { shareholderId: string; input: ShareholderUpdateRequest }) =>
+      service.updateShareholder(companyId, shareholderId, input),
+  );
+}
+
+export function useSaveShareHolding(companyId: string) {
+  const service = useService();
+  return useMasterMutation(
+    [resourceIds.shareMonth],
+    ({ shareholderId, input }: { shareholderId: string; input: ShareHoldingRequest }) =>
+      service.saveShareHolding(companyId, shareholderId, input),
+  );
+}
+
+export function useSaveSharePolicy(companyId: string) {
+  const service = useService();
+  return useMasterMutation(
+    [resourceIds.shareMonth],
+    ({ targetCompanyId, input }: { targetCompanyId: string; input: SharePolicyRequest }) =>
+      service.saveSharePolicy(companyId, targetCompanyId, input),
+  );
 }
 
 export function useReport(companyId: string, report: ReportId, range: ReportRange, enabled = true) {

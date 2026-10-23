@@ -20,6 +20,16 @@ export const staffEmployers = ["distributor", "supplier"] as const;
 export type StaffEmployer = (typeof staffEmployers)[number];
 
 /**
+ * Master panel new staff (D80): a DSR, or the standard driver and manager roles.
+ * Helper and any other general role stay off this form.
+ */
+export const masterPanelRoleNames = ["ড্রাইভার", "ম্যানেজার"] as const;
+
+export function masterPanelHireRole(role: { kind: string; name: string }): boolean {
+  return role.kind === "dsr" || (masterPanelRoleNames as readonly string[]).includes(role.name);
+}
+
+/**
  * A person as seen from one company, used by entry screens (guide 11.1). `kind` is the person's
  * current role kind in that company; DSRs may work for several brands (D09).
  */
@@ -52,6 +62,8 @@ export const staffRecordSchema = z.object({
   id: idSchema,
   name: z.string().min(1),
   employer: z.enum(staffEmployers),
+  /** Mobile; empty when none was entered (D80). */
+  phone: z.string().default(""),
   status: z.enum(recordStatuses),
   /** The field-panel sign-in linked to this person (D40); null = none. */
   loginEmail: z.string().nullable(),
@@ -64,6 +76,8 @@ export const staffUpsertRequestSchema = z.object({
   name: nameSchema,
   employer: z.enum(staffEmployers),
   status: z.enum(recordStatuses),
+  /** Omitted on an update leaves the saved mobile unchanged; blank clears it. */
+  phone: z.string().trim().max(40).optional(),
 });
 
 export type StaffUpsertRequest = z.infer<typeof staffUpsertRequestSchema>;

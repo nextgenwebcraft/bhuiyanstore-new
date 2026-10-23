@@ -368,6 +368,7 @@ describe("computeMonth company account (D33)", () => {
         date: "2026-11-01",
         kind: "receipt",
         amount: "0",
+        released: "480",
         productId: "A",
         quantity: "48",
         balance: "1000",

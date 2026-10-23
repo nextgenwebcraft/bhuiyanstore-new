@@ -24,6 +24,7 @@ model Tenant {
   staff             Staff[]
   staffRoles        StaffRole[]
   expenseCategories ExpenseCategory[]
+  shareholders      Shareholder[]
 
   @@map("tenant")
 }
@@ -76,6 +77,7 @@ model Company {
   payrollRuns            PayrollRun[]
   damageCases            DamageCase[]
   damageEvents           DamageEvent[]
+  sharePolicy            CompanySharePolicy?
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -922,4 +924,44 @@ model MonthClose {
 
   @@unique([companyId, month])
   @@map("month_close")
+}
+
+/// D76: a person who holds units of the business. Tenant-wide; the master panel is the only screen.
+model Shareholder {
+  id        String               @id @default(cuid())
+  tenantId  String               @map("tenant_id")
+  name      String
+  active    Boolean              @default(true)
+  createdAt DateTime             @default(now()) @map("created_at")
+  updatedAt DateTime             @updatedAt @map("updated_at")
+  tenant    Tenant               @relation(fields: [tenantId], references: [id])
+  holdings  ShareholderHolding[]
+
+  @@unique([tenantId, name])
+  @@map("shareholder")
+}
+
+/// Units in force from `fromMonth` until a later row. Scale 5 covers holdings such as 27.88858.
+model ShareholderHolding {
+  id            String      @id @default(cuid())
+  shareholderId String      @map("shareholder_id")
+  fromMonth     String      @map("from_month")
+  units         Decimal     @db.Decimal(20, 5)
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+  shareholder   Shareholder @relation(fields: [shareholderId], references: [id], onDelete: Cascade)
+
+  @@unique([shareholderId, fromMonth])
+  @@map("shareholder_holding")
+}
+
+/// How a company's দান is taken (D76). Missing row means `net`.
+model CompanySharePolicy {
+  companyId String   @id @map("company_id")
+  /// `net`: 2% of profit − khoroch. `profit`: 2% of profit.
+  danBasis  String   @default("net") @map("dan_basis")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  company   Company  @relation(fields: [companyId], references: [id])
+
+  @@map("company_share_policy")
 }

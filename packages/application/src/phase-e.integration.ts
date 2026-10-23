@@ -558,7 +558,7 @@ describe("Phase E: daily entry", () => {
     await expectField(
       saveDsrDay(ctx, company, {
         date: "2026-08-30",
-        staffId: id.karim,
+        staffId: id.jamal,
         version: 0,
         marketDueNew: "0",
         marketDueCollected: "0",
@@ -797,7 +797,9 @@ describe("Phase E: daily entry", () => {
     const account = await getReport(ctx, company, "company-account", range);
     const statement = must(account.tables[1]).rows;
     const last = must(statement.at(-1)).cells;
-    expect(toDecimal(last.balance ?? "0").toString()).toBe(toDecimal(after.balance).toString());
+    expect(toDecimal(last.companyBalance ?? "0").toString()).toBe(
+      toDecimal(after.balance).toString(),
+    );
     expect(toDecimal(last.undelivered ?? "0").toString()).toBe(
       toDecimal(after.undeliveredValue).toString(),
     );

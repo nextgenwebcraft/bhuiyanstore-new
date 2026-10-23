@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   parsePeriod,
   periodForMonth,
+  periodForRange,
   periodMonth,
   periodParam,
   periodRange,
@@ -21,15 +22,46 @@ describe("dashboard period", () => {
     expect(parsePeriod("2026-10", today)).toEqual({ kind: "this-month" });
     expect(parsePeriod("2026-09", today)).toEqual({ kind: "last-month" });
     expect(parsePeriod("2025", today)).toEqual({ kind: "year", year: "2025" });
+    expect(parsePeriod("2026-10-02..2026-10-04", today)).toEqual({
+      kind: "dates",
+      from: "2026-10-02",
+      to: "2026-10-04",
+    });
+    expect(parsePeriod("2026-10-11..2026-10-11", today)).toEqual({ kind: "today" });
+    expect(parsePeriod("2026-10-01..2026-10-11", today)).toEqual({ kind: "this-month" });
     for (const bad of ["", "x", "2026-13", "2026-00", "20261", "2026-1"]) {
       expect(parsePeriod(bad, today)).toEqual({ kind: "today" });
     }
   });
 
   it("round-trips through the URL value", () => {
-    for (const value of ["today", "this-month", "last-month", "2026-03", "2025"]) {
+    for (const value of [
+      "today",
+      "this-month",
+      "last-month",
+      "2026-03",
+      "2025",
+      "2026-10-02..2026-10-04",
+    ]) {
       expect(periodParam(parsePeriod(value, today))).toBe(value);
     }
+  });
+
+  it("keeps a single day and a range from the calendar", () => {
+    expect(periodForRange("2026-10-04", "2026-10-04", today)).toEqual({
+      kind: "dates",
+      from: "2026-10-04",
+      to: "2026-10-04",
+    });
+    expect(periodForRange("2026-10-08", "2026-10-02", today)).toEqual({
+      kind: "dates",
+      from: "2026-10-02",
+      to: "2026-10-08",
+    });
+    expect(periodRange({ kind: "dates", from: "2026-10-02", to: "2026-12-01" }, today)).toEqual({
+      from: "2026-10-02",
+      to: today,
+    });
   });
 
   it("gives today's range", () => {

@@ -49,6 +49,7 @@ import type { AppContext, Tx } from "./context";
 import { fromDbDate, toDbDate } from "./dates";
 import { AppError, invalid, parseInput } from "./errors";
 import { hasFieldVisits, postFieldVisits, reverseFieldVisits } from "./field-posting";
+import { listHandoverShorts } from "./handover-short";
 import { isUniqueViolation, runIdempotent } from "./idempotency";
 import { liveOpening, allocationOf, namesFor, rangeRun, runLedger } from "./ledger";
 import { staffCompanyIds } from "./master";
@@ -135,6 +136,14 @@ export async function roleOn(
   const assignment =
     assignments.find((a) => a.companyId === companyId) ?? assignments.at(0) ?? null;
   return assignment ? (assignment.role.kind as RoleKind) : null;
+}
+
+async function staffEmployer(db: Db, staffId: string): Promise<string | null> {
+  const staff = await db.staff.findFirst({
+    where: { id: staffId },
+    select: { employer: true },
+  });
+  return staff?.employer ?? null;
 }
 
 // ---------------------------------------------------------------- stock entries
@@ -525,7 +534,11 @@ export async function saveDsrDayIn(
   });
 
   await postingGuard(tx, companyId, request.date);
-  if ((await roleOn(tx, companyId, request.staffId, request.date)) !== "dsr") {
+  // D79: the day sheet opens for everyone on এসআর হিসাব (supplier-employed), and a DSR
+  // sheet already saved still saves. A distributor who is neither stays refused.
+  const role = await roleOn(tx, companyId, request.staffId, request.date);
+  const employer = await staffEmployer(tx, request.staffId);
+  if (role !== "sr" && role !== "dsr" && !(employer === "supplier" && role !== null)) {
     throw invalid("staffId", "validation.daily.dsrOnly");
   }
   const productIds = [...new Set(lines.map((l) => l.productId))];
@@ -936,10 +949,13 @@ export async function postMoneyEntry(
         if (request.staffId) {
           const role = await roleOn(tx, companyId, request.staffId, request.date);
           if (!role) throw invalid("staffId", "validation.daily.staffNotAssigned");
+          const supplier = (await staffEmployer(tx, request.staffId)) === "supplier";
           if (person === "dsr" && role !== "dsr")
             throw invalid("staffId", "validation.daily.dsrOnly");
-          if (person === "sr" && role !== "sr") throw invalid("staffId", "validation.daily.srOnly");
-          if (person === "distributor" && role === "sr") {
+          // এসআর হিসাব is supplier-employed, even when the role kind is not sr (D79).
+          if (person === "sr" && role !== "sr" && !supplier)
+            throw invalid("staffId", "validation.daily.srOnly");
+          if (person === "distributor" && (role === "sr" || supplier)) {
             throw invalid("staffId", "validation.daily.notForSr");
           }
         }
@@ -1090,7 +1106,10 @@ export async function getDayView(
     liveOpening(ctx.db, companyId),
     namesFor(ctx.db, access, date),
   ]);
-  const run = await runLedger(ctx.db, access, date, active);
+  const [run, handoverShorts] = await Promise.all([
+    runLedger(ctx.db, access, date, active),
+    listHandoverShorts(ctx.db, companyId, date, date),
+  ]);
   const day = run?.output.days.find((d) => d.date === date);
   const byId = new Map(day?.products.map((p) => [p.productId, p]));
   const cost = (value: string) => (canSeeCost ? value : null);
@@ -1160,6 +1179,7 @@ export async function getDayView(
         staffName: names.staff.get(d.staffId) ?? "",
         amount: d.closing,
       })),
+    handoverShorts,
     warnings: (run?.output.warnings ?? []).filter((w) => w.date === date),
     canSeeCost,
     canSeeProfit,
@@ -1193,7 +1213,7 @@ export async function dashboardOf(
   const canSeeProfit = canSeeCost && access.permissions.includes("report.profit_view");
   const dates = { gte: toDbDate(range.from), lte: toDbDate(range.to) };
   const active = await liveOpening(ctx.db, companyId);
-  const [run, names, sheets, receipts] = await Promise.all([
+  const [run, names, sheets, receipts, handoverShorts] = await Promise.all([
     rangeRun(ctx.db, access, range.from, range.to, active),
     ctx.db.staff.findMany({
       where: { tenantId: access.company.tenantId },
@@ -1203,6 +1223,7 @@ export async function dashboardOf(
     ctx.db.stockEntry.count({
       where: { companyId, date: dates, status: "posted", kind: "receipt" },
     }),
+    listHandoverShorts(ctx.db, companyId, range.from, range.to),
   ]);
   const summaries = run
     ? run.output.days.flatMap((day, index) => {
@@ -1255,6 +1276,7 @@ export async function dashboardOf(
     issuedValue: total((s) => s.issuedValue),
     returnValue: total((s) => s.returnValue),
     commission: total((s) => s.commission),
+    handoverShort: sumAmounts(["0", ...handoverShorts.map((row) => row.amount)]),
     ...(seesFinance
       ? {
           expenses: total((s) => s.expenses),

@@ -2,8 +2,9 @@
 
 import { moneyKindPermission, type MoneyEntry, type Shop } from "@bsd/contracts";
 import { sumAmounts } from "@bsd/domain";
-import { t } from "@bsd/i18n";
+import { normalizeDigits, t, toBengaliDigits } from "@bsd/i18n";
 import { useId, useMemo, useState } from "react";
+import { DsrSelect, type DsrChoice } from "@/features/daily/dsr-select";
 import { Button } from "@/components/button";
 import { Combobox, type ComboboxOption } from "@/components/combobox";
 import { exactMatch } from "@/components/combobox-logic";
@@ -25,7 +26,13 @@ import { FormSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
 import { TableScroller } from "@/components/table-scroller";
 import { describeError } from "@/data/ports/service-error";
-import { useMoneyEntries, usePostMoneyEntry, useReverseMoneyEntry, useShops } from "@/data/queries";
+import {
+  useDsrFieldDay,
+  useMoneyEntries,
+  usePostMoneyEntry,
+  useReverseMoneyEntry,
+  useShops,
+} from "@/data/queries";
 import { clean } from "@/features/daily/daily-kit";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 import { useAsyncAction } from "@/lib/async-action";
@@ -34,18 +41,26 @@ import { overLimit } from "./shops-page";
 type DueKind = "marketDueNew" | "marketDueCollected";
 const KINDS: readonly DueKind[] = ["marketDueNew", "marketDueCollected"];
 
+/** Saved phone and area, with no field labels: `০১৭… | এলাকা`. */
+function shopDetails(shop: Shop): string {
+  const phone = shop.phone ? toBengaliDigits(shop.phone) : "";
+  return [phone, shop.area].filter(Boolean).join(" | ");
+}
+
 function EntryForm({
   companyId,
   staffId,
   date,
   kinds,
   shops,
+  dsr,
 }: {
   companyId: string;
   staffId: string;
   date: string;
   kinds: DueKind[];
   shops: Shop[];
+  dsr?: { id: string; dsrs: readonly DsrChoice[]; onChange: (staffId: string) => void };
 }) {
   const id = useId();
   const post = usePostMoneyEntry(companyId);
@@ -60,13 +75,18 @@ function EntryForm({
     () =>
       shops
         .filter((s) => s.status === "active")
-        .map((s) => ({
-          id: s.id,
-          label: s.name,
-          secondary: [s.ownerName, s.area].filter(Boolean).join(" · "),
-          ...(s.due != null ? { trailing: money(s.due) } : {}),
-          tone: overLimit(s) ? ("danger" as const) : ("default" as const),
-        })),
+        .map((s) => {
+          const phoneDigits = normalizeDigits(s.phone).replace(/\D/g, "");
+          const secondary = shopDetails(s);
+          return {
+            id: s.id,
+            label: s.name,
+            ...(secondary ? { secondary } : {}),
+            ...(phoneDigits ? { searchText: [phoneDigits] } : {}),
+            ...(s.due != null ? { trailing: money(s.due) } : {}),
+            tone: overLimit(s) ? ("danger" as const) : ("default" as const),
+          };
+        }),
     [shops],
   );
   // A picked row, else a listed shop whose name was typed exactly; anything else is a new shop (D50).
@@ -119,13 +139,23 @@ function EntryForm({
           ))}
         </div>
       ) : null}
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className={`grid gap-3 ${dsr ? "grid-cols-3" : "grid-cols-2"}`}>
+        {dsr ? (
+          <DsrSelect id={`${id}-dsr`} value={dsr.id} dsrs={dsr.dsrs} onChange={dsr.onChange} />
+        ) : null}
         <Field
           id={`${id}-shop`}
           label={t("shop.label")}
           hint={
-            shop?.due != null
-              ? `${t("shop.due")}: ${money(shop.due)}${overLimit(shop) ? ` — ${t("shop.overLimit")}` : ""}`
+            shop
+              ? [
+                  shopDetails(shop),
+                  shop.due != null
+                    ? `${t("shop.due")}: ${money(shop.due)}${overLimit(shop) ? ` — ${t("shop.overLimit")}` : ""}`
+                    : "",
+                ]
+                  .filter(Boolean)
+                  .join(" · ") || undefined
               : newName
                 ? t("shop.combobox.createHint")
                 : undefined
@@ -153,6 +183,7 @@ function EntryForm({
             placeholder={t("shop.pick")}
             emptyLabel={t("shop.combobox.empty")}
             listLabel={t("shop.label")}
+            clearLabel={t("shop.clear")}
           />
         </Field>
         <Field id={`${id}-amount`} label={t("common.amount")}>
@@ -278,36 +309,50 @@ export function ShopDueEntry({
   staffId,
   date,
   fieldOwned,
+  dsrs,
 }: {
   companyId: string;
   staffId: string;
   date: string;
-  /** The DSR has field visits that day; the server refuses manual due entries. */
+  /** The sheet DSR has field visits that day, used when no DSR list is passed. */
   fieldOwned: boolean;
+  /** DSRs the card can post for. The open sheet's DSR starts selected. */
+  dsrs?: readonly DsrChoice[];
 }) {
   const { permissions } = useCurrentWorkspace();
   const shops = useShops(companyId);
+  const [picked, setPicked] = useState(staffId);
+  const dsrList = dsrs ?? [];
+  const choosing = dsrList.length > 0;
+  const activeId = dsrList.some((dsr) => dsr.id === picked)
+    ? picked
+    : (dsrList.find((dsr) => dsr.id === staffId)?.id ?? dsrList[0]?.id ?? staffId);
+  const fieldDay = useDsrFieldDay(companyId, activeId, date, choosing);
+  const owned = choosing ? Boolean(fieldDay.data && fieldDay.data.visits.length > 0) : fieldOwned;
   const kinds = KINDS.filter((k) => permissions.includes(moneyKindPermission[k]));
   return (
     <section className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-4">
       <h3 className="font-semibold">{t("shopDue.title")}</h3>
-      {fieldOwned ? (
+      {owned ? (
         <StatePanel title={t("validation.field.manualDueBlocked")} />
-      ) : kinds.length === 0 ? null : shops.isError ? (
+      ) : kinds.length === 0 ? null : choosing && fieldDay.isPending ? (
+        <FormSkeleton fields={2} />
+      ) : shops.isError ? (
         <QueryError error={shops.error} onRetry={() => void shops.refetch()} />
       ) : shops.isPending ? (
         <FormSkeleton fields={2} />
       ) : (
         <EntryForm
-          key={`${staffId}-${date}`}
+          key={`${activeId}-${date}`}
           companyId={companyId}
-          staffId={staffId}
+          staffId={activeId}
           date={date}
           kinds={kinds}
           shops={shops.data}
+          {...(choosing ? { dsr: { id: activeId, dsrs: dsrList, onChange: setPicked } } : {})}
         />
       )}
-      <Entries companyId={companyId} staffId={staffId} date={date} />
+      <Entries companyId={companyId} staffId={activeId} date={date} />
     </section>
   );
 }

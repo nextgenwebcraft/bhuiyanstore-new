@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  masterPanelHireRole,
   MIN_PASSWORD_LENGTH,
   staffEmployers,
   type StaffAssignment,
@@ -67,6 +68,8 @@ function PeriodFields({
   errors,
   pathPrefix,
   onChange,
+  dates = true,
+  salaryHint = true,
 }: {
   id: string;
   period: Period;
@@ -75,6 +78,9 @@ function PeriodFields({
   errors: DescribedError;
   pathPrefix: string;
   onChange: (period: Period) => void;
+  /** Hidden on the master hire form; the server stores the entry date (D80). */
+  dates?: boolean;
+  salaryHint?: boolean;
 }) {
   const options = roles.filter(
     (role) => (role.active && fitsEmployer(role, employer)) || role.id === period.roleId,
@@ -100,42 +106,44 @@ function PeriodFields({
       {options.length === 0 ? (
         <p className="text-sm text-text-muted">{t("staff.noRoles")}</p>
       ) : null}
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field
-          id={`${id}-from`}
-          label={t("common.from")}
-          error={errors.fields[`${pathPrefix}from`]}
-        >
-          <DatePicker
+      {dates ? (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field
             id={`${id}-from`}
-            value={period.from}
             label={t("common.from")}
-            onChange={(from) => onChange({ ...period, from })}
-            className="w-full"
-          />
-        </Field>
-        <Field
-          id={`${id}-to`}
-          label={t("common.to")}
-          hint={t("staff.assignment.endHint")}
-          error={errors.fields[`${pathPrefix}to`]}
-        >
-          <DatePicker
+            error={errors.fields[`${pathPrefix}from`]}
+          >
+            <DatePicker
+              id={`${id}-from`}
+              value={period.from}
+              label={t("common.from")}
+              onChange={(from) => onChange({ ...period, from })}
+              className="w-full"
+            />
+          </Field>
+          <Field
             id={`${id}-to`}
-            value={period.to}
-            clearable
-            min={period.from || undefined}
             label={t("common.to")}
-            onChange={(to) => onChange({ ...period, to })}
-            className="w-full"
-          />
-        </Field>
-      </div>
+            hint={t("staff.assignment.endHint")}
+            error={errors.fields[`${pathPrefix}to`]}
+          >
+            <DatePicker
+              id={`${id}-to`}
+              value={period.to}
+              clearable
+              min={period.from || undefined}
+              label={t("common.to")}
+              onChange={(to) => onChange({ ...period, to })}
+              className="w-full"
+            />
+          </Field>
+        </div>
+      ) : null}
       {isSr ? null : (
         <Field
           id={`${id}-salary`}
           label={t("staff.monthlySalary")}
-          hint={t("staff.monthlySalaryHint")}
+          hint={salaryHint ? t("staff.monthlySalaryHint") : undefined}
           error={errors.fields[`${pathPrefix}monthlySalary`]}
         >
           <input
@@ -179,6 +187,7 @@ const periodInput = (period: Period, roles: StaffRole[]) => {
 export type PersonDraft = {
   id?: string;
   name: string;
+  phone?: string;
   employer: StaffEmployer;
   status: RecordStatus;
 };
@@ -188,16 +197,19 @@ export function PersonDialog({
   draft,
   roles,
   onClose,
+  simpleHire = false,
 }: {
   companyId: string;
   draft: PersonDraft;
   roles: StaffRole[];
   onClose: () => void;
+  /** Master panel create: no employer, status or dates; the server stores today's start (D80). */
+  simpleHire?: boolean;
 }) {
   const id = useId();
   const createStaff = useCreateStaff(companyId);
   const updateStaff = useUpdateStaff(companyId);
-  const [values, setValues] = useState(draft);
+  const [values, setValues] = useState({ ...draft, phone: draft.phone ?? "" });
   const [period, setPeriod] = useState(newPeriod);
   const [errors, setErrors] = useState(noErrors);
   const creating = !values.id;
@@ -213,6 +225,7 @@ export function PersonDialog({
     setErrors(noErrors);
     const person = {
       name: values.name.trim(),
+      phone: values.phone.trim(),
       employer: values.employer,
       status: values.status,
     };
@@ -224,6 +237,7 @@ export function PersonDialog({
       setErrors(
         describeError(error, [
           "name",
+          "phone",
           "employer",
           "assignment.roleId",
           "assignment.from",
@@ -251,28 +265,42 @@ export function PersonDialog({
           className={inputClass}
         />
       </Field>
-      <Field id={`${id}-employer`} label={t("staff.employer")} error={errors.fields.employer}>
-        <select
-          id={`${id}-employer`}
-          value={values.employer}
-          onChange={(event) => {
-            setValues({ ...values, employer: event.target.value as StaffEmployer });
-            setPeriod({ ...period, roleId: "" });
-          }}
+      <Field id={`${id}-phone`} label={t("staff.phone")} error={errors.fields.phone}>
+        <input
+          id={`${id}-phone`}
+          type="tel"
+          inputMode="tel"
+          value={values.phone}
+          onChange={(event) => setValues({ ...values, phone: event.target.value })}
           className={inputClass}
-        >
-          {staffEmployers.map((employer) => (
-            <option key={employer} value={employer}>
-              {t(`staff.employer.${employer}`)}
-            </option>
-          ))}
-        </select>
+        />
       </Field>
-      <StatusField
-        id={`${id}-status`}
-        value={values.status}
-        onChange={(status) => setValues({ ...values, status })}
-      />
+      {simpleHire && creating ? null : (
+        <>
+          <Field id={`${id}-employer`} label={t("staff.employer")} error={errors.fields.employer}>
+            <select
+              id={`${id}-employer`}
+              value={values.employer}
+              onChange={(event) => {
+                setValues({ ...values, employer: event.target.value as StaffEmployer });
+                setPeriod({ ...period, roleId: "" });
+              }}
+              className={inputClass}
+            >
+              {staffEmployers.map((employer) => (
+                <option key={employer} value={employer}>
+                  {t(`staff.employer.${employer}`)}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <StatusField
+            id={`${id}-status`}
+            value={values.status}
+            onChange={(status) => setValues({ ...values, status })}
+          />
+        </>
+      )}
       {creating ? (
         <PeriodFields
           id={`${id}-period`}
@@ -281,6 +309,8 @@ export function PersonDialog({
           employer={values.employer}
           errors={errors}
           pathPrefix="assignment."
+          dates={!simpleHire}
+          salaryHint={!simpleHire}
           onChange={setPeriod}
         />
       ) : null}
@@ -503,8 +533,8 @@ function AssignmentList({
   );
 }
 
-type StaffTab = "sr" | "dsr" | "other";
-const STAFF_TABS = ["sr", "dsr", "other"] as const;
+type StaffTab = "dsr" | "other";
+const STAFF_TABS = ["dsr", "other"] as const;
 
 /** SR, DSR and other staff with dated role assignments; one DSR may serve several brands (D09). */
 function Staff() {
@@ -519,12 +549,14 @@ function Staff() {
   const [person, setPerson] = useState<PersonDraft | null>(null);
   const [assignment, setAssignment] = useState<AssignmentDraft | null>(null);
   const [login, setLogin] = useState<StaffRecord | null>(null);
-  const [tab, setTab] = useState<StaffTab>("sr");
+  const [tab, setTab] = useState<StaffTab>("dsr");
 
   // D65: the master panel holds the global staff (no SR); a company holds its SRs only.
-  const roleList = (roles.data ?? []).filter((role) =>
+  // D80: a new master hire is only a DSR, driver or manager. Editing an older role still lists it.
+  const companyRoles = (roles.data ?? []).filter((role) =>
     company.isMaster ? role.kind !== "sr" : role.kind === "sr",
   );
+  const hireRoles = company.isMaster ? companyRoles.filter(masterPanelHireRole) : companyRoles;
   const dsrRoles = new Set(
     (roles.data ?? []).filter((role) => role.kind === "dsr").map((role) => role.id),
   );
@@ -540,15 +572,14 @@ function Staff() {
       r.employer === (company.isMaster ? "distributor" : "supplier"),
   );
 
-  // The master panel lists everyone of the tenant (SRs of every company too) in SR / DSR / other tabs.
+  // D80: আমাদের স্টাফ does not list SRs. They stay on এসআর হিসাব.
   const kindOf = new Map((roles.data ?? []).map((role) => [role.id, role.kind]));
-  const tabOf = (record: StaffRecord): StaffTab => {
-    const kinds = record.assignments.map((a) => kindOf.get(a.roleId));
-    if (kinds.includes("sr")) return "sr";
-    return kinds.includes("dsr") ? "dsr" : "other";
-  };
+  const isSr = (record: StaffRecord) =>
+    record.assignments.some((a) => kindOf.get(a.roleId) === "sr");
+  const tabOf = (record: StaffRecord): StaffTab =>
+    record.assignments.some((a) => kindOf.get(a.roleId) === "dsr") ? "dsr" : "other";
   const source = company.isMaster ? allStaff : records;
-  const pool = company.isMaster ? (allStaff.data ?? []) : own;
+  const pool = company.isMaster ? (allStaff.data ?? []).filter((r) => !isSr(r)) : own;
   const listed = company.isMaster ? pool.filter((r) => tabOf(r) === tab) : own;
 
   let body: React.ReactNode;
@@ -566,6 +597,12 @@ function Staff() {
               <div>
                 <div className="font-medium">{record.name}</div>
                 <div className="text-sm text-text-muted">
+                  {record.phone ? (
+                    <>
+                      {toBengaliDigits(record.phone)}
+                      {" · "}
+                    </>
+                  ) : null}
                   {t(`staff.employer.${record.employer}`)}
                   {" · "}
                   <span className={record.status === "active" ? "text-success" : undefined}>
@@ -584,16 +621,15 @@ function Staff() {
                   {isSuperAdmin && record.loginEmail === null && isDsrHere(record) ? (
                     <Button onClick={() => setLogin(record)}>{t("staff.login.create")}</Button>
                   ) : null}
-                  {company.isMaster && tabOf(record) === "sr" ? null : (
-                    <Button onClick={() => setAssignment({ person: record })}>
-                      {t("staff.assign")}
-                    </Button>
-                  )}
+                  <Button onClick={() => setAssignment({ person: record })}>
+                    {t("staff.assign")}
+                  </Button>
                   <Button
                     onClick={() =>
                       setPerson({
                         id: record.id,
                         name: record.name,
+                        phone: record.phone,
                         employer: record.employer,
                         status: record.status,
                       })
@@ -624,7 +660,7 @@ function Staff() {
   return (
     <>
       <PageHeader
-        title={t("nav.masters.staff")}
+        title={t(company.isMaster ? "nav.master.staff" : "nav.masters.staff")}
         actions={
           canManage ? (
             <>
@@ -670,7 +706,8 @@ function Staff() {
         <PersonDialog
           companyId={company.id}
           draft={person}
-          roles={roleList}
+          roles={hireRoles}
+          simpleHire={company.isMaster && !person.id}
           onClose={() => setPerson(null)}
         />
       ) : null}
@@ -678,7 +715,7 @@ function Staff() {
         <AssignmentDialog
           companyId={company.id}
           draft={assignment}
-          roles={roleList}
+          roles={company.isMaster && !assignment.assignment ? hireRoles : companyRoles}
           candidates={candidates}
           onClose={() => setAssignment(null)}
         />

@@ -15,7 +15,6 @@ import { Field } from "@/components/field";
 import { Icon } from "@/components/icons";
 import { QueryError } from "@/components/query-error";
 import { SummarySkeleton } from "@/components/skeleton";
-import { StatTile } from "@/components/stat-tile";
 import { StatePanel } from "@/components/state-panel";
 import { describeError } from "@/data/ports/service-error";
 import { useStaffStatement } from "@/data/queries";

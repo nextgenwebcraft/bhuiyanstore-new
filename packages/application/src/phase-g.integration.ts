@@ -184,11 +184,11 @@ afterAll(async () => {
 });
 
 describe("Phase G: staff and SR accounts", () => {
-  it("T55: an SR is refused on a DSR sheet", async () => {
+  it("T55: someone who is neither an SR nor a DSR is refused on a day sheet", async () => {
     await expectField(
       saveDsrDay(ctx, company, {
         date: "2026-09-02",
-        staffId: id.karim,
+        staffId: id.selim,
         version: 0,
         marketDueNew: "0",
         marketDueCollected: "0",

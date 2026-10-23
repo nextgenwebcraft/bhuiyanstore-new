@@ -1,6 +1,7 @@
 import { todayBusinessDate } from "@bsd/domain";
 import {
   staffAssignmentRequestSchema,
+  masterPanelHireRole,
   staffCreateRequestSchema,
   staffMemberSchema,
   staffRecordSchema,
@@ -39,6 +40,7 @@ type StaffRow = {
   id: string;
   name: string;
   employer: string;
+  phone: string | null;
   status: string;
   assignments: AssignmentRow[];
   user: { email: string } | null;
@@ -65,6 +67,7 @@ function toRecord(row: StaffRow, visible: Set<string>): StaffRecord {
     id: row.id,
     name: row.name,
     employer: row.employer,
+    phone: row.phone ?? "",
     status: row.status,
     loginEmail: row.user?.email ?? null,
     assignments: row.assignments
@@ -257,19 +260,30 @@ export async function createStaff(
 ): Promise<StaffRecord> {
   await requirePermission(ctx, companyId, "staff.manage", { write: true });
   const data = parseInput(staffCreateRequestSchema, input);
-  checkPeriod(data.assignment, "assignment.");
+  const company = await ctx.db.company.findUnique({
+    where: { id: companyId },
+    select: { isMaster: true },
+  });
+  // D80: the master panel's start date is the day the person is entered, and the role stays open.
+  const assignment = company?.isMaster
+    ? { ...data.assignment, from: todayBusinessDate(), to: null }
+    : data.assignment;
+  checkPeriod(assignment, "assignment.");
   const visible = await visibleCompanyIds(ctx);
   return runIdempotent(
     ctx,
     { scope: companyId, action: "staff.create", requestKey },
     data,
     async (tx) => {
-      const role = await activeRole(tx, ctx, data.assignment.roleId, "assignment.roleId");
+      const role = await activeRole(tx, ctx, assignment.roleId, "assignment.roleId");
       await checkRoleScope(tx, companyId, role.kind, "assignment.roleId");
+      if (company?.isMaster && !masterPanelHireRole(role)) {
+        throw invalid("assignment.roleId", "validation.staff.masterRoles");
+      }
       if (employerMismatch(role.kind, data.employer)) {
         throw invalid("employer", "validation.staff.employerRole");
       }
-      if (role.kind === "sr" && data.assignment.monthlySalary !== null) {
+      if (role.kind === "sr" && assignment.monthlySalary !== null) {
         throw invalid("assignment.monthlySalary", "validation.staff.srSalary");
       }
       const created = await tx.staff.create({
@@ -277,14 +291,15 @@ export async function createStaff(
           tenantId: ctx.actor.tenantId,
           name: data.name,
           employer: data.employer,
+          phone: data.phone?.trim() || null,
           status: data.status,
           assignments: {
             create: {
               companyId,
               roleId: role.id,
-              from: toDbDate(data.assignment.from),
-              to: data.assignment.to ? toDbDate(data.assignment.to) : null,
-              monthlySalary: data.assignment.monthlySalary,
+              from: toDbDate(assignment.from),
+              to: assignment.to ? toDbDate(assignment.to) : null,
+              monthlySalary: assignment.monthlySalary,
             },
           },
         },
@@ -329,6 +344,7 @@ export async function updateStaff(
           name: data.name,
           employer: data.employer,
           status: data.status,
+          ...(data.phone === undefined ? {} : { phone: data.phone.trim() || null }),
         },
         include: withAssignments,
       });
@@ -373,6 +389,16 @@ async function writeAssignment(
     }
     const role = await activeRole(tx, ctx, data.roleId, "roleId");
     await checkRoleScope(tx, companyId, role.kind, "roleId");
+    const company = await tx.company.findUnique({
+      where: { id: companyId },
+      select: { isMaster: true },
+    });
+    const keepingRole =
+      assignmentId !== undefined &&
+      staff.assignments.some((a) => a.id === assignmentId && a.roleId === role.id);
+    if (company?.isMaster && !keepingRole && !masterPanelHireRole(role)) {
+      throw invalid("roleId", "validation.staff.masterRoles");
+    }
     if (employerMismatch(role.kind, staff.employer as StaffEmployer)) {
       throw invalid("roleId", "validation.staff.employerRole");
     }
