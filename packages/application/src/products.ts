@@ -148,9 +148,11 @@ export async function listProducts(ctx: AppContext, companyId: string): Promise<
   const rows = await ctx.db.product.findMany({
     where: { companyId },
     include: withPacks,
-    orderBy: { name: "asc" },
+    orderBy: { sku: "asc" },
   });
-  return rows.map(toProduct);
+  return rows
+    .sort((a, b) => a.sku.localeCompare(b.sku, undefined, { numeric: true }))
+    .map(toProduct);
 }
 
 export async function createProduct(

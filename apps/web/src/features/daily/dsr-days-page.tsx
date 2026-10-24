@@ -184,6 +184,13 @@ function allocationText(allocations: LineAllocation[]): string {
 
 const isNumber = (value: string) => /^\d+(\.\d+)?$/.test(value);
 
+/** Net pieces issued for a line (issued − returned − damaged); used for remaining stock display. */
+function netOf(line: LineDraft): ReturnType<typeof toDecimal> {
+  return toDecimal(whole(line.issuedPieces))
+    .sub(toDecimal(whole(line.returnedPieces)))
+    .sub(toDecimal(whole(line.damaged)));
+}
+
 /**
  * The other field of a linked carton/piece pair (D69, owner 2026-10-22: both show the same
  * quantity; pieces are what is saved): pieces = cartons × size, cartons = pieces ÷ size. Blank
@@ -865,6 +872,16 @@ function SheetEditor({
                   {t("dsr.sheet.engineAmount")}
                 </th>
               ) : null}
+              <th
+                scope="col"
+                rowSpan={2}
+                className={`${thNum} border-l border-border align-bottom`}
+              >
+                {t("godown.column.stock")}
+                <span className="block text-[10.5px] font-normal text-text-subtle">
+                  {t("godown.column.pieces")}
+                </span>
+              </th>
             </tr>
             <tr>
               <th scope="col" className={`${subHead} border-l ${GROUP.issued.sub}`}>
@@ -893,9 +910,12 @@ function SheetEditor({
               // No batch (no stock, none used today): nothing can be issued from this product.
               const noStock = options.length === 0;
               const off = locked || noStock;
+              const productNet = lines.reduce((sum, l) => sum.add(netOf(l)), toDecimal("0"));
+              const productRemaining = toDecimal(product.stock).sub(productNet);
               return lines.map((line, index) => {
                 const first = index === 0;
                 const batch = options.find((o) => o.key === line.batchKey);
+                const batchRemaining = batch ? toDecimal(batch.quantity).sub(netOf(line)) : null;
                 const name = `${product.productName}${batch ? ` ${batchName(batch)}` : ""}`;
                 return (
                   <tr
@@ -1053,6 +1073,22 @@ function SheetEditor({
                         {first ? money(amounts.get(product.productId) ?? "0") : null}
                       </td>
                     ) : null}
+                    <td className={`${tdNum} border-l border-border`}>
+                      {first ? (
+                        <div className="flex flex-col items-end gap-0.5">
+                          <span>{quantity(productRemaining.toFixed())}</span>
+                          {batchRemaining !== null ? (
+                            <span className="text-[10.5px] text-text-muted tabular-nums">
+                              {quantity(batchRemaining.toFixed())}
+                            </span>
+                          ) : null}
+                        </div>
+                      ) : batchRemaining !== null ? (
+                        <span className="text-[10.5px] text-text-muted tabular-nums">
+                          {quantity(batchRemaining.toFixed())}
+                        </span>
+                      ) : null}
+                    </td>
                   </tr>
                 );
               });
@@ -1190,7 +1226,7 @@ function Sheets({
   );
 }
 
-/** Today's handover shorts (D81): shown above the SR list, and not a balance. */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- D81 feature, currently disabled
 function HandoverShorts({ rows }: { rows: DayView["handoverShorts"] }) {
   if (rows.length === 0) return null;
   const total = sumAmounts(["0", ...rows.map((row) => row.amount)]);

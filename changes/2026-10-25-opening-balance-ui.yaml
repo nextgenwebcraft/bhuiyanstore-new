@@ -1,0 +1,30 @@
+id: 2026-10-25-opening-balance-ui
+reason: Opening balance & stock entry when creating a new company (user request). Backend application layer (getOpening/saveOpeningCutoff/saveOpeningSection) was already implemented; this slice wires the full UI layer.
+owners: [setup, opening]
+changedDefinitionIds:
+  - ports.DistributionService.getOpening
+  - ports.DistributionService.saveOpeningCutoff
+  - ports.DistributionService.saveOpeningSection
+  - queries.useOpening
+  - queries.useSaveOpeningCutoff
+  - queries.useSaveOpeningSection
+  - queryKeys.opening
+  - postingEffects.opening
+  - navigation.setup (added opening tab)
+affectedActionIds: saveOpeningCutoff, saveOpeningSection
+affectedResources: [opening, ledger, dashboardSummary]
+affectedMetrics: not-applicable (opening balances only affect calculations once the cutoff date is set and the engine runs)
+affectedUi:
+  - OpeningPage (new)
+  - CompanyForm (redirect to /opening after create)
+  - navigation setup hub (opening tab added)
+schemaMigration: not-applicable (API routes + application layer already existed)
+backfill: not-applicable
+historicalPolicy: not-applicable
+contractCompatibility: additive; no existing schema changed
+cacheAndProjectionPlan: useOpening keyed by queryKeys.opening(actorId, companyId); invalidates opening + ledger + dashboardSummary on save
+securityReview: getOpening and saveOpening* require opening.prepare permission, enforced in application layer
+tests:
+  - pnpm --filter @bsd/web exec tsc --noEmit (passes)
+rollout: go-live
+recovery: revert commit

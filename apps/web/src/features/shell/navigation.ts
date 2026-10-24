@@ -93,6 +93,7 @@ export const navigation: readonly NavSection[] = [
       item("masters/cartons", "nav.masters.cartons", "product.view"),
       item("masters/staff", "nav.masters.staff", "company.view"),
       item("masters/lists", "nav.masters.lists", "company.view"),
+      item("opening", "opening.title", "opening.prepare"),
     ],
   },
   {
@@ -181,6 +182,7 @@ const hubDefinitions: readonly Omit<Hub, "shortcut">[] = [
       { path: "masters/products" },
       { path: "masters/cartons" },
       { path: "masters/lists" },
+      { path: "opening", labelKey: "opening.title" },
       { path: "admin/users" },
       { path: "admin/roles" },
     ],

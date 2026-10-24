@@ -3,15 +3,18 @@
 import { workspaceModuleIds, type WorkspaceModuleId } from "@bsd/contracts";
 import { DEFAULT_COMPANY_THEME } from "@bsd/design-system";
 import { t } from "@bsd/i18n";
+import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
 import { Field, inputClass } from "@/components/field";
 import { FormDialog } from "@/components/form-dialog";
 import { describeError, type DescribedError } from "@/data/ports/service-error";
 import { useCreateCompany } from "@/data/queries";
+import { companyHref } from "@/features/shell/navigation";
 
 /** Super-admin: a new brand workspace with its theme and enabled modules (guide 4.3, D28). */
 export function CompanyForm({ onClose }: { onClose: () => void }) {
   const id = useId();
+  const router = useRouter();
   const createCompany = useCreateCompany();
   const [name, setName] = useState("");
   const [primary, setPrimary] = useState<string>(DEFAULT_COMPANY_THEME.primary);
@@ -33,7 +36,7 @@ export function CompanyForm({ onClose }: { onClose: () => void }) {
     }
     setErrors({ fields: {} });
     try {
-      await createCompany.mutateAsync({
+      const workspace = await createCompany.mutateAsync({
         name: name.trim(),
         theme: { primary, primaryForeground: foreground },
         modules,
@@ -41,6 +44,7 @@ export function CompanyForm({ onClose }: { onClose: () => void }) {
         starterData: true,
       });
       onClose();
+      router.push(companyHref(workspace.company.id, "opening"));
     } catch (error) {
       setErrors(describeError(error, ["name", "theme.primary", "theme.primaryForeground"]));
     }
