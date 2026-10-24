@@ -96,6 +96,8 @@ export const queryKeys = {
     [...queryKeys.actor(actorId), "master", resourceIds.companyWorkspace] as const,
   payrollRun: (actorId: string, companyId: string, month: string) =>
     [...companyResource(actorId, companyId, resourceIds.payrollRun), month] as const,
+  opening: (actorId: string, companyId: string) =>
+    companyResource(actorId, companyId, resourceIds.opening),
   damageCases: (
     actorId: string,
     companyId: string,
@@ -156,6 +158,7 @@ export const postingEffects = {
     resourceIds.dashboardSummary,
   ],
   damage: [resourceIds.damageCase, resourceIds.ledger, resourceIds.dashboardSummary],
+  opening: [resourceIds.opening, resourceIds.ledger, resourceIds.dashboardSummary],
   monthClose: [resourceIds.ledger, resourceIds.payrollRun],
 } as const satisfies Record<string, readonly ResourceId[]>;
 

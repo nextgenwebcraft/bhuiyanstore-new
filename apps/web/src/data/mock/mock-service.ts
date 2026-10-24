@@ -149,7 +149,13 @@ export function createMockService(
     async listProducts(companyId, options) {
       await delay(latencyMs, options?.signal);
       requirePermission(companyId, "product.view");
-      return productSchema.array().parse(state.products.filter((p) => p.companyId === companyId));
+      return productSchema
+        .array()
+        .parse(
+          state.products
+            .filter((p) => p.companyId === companyId)
+            .sort((a, b) => a.sku.localeCompare(b.sku, undefined, { numeric: true })),
+        );
     },
 
     async createProduct(companyId, input, options) {
@@ -329,6 +335,10 @@ export function createMockService(
     saveFieldDayEnd: demoReadOnly,
     createFieldShop: demoReadOnly,
     createStaffLogin: demoReadOnly,
+
+    getOpening: demoReadOnly,
+    saveOpeningCutoff: demoReadOnly,
+    saveOpeningSection: demoReadOnly,
   };
 }
 

@@ -31,7 +31,15 @@ import { TableScroller } from "@/components/table-scroller";
 import { TableSummary, type SummaryItem } from "@/components/table-summary";
 import { describeError } from "@/data/ports/service-error";
 import { usePostStockEntries } from "@/data/queries";
-import { CellInput, clean, pairOf, PriceCells, type PricePair } from "./daily-kit";
+import {
+  CellInput,
+  clean,
+  pairFromCarton,
+  pairFromPiece,
+  pairOf,
+  PriceCells,
+  type PricePair,
+} from "./daily-kit";
 
 /**
  * The company order (D57, D68): per product the paid cartons + pieces, the purchase and sale
@@ -77,6 +85,9 @@ type Draft =
       rate: string;
       salePrice: string;
       bill: ReturnType<typeof toDecimal>;
+      /** Effective cost per piece = bill ÷ (paid + free); equals nominal when no free goods. */
+      effectivePieceCost: ReturnType<typeof toDecimal>;
+      hasFree: boolean;
       /** The order's batch number when the prices match the latest batch, else null (new). */
       batchSeq: number | null;
     };
@@ -131,11 +142,18 @@ export function OrderForm({
     }
     const bill =
       paid === "0" ? toDecimal("0") : toDecimal(paid).mul(rate).div(product.piecesPerCarton);
+    const totalPieces = toDecimal(paid).add(toDecimal(free));
+    // Effective cost = bill ÷ total pieces received (paid + free), matching D57.
+    const effectivePieceCost =
+      totalPieces.gt(0) && bill.gt(0)
+        ? bill.div(totalPieces)
+        : toDecimal(pieceFromCarton(rate, product.piecesPerCarton));
+    const hasFree = toDecimal(free).gt(0);
     const lot = latestLot(product);
     const same =
       lot !== undefined &&
       lot.costPrice !== null &&
-      samePiecePrice(lot.costPrice, pieceFromCarton(rate, product.piecesPerCarton)) &&
+      samePiecePrice(lot.costPrice, effectivePieceCost) &&
       samePiecePrice(lot.salePrice, salePrice);
     return {
       paid,
@@ -143,6 +161,8 @@ export function OrderForm({
       rate,
       salePrice,
       bill,
+      effectivePieceCost,
+      hasFree,
       batchSeq: same ? lot.seq : null,
     };
   }
@@ -255,13 +275,13 @@ export function OrderForm({
                 {t("godown.order.paidGroup")}
               </th>
               <th scope="col" colSpan={2} className={`${thCenter} border-b border-l border-border`}>
+                {t("godown.order.freeGroup")}
+              </th>
+              <th scope="col" colSpan={2} className={`${thCenter} border-b border-l border-border`}>
                 {t("godown.order.purchaseGroup")}
               </th>
               <th scope="col" colSpan={2} className={`${thCenter} border-b border-l border-border`}>
                 {t("godown.order.saleGroup")}
-              </th>
-              <th scope="col" colSpan={2} className={`${thCenter} border-b border-l border-border`}>
-                {t("godown.order.freeGroup")}
               </th>
               <th scope="col" rowSpan={2} className={`${thNum} border-l border-border`}>
                 {t("godown.order.bill")}
@@ -284,22 +304,22 @@ export function OrderForm({
                 {t("godown.column.pieces")}
               </th>
               <th scope="col" className={`${thCenter} border-l border-border`}>
-                {t("godown.price.carton")}
-              </th>
-              <th scope="col" className={thCenter}>
-                {t("godown.price.piece")}
-              </th>
-              <th scope="col" className={`${thCenter} border-l border-border`}>
-                {t("godown.price.carton")}
-              </th>
-              <th scope="col" className={thCenter}>
-                {t("godown.price.piece")}
-              </th>
-              <th scope="col" className={`${thCenter} border-l border-border`}>
                 {t("godown.column.cartons")}
               </th>
               <th scope="col" className={thCenter}>
                 {t("godown.column.pieces")}
+              </th>
+              <th scope="col" className={`${thCenter} border-l border-border`}>
+                {t("godown.price.carton")}
+              </th>
+              <th scope="col" className={thCenter}>
+                {t("godown.price.piece")}
+              </th>
+              <th scope="col" className={`${thCenter} border-l border-border`}>
+                {t("godown.price.carton")}
+              </th>
+              <th scope="col" className={thCenter}>
+                {t("godown.price.piece")}
               </th>
             </tr>
           </thead>
@@ -335,22 +355,6 @@ export function OrderForm({
                       width="w-16"
                     />
                   </td>
-                  <PriceCells
-                    label={`${label} ${t("godown.order.purchaseGroup")}`}
-                    value={row.buy ?? defaultBuy(product)}
-                    piecesPerCarton={product.piecesPerCarton}
-                    onChange={(buy) => set(product.productId, { buy })}
-                    invalid={wrong}
-                    className="border-l border-border"
-                  />
-                  <PriceCells
-                    label={`${label} ${t("godown.order.saleGroup")}`}
-                    value={row.sale ?? defaultSale(product)}
-                    piecesPerCarton={product.piecesPerCarton}
-                    onChange={(sale) => set(product.productId, { sale })}
-                    invalid={wrong}
-                    className="border-l border-border"
-                  />
                   <td className={`${tdCenter} ${freeTint} border-l border-border`}>
                     <CellInput
                       label={`${label} ${t("godown.order.free")} ${t("godown.column.cartons")}`}
@@ -369,9 +373,52 @@ export function OrderForm({
                       width="w-16"
                     />
                   </td>
+                  <td className={`${tdClass} border-l border-border text-center`}>
+                    <CellInput
+                      label={`${label} ${t("godown.order.purchaseGroup")} ${t("godown.price.carton")}`}
+                      placeholder="৳"
+                      value={(row.buy ?? defaultBuy(product)).carton}
+                      onChange={(carton) =>
+                        set(product.productId, {
+                          buy: pairFromCarton(carton, product.piecesPerCarton),
+                        })
+                      }
+                      invalid={wrong}
+                      mode="decimal"
+                      width="w-24"
+                    />
+                  </td>
+                  <td className={`${tdClass} text-center`}>
+                    <CellInput
+                      label={`${label} ${t("godown.order.purchaseGroup")} ${t("godown.price.piece")}`}
+                      placeholder="৳"
+                      value={
+                        preview?.hasFree
+                          ? preview.effectivePieceCost.toDecimalPlaces(6).toFixed()
+                          : (row.buy ?? defaultBuy(product)).piece
+                      }
+                      onChange={(piece) =>
+                        set(product.productId, {
+                          buy: pairFromPiece(piece, product.piecesPerCarton),
+                        })
+                      }
+                      disabled={preview?.hasFree ?? false}
+                      invalid={wrong}
+                      mode="decimal"
+                      width="w-24"
+                    />
+                  </td>
+                  <PriceCells
+                    label={`${label} ${t("godown.order.saleGroup")}`}
+                    value={row.sale ?? defaultSale(product)}
+                    piecesPerCarton={product.piecesPerCarton}
+                    onChange={(sale) => set(product.productId, { sale })}
+                    invalid={wrong}
+                    className="border-l border-border"
+                  />
                   <td className={`${tdNum} border-l border-border`}>
                     {preview ? (
-                      money(preview.bill.toString())
+                      <span>{money(preview.bill.toString())}</span>
                     ) : (
                       <span className="text-text-muted">—</span>
                     )}

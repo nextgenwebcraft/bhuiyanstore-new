@@ -8,6 +8,8 @@ import type {
   DamageEventRequest,
   DsrDay,
   DsrDaySaveRequest,
+  OpeningCutoffRequest,
+  OpeningSectionSaveRequest,
   FieldDayEndRequest,
   FieldShopCreateRequest,
   FieldVisitDeleteRequest,
@@ -809,4 +811,29 @@ export function useCreateStaffLogin(companyId: string) {
         }),
       ]),
   });
+}
+
+// ------------------------------------------------------------- opening balances
+
+export function useOpening(companyId: string) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.opening(actorId, companyId),
+    queryFn: ({ signal }) => service.getOpening(companyId, { signal }),
+  });
+}
+
+export function useSaveOpeningCutoff(companyId: string) {
+  const service = useService();
+  return usePostingMutation(companyId, "opening", (input: OpeningCutoffRequest) =>
+    service.saveOpeningCutoff(companyId, input),
+  );
+}
+
+export function useSaveOpeningSection(companyId: string) {
+  const service = useService();
+  return usePostingMutation(companyId, "opening", (input: OpeningSectionSaveRequest) =>
+    service.saveOpeningSection(companyId, input),
+  );
 }

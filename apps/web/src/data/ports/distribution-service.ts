@@ -18,6 +18,9 @@ import type {
   FieldVisit,
   FieldVisitDeleteRequest,
   FieldVisitSaveRequest,
+  Opening,
+  OpeningCutoffRequest,
+  OpeningSectionSaveRequest,
   StaffLoginCreateRequest,
   MasterMonth,
   MasterSummary,
@@ -392,6 +395,15 @@ export interface DistributionService {
     staffId: string,
     input: StaffLoginCreateRequest,
   ): Promise<StaffRecord>;
+
+  // Opening balance (Phase I go-live). Requires `opening.prepare`.
+
+  /** The company's opening snapshot (stock, dues, balances). */
+  getOpening(companyId: string, options?: RequestOptions): Promise<Opening>;
+  /** Set or change the cutoff date; all section data is preserved. */
+  saveOpeningCutoff(companyId: string, input: OpeningCutoffRequest): Promise<Opening>;
+  /** Upsert one section of the opening snapshot. */
+  saveOpeningSection(companyId: string, input: OpeningSectionSaveRequest): Promise<Opening>;
 }
 
 export type ConfigLists = {

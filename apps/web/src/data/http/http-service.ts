@@ -11,6 +11,7 @@ import {
   fieldVisitSchema,
   meSchema,
   moneyEntrySchema,
+  openingSchema,
   masterMonthSchema,
   masterSummarySchema,
   shareMonthSchema,
@@ -508,6 +509,19 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
         `${company(companyId)}/damage-cases/${id(caseId)}/cancel`,
         write("POST", {}),
       ),
+
+    getOpening: (companyId, options) =>
+      request(openingSchema, `${company(companyId)}/opening`, options),
+    saveOpeningCutoff: (companyId, input) =>
+      request(openingSchema, `${company(companyId)}/opening/cutoff`, write("PUT", input)),
+    saveOpeningSection: (companyId, input) => {
+      const { section, ...body } = input;
+      return request(
+        openingSchema,
+        `${company(companyId)}/opening/${id(section)}`,
+        write("PUT", body),
+      );
+    },
   };
 
   async function download(path: string, fallbackName: string) {

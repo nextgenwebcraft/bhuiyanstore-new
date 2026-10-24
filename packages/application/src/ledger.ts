@@ -522,8 +522,10 @@ export async function namesFor(db: Db, access: CompanyAccess, date: string) {
       select: { id: true, name: true },
     }),
   ]);
+  const natSort = (a: { sku: string }, b: { sku: string }) =>
+    a.sku.localeCompare(b.sku, undefined, { numeric: true });
   return {
-    products: products.map((p) => ({
+    products: products.sort(natSort).map((p) => ({
       id: p.id,
       sku: p.sku,
       name: p.name,
