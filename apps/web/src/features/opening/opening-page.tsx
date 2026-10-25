@@ -8,7 +8,8 @@ import {
   type OpeningSectionSaveRequest,
 } from "@bsd/contracts";
 import { t, formatShortDate, toBengaliDigits } from "@bsd/i18n";
-import { useId, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
+import { Combobox, type ComboboxOption } from "@/components/combobox";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/button";
 import { DatePicker } from "@/components/date-picker";
@@ -200,6 +201,13 @@ function StockSection({ opening, companyId }: { opening: Opening; companyId: str
     );
   }
 
+  const sortedStock = [...opening.stock].sort((a, b) => {
+    const numA = parseInt(a.sku.replace(/\D+/g, ""), 10);
+    const numB = parseInt(b.sku.replace(/\D+/g, ""), 10);
+    if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+    return a.sku.localeCompare(b.sku);
+  });
+
   return (
     <section className="rounded-xl border border-border bg-surface p-4">
       <div className="mb-3 flex items-center gap-2">
@@ -221,7 +229,7 @@ function StockSection({ opening, companyId }: { opening: Opening; companyId: str
             </tr>
           </thead>
           <tbody>
-            {opening.stock.map((line) => {
+            {sortedStock.map((line) => {
               const row = draft[line.productId] ?? {
                 pieces: "",
                 unitCost: "",
@@ -337,6 +345,192 @@ function toSaveLine(line: BalanceDraftLine): OpeningBalanceLine {
   };
 }
 
+type StaffMemberLike = { id: string; name: string };
+type ShopLike = { id: string; name: string; area: string; phone: string };
+
+function BalanceRow({
+  line,
+  index,
+  allLines,
+  kinds,
+  staff,
+  shops,
+  opening,
+  needsStaff,
+  needsShop,
+  hideNote,
+  onSet,
+  onRemove,
+}: {
+  line: BalanceDraftLine;
+  index: number;
+  allLines: BalanceDraftLine[];
+  kinds: readonly OpeningBalanceLine["kind"][];
+  staff: StaffMemberLike[];
+  shops: ShopLike[];
+  opening: Opening;
+  needsStaff: boolean;
+  needsShop: boolean;
+  hideNote: boolean;
+  onSet: (patch: Partial<BalanceDraftLine>) => void;
+  onRemove: () => void;
+}) {
+  const uid = useId();
+
+  const selectedStaff = staff.find((s) => s.id === line.staffId) ?? null;
+  const selectedShop = shops.find((s) => s.id === line.shopId) ?? null;
+
+  const [staffText, setStaffText] = useState(selectedStaff?.name ?? "");
+  const [shopText, setShopText] = useState(selectedShop?.name ?? "");
+  const [kindText, setKindText] = useState(BALANCE_KIND_LABEL[line.kind] ?? line.kind);
+
+  // Sync texts when query data loads after mount
+  useEffect(() => {
+    if (line.staffId && !staffText) {
+      const name = staff.find((s) => s.id === line.staffId)?.name;
+      if (name) setStaffText(name);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [staff]);
+
+  useEffect(() => {
+    if (line.shopId && !shopText) {
+      const s = shops.find((s) => s.id === line.shopId);
+      if (s) setShopText(s.name);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shops]);
+
+  const staffOptions = useMemo<ComboboxOption[]>(
+    () => staff.map((s) => ({ id: s.id, label: s.name })),
+    [staff],
+  );
+
+  const usedShopIds = useMemo(
+    () => new Set(allLines.filter((_, i) => i !== index).map((l) => l.shopId).filter(Boolean)),
+    [allLines, index],
+  );
+  const shopOptions = useMemo<ComboboxOption[]>(
+    () =>
+      shops
+        .filter((s) => !usedShopIds.has(s.id))
+        .map((s) => ({
+          id: s.id,
+          label: s.name,
+          secondary: [s.area, s.phone].filter(Boolean).join(" · ") || undefined,
+          searchText: [s.area, s.phone].filter(Boolean) as string[],
+        })),
+    [shops, usedShopIds],
+  );
+
+  const kindOptions = useMemo<ComboboxOption[]>(
+    () => kinds.map((k) => ({ id: k, label: BALANCE_KIND_LABEL[k] ?? k })),
+    [kinds],
+  );
+
+  return (
+    <tr className="hover:bg-surface-muted/40">
+      {kinds.length > 1 && (
+        <td className={tdClass}>
+          <Combobox
+            id={`${uid}-kind`}
+            text={kindText}
+            onTextChange={setKindText}
+            options={kindOptions}
+            selectedId={line.kind}
+            onChoose={(choice) => {
+              if (choice.kind !== "option") return;
+              setKindText(choice.option.label);
+              onSet({ kind: choice.option.id as OpeningBalanceLine["kind"] });
+            }}
+            onBlur={() => setKindText(BALANCE_KIND_LABEL[line.kind] ?? line.kind)}
+            emptyLabel="পাওয়া যায়নি"
+            listLabel="ধরন"
+            disabled={opening.locked}
+          />
+        </td>
+      )}
+      {needsStaff && !needsShop && (
+        <td className={tdClass}>
+          <Combobox
+            id={`${uid}-staff`}
+            text={staffText}
+            onTextChange={setStaffText}
+            options={staffOptions}
+            selectedId={selectedStaff && staffText === selectedStaff.name ? selectedStaff.id : null}
+            onChoose={(choice) => {
+              if (choice.kind !== "option") return;
+              setStaffText(choice.option.label);
+              onSet({ staffId: choice.option.id });
+            }}
+            onBlur={() => setStaffText(selectedStaff?.name ?? "")}
+            placeholder="— বেছে নিন —"
+            emptyLabel="কর্মী পাওয়া যায়নি"
+            listLabel="কর্মী"
+            clearLabel="বাদ"
+            disabled={opening.locked}
+          />
+        </td>
+      )}
+      {needsShop && (
+        <td className={tdClass}>
+          <Combobox
+            id={`${uid}-shop`}
+            text={shopText}
+            onTextChange={setShopText}
+            options={shopOptions}
+            selectedId={selectedShop && shopText === selectedShop.name ? selectedShop.id : null}
+            onChoose={(choice) => {
+              if (choice.kind !== "option") return;
+              setShopText(choice.option.label);
+              onSet({ shopId: choice.option.id });
+            }}
+            onBlur={() => setShopText(selectedShop?.name ?? "")}
+            placeholder="— বেছে নিন —"
+            emptyLabel="দোকান পাওয়া যায়নি"
+            listLabel="দোকান"
+            clearLabel="বাদ"
+            disabled={opening.locked}
+          />
+        </td>
+      )}
+      <td className={tdClass}>
+        <input
+          type="text"
+          inputMode="decimal"
+          className={inputSm}
+          value={line.amount}
+          disabled={opening.locked}
+          placeholder="০.০০"
+          onChange={(e) => onSet({ amount: e.target.value })}
+        />
+      </td>
+      {!hideNote && (
+        <td className={tdClass}>
+          <input
+            type="text"
+            className={noteInput}
+            value={line.note}
+            disabled={opening.locked}
+            onChange={(e) => onSet({ note: e.target.value })}
+          />
+        </td>
+      )}
+      {!opening.locked && (
+        <td className={tdClass}>
+          <button
+            type="button"
+            className="text-xs text-error hover:underline"
+            onClick={onRemove}
+          >
+            ×
+          </button>
+        </td>
+      )}
+    </tr>
+  );
+}
+
 function BalanceSection({
   section,
   opening,
@@ -400,6 +594,7 @@ function BalanceSection({
   const needsShop = section === "shopDue";
   const isCash = section === "cash";
   const isCompany = section === "company";
+  const hideNote = section === "marketDue" || section === "staff" || section === "shopDue";
 
   const SECTION_LABEL: Record<OpeningBalanceSectionId, string> = {
     marketDue: t("opening.section.marketDue"),
@@ -433,99 +628,27 @@ function BalanceSection({
                     {needsStaff && !needsShop && <th className={tdClass}>কর্মী</th>}
                     {needsShop && <th className={tdClass}>দোকান</th>}
                     <th className={`${tdClass} text-right`}>{t("opening.balance.amount")}</th>
-                    <th className={tdClass}>{t("opening.balance.note")}</th>
+                    {!hideNote && <th className={tdClass}>{t("opening.balance.note")}</th>}
                     {!opening.locked && <th className={tdClass}></th>}
                   </tr>
                 </thead>
                 <tbody>
                   {lines.map((line, i) => (
-                    <tr key={i} className="hover:bg-surface-muted/40">
-                      {kinds.length > 1 && (
-                        <td className={tdClass}>
-                          <select
-                            className={`${inputClass} py-1 text-sm`}
-                            value={line.kind}
-                            disabled={opening.locked}
-                            onChange={(e) =>
-                              setLine(i, {
-                                kind: e.target.value as OpeningBalanceLine["kind"],
-                              })
-                            }
-                          >
-                            {kinds.map((k) => (
-                              <option key={k} value={k}>
-                                {BALANCE_KIND_LABEL[k] ?? k}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                      )}
-                      {needsStaff && !needsShop && (
-                        <td className={tdClass}>
-                          <select
-                            className={`${inputClass} py-1 text-sm`}
-                            value={line.staffId ?? ""}
-                            disabled={opening.locked}
-                            onChange={(e) => setLine(i, { staffId: e.target.value || null })}
-                          >
-                            <option value="">— বেছে নিন —</option>
-                            {staff.map((s) => (
-                              <option key={s.id} value={s.id}>
-                                {s.name}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                      )}
-                      {needsShop && (
-                        <td className={tdClass}>
-                          <select
-                            className={`${inputClass} py-1 text-sm`}
-                            value={line.shopId ?? ""}
-                            disabled={opening.locked}
-                            onChange={(e) => setLine(i, { shopId: e.target.value || null })}
-                          >
-                            <option value="">— বেছে নিন —</option>
-                            {shops.map((s) => (
-                              <option key={s.id} value={s.id}>
-                                {s.name}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                      )}
-                      <td className={tdClass}>
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          className={inputSm}
-                          value={line.amount}
-                          disabled={opening.locked}
-                          placeholder="০.০০"
-                          onChange={(e) => setLine(i, { amount: e.target.value })}
-                        />
-                      </td>
-                      <td className={tdClass}>
-                        <input
-                          type="text"
-                          className={noteInput}
-                          value={line.note}
-                          disabled={opening.locked}
-                          onChange={(e) => setLine(i, { note: e.target.value })}
-                        />
-                      </td>
-                      {!opening.locked && (
-                        <td className={tdClass}>
-                          <button
-                            type="button"
-                            className="text-xs text-error hover:underline"
-                            onClick={() => removeLine(i)}
-                          >
-                            ×
-                          </button>
-                        </td>
-                      )}
-                    </tr>
+                    <BalanceRow
+                      key={i}
+                      line={line}
+                      index={i}
+                      allLines={lines}
+                      kinds={kinds}
+                      staff={staff}
+                      shops={shops}
+                      opening={opening}
+                      needsStaff={needsStaff}
+                      needsShop={needsShop}
+                      hideNote={hideNote}
+                      onSet={(patch) => setLine(i, patch)}
+                      onRemove={() => removeLine(i)}
+                    />
                   ))}
                   {lines.length === 0 && (
                     <tr>
