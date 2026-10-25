@@ -26,7 +26,7 @@ import type {
   MasterSummary,
   CompanyHishabYear,
   MasterHishabYear,
-  InvestmentRequest,
+  InvestmentsRequest,
   ShareholderCreateRequest,
   ShareholderList,
   ShareholderRecord,
@@ -222,11 +222,11 @@ export interface DistributionService {
     shareholderId: string,
     input: ShareholderUpdateRequest,
   ): Promise<ShareholderRecord>;
-  saveInvestment(
+  /** Saves every invest entry an edit touches, for one shareholder, in one atomic request. */
+  saveInvestments(
     companyId: string,
     shareholderId: string,
-    targetCompanyId: string,
-    input: InvestmentRequest,
+    input: InvestmentsRequest,
   ): Promise<ShareholderRecord>;
   /** Requires `report.view` (profit also `report.profit_view`, staff balances `finance.view`). */
   getReport(

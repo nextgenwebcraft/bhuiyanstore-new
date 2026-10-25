@@ -23,7 +23,7 @@ import { TableScroller } from "@/components/table-scroller";
 import { describeError } from "@/data/ports/service-error";
 import {
   useCreateShareholder,
-  useSaveInvestment,
+  useSaveInvestments,
   useShareholders,
   useUpdateShareholder,
 } from "@/data/queries";
@@ -70,12 +70,14 @@ function Roster({
 }) {
   const create = useCreateShareholder(companyId);
   const update = useUpdateShareholder(companyId);
-  const saveInvestment = useSaveInvestment(companyId);
+  const saveInvestments = useSaveInvestments(companyId);
   const [name, setName] = useState("");
+  const [newAmounts, setNewAmounts] = useState<Record<string, string>>({});
   const [editing, setEditing] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
+  const [draftAmounts, setDraftAmounts] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | undefined>();
-  const busy = create.isPending || update.isPending || saveInvestment.isPending;
+  const busy = create.isPending || update.isPending || saveInvestments.isPending;
 
   const run = async (action: () => Promise<unknown>) => {
     setError(undefined);
@@ -100,8 +102,22 @@ function Roster({
             const next = name.trim();
             if (!next) return;
             void run(async () => {
-              await create.mutateAsync({ name: next });
+              const created = await create.mutateAsync({ name: next });
+              const entries = view.companies
+                .filter((company) => {
+                  const value = (newAmounts[company.companyId] ?? "").trim();
+                  return value !== "" && Number(value) !== 0;
+                })
+                .map((company) => ({
+                  targetCompanyId: company.companyId,
+                  fromMonth: month,
+                  amount: newAmounts[company.companyId]?.trim() || "0",
+                }));
+              if (entries.length > 0) {
+                await saveInvestments.mutateAsync({ shareholderId: created.id, input: { entries } });
+              }
               setName("");
+              setNewAmounts({});
             });
           }}
         >
@@ -113,6 +129,25 @@ function Roster({
               onChange={(event) => setName(event.target.value)}
             />
           </Field>
+          {view.companies.map((company) => (
+            <Field
+              key={company.companyId}
+              id={`share-new-amount-${company.companyId}`}
+              label={company.companyName}
+              className="w-32"
+            >
+              <input
+                id={`share-new-amount-${company.companyId}`}
+                className={`${inputClass} text-right`}
+                inputMode="decimal"
+                value={newAmounts[company.companyId] ?? ""}
+                onChange={(event) => {
+                  const nextValue = normalizeDigits(event.target.value);
+                  setNewAmounts((prev) => ({ ...prev, [company.companyId]: nextValue }));
+                }}
+              />
+            </Field>
+          ))}
           <Button variant="primary" type="submit" disabled={busy || name.trim() === ""}>
             {t("share.add")}
           </Button>
@@ -154,27 +189,24 @@ function Roster({
                     const amount =
                       holder.investments.find((item) => item.companyId === company.companyId)
                         ?.amount ?? "0.00";
+                    const isRowEditing = editing === holder.shareholderId;
                     return (
                       <td key={company.companyId} className={tdNum}>
-                        <input
-                          key={`${holder.shareholderId}-${company.companyId}-${month}-${amount}`}
-                          className={`${inputClass} w-32 text-right`}
-                          inputMode="decimal"
-                          aria-label={`${holder.name} ${company.companyName}`}
-                          defaultValue={amount}
-                          disabled={busy}
-                          onBlur={(event) => {
-                            const next = normalizeDigits(event.target.value).trim();
-                            if (next === amount) return;
-                            void run(() =>
-                              saveInvestment.mutateAsync({
-                                shareholderId: holder.shareholderId,
-                                targetCompanyId: company.companyId,
-                                input: { fromMonth: month, amount: next || "0" },
-                              }),
-                            );
-                          }}
-                        />
+                        {isRowEditing ? (
+                          <input
+                            className={`${inputClass} w-32 text-right`}
+                            inputMode="decimal"
+                            aria-label={`${holder.name} ${company.companyName}`}
+                            value={draftAmounts[company.companyId] ?? amount}
+                            disabled={busy}
+                            onChange={(event) => {
+                              const next = normalizeDigits(event.target.value);
+                              setDraftAmounts((prev) => ({ ...prev, [company.companyId]: next }));
+                            }}
+                          />
+                        ) : (
+                          amount
+                        )}
                       </td>
                     );
                   })}
@@ -185,10 +217,35 @@ function Roster({
                           disabled={busy}
                           onClick={() => {
                             void run(async () => {
-                              await update.mutateAsync({
-                                shareholderId: holder.shareholderId,
-                                input: { name: draftName.trim(), active: holder.active },
-                              });
+                              const nextName = draftName.trim();
+                              if (nextName && nextName !== holder.name) {
+                                await update.mutateAsync({
+                                  shareholderId: holder.shareholderId,
+                                  input: { name: nextName, active: holder.active },
+                                });
+                              }
+                              const entries = view.companies
+                                .filter((company) => {
+                                  const original =
+                                    holder.investments.find(
+                                      (item) => item.companyId === company.companyId,
+                                    )?.amount ?? "0.00";
+                                  const draft = (
+                                    draftAmounts[company.companyId] ?? original
+                                  ).trim();
+                                  return (draft || "0") !== original;
+                                })
+                                .map((company) => ({
+                                  targetCompanyId: company.companyId,
+                                  fromMonth: month,
+                                  amount: draftAmounts[company.companyId]?.trim() || "0",
+                                }));
+                              if (entries.length > 0) {
+                                await saveInvestments.mutateAsync({
+                                  shareholderId: holder.shareholderId,
+                                  input: { entries },
+                                });
+                              }
                               setEditing(null);
                             });
                           }}
@@ -201,6 +258,14 @@ function Roster({
                           onClick={() => {
                             setEditing(holder.shareholderId);
                             setDraftName(holder.name);
+                            const amounts: Record<string, string> = {};
+                            view.companies.forEach((company) => {
+                              amounts[company.companyId] =
+                                holder.investments.find(
+                                  (item) => item.companyId === company.companyId,
+                                )?.amount ?? "0.00";
+                            });
+                            setDraftAmounts(amounts);
                           }}
                         >
                           {t("common.edit")}

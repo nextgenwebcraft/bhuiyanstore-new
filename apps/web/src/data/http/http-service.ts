@@ -439,10 +439,10 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
         `${company(companyId)}/shareholders/${id(shareholderId)}`,
         write("PUT", input),
       ),
-    saveInvestment: (companyId, shareholderId, targetCompanyId, input) =>
+    saveInvestments: (companyId, shareholderId, input) =>
       request(
         shareholderSchema,
-        `${company(companyId)}/shareholders/${id(shareholderId)}/investments/${id(targetCompanyId)}`,
+        `${company(companyId)}/shareholders/${id(shareholderId)}/investments`,
         write("PUT", input),
       ),
     getReport: (companyId, report, range, options) =>

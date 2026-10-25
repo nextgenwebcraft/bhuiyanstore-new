@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { companyHishabMonth, danOf, profitPerLakh } from "./company-hishab";
+import { companyHishabMonth, danOf, investShare, profitPerLakh } from "./company-hishab";
 
 const company = (profit: string, khoroch: string) => ({
   companyId: "c",
@@ -40,5 +40,25 @@ describe("profitPerLakh", () => {
   it("is zero when nothing is invested", () => {
     expect(profitPerLakh("50000", "0")).toBe("0.00");
     expect(profitPerLakh("50000", "-100")).toBe("0.00");
+  });
+});
+
+describe("investShare", () => {
+  it("splits totalProfit in proportion to invest against the combined total", () => {
+    expect(investShare("100000", "100000", "500000")).toBe("20000.00");
+    expect(investShare("100000", "400000", "500000")).toBe("80000.00");
+  });
+
+  it("implies the same rate as profitPerLakh(totalProfit, totalInvest), for any shareholder", () => {
+    const totalProfit = "100000";
+    const totalInvest = "500000";
+    const rate = profitPerLakh(totalProfit, totalInvest);
+    const share = investShare(totalProfit, "100000", totalInvest);
+    expect(profitPerLakh(share, "100000")).toBe(rate);
+  });
+
+  it("is zero when nothing is invested in total", () => {
+    expect(investShare("50000", "0", "0")).toBe("0.00");
+    expect(investShare("50000", "100000", "-100")).toBe("0.00");
   });
 });

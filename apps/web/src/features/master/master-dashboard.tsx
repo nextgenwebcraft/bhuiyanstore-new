@@ -77,7 +77,7 @@ export function MasterDashboardPage() {
         </label>
       </div>
       {query.isPending ? (
-        <TableSkeleton rows={12} columns={6} />
+        <TableSkeleton rows={12} columns={7} />
       ) : query.isError ? (
         <QueryError error={query.error} onRetry={() => void query.refetch()} />
       ) : (
@@ -112,6 +112,9 @@ function YearGrid({ view }: { view: MasterHishabYear }) {
               {t("share.totalDan")}
             </th>
             <th scope="col" className={thNum}>
+              {t("share.shareholderProfit")}
+            </th>
+            <th scope="col" className={thNum}>
               {t("share.invest")}
             </th>
             <th scope="col" className={thNum}>
@@ -135,6 +138,9 @@ function YearGrid({ view }: { view: MasterHishabYear }) {
               </td>
               <td className={tdNum}>
                 <Money value={month.totalDan} />
+              </td>
+              <td className={tdNum}>
+                <Money value={month.shareholderProfit} />
               </td>
               <td className={tdNum}>
                 <Money value={month.invest} />

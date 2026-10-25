@@ -6,7 +6,7 @@ import {
   getCompanyHishabYear,
   getMasterHishabYear,
   listShareholders,
-  saveInvestment,
+  saveInvestments,
   updateShareholder,
 } from "./company-hishab";
 import { AppError } from "./errors";
@@ -70,20 +70,18 @@ describe("company hishab (shareholder invest, replacing D76/D77 units)", () => {
   it("keeps earlier months when invest changes, and reads an empty month as zero", async () => {
     const karim = await createShareholder(admin, masterId, { name: "Karim" }, "share-karim");
     await createShareholder(admin, masterId, { name: "Rahim" }, "share-rahim");
-    await saveInvestment(
+    await saveInvestments(
       admin,
       masterId,
       karim.id,
-      drinkoId,
-      { fromMonth: "2026-01", amount: "500000" },
+      { entries: [{ targetCompanyId: drinkoId, fromMonth: "2026-01", amount: "500000" }] },
       "share-karim-jan",
     );
-    await saveInvestment(
+    await saveInvestments(
       admin,
       masterId,
       karim.id,
-      drinkoId,
-      { fromMonth: "2026-03", amount: "200000" },
+      { entries: [{ targetCompanyId: drinkoId, fromMonth: "2026-03", amount: "200000" }] },
       "share-karim-mar",
     );
 
@@ -94,12 +92,18 @@ describe("company hishab (shareholder invest, replacing D76/D77 units)", () => {
       dan: "0.00",
       totalProfit: "0.00",
       invest: "500000.00",
+      shareholderProfit: "0.00",
       profitPerLakh: "0.00",
     });
     expect(year.months[1]?.invest).toBe("500000.00");
     expect(year.months[2]?.invest).toBe("200000.00");
     expect(year.months[11]?.invest).toBe("200000.00");
     expect(year.shareholders.some((person) => person.name === "Rahim")).toBe(true);
+
+    // Karim is the only investor here, so his profitPerLakh must match the all-shareholders
+    // view (the company-wide rate), not a figure scaled to his own invest alone.
+    const all = await getCompanyHishabYear(admin, masterId, drinkoId, "2026");
+    expect(year.months[0]?.profitPerLakh).toBe(all.months[0]?.profitPerLakh);
   });
 
   it("hides a deactivated shareholder who never invested", async () => {
@@ -131,12 +135,11 @@ describe("company hishab (shareholder invest, replacing D76/D77 units)", () => {
       (person) => person.name === "Karim",
     );
     await expect(
-      saveInvestment(
+      saveInvestments(
         admin,
         masterId,
         karim?.shareholderId ?? "",
-        masterId,
-        { fromMonth: "2026-04", amount: "1000" },
+        { entries: [{ targetCompanyId: masterId, fromMonth: "2026-04", amount: "1000" }] },
         "share-master-target",
       ),
     ).rejects.toSatisfy((error) => fieldError(error, "companyId", "validation.share.notCompany"));
@@ -147,6 +150,29 @@ describe("company hishab (shareholder invest, replacing D76/D77 units)", () => {
     await expect(getCompanyHishabYear(member, masterId, drinkoId, "2026")).rejects.toSatisfy(
       (error) => error instanceof AppError && error.code === "FORBIDDEN",
     );
+  });
+
+  it("saves a batch atomically: one bad entry rolls back every entry in the same save", async () => {
+    const rahim = (await listShareholders(admin, masterId)).shareholders.find(
+      (person) => person.name === "Rahim",
+    );
+    await expect(
+      saveInvestments(
+        admin,
+        masterId,
+        rahim?.shareholderId ?? "",
+        {
+          entries: [
+            { targetCompanyId: drinkoId, fromMonth: "2026-05", amount: "900000" },
+            { targetCompanyId: masterId, fromMonth: "2026-05", amount: "1000" },
+          ],
+        },
+        "share-rahim-batch",
+      ),
+    ).rejects.toSatisfy((error) => fieldError(error, "companyId", "validation.share.notCompany"));
+    const list = await listShareholders(admin, masterId, "2026-05");
+    const after = list.shareholders.find((person) => person.name === "Rahim");
+    expect(after?.investments).toEqual([{ companyId: drinkoId, amount: "0.00" }]);
   });
 
   it("lays the master panel out as one row per month with every company's total profit", async () => {
@@ -161,5 +187,10 @@ describe("company hishab (shareholder invest, replacing D76/D77 units)", () => {
     await expect(getMasterHishabYear(admin, masterId, "2026-1")).rejects.toSatisfy((error) =>
       fieldError(error, "year", "validation.share.year"),
     );
+
+    const karim = year.shareholders.find((person) => person.name === "Karim");
+    const forKarim = await getMasterHishabYear(admin, masterId, "2026", karim?.shareholderId);
+    expect(forKarim.months[2]?.shareholderProfit).toBe("0.00");
+    expect(forKarim.months[2]?.profitPerLakh).toBe(year.months[2]?.profitPerLakh);
   });
 });

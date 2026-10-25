@@ -81,6 +81,7 @@ export {
   DAN_RATE,
   companyHishabMonth,
   danOf,
+  investShare,
   profitPerLakh,
   type CompanyFigures,
   type CompanyHishabRow,

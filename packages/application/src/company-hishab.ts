@@ -1,7 +1,7 @@
 import {
   companyHishabYearSchema,
   hishabYearSchema,
-  investmentRequestSchema,
+  investmentsRequestSchema,
   masterHishabYearSchema,
   monthSchema,
   shareholderCreateRequestSchema,
@@ -17,6 +17,7 @@ import {
   companyHishabMonth,
   danOf,
   firstOfMonth,
+  investShare,
   lastOfMonth,
   monthOf,
   profitPerLakh,
@@ -240,51 +241,55 @@ export async function updateShareholder(
   );
 }
 
-/** Sets the invest in force from a month, for one shareholder in one company. */
-export async function saveInvestment(
+/**
+ * Sets every invest entry an edit touches, for one shareholder, in a single transaction: all
+ * entries land together or none do, so a screen edit can never half-save across companies.
+ */
+export async function saveInvestments(
   ctx: AppContext,
   companyId: string,
   shareholderId: string,
-  targetCompanyId: string,
   input: unknown,
   requestKey?: string,
 ): Promise<ShareholderRecord> {
   await requireMaster(ctx, companyId, true);
-  const request = parseInput(investmentRequestSchema, input);
+  const request = parseInput(investmentsRequestSchema, input);
   return runIdempotent(
     ctx,
-    {
-      scope: companyId,
-      action: `shareholder.investment:${shareholderId}:${targetCompanyId}`,
-      requestKey,
-    },
+    { scope: companyId, action: `shareholder.investments:${shareholderId}`, requestKey },
     request,
     async (tx) => {
       const person = await personOf(tx, ctx.actor.tenantId, shareholderId);
-      const target = await targetCompanyOf(tx, ctx.actor.tenantId, targetCompanyId);
-      await tx.shareholderInvestment.upsert({
-        where: {
-          shareholderId_companyId_fromMonth: {
+      for (const entry of request.entries) {
+        const target = await targetCompanyOf(tx, ctx.actor.tenantId, entry.targetCompanyId);
+        await tx.shareholderInvestment.upsert({
+          where: {
+            shareholderId_companyId_fromMonth: {
+              shareholderId: person.id,
+              companyId: target.id,
+              fromMonth: entry.fromMonth,
+            },
+          },
+          create: {
             shareholderId: person.id,
             companyId: target.id,
-            fromMonth: request.fromMonth,
+            fromMonth: entry.fromMonth,
+            amount: entry.amount,
           },
-        },
-        create: {
-          shareholderId: person.id,
-          companyId: target.id,
-          fromMonth: request.fromMonth,
-          amount: request.amount,
-        },
-        update: { amount: request.amount },
-      });
-      await recordAudit(tx, ctx, {
-        companyId,
-        action: "shareholder.investment",
-        resourceType: "shareholder",
-        resourceId: person.id,
-        after: { ...request, targetCompanyId: target.id },
-      });
+          update: { amount: entry.amount },
+        });
+        await recordAudit(tx, ctx, {
+          companyId,
+          action: "shareholder.investment",
+          resourceType: "shareholder",
+          resourceId: person.id,
+          after: {
+            fromMonth: entry.fromMonth,
+            amount: entry.amount,
+            targetCompanyId: target.id,
+          },
+        });
+      }
       return recordOf(person);
     },
   );
@@ -330,28 +335,33 @@ export async function getCompanyHishabYear(
           khoroch: figures.khoroch,
         },
       ]);
+      const totalProfitForMonth = row?.totalProfit ?? "0.00";
       const atMonth = investments.filter((investment) => investment.fromMonth <= month);
+      const totalInvest = sumAmounts(
+        [...new Set(investments.map((investment) => investment.shareholderId))].map((id) =>
+          investmentOn(
+            atMonth.filter((investment) => investment.shareholderId === id),
+            month,
+          ),
+        ),
+      );
       const invest = shareholderId
         ? investmentOn(
             atMonth.filter((investment) => investment.shareholderId === shareholderId),
             month,
           )
-        : sumAmounts(
-            [...new Set(investments.map((investment) => investment.shareholderId))].map((id) =>
-              investmentOn(
-                atMonth.filter((investment) => investment.shareholderId === id),
-                month,
-              ),
-            ),
-          );
+        : totalInvest;
       return {
         month,
         profit: row?.profit ?? "0.00",
         khoroch: row?.khoroch ?? "0.00",
         dan: row?.dan ?? "0.00",
-        totalProfit: row?.totalProfit ?? "0.00",
+        totalProfit: totalProfitForMonth,
         invest,
-        profitPerLakh: profitPerLakh(row?.totalProfit ?? "0.00", invest),
+        shareholderProfit: shareholderId
+          ? investShare(totalProfitForMonth, invest, totalInvest)
+          : totalProfitForMonth,
+        profitPerLakh: profitPerLakh(totalProfitForMonth, totalInvest),
       };
     }),
   );
@@ -427,16 +437,18 @@ export async function getMasterHishabYear(
             ),
           ),
         );
-      const invest = shareholderId
-        ? investOf(shareholderId)
-        : sumAmounts(shareholderIds.map(investOf));
+      const totalInvest = sumAmounts(shareholderIds.map(investOf));
+      const invest = shareholderId ? investOf(shareholderId) : totalInvest;
       return {
         month,
         companies: rows.map((row) => ({ companyId: row.companyId, totalProfit: row.totalProfit })),
         totalProfit,
         totalDan: danOf(totalProfit),
         invest,
-        profitPerLakh: profitPerLakh(totalProfit, invest),
+        shareholderProfit: shareholderId
+          ? investShare(totalProfit, invest, totalInvest)
+          : totalProfit,
+        profitPerLakh: profitPerLakh(totalProfit, totalInvest),
       };
     }),
   );

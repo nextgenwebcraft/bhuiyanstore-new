@@ -23,7 +23,7 @@ import type {
   ProductPackRequest,
   ReportId,
   ReportRange,
-  InvestmentRequest,
+  InvestmentsRequest,
   ShareholderCreateRequest,
   ShareholderUpdateRequest,
   RoleUpsertRequest,
@@ -419,19 +419,12 @@ export function useUpdateShareholder(companyId: string) {
   );
 }
 
-export function useSaveInvestment(companyId: string) {
+export function useSaveInvestments(companyId: string) {
   const service = useService();
   return useMasterMutation(
     [resourceIds.shareMonth],
-    ({
-      shareholderId,
-      targetCompanyId,
-      input,
-    }: {
-      shareholderId: string;
-      targetCompanyId: string;
-      input: InvestmentRequest;
-    }) => service.saveInvestment(companyId, shareholderId, targetCompanyId, input),
+    ({ shareholderId, input }: { shareholderId: string; input: InvestmentsRequest }) =>
+      service.saveInvestments(companyId, shareholderId, input),
   );
 }
 

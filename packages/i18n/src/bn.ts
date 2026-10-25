@@ -383,6 +383,7 @@ export const bn = {
   "share.khoroch": "খরচ",
   "share.dan": "দান",
   "share.total": "টোটাল প্রফিট",
+  "share.shareholderProfit": "অংশীদারের প্রফিট",
   "share.totalDan": "টোটাল দান",
   "share.invest": "ইনভেস্ট",
   "share.profitPerLakh": "প্রতি লাখে প্রফিট",

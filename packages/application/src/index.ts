@@ -32,7 +32,7 @@ export {
   getCompanyHishabYear,
   getMasterHishabYear,
   listShareholders,
-  saveInvestment,
+  saveInvestments,
   updateShareholder,
 } from "./company-hishab";
 export { cashAccounts, expenseCategories, staffRoles } from "./configuration";

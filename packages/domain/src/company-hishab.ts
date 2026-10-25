@@ -55,3 +55,19 @@ export function profitPerLakh(totalProfit: DecimalInput, invest: DecimalInput): 
   if (investDecimal.lte(0)) return "0.00";
   return roundSettlement(toDecimal(totalProfit).div(investDecimal.div(LAKH)));
 }
+
+/**
+ * One shareholder's exact share of totalProfit: their invest against everyone's combined invest,
+ * so every taka of profit is split in proportion to invest. "0.00" when nothing is invested in
+ * total. The rate this implies (share ÷ invest) always equals `profitPerLakh(totalProfit,
+ * totalInvest)`, so the two figures agree no matter who is selected.
+ */
+export function investShare(
+  totalProfit: DecimalInput,
+  invest: DecimalInput,
+  totalInvest: DecimalInput,
+): string {
+  const totalInvestDecimal = toDecimal(totalInvest);
+  if (totalInvestDecimal.lte(0)) return "0.00";
+  return roundSettlement(toDecimal(totalProfit).mul(toDecimal(invest)).div(totalInvestDecimal));
+}

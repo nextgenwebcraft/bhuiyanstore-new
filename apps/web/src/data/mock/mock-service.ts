@@ -234,7 +234,7 @@ export function createMockService(
     listShareholders: demoReadOnly,
     createShareholder: demoReadOnly,
     updateShareholder: demoReadOnly,
-    saveInvestment: demoReadOnly,
+    saveInvestments: demoReadOnly,
     getMasterMonth: demoReadOnly,
     masterMonthCommand: demoReadOnly,
     getReport: demoReadOnly,

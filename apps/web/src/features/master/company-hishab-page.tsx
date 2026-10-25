@@ -87,7 +87,7 @@ export function CompanyHishabPage() {
         </label>
       </div>
       {query.isPending ? (
-        <TableSkeleton rows={12} columns={6} />
+        <TableSkeleton rows={12} columns={7} />
       ) : query.isError ? (
         <QueryError error={query.error} onRetry={() => void query.refetch()} />
       ) : (
@@ -119,6 +119,9 @@ function YearTable({ view }: { view: CompanyHishabYear }) {
               {t("share.total")}
             </th>
             <th scope="col" className={thNum}>
+              {t("share.shareholderProfit")}
+            </th>
+            <th scope="col" className={thNum}>
               {t("share.invest")}
             </th>
             <th scope="col" className={thNum}>
@@ -143,6 +146,9 @@ function YearTable({ view }: { view: CompanyHishabYear }) {
               </td>
               <td className={tdNum}>
                 <Money value={month.totalProfit} />
+              </td>
+              <td className={tdNum}>
+                <Money value={month.shareholderProfit} />
               </td>
               <td className={tdNum}>
                 <Money value={month.invest} />
