@@ -1,8 +1,8 @@
 "use client";
 
-import type { DanBasisName, ShareMonth } from "@bsd/contracts";
+import type { ShareholderList } from "@bsd/contracts";
 import { monthOf } from "@bsd/domain";
-import { formatMoney, normalizeDigits, t, toBengaliDigits } from "@bsd/i18n";
+import { normalizeDigits, t } from "@bsd/i18n";
 import { useState } from "react";
 import { Button } from "@/components/button";
 import {
@@ -19,68 +19,63 @@ import { PageHeader } from "@/components/page-header";
 import { QueryError } from "@/components/query-error";
 import { TableSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
-import { StatTile } from "@/components/stat-tile";
 import { TableScroller } from "@/components/table-scroller";
 import { describeError } from "@/data/ports/service-error";
 import {
   useCreateShareholder,
-  useSaveShareHolding,
-  useSaveSharePolicy,
-  useShareMonth,
+  useSaveInvestment,
+  useShareholders,
   useUpdateShareholder,
 } from "@/data/queries";
 import { NavGate } from "@/features/shell/nav-gate";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 import { useToday } from "@/lib/today";
 
-/** Exact units and the per-unit rate stay visible; money is shown to paisa (D61). */
-const figures = (value: string) => toBengaliDigits(value);
-
-/**
- * Master monthly account (D76): each company's profit and cost, 2% দান, and the split by units.
- * The figures are a statement; saving a unit or a দান basis does not move cash.
- */
-export function SharePage() {
+export function ShareholdersPage() {
   const { company } = useCurrentWorkspace();
   const today = useToday();
   const [month, setMonth] = useState(() => monthOf(today));
-  const query = useShareMonth(company.id, month);
+  const query = useShareholders(company.id, month);
 
   return (
-    <NavGate path="master/monthly-account">
-      <PageHeader title={t("nav.master.monthly")} description={t("share.description")} />
+    <NavGate path="master/shareholders">
+      <PageHeader title={t("nav.master.shareholders")} description={t("share.holders")} />
       <div className="mb-4 print:hidden">
-        <MonthPicker id="share-month" value={month} label={t("month.picker")} onChange={setMonth} />
+        <MonthPicker
+          id="shareholder-month"
+          value={month}
+          label={t("share.fromMonth")}
+          onChange={setMonth}
+        />
       </div>
       {query.isPending ? (
         <TableSkeleton rows={4} columns={5} />
       ) : query.isError ? (
         <QueryError error={query.error} onRetry={() => void query.refetch()} />
       ) : (
-        <Statement companyId={company.id} month={month} view={query.data} />
+        <Roster companyId={company.id} month={month} view={query.data} />
       )}
     </NavGate>
   );
 }
 
-function Statement({
+function Roster({
   companyId,
   month,
   view,
 }: {
   companyId: string;
   month: string;
-  view: ShareMonth;
+  view: ShareholderList;
 }) {
   const create = useCreateShareholder(companyId);
   const update = useUpdateShareholder(companyId);
-  const saveUnits = useSaveShareHolding(companyId);
-  const savePolicy = useSaveSharePolicy(companyId);
+  const saveInvestment = useSaveInvestment(companyId);
   const [name, setName] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
   const [error, setError] = useState<string | undefined>();
-  const busy = create.isPending || update.isPending || saveUnits.isPending || savePolicy.isPending;
+  const busy = create.isPending || update.isPending || saveInvestment.isPending;
 
   const run = async (action: () => Promise<unknown>) => {
     setError(undefined);
@@ -96,78 +91,8 @@ function Statement({
   return (
     <div className="flex flex-col gap-6">
       {error ? <StatePanel tone="error" title={error} /> : null}
-      <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile
-          label={t("share.distributable")}
-          value={formatMoney(view.totals.distributable)}
-          tone="brand"
-          large
-        />
-        <StatTile label={t("share.dan")} value={formatMoney(view.totals.dan)} />
-        <StatTile label={t("share.perUnit")} value={figures(view.totals.perUnit)} />
-        <StatTile label={t("share.totalUnits")} value={figures(view.totals.units)} />
-      </dl>
-      {view.totals.unallocated !== "0.00" ? (
-        <p className="text-sm text-text-muted">
-          {t("share.unallocated")}: {formatMoney(view.totals.unallocated)}
-        </p>
-      ) : null}
-
-      <section className="flex flex-col gap-2">
-        <h2 className="text-sm font-semibold">{t("master.month.company")}</h2>
-        <TableScroller>
-          <table className={tableClass}>
-            <thead className={theadClass}>
-              <tr>
-                <th scope="col" className={thClass}>
-                  {t("master.month.company")}
-                </th>
-                <ColumnHead label={t("share.profit")} />
-                <ColumnHead label={t("share.khoroch")} />
-                <ColumnHead label={t("share.dan")} />
-                <ColumnHead label={t("share.total")} />
-                <th scope="col" className={thClass}>
-                  {t("share.basis")}
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {view.companies.map((row) => (
-                <tr key={row.companyId} className="border-t border-border">
-                  <td className={tdClass}>{row.companyName}</td>
-                  <td className={tdNum}>{formatMoney(row.profit)}</td>
-                  <td className={tdNum}>{formatMoney(row.khoroch)}</td>
-                  <td className={tdNum}>{formatMoney(row.dan)}</td>
-                  <td className={tdNum}>{formatMoney(row.total)}</td>
-                  <td className={tdClass}>
-                    <select
-                      className={inputClass}
-                      aria-label={t("share.basis")}
-                      value={row.danBasis}
-                      disabled={busy}
-                      onChange={(event) => {
-                        const danBasis = event.target.value as DanBasisName;
-                        void run(() =>
-                          savePolicy.mutateAsync({
-                            targetCompanyId: row.companyId,
-                            input: { danBasis },
-                          }),
-                        );
-                      }}
-                    >
-                      <option value="net">{t("share.dan.net")}</option>
-                      <option value="profit">{t("share.dan.profit")}</option>
-                    </select>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </TableScroller>
-      </section>
 
       <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold">{t("share.holders")}</h2>
         <form
           className="flex flex-wrap items-end gap-2 print:hidden"
           onSubmit={(event) => {
@@ -199,9 +124,9 @@ function Statement({
                 <th scope="col" className={thClass}>
                   {t("share.name")}
                 </th>
-                <ColumnHead label={t("share.units")} />
-                <ColumnHead label={t("share.income")} />
-                <ColumnHead label={t("share.yearIncome")} />
+                {view.companies.map((company) => (
+                  <ColumnHead key={company.companyId} label={company.companyName} quantity />
+                ))}
                 <th scope="col" className={`${thClass} print:hidden`}>
                   {t("common.edit")}
                 </th>
@@ -225,28 +150,34 @@ function Statement({
                       </span>
                     )}
                   </td>
-                  <td className={tdNum}>
-                    <input
-                      key={`${holder.shareholderId}-${month}-${holder.units}`}
-                      className={`${inputClass} w-32 text-right`}
-                      inputMode="decimal"
-                      aria-label={t("share.units")}
-                      defaultValue={holder.units}
-                      disabled={busy}
-                      onBlur={(event) => {
-                        const units = normalizeDigits(event.target.value).trim();
-                        if (units === holder.units) return;
-                        void run(() =>
-                          saveUnits.mutateAsync({
-                            shareholderId: holder.shareholderId,
-                            input: { fromMonth: month, units },
-                          }),
-                        );
-                      }}
-                    />
-                  </td>
-                  <td className={tdNum}>{formatMoney(holder.income)}</td>
-                  <td className={tdNum}>{formatMoney(holder.yearIncome)}</td>
+                  {view.companies.map((company) => {
+                    const amount =
+                      holder.investments.find((item) => item.companyId === company.companyId)
+                        ?.amount ?? "0.00";
+                    return (
+                      <td key={company.companyId} className={tdNum}>
+                        <input
+                          key={`${holder.shareholderId}-${company.companyId}-${month}-${amount}`}
+                          className={`${inputClass} w-32 text-right`}
+                          inputMode="decimal"
+                          aria-label={`${holder.name} ${company.companyName}`}
+                          defaultValue={amount}
+                          disabled={busy}
+                          onBlur={(event) => {
+                            const next = normalizeDigits(event.target.value).trim();
+                            if (next === amount) return;
+                            void run(() =>
+                              saveInvestment.mutateAsync({
+                                shareholderId: holder.shareholderId,
+                                targetCompanyId: company.companyId,
+                                input: { fromMonth: month, amount: next || "0" },
+                              }),
+                            );
+                          }}
+                        />
+                      </td>
+                    );
+                  })}
                   <td className={`${tdClass} print:hidden`}>
                     <div className="flex flex-wrap gap-2">
                       {editing === holder.shareholderId ? (

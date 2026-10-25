@@ -23,8 +23,7 @@ import type {
   ProductPackRequest,
   ReportId,
   ReportRange,
-  ShareHoldingRequest,
-  SharePolicyRequest,
+  InvestmentRequest,
   ShareholderCreateRequest,
   ShareholderUpdateRequest,
   RoleUpsertRequest,
@@ -364,22 +363,42 @@ export function useMasterMonthCommand(companyId: string) {
   });
 }
 
-export function useShareYear(companyId: string, year: string) {
+export function useCompanyHishabYear(
+  companyId: string,
+  targetCompanyId: string,
+  year: string,
+  shareholderId: string,
+) {
   const service = useService();
   const actorId = useActorId();
   return useQuery({
-    queryKey: queryKeys.shareYear(actorId, companyId, year),
-    queryFn: ({ signal }) => service.getShareYear(companyId, year, { signal }),
+    queryKey: queryKeys.companyHishabYear(actorId, companyId, targetCompanyId, year, shareholderId),
+    queryFn: ({ signal }) =>
+      service.getCompanyHishabYear(companyId, targetCompanyId, year, shareholderId || undefined, {
+        signal,
+      }),
+    enabled: targetCompanyId !== "",
     placeholderData: keepPreviousData,
   });
 }
 
-export function useShareMonth(companyId: string, month: string) {
+export function useMasterHishabYear(companyId: string, year: string, shareholderId: string) {
   const service = useService();
   const actorId = useActorId();
   return useQuery({
-    queryKey: queryKeys.shareMonth(actorId, companyId, month),
-    queryFn: ({ signal }) => service.getShareMonth(companyId, month, { signal }),
+    queryKey: queryKeys.masterHishabYear(actorId, companyId, year, shareholderId),
+    queryFn: ({ signal }) =>
+      service.getMasterHishabYear(companyId, year, shareholderId || undefined, { signal }),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useShareholders(companyId: string, month: string) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.shareholders(actorId, companyId, month),
+    queryFn: ({ signal }) => service.listShareholders(companyId, month, { signal }),
     placeholderData: keepPreviousData,
   });
 }
@@ -400,21 +419,19 @@ export function useUpdateShareholder(companyId: string) {
   );
 }
 
-export function useSaveShareHolding(companyId: string) {
+export function useSaveInvestment(companyId: string) {
   const service = useService();
   return useMasterMutation(
     [resourceIds.shareMonth],
-    ({ shareholderId, input }: { shareholderId: string; input: ShareHoldingRequest }) =>
-      service.saveShareHolding(companyId, shareholderId, input),
-  );
-}
-
-export function useSaveSharePolicy(companyId: string) {
-  const service = useService();
-  return useMasterMutation(
-    [resourceIds.shareMonth],
-    ({ targetCompanyId, input }: { targetCompanyId: string; input: SharePolicyRequest }) =>
-      service.saveSharePolicy(companyId, targetCompanyId, input),
+    ({
+      shareholderId,
+      targetCompanyId,
+      input,
+    }: {
+      shareholderId: string;
+      targetCompanyId: string;
+      input: InvestmentRequest;
+    }) => service.saveInvestment(companyId, shareholderId, targetCompanyId, input),
   );
 }
 

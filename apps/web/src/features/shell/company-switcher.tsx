@@ -10,7 +10,7 @@ import { useWorkspaces } from "@/data/queries";
 import { queryKeys } from "@/data/query-keys";
 import { useActorId } from "@/data/service-context";
 import { CompanyForm } from "@/features/company-picker/company-form";
-import { MasterPanelMenuItem } from "@/features/master/master-link";
+import { MasterPanelMenuItem, useMasterHref } from "@/features/master/master-link";
 import { CompanyMark } from "./company-mark";
 import { useActiveDraftGuard } from "./draft-guard";
 import { DraftSwitchPrompt, type DraftSwitchPromptHandle } from "./draft-switch-prompt";
@@ -43,6 +43,7 @@ export function CompanySwitcher({
   const [creating, setCreating] = useState(false);
 
   const options = workspaces.data ?? [];
+  const masterHref = useMasterHref();
 
   useEffect(() => {
     if (!open) return;
@@ -146,7 +147,7 @@ export function CompanySwitcher({
             })}
           </ul>
           <div className="mt-1.5 border-t border-border pt-1.5">
-            <MasterPanelMenuItem onSelect={() => setOpen(false)} />
+            <MasterPanelMenuItem onSelect={() => setOpen(false)} href={masterHref} />
             <button
               type="button"
               role="menuitem"

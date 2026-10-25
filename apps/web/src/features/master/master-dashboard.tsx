@@ -1,10 +1,9 @@
 "use client";
 
-import type { ShareYear } from "@bsd/contracts";
-import { monthOf, sumAmounts } from "@bsd/domain";
-import { formatMoney, monthNames, t, toBengaliDigits } from "@bsd/i18n";
+import type { MasterHishabYear } from "@bsd/contracts";
+import { formatMoney, monthNames, t } from "@bsd/i18n";
 import { useState } from "react";
-import { Button } from "@/components/button";
+import { inputClass } from "@/components/field";
 import {
   stickyCell,
   stickyHead,
@@ -18,39 +17,64 @@ import { PageHeader } from "@/components/page-header";
 import { QueryError } from "@/components/query-error";
 import { TableSkeleton } from "@/components/skeleton";
 import { TableScroller } from "@/components/table-scroller";
-import { useShareYear } from "@/data/queries";
+import { useMasterHishabYear } from "@/data/queries";
 import { NavGate } from "@/features/shell/nav-gate";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 import { useToday } from "@/lib/today";
 
 const months = monthNames();
+const YEARS = Array.from({ length: 15 }, (_, index) => String(2026 + index));
 
 function Money({ value }: { value: string }) {
   return <span className={value.startsWith("-") ? "text-error" : ""}>{formatMoney(value)}</span>;
 }
 
-/**
- * The master page (D77): the workbook's year grid. One row per month, one column per company
- * for that company's total, then দান, per unit and each shareholder. Same figures as মাসিক হিসাব.
- */
+/** The master page: every active company's total profit side by side, filterable by shareholder. */
 export function MasterDashboardPage() {
   const { company } = useCurrentWorkspace();
   const today = useToday();
-  const current = monthOf(today).slice(0, 4);
-  const [year, setYear] = useState(current);
-  const query = useShareYear(company.id, year);
+  const [year, setYear] = useState(() => {
+    const current = today.slice(0, 4);
+    return YEARS.includes(current) ? current : (YEARS[0] ?? current);
+  });
+  const [shareholderId, setShareholderId] = useState("");
+  const query = useMasterHishabYear(company.id, year, shareholderId);
 
   return (
     <NavGate path="">
       <PageHeader title={t("nav.master.dashboard")} description={t("share.year.description")} />
-      <div className="mb-4 flex items-center gap-2 print:hidden">
-        <Button onClick={() => setYear(String(Number(year) - 1))}>{t("share.year.prev")}</Button>
-        <span className="min-w-16 text-center text-sm font-semibold tabular-nums">
-          {toBengaliDigits(year)}
-        </span>
-        <Button disabled={year >= current} onClick={() => setYear(String(Number(year) + 1))}>
-          {t("share.year.next")}
-        </Button>
+      <div className="mb-4 flex flex-wrap items-end gap-3 print:hidden">
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-xs font-medium text-text-muted">{t("share.filter.year")}</span>
+          <select
+            className={`${inputClass} w-28`}
+            value={year}
+            onChange={(event) => setYear(event.target.value)}
+          >
+            {YEARS.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-xs font-medium text-text-muted">
+            {t("share.filter.shareholder")}
+          </span>
+          <select
+            className={`${inputClass} w-48`}
+            value={shareholderId}
+            onChange={(event) => setShareholderId(event.target.value)}
+          >
+            <option value="">{t("share.filter.allShareholders")}</option>
+            {(query.data?.shareholders ?? []).map((person) => (
+              <option key={person.shareholderId} value={person.shareholderId}>
+                {person.name}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
       {query.isPending ? (
         <TableSkeleton rows={12} columns={6} />
@@ -63,47 +87,36 @@ export function MasterDashboardPage() {
   );
 }
 
-function YearGrid({ view }: { view: ShareYear }) {
-  const companyTotal = (companyId: string) =>
-    sumAmounts(view.months.map((month) => companyOf(month, companyId)?.total ?? "0"));
-  const holderIncome = (shareholderId: string) =>
-    sumAmounts(view.months.map((month) => holderOf(month, shareholderId)?.income ?? "0"));
+function companyOf(month: MasterHishabYear["months"][number], companyId: string) {
+  return month.companies.find((row) => row.companyId === companyId);
+}
 
+function YearGrid({ view }: { view: MasterHishabYear }) {
   return (
     <TableScroller>
       <table className={tableClass}>
         <thead className={theadClass}>
           <tr>
-            <th scope="col" rowSpan={2} className={`${thClass} ${stickyHead}`}>
+            <th scope="col" className={`${thClass} ${stickyHead}`}>
               {t("month.picker")}
             </th>
             {view.companies.map((company) => (
-              <th key={company.companyId} scope="col" rowSpan={2} className={thNum}>
+              <th key={company.companyId} scope="col" className={thNum}>
                 {company.companyName}
               </th>
             ))}
-            <th scope="col" rowSpan={2} className={thNum}>
-              {t("share.distributable")}
+            <th scope="col" className={thNum}>
+              {t("share.total")}
             </th>
-            <th scope="col" rowSpan={2} className={thNum}>
-              {t("share.dan")}
+            <th scope="col" className={thNum}>
+              {t("share.totalDan")}
             </th>
-            <th scope="col" rowSpan={2} className={thNum}>
-              {t("share.perUnit")}
+            <th scope="col" className={thNum}>
+              {t("share.invest")}
             </th>
-            <th scope="col" rowSpan={2} className={thNum}>
-              {t("share.totalUnits")}
+            <th scope="col" className={thNum}>
+              {t("share.profitPerLakh")}
             </th>
-            {view.shareholders.map((person) => (
-              <th key={person.shareholderId} scope="col" colSpan={2} className={thClass}>
-                <span className={person.active ? "" : "text-text-muted"}>{person.name}</span>
-              </th>
-            ))}
-          </tr>
-          <tr>
-            {view.shareholders.map((person) => (
-              <HeaderPair key={person.shareholderId} />
-            ))}
           </tr>
         </thead>
         <tbody>
@@ -114,90 +127,25 @@ function YearGrid({ view }: { view: ShareYear }) {
               </th>
               {view.companies.map((company) => (
                 <td key={company.companyId} className={tdNum}>
-                  <Money value={companyOf(month, company.companyId)?.total ?? "0.00"} />
+                  <Money value={companyOf(month, company.companyId)?.totalProfit ?? "0.00"} />
                 </td>
               ))}
               <td className={tdNum}>
-                <Money value={month.totals.distributable} />
+                <Money value={month.totalProfit} />
               </td>
               <td className={tdNum}>
-                <Money value={month.totals.dan} />
+                <Money value={month.totalDan} />
               </td>
-              <td className={tdNum}>{toBengaliDigits(month.totals.perUnit)}</td>
-              <td className={tdNum}>{toBengaliDigits(month.totals.units)}</td>
-              {view.shareholders.map((person) => {
-                const holder = holderOf(month, person.shareholderId);
-                return (
-                  <Pair
-                    key={person.shareholderId}
-                    units={holder?.units ?? "0"}
-                    income={holder?.income ?? "0.00"}
-                  />
-                );
-              })}
+              <td className={tdNum}>
+                <Money value={month.invest} />
+              </td>
+              <td className={tdNum}>
+                <Money value={month.profitPerLakh} />
+              </td>
             </tr>
           ))}
         </tbody>
-        <tfoot className="border-t-2 border-border font-semibold">
-          <tr>
-            <th scope="row" className={`${thClass} ${stickyCell}`}>
-              {t("share.year.total")}
-            </th>
-            {view.companies.map((company) => (
-              <td key={company.companyId} className={tdNum}>
-                <Money value={companyTotal(company.companyId)} />
-              </td>
-            ))}
-            <td className={tdNum}>
-              <Money value={sumAmounts(view.months.map((month) => month.totals.distributable))} />
-            </td>
-            <td className={tdNum}>
-              <Money value={sumAmounts(view.months.map((month) => month.totals.dan))} />
-            </td>
-            <td className={tdNum} />
-            <td className={tdNum} />
-            {view.shareholders.map((person) => (
-              <Pair
-                key={person.shareholderId}
-                units=""
-                income={holderIncome(person.shareholderId)}
-              />
-            ))}
-          </tr>
-        </tfoot>
       </table>
     </TableScroller>
   );
-}
-
-function HeaderPair() {
-  return (
-    <>
-      <th scope="col" className={thNum}>
-        {t("share.units")}
-      </th>
-      <th scope="col" className={thNum}>
-        {t("share.income")}
-      </th>
-    </>
-  );
-}
-
-function Pair({ units, income }: { units: string; income: string }) {
-  return (
-    <>
-      <td className={tdNum}>{units === "" ? null : toBengaliDigits(units)}</td>
-      <td className={tdNum}>
-        <Money value={income} />
-      </td>
-    </>
-  );
-}
-
-function companyOf(month: ShareYear["months"][number], companyId: string) {
-  return month.companies.find((row) => row.companyId === companyId);
-}
-
-function holderOf(month: ShareYear["months"][number], shareholderId: string) {
-  return month.shareholders.find((row) => row.shareholderId === shareholderId);
 }

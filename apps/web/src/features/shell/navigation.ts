@@ -36,7 +36,8 @@ export const navigation: readonly NavSection[] = [
     labelKey: "nav.dashboard",
     items: [
       item("", "nav.dashboard", "company.view"),
-      item("master/monthly-account", "nav.master.monthly", "company.view"),
+      item("master/company-hishab", "nav.master.companyHishab", "company.view"),
+      item("master/shareholders", "nav.master.shareholders", "company.view"),
     ],
   },
   {
@@ -116,7 +117,8 @@ export type HubId =
   | "monthEnd"
   | "setup"
   | "staff"
-  | "shares";
+  | "shares"
+  | "shareholders";
 
 type HubTab = {
   path: string;
@@ -190,16 +192,22 @@ const hubDefinitions: readonly Omit<Hub, "shortcut">[] = [
 ];
 
 /**
- * The master panel's hubs (D66, D67, D76): the dashboard, the monthly share account, and the
- * global staff; everything else lives in the companies.
+ * The master panel's hubs (D66, D67): the dashboard, Company Hishab Reports, the শেয়ারহোল্ডার
+ * module and the global staff; everything else lives in the companies.
  */
 const masterHubDefinitions: readonly Omit<Hub, "shortcut">[] = [
   { id: "dashboard", labelKey: "nav.master.dashboard", icon: "dashboard", tabs: [{ path: "" }] },
   {
     id: "shares",
-    labelKey: "nav.master.monthly",
+    labelKey: "nav.master.companyHishab",
     icon: "finance",
-    tabs: [{ path: "master/monthly-account", labelKey: "nav.master.monthly" }],
+    tabs: [{ path: "master/company-hishab", labelKey: "nav.master.companyHishab" }],
+  },
+  {
+    id: "shareholders",
+    labelKey: "nav.master.shareholders",
+    icon: "srAccounts",
+    tabs: [{ path: "master/shareholders", labelKey: "nav.master.shareholders" }],
   },
   {
     id: "staff",

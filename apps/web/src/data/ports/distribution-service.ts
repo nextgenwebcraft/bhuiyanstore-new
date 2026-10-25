@@ -24,11 +24,11 @@ import type {
   StaffLoginCreateRequest,
   MasterMonth,
   MasterSummary,
-  ShareHoldingRequest,
-  ShareMonth,
-  ShareYear,
-  SharePolicyRequest,
+  CompanyHishabYear,
+  MasterHishabYear,
+  InvestmentRequest,
   ShareholderCreateRequest,
+  ShareholderList,
   ShareholderRecord,
   ShareholderUpdateRequest,
   MoneyEntry,
@@ -195,26 +195,39 @@ export interface DistributionService {
     month: string,
     action: "close" | "reopen",
   ): Promise<MasterMonth>;
-  /** D76: company profit, দান and each shareholder's income for the month and the year. */
-  getShareMonth(companyId: string, month: string, options?: RequestOptions): Promise<ShareMonth>;
-  /** D77: the year's companies side by side, one row per month. */
-  getShareYear(companyId: string, year: string, options?: RequestOptions): Promise<ShareYear>;
+  /** Company Hishab Reports: one company's year, profit/khoroch/দান/invest per month. */
+  getCompanyHishabYear(
+    companyId: string,
+    targetCompanyId: string,
+    year: string,
+    shareholderId?: string,
+    options?: RequestOptions,
+  ): Promise<CompanyHishabYear>;
+  /** The master panel: every company's total side by side, one year. */
+  getMasterHishabYear(
+    companyId: string,
+    year: string,
+    shareholderId?: string,
+    options?: RequestOptions,
+  ): Promise<MasterHishabYear>;
+  /** The শেয়ারহোল্ডার module: every shareholder and their invest per company, for a month. */
+  listShareholders(
+    companyId: string,
+    month?: string,
+    options?: RequestOptions,
+  ): Promise<ShareholderList>;
   createShareholder(companyId: string, input: ShareholderCreateRequest): Promise<ShareholderRecord>;
   updateShareholder(
     companyId: string,
     shareholderId: string,
     input: ShareholderUpdateRequest,
   ): Promise<ShareholderRecord>;
-  saveShareHolding(
+  saveInvestment(
     companyId: string,
     shareholderId: string,
-    input: ShareHoldingRequest,
-  ): Promise<ShareholderRecord>;
-  saveSharePolicy(
-    companyId: string,
     targetCompanyId: string,
-    input: SharePolicyRequest,
-  ): Promise<{ companyId: string; danBasis: "net" | "profit" }>;
+    input: InvestmentRequest,
+  ): Promise<ShareholderRecord>;
   /** Requires `report.view` (profit also `report.profit_view`, staff balances `finance.view`). */
   getReport(
     companyId: string,

@@ -29,12 +29,12 @@ export { MASTER_COMPANY_NAME, ensureMasterCompany } from "./master";
 export { closeMonthAll, getMasterMonth, getMasterSummary, reopenMonthAll } from "./master-panel";
 export {
   createShareholder,
-  getShareMonth,
-  getShareYear,
-  saveShareHolding,
-  saveSharePolicy,
+  getCompanyHishabYear,
+  getMasterHishabYear,
+  listShareholders,
+  saveInvestment,
   updateShareholder,
-} from "./shares";
+} from "./company-hishab";
 export { cashAccounts, expenseCategories, staffRoles } from "./configuration";
 export type { AppContext, Tx } from "./context";
 export {
