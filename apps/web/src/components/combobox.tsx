@@ -291,9 +291,7 @@ export function Combobox({
           {clearLabel}
         </button>
       ) : null}
-      {open && typeof document !== "undefined"
-        ? createPortal(dropdown, document.body)
-        : null}
+      {open && typeof document !== "undefined" ? createPortal(dropdown, document.body) : null}
     </div>
   );
 }

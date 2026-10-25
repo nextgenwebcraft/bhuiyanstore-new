@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 import { sumAmounts } from "./sales";
 import { shareMonth, shareYearIncome } from "./share-month";
 
-const company = (
-  profit: string,
-  khoroch: string,
-  danBasis: "net" | "profit" = "net",
-) => ({ companyId: "c", companyName: "Pusti", profit, khoroch, danBasis });
+const company = (profit: string, khoroch: string, danBasis: "net" | "profit" = "net") => ({
+  companyId: "c",
+  companyName: "Pusti",
+  profit,
+  khoroch,
+  danBasis,
+});
 
 describe("share month (D76)", () => {
   it("takes 2% of the net, matching the Pusti sheet", () => {
