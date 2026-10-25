@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { inputClass } from "./field";
 import { Icon } from "./icons";
 import {
@@ -73,6 +74,12 @@ export function Combobox({
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
   const listRef = useRef<HTMLUListElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [dropdownRect, setDropdownRect] = useState<{ top: number; left: number; width: number }>({
+    top: 0,
+    left: 0,
+    width: 0,
+  });
   const items = useMemo(
     () => buildItems(options, text, createLabel !== undefined),
     [options, text, createLabel],
@@ -86,7 +93,27 @@ export function Combobox({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, open]);
 
+  function computePosition() {
+    if (!inputRef.current) return;
+    const r = inputRef.current.getBoundingClientRect();
+    setDropdownRect({ top: r.bottom + 4, left: r.left, width: r.width });
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    const update = () => computePosition();
+    window.addEventListener("scroll", update, true);
+    window.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("scroll", update, true);
+      window.removeEventListener("resize", update);
+    };
+    // open is the only relevant trigger
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
   function show(next: string) {
+    computePosition();
     setOpen(true);
     setActive(initialActive(buildItems(options, next, createLabel !== undefined), next));
   }
@@ -150,9 +177,84 @@ export function Combobox({
     }
   }
 
+  const dropdown = (
+    <ul
+      id={listId}
+      ref={listRef}
+      role="listbox"
+      aria-label={listLabel}
+      hidden={!open}
+      onMouseDown={(event) => event.preventDefault()}
+      style={{
+        position: "fixed",
+        top: dropdownRect.top,
+        left: dropdownRect.left,
+        minWidth: dropdownRect.width,
+        zIndex: 9999,
+      }}
+      className="max-h-64 w-max max-w-[min(36rem,calc(100vw-2rem))] overflow-y-auto rounded-lg border border-border bg-surface py-1 shadow-raised"
+    >
+      {items.length === 0 ? (
+        <li role="presentation" className="px-3 py-2 text-sm text-text-muted">
+          {emptyLabel}
+        </li>
+      ) : null}
+      {items.map((item, index) => {
+        const isActive = index === active;
+        const base = `flex min-h-(--touch-target) cursor-pointer items-center justify-between gap-3 px-3 py-1.5 ${
+          isActive ? "bg-surface-hover" : ""
+        }`;
+        if (item.kind === "create") {
+          return (
+            <li
+              key="create"
+              id={optionId(index)}
+              role="option"
+              aria-selected={false}
+              onClick={() => choose(item)}
+              className={`${base} border-t border-border font-semibold text-text`}
+            >
+              {createLabel?.(item.text)}
+            </li>
+          );
+        }
+        const { option } = item;
+        return (
+          <li
+            key={option.id}
+            id={optionId(index)}
+            role="option"
+            aria-selected={option.id === selectedId}
+            onClick={() => choose(item)}
+            className={base}
+          >
+            <span className="min-w-0">
+              <span className="block font-semibold break-words">{option.label}</span>
+              {option.secondary ? (
+                <span className="block text-xs break-words whitespace-normal text-text-muted">
+                  {option.secondary}
+                </span>
+              ) : null}
+            </span>
+            {option.trailing ? (
+              <span
+                className={`shrink-0 text-sm font-medium tabular-nums ${
+                  option.tone === "danger" ? "text-error" : "text-text-muted"
+                }`}
+              >
+                {option.trailing}
+              </span>
+            ) : null}
+          </li>
+        );
+      })}
+    </ul>
+  );
+
   return (
     <div className="relative">
       <input
+        ref={inputRef}
         id={id}
         role="combobox"
         aria-expanded={open}
@@ -189,71 +291,9 @@ export function Combobox({
           {clearLabel}
         </button>
       ) : null}
-      <ul
-        id={listId}
-        ref={listRef}
-        role="listbox"
-        aria-label={listLabel}
-        hidden={!open}
-        // Keep focus in the input while the pointer picks a row.
-        onMouseDown={(event) => event.preventDefault()}
-        className="absolute z-20 mt-1 max-h-64 w-max max-w-[min(36rem,calc(100vw-2rem))] min-w-full overflow-y-auto rounded-lg border border-border bg-surface py-1 shadow-raised"
-      >
-        {items.length === 0 ? (
-          <li role="presentation" className="px-3 py-2 text-sm text-text-muted">
-            {emptyLabel}
-          </li>
-        ) : null}
-        {items.map((item, index) => {
-          const isActive = index === active;
-          const base = `flex min-h-(--touch-target) cursor-pointer items-center justify-between gap-3 px-3 py-1.5 ${
-            isActive ? "bg-surface-hover" : ""
-          }`;
-          if (item.kind === "create") {
-            return (
-              <li
-                key="create"
-                id={optionId(index)}
-                role="option"
-                aria-selected={false}
-                onClick={() => choose(item)}
-                className={`${base} border-t border-border font-semibold text-text`}
-              >
-                {createLabel?.(item.text)}
-              </li>
-            );
-          }
-          const { option } = item;
-          return (
-            <li
-              key={option.id}
-              id={optionId(index)}
-              role="option"
-              aria-selected={option.id === selectedId}
-              onClick={() => choose(item)}
-              className={base}
-            >
-              <span className="min-w-0">
-                <span className="block font-semibold break-words">{option.label}</span>
-                {option.secondary ? (
-                  <span className="block text-xs break-words whitespace-normal text-text-muted">
-                    {option.secondary}
-                  </span>
-                ) : null}
-              </span>
-              {option.trailing ? (
-                <span
-                  className={`shrink-0 text-sm font-medium tabular-nums ${
-                    option.tone === "danger" ? "text-error" : "text-text-muted"
-                  }`}
-                >
-                  {option.trailing}
-                </span>
-              ) : null}
-            </li>
-          );
-        })}
-      </ul>
+      {open && typeof document !== "undefined"
+        ? createPortal(dropdown, document.body)
+        : null}
     </div>
   );
 }
