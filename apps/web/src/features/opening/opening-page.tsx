@@ -414,12 +414,13 @@ function BalanceRow({
     () =>
       shops
         .filter((s) => !usedShopIds.has(s.id))
-        .map((s) => ({
-          id: s.id,
-          label: s.name,
-          secondary: [s.area, s.phone].filter(Boolean).join(" · ") || undefined,
-          searchText: [s.area, s.phone].filter(Boolean) as string[],
-        })),
+        .map((s): ComboboxOption => {
+          const secondary = [s.area, s.phone].filter(Boolean).join(" · ");
+          const searchText = [s.area, s.phone].filter(Boolean) as string[];
+          return secondary
+            ? { id: s.id, label: s.name, secondary, searchText }
+            : { id: s.id, label: s.name, searchText };
+        }),
     [shops, usedShopIds],
   );
 
