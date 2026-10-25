@@ -1,0 +1,29 @@
+id: 2026-10-25-shareholder-investments
+reason: >-
+  Owner 2026-10-25 (D88) - replaces D76/D77's unit-based shareholder model with invest-amount
+  and profit-per-lakh, renames মাসিক হিসাব to Company Hishab Reports, moves it off the master
+  dashboard to its own page, adds a শেয়ারহোল্ডার CRUD module, and rebuilds the master panel's
+  own page around the same invest/profitPerLakh figures. Drops the D76 per-company দান-basis
+  override: দান is always 2% of the net.
+owners: [domain, contracts, application, database, web, i18n, docs]
+changes:
+  - packages/database - drops shareholder_holding, company_share_policy; adds shareholder_investment (shareholderId, companyId, fromMonth, amount); migration 20261025010000_shareholder_investments
+  - packages/domain company-hishab.ts (replaces share-month.ts) - companyHishabMonth (profit, khoroch, দান always 2% of net, totalProfit), danOf, profitPerLakh, investShare (a shareholder's exact taka share of totalProfit, proportional to their invest against everyone's combined invest; the rate it implies always equals profitPerLakh(totalProfit, totalInvest))
+  - packages/contracts company-hishab.ts (replaces shares.ts) - shareholder, investment entry/batch request/list, companyHishabYear, masterHishabYear schemas; both year schemas gained shareholderProfit per month
+  - packages/application company-hishab.ts (replaces shares.ts) - listShareholders, createShareholder, updateShareholder, saveInvestments (batch, one transaction per shareholder), getCompanyHishabYear, getMasterHishabYear. Fixed: profitPerLakh is now always totalProfit over everyone's combined invest (not the selected shareholder's own invest alone), so the rate shown no longer balloons for a shareholder whose invest is a small slice of the total; shareholderProfit is their exact proportional share of totalProfit.
+  - apps/web API - company-hishab-years/{year}, master-hishab-years/{year}, shareholders (list+create), shareholders/{id} (update), shareholders/{id}/investments (replaces share-months, share-years, share-policies, shareholders/{id}/holdings; PUT takes every company's amount for one shareholder as one batch, not one request per company)
+  - apps/web - master hub renamed/split: Company Hishab Reports (master/company-hishab: company filter row, year select 2026-2040, shareholder filter, 12-month table, new শেয়ারহোল্ডারের প্রফিট column) and a new শেয়ারহোল্ডার hub (master/shareholders: CRUD + per-company invest grid, row Edit/Save batches every company's amount into one request); master dashboard (master/company-hishab's sibling "" path) rebuilt with every company's totalProfit, totalProfit, totalDan, শেয়ারহোল্ডারের প্রফিট, invest, profitPerLakh
+  - docs - D88
+affectedActionIds: []
+financialImpact: >-
+  A statement only, same as D76/D77. Company profit, cash, stock and payroll are unchanged. দান,
+  invest and profitPerLakh are derived at read time and are not posted. The migration drops the
+  old unit-based শেয়ার data (shareholder_holding, company_share_policy) outright, per the owner's
+  explicit instruction to remove that model entirely; any units or দান-basis choices already
+  recorded in a live environment are lost and are not migrated to invest amounts.
+backfill: none; shareholders and their invest amounts are re-entered through the new শেয়ারহোল্ডার module
+tests:
+  - pnpm check:types, pnpm lint, pnpm test (315 passed)
+  - pnpm test:integration (company-hishab)
+rollout: deploy the app and apply the migration
+recovery: revert the commit; the dropped tables held no production data

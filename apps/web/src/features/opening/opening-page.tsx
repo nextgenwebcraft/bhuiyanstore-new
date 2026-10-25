@@ -390,7 +390,7 @@ function BalanceRow({
       const name = staff.find((s) => s.id === line.staffId)?.name;
       if (name) setStaffText(name);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [staff]);
 
   useEffect(() => {
@@ -398,7 +398,7 @@ function BalanceRow({
       const s = shops.find((s) => s.id === line.shopId);
       if (s) setShopText(s.name);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shops]);
 
   const staffOptions = useMemo<ComboboxOption[]>(
@@ -407,7 +407,13 @@ function BalanceRow({
   );
 
   const usedShopIds = useMemo(
-    () => new Set(allLines.filter((_, i) => i !== index).map((l) => l.shopId).filter(Boolean)),
+    () =>
+      new Set(
+        allLines
+          .filter((_, i) => i !== index)
+          .map((l) => l.shopId)
+          .filter(Boolean),
+      ),
     [allLines, index],
   );
   const shopOptions = useMemo<ComboboxOption[]>(
@@ -519,11 +525,7 @@ function BalanceRow({
       )}
       {!opening.locked && (
         <td className={tdClass}>
-          <button
-            type="button"
-            className="text-xs text-error hover:underline"
-            onClick={onRemove}
-          >
+          <button type="button" className="text-xs text-error hover:underline" onClick={onRemove}>
             ×
           </button>
         </td>

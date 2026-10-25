@@ -39,8 +39,13 @@ export function MasterPanelCard() {
 }
 
 /** The company switcher's menu item for the master panel. */
-export function MasterPanelMenuItem({ onSelect }: { onSelect: () => void }) {
-  const href = useMasterHref();
+export function MasterPanelMenuItem({
+  onSelect,
+  href,
+}: {
+  onSelect: () => void;
+  href: string | null;
+}) {
   if (!href) return null;
   return (
     <Link

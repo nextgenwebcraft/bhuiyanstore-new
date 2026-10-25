@@ -79,13 +79,13 @@ export {
 } from "./month/sales-profit";
 export {
   DAN_RATE,
-  shareMonth,
-  shareYearIncome,
-  type DanBasis,
-  type ShareCompanyInput,
-  type ShareHolderInput,
-  type ShareMonthResult,
-} from "./share-month";
+  companyHishabMonth,
+  danOf,
+  investShare,
+  profitPerLakh,
+  type CompanyFigures,
+  type CompanyHishabRow,
+} from "./company-hishab";
 export {
   MONEY_KIND_EFFECTS,
   STAFF_COST_SIGN,

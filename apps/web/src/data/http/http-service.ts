@@ -14,8 +14,9 @@ import {
   openingSchema,
   masterMonthSchema,
   masterSummarySchema,
-  shareMonthSchema,
-  shareYearSchema,
+  companyHishabYearSchema,
+  masterHishabYearSchema,
+  shareholderListSchema,
   shareholderSchema,
   monthCloseResultSchema,
   monthViewSchema,
@@ -407,10 +408,29 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
         `${company(companyId)}/master-months/${id(month)}/${action}`,
         write("POST", {}),
       ),
-    getShareMonth: (companyId, month, options) =>
-      request(shareMonthSchema, `${company(companyId)}/share-months/${id(month)}`, options),
-    getShareYear: (companyId, year, options) =>
-      request(shareYearSchema, `${company(companyId)}/share-years/${id(year)}`, options),
+    getCompanyHishabYear: (companyId, targetCompanyId, year, shareholderId, options) => {
+      const params = new URLSearchParams({ targetCompanyId });
+      if (shareholderId) params.set("shareholderId", shareholderId);
+      return request(
+        companyHishabYearSchema,
+        `${company(companyId)}/company-hishab-years/${id(year)}?${params.toString()}`,
+        options,
+      );
+    },
+    getMasterHishabYear: (companyId, year, shareholderId, options) => {
+      const params = new URLSearchParams();
+      if (shareholderId) params.set("shareholderId", shareholderId);
+      const search = params.toString();
+      return request(
+        masterHishabYearSchema,
+        `${company(companyId)}/master-hishab-years/${id(year)}${search ? `?${search}` : ""}`,
+        options,
+      );
+    },
+    listShareholders: (companyId, month, options) => {
+      const search = month ? `?${new URLSearchParams({ month }).toString()}` : "";
+      return request(shareholderListSchema, `${company(companyId)}/shareholders${search}`, options);
+    },
     createShareholder: (companyId, input) =>
       request(shareholderSchema, `${company(companyId)}/shareholders`, write("POST", input)),
     updateShareholder: (companyId, shareholderId, input) =>
@@ -419,16 +439,10 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
         `${company(companyId)}/shareholders/${id(shareholderId)}`,
         write("PUT", input),
       ),
-    saveShareHolding: (companyId, shareholderId, input) =>
+    saveInvestments: (companyId, shareholderId, input) =>
       request(
         shareholderSchema,
-        `${company(companyId)}/shareholders/${id(shareholderId)}/holdings`,
-        write("PUT", input),
-      ),
-    saveSharePolicy: (companyId, targetCompanyId, input) =>
-      request(
-        z.object({ companyId: z.string(), danBasis: z.enum(["net", "profit"]) }),
-        `${company(companyId)}/share-policies/${id(targetCompanyId)}`,
+        `${company(companyId)}/shareholders/${id(shareholderId)}/investments`,
         write("PUT", input),
       ),
     getReport: (companyId, report, range, options) =>

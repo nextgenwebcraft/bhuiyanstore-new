@@ -88,10 +88,29 @@ export const queryKeys = {
     ] as const,
   masterMonth: (actorId: string, companyId: string, month: string) =>
     [...companyResource(actorId, companyId, resourceIds.ledger), "masterMonth", month] as const,
-  shareMonth: (actorId: string, companyId: string, month: string) =>
-    [...companyResource(actorId, companyId, resourceIds.shareMonth), month] as const,
-  shareYear: (actorId: string, companyId: string, year: string) =>
-    [...companyResource(actorId, companyId, resourceIds.shareMonth), "year", year] as const,
+  companyHishabYear: (
+    actorId: string,
+    companyId: string,
+    targetCompanyId: string,
+    year: string,
+    shareholderId: string,
+  ) =>
+    [
+      ...companyResource(actorId, companyId, resourceIds.shareMonth),
+      "company",
+      targetCompanyId,
+      year,
+      shareholderId,
+    ] as const,
+  masterHishabYear: (actorId: string, companyId: string, year: string, shareholderId: string) =>
+    [
+      ...companyResource(actorId, companyId, resourceIds.shareMonth),
+      "master",
+      year,
+      shareholderId,
+    ] as const,
+  shareholders: (actorId: string, companyId: string, month: string) =>
+    [...companyResource(actorId, companyId, resourceIds.shareMonth), "list", month] as const,
   masterWorkspace: (actorId: string) =>
     [...queryKeys.actor(actorId), "master", resourceIds.companyWorkspace] as const,
   payrollRun: (actorId: string, companyId: string, month: string) =>
