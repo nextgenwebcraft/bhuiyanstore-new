@@ -365,8 +365,8 @@ function BalanceRow({
   // null = showing the selected name (re-derived once staff/shops load); a string = user editing.
   const [staffDraft, setStaffDraft] = useState<string | null>(null);
   const [shopDraft, setShopDraft] = useState<string | null>(null);
-  const staffText = staffDraft ?? (selectedStaff?.name ?? "");
-  const shopText = shopDraft ?? (selectedShop?.name ?? "");
+  const staffText = staffDraft ?? selectedStaff?.name ?? "";
+  const shopText = shopDraft ?? selectedShop?.name ?? "";
   const [kindText, setKindText] = useState(BALANCE_KIND_LABEL[line.kind] ?? line.kind);
 
   const staffOptions = useMemo<ComboboxOption[]>(

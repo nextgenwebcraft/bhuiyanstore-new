@@ -109,7 +109,6 @@ export function Combobox({
       window.removeEventListener("resize", update);
     };
     // open is the only relevant trigger
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   function show(next: string) {
