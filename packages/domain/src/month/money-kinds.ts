@@ -12,8 +12,11 @@ export type MoneyKindEffect = {
   /** A second balance moved by the same entry (salary recovery also settles salary payable). */
   staffAlso?: { balance: keyof StaffBalances; direction: 1 | -1 };
   expense?: "category" | "salary" | "srIncentive";
-  /** Lowers what we owe the company: a bank deposit (D19) or a cash incentive (D33). */
-  company?: "deposit" | "incentive";
+  /**
+   * Lowers what we owe the company: a bank deposit (D19), a cash incentive (D33) or a rebate
+   * claim (D105, same effect as incentive, its own statement line).
+   */
+  company?: "deposit" | "incentive" | "rebate";
   /**
    * Cash and bank book (D52) for kinds that do not move the daily cash left: a supplier deposit
    * leaves an account (-1); a transfer leaves one account and enters another.
@@ -91,6 +94,8 @@ export const MONEY_KIND_EFFECTS: Readonly<Record<MoneyKind, MoneyKindEffect>> = 
   cashTransfer: { cash: 0, book: "transfer", requiresStaff: false },
   /** Incentive the company credits to our account in money (D33): no cash, no profit effect. */
   companyIncentive: { cash: 0, company: "incentive", requiresStaff: false },
+  /** D105: a rebate claimed from the company; same effect as companyIncentive, own statement line. */
+  rebateClaim: { cash: 0, company: "rebate", requiresStaff: false },
 };
 
 /**

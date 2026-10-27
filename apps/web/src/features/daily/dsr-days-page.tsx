@@ -9,7 +9,15 @@ import type {
   MoneyEntry,
   StaffRecord,
 } from "@bsd/contracts";
-import { dsrCashSettlement, salesProfit, sumAmounts, sumQuantities, toDecimal } from "@bsd/domain";
+import {
+  dsrCashSettlement,
+  salesProfit,
+  sumAmounts,
+  sumQuantities,
+  toBaseQuantity,
+  toCartonDisplay,
+  toDecimal,
+} from "@bsd/domain";
 import { useAsyncAction } from "@/lib/async-action";
 import { formatCount, formatDateTime, formatRate, t } from "@bsd/i18n";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -28,6 +36,7 @@ import {
   useStaffRecords,
 } from "@/data/queries";
 import { ShopDueEntry } from "@/features/shops/shop-due-entry";
+import { OperatingCostEntry } from "./operating-cost-entry";
 import { SrCashEntry } from "./sr-cash-entry";
 import { StaffCashEntry } from "./staff-cash-entry";
 import { FieldReportCard } from "./field-report-card";
@@ -182,35 +191,23 @@ function allocationText(allocations: LineAllocation[]): string {
     .join(", ");
 }
 
-const isNumber = (value: string) => /^\d+(\.\d+)?$/.test(value);
-
 /** Net pieces issued for a line (issued − returned − damaged); used for remaining stock display. */
-function netOf(line: LineDraft): ReturnType<typeof toDecimal> {
-  return toDecimal(whole(line.issuedPieces))
-    .sub(toDecimal(whole(line.returnedPieces)))
+function netOf(line: LineDraft, size: string): ReturnType<typeof toDecimal> {
+  const issued = toBaseQuantity(whole(line.issuedCartons), whole(line.issuedPieces), size);
+  const returned = toBaseQuantity(whole(line.returnedCartons), whole(line.returnedPieces), size);
+  return toDecimal(issued)
+    .sub(toDecimal(returned))
     .sub(toDecimal(whole(line.damaged)));
 }
 
 /**
- * The other field of a linked carton/piece pair (D69, owner 2026-10-22: both show the same
- * quantity; pieces are what is saved): pieces = cartons × size, cartons = pieces ÷ size. Blank
- * gives blank; null when the typed value is not a number yet.
+ * A saved total (D89) as its carton and loose-piece fields for editing: whole cartons plus the
+ * remainder, each blank when zero.
  */
-function linkedValue(value: string, size: string, from: "cartons" | "pieces"): string | null {
-  const typed = clean(value);
-  if (typed === "") return "";
-  if (!isNumber(typed)) return null;
-  const scaled =
-    from === "cartons"
-      ? toDecimal(typed).mul(toDecimal(size))
-      : toDecimal(typed).div(toDecimal(size)).toDecimalPlaces(4);
-  return scaled.toFixed();
-}
-
-/** A saved quantity as its carton and piece fields. */
-function split(pieces: string, size: string): [string, string] {
-  if (pieces === "0") return ["", ""];
-  return [linkedValue(pieces, size, "pieces") ?? "", pieces];
+function split(total: string, size: string): [string, string] {
+  if (total === "0") return ["", ""];
+  const { cartons, loosePieces } = toCartonDisplay(total, size);
+  return [cartons === "0" ? "" : cartons, loosePieces === "0" ? "" : loosePieces];
 }
 
 const priceText = (value: string | null) =>
@@ -258,12 +255,31 @@ function linesOf(draft: SheetDraft, product: Product, view: DayView): LineDraft[
   });
 }
 
-/** Pieces of one line (the piece fields; cartons only mirror them), or null when not whole. */
-function piecesOf(line: LineDraft) {
-  const parts = [line.issuedPieces, line.returnedPieces, line.damaged].map(whole);
+/**
+ * A line's issued/returned totals (D89: cartons × size + loose pieces, each entered on its own)
+ * and damaged pieces, or null when any field is not a whole number.
+ */
+function piecesOf(line: LineDraft, size: string) {
+  const parts = [
+    line.issuedCartons,
+    line.issuedPieces,
+    line.returnedCartons,
+    line.returnedPieces,
+    line.damaged,
+  ].map(whole);
   if (!parts.every(isWhole)) return null;
-  const [issued, returned, damaged] = parts as [string, string, string];
-  return { issued, returned, damaged };
+  const [issuedCartons, issuedPieces, returnedCartons, returnedPieces, damaged] = parts as [
+    string,
+    string,
+    string,
+    string,
+    string,
+  ];
+  return {
+    issued: toBaseQuantity(issuedCartons, issuedPieces, size),
+    returned: toBaseQuantity(returnedCartons, returnedPieces, size),
+    damaged,
+  };
 }
 
 function requestOf(
@@ -277,7 +293,7 @@ function requestOf(
   for (const product of view.products) {
     const seen = new Set<string>();
     for (const d of linesOf(draft, product, view)) {
-      const pieces = piecesOf(d);
+      const pieces = piecesOf(d, product.piecesPerCarton);
       if (!pieces) return t("validation.wholeNumber");
       const commission = clean(d.commission) || "0";
       if (!isAmount(commission)) return t("validation.opening.amount");
@@ -335,18 +351,36 @@ function costOf(
   return batch?.costPrice ?? product.costPrice ?? "0";
 }
 
+/** One line's sale amount: pieces sold × its price − commission. */
+function lineAmount(l: DsrDaySaveRequest["lines"][number], view: DayView): string {
+  const sold = toDecimal(l.issued).sub(toDecimal(l.returned)).sub(toDecimal(l.damaged));
+  return sold
+    .mul(toDecimal(saleOf(l, view)))
+    .sub(toDecimal(l.commission ?? "0"))
+    .toString();
+}
+
 /** Pieces sold × the line's price − commission, before posting (the engine owns the posted figure). */
 function previewSales(lines: DsrDaySaveRequest["lines"], view: DayView): string {
-  return sumAmounts([
-    "0",
-    ...lines.map((l) => {
-      const sold = toDecimal(l.issued).sub(toDecimal(l.returned)).sub(toDecimal(l.damaged));
-      return sold
-        .mul(toDecimal(saleOf(l, view)))
-        .sub(toDecimal(l.commission ?? "0"))
-        .toString();
-    }),
-  ]);
+  return sumAmounts(["0", ...lines.map((l) => lineAmount(l, view))]);
+}
+
+/**
+ * বিক্রি (টাকা), per product: samari − firot only (D92) — issued − returned pieces × price, with
+ * damage and commission left out. Every other figure on this page keeps the full calculation.
+ */
+function salariFirotAmounts(lines: DsrDaySaveRequest["lines"], view: DayView): Map<string, string> {
+  const byProduct = new Map<string, string[]>();
+  for (const l of lines) {
+    const sold = toDecimal(l.issued).sub(toDecimal(l.returned));
+    const amount = sold.mul(toDecimal(saleOf(l, view))).toString();
+    const amts = byProduct.get(l.productId) ?? [];
+    amts.push(amount);
+    byProduct.set(l.productId, amts);
+  }
+  return new Map(
+    [...byProduct].map(([productId, amts]) => [productId, sumAmounts(["0", ...amts])]),
+  );
 }
 
 /** The seq of a line's batch, for "the last batch issued" (D68). */
@@ -383,7 +417,7 @@ function FieldEntries({
   );
   const mismatch = (kind: "returned" | "damaged") =>
     field.products.some((p) => {
-      const lines = (draft.lines[p.productId] ?? []).map((d) => piecesOf(d));
+      const lines = (draft.lines[p.productId] ?? []).map((d) => piecesOf(d, p.piecesPerCarton));
       if (lines.some((l) => l === null)) return true;
       const pieces = sumQuantities(["0", ...lines.map((l) => l?.[kind] ?? "0")]);
       const expected = kind === "returned" ? p.remaining : p.exchanged;
@@ -600,6 +634,9 @@ function SheetEditor({
     view.persons.filter((p) => p.staffId === staff.id).map((p) => [p.productId, p.allocations]),
   );
   const entered = typeof built === "string" ? [] : built.lines;
+  // বিক্রি (টাকা): samari − firot only (D92), always from the sheet's own lines.
+  const salariFirot = salariFirotAmounts(entered, view);
+  const salariFirotAmount = (productId: string) => salariFirot.get(productId) ?? "0";
   const fieldDay = useDsrFieldDay(
     companyId,
     staff.id,
@@ -658,7 +695,7 @@ function SheetEditor({
         );
         if (options.length === 0) continue;
         const issued = own.filter((l) => {
-          const pieces = piecesOf(l);
+          const pieces = piecesOf(l, size);
           return pieces !== null && pieces.issued !== "0";
         });
         const target = (issued.length ? issued : own).reduce((best, l) =>
@@ -784,23 +821,9 @@ function SheetEditor({
   }
 
   type QuantityField = Exclude<keyof LineDraft, "id" | "batchKey" | "salePrice" | "costPrice">;
-  const PAIR = {
-    issuedCartons: ["issuedPieces", "cartons"],
-    issuedPieces: ["issuedCartons", "pieces"],
-    returnedCartons: ["returnedPieces", "cartons"],
-    returnedPieces: ["returnedCartons", "pieces"],
-  } as const;
-  /** Typing in a carton or piece field fills the other of its pair. */
-  const change = (productId: string, line: LineDraft, field: QuantityField, value: string) => {
-    if (!(field in PAIR)) return setLine(productId, line.id, { [field]: value });
-    const [other, from] = PAIR[field as keyof typeof PAIR];
-    const size = view.products.find((p) => p.productId === productId)?.piecesPerCarton ?? "1";
-    const linked = linkedValue(value, size, from);
-    setLine(productId, line.id, {
-      [field]: value,
-      ...(linked === null ? {} : { [other]: linked }),
-    });
-  };
+  // D89: cartons and loose pieces are entered independently; neither fills the other.
+  const change = (productId: string, line: LineDraft, field: QuantityField, value: string) =>
+    setLine(productId, line.id, { [field]: value });
   const cell = (
     productId: string,
     line: LineDraft,
@@ -867,11 +890,9 @@ function SheetEditor({
                   {t("dsr.sheet.costPrice")}
                 </th>
               ) : null}
-              {posted ? (
-                <th scope="col" rowSpan={2} className={`${thNum} align-bottom`}>
-                  {t("dsr.sheet.engineAmount")}
-                </th>
-              ) : null}
+              <th scope="col" rowSpan={2} className={`${thNum} align-bottom`}>
+                {t("dsr.sheet.engineAmount")}
+              </th>
               <th
                 scope="col"
                 rowSpan={2}
@@ -910,12 +931,17 @@ function SheetEditor({
               // No batch (no stock, none used today): nothing can be issued from this product.
               const noStock = options.length === 0;
               const off = locked || noStock;
-              const productNet = lines.reduce((sum, l) => sum.add(netOf(l)), toDecimal("0"));
+              const productNet = lines.reduce(
+                (sum, l) => sum.add(netOf(l, product.piecesPerCarton)),
+                toDecimal("0"),
+              );
               const productRemaining = toDecimal(product.stock).sub(productNet);
               return lines.map((line, index) => {
                 const first = index === 0;
                 const batch = options.find((o) => o.key === line.batchKey);
-                const batchRemaining = batch ? toDecimal(batch.quantity).sub(netOf(line)) : null;
+                const batchRemaining = batch
+                  ? toDecimal(batch.quantity).sub(netOf(line, product.piecesPerCarton))
+                  : null;
                 const name = `${product.productName}${batch ? ` ${batchName(batch)}` : ""}`;
                 return (
                   <tr
@@ -1068,11 +1094,9 @@ function SheetEditor({
                         />
                       </td>
                     ) : null}
-                    {posted ? (
-                      <td className={tdNum}>
-                        {first ? money(amounts.get(product.productId) ?? "0") : null}
-                      </td>
-                    ) : null}
+                    <td className={tdNum}>
+                      {first ? money(salariFirotAmount(product.productId)) : null}
+                    </td>
                     <td className={`${tdNum} border-l border-border`}>
                       {first ? (
                         <div className="flex flex-col items-end gap-0.5">
@@ -1104,7 +1128,7 @@ function SheetEditor({
         </div>
       ) : null}
       <p className="text-xs text-text-muted">
-        {t("dsr.sheet.hint")} {t("dsr.sheet.batchHint")}
+        {t("godown.quantityHint")} {t("dsr.sheet.hint")} {t("dsr.sheet.batchHint")}
       </p>
       {field ? (
         <FieldEntries
@@ -1124,6 +1148,7 @@ function SheetEditor({
       />
       <StaffCashEntry companyId={companyId} staffId={staff.id} date={date} dsrs={dsrChoices} />
       <SrCashEntry companyId={companyId} staffId={staff.id} date={date} />
+      <OperatingCostEntry companyId={companyId} date={date} />
       <CashCheck
         {...cash}
         handedOver={draft.handedOver}

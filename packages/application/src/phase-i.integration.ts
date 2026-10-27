@@ -236,7 +236,6 @@ describe("D51 starter dataset", () => {
         pieces: l.pieces,
         unitCost: l.productId === product.id ? "19" : l.unitCost,
         salePrice: l.salePrice,
-        orderPrice: l.orderPrice,
         dueFromCompany: l.dueFromCompany,
         note: l.note,
       })),

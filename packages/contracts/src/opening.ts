@@ -76,7 +76,6 @@ export const openingStockLineSchema = z.object({
   pieces: piecesSchema.nullable(),
   unitCost: unitPriceSchema.nullable(),
   salePrice: unitPriceSchema.nullable(),
-  orderPrice: unitPriceSchema.nullable(),
   dueFromCompany: wholeNumberStringSchema("validation.opening.due").nullable(),
   note: z.string(),
 });
@@ -181,7 +180,6 @@ const stockSaveLine = openingStockLineSchema.pick({
   pieces: true,
   unitCost: true,
   salePrice: true,
-  orderPrice: true,
   dueFromCompany: true,
   note: true,
 });

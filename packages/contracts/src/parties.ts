@@ -67,6 +67,8 @@ export const staffRecordSchema = z.object({
   status: z.enum(recordStatuses),
   /** The field-panel sign-in linked to this person (D40); null = none. */
   loginEmail: z.string().nullable(),
+  /** D93: the company their salary is paid from/by, not necessarily where they work today. */
+  companyId: idSchema,
   assignments: z.array(staffAssignmentSchema),
 });
 
@@ -78,6 +80,8 @@ export const staffUpsertRequestSchema = z.object({
   status: z.enum(recordStatuses),
   /** Omitted on an update leaves the saved mobile unchanged; blank clears it. */
   phone: z.string().trim().max(40).optional(),
+  /** D93: the master panel sets this explicitly; a company's own staff create sends its own id. */
+  companyId: idSchema,
 });
 
 export type StaffUpsertRequest = z.infer<typeof staffUpsertRequestSchema>;

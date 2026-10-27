@@ -44,23 +44,23 @@ model LegalEntity {
 }
 
 model Company {
-  id                     String            @id @default(cuid())
-  tenantId               String            @map("tenant_id")
-  legalEntityId          String            @map("legal_entity_id")
+  id                     String                  @id @default(cuid())
+  tenantId               String                  @map("tenant_id")
+  legalEntityId          String                  @map("legal_entity_id")
   name                   String
-  themePrimary           String            @map("theme_primary")
-  themePrimaryForeground String            @map("theme_primary_foreground")
-  themeAccent            String?           @map("theme_accent")
-  logoRef                String?           @map("logo_ref")
+  themePrimary           String                  @map("theme_primary")
+  themePrimaryForeground String                  @map("theme_primary_foreground")
+  themeAccent            String?                 @map("theme_accent")
+  logoRef                String?                 @map("logo_ref")
   /// D34: refuse postings that take a product's stock below zero.
-  blockNegativeStock     Boolean           @default(false) @map("block_negative_stock")
+  blockNegativeStock     Boolean                 @default(false) @map("block_negative_stock")
   /// D66: the tenant's hidden master company (one per tenant, partial unique index in SQL).
-  isMaster               Boolean           @default(false) @map("is_master")
-  status                 String            @default("active")
-  createdAt              DateTime          @default(now()) @map("created_at")
-  updatedAt              DateTime          @updatedAt @map("updated_at")
-  tenant                 Tenant            @relation(fields: [tenantId], references: [id])
-  legalEntity            LegalEntity       @relation(fields: [legalEntityId], references: [id])
+  isMaster               Boolean                 @default(false) @map("is_master")
+  status                 String                  @default("active")
+  createdAt              DateTime                @default(now()) @map("created_at")
+  updatedAt              DateTime                @updatedAt @map("updated_at")
+  tenant                 Tenant                  @relation(fields: [tenantId], references: [id])
+  legalEntity            LegalEntity             @relation(fields: [legalEntityId], references: [id])
   modules                CompanyModule[]
   memberships            Membership[]
   products               Product[]
@@ -78,6 +78,8 @@ model Company {
   damageCases            DamageCase[]
   damageEvents           DamageEvent[]
   shareholderInvestments ShareholderInvestment[]
+  /// D93: people whose salary this company pays, not necessarily where they currently work.
+  homeStaff              Staff[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -268,6 +270,7 @@ model Product {
   fieldLines   FieldVisitLine[]
   reportLines  FieldDayReportLine[]
   batches      ProductBatch[]
+  moneyEntries MoneyEntry[]
 
   @@unique([companyId, sku])
   @@index([tenantId, companyId])
@@ -383,11 +386,14 @@ model Staff {
   employer        String
   phone           String?
   status          String               @default("active")
+  /// D93: the company salary is paid from/by; every person has exactly one (not where they work).
+  companyId       String               @map("company_id")
   /// D40: the person's own login (field panel); NULL = no login.
   userId          String?              @unique @map("user_id")
   createdAt       DateTime             @default(now()) @map("created_at")
   updatedAt       DateTime             @updatedAt @map("updated_at")
   tenant          Tenant               @relation(fields: [tenantId], references: [id])
+  company         Company              @relation(fields: [companyId], references: [id])
   user            User?                @relation(fields: [userId], references: [id], onDelete: SetNull)
   shopsAdded      Shop[]               @relation("ShopAddedBy")
   fieldVisits     FieldVisit[]
@@ -400,6 +406,7 @@ model Staff {
   damageCases     DamageCase[]
 
   @@index([tenantId])
+  @@index([companyId])
   @@map("staff")
 }
 
@@ -499,7 +506,6 @@ model OpeningStockLine {
   pieces         Decimal?       @db.Decimal(20, 6)
   unitCost       Decimal?       @map("unit_cost") @db.Decimal(20, 6)
   salePrice      Decimal?       @map("sale_price") @db.Decimal(20, 6)
-  orderPrice     Decimal?       @map("order_price") @db.Decimal(20, 6)
   dueFromCompany Decimal?       @map("due_from_company") @db.Decimal(20, 6)
   note           String         @default("")
   session        OpeningSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
@@ -742,6 +748,9 @@ model MoneyEntry {
   /// D35: the shop of a market due entry.
   shopId            String?          @map("shop_id")
   expenseCategoryId String?          @map("expense_category_id")
+  /// D105: the product a company incentive or rebate claim is tagged to, for the statement; no
+  /// other kind sets it.
+  productId         String?          @map("product_id")
   /// Named parts of a repayment, offset or salary recovery (NULL = advance → loan → shortage).
   allocAdvance      Decimal?         @map("alloc_advance") @db.Decimal(20, 2)
   allocLoan         Decimal?         @map("alloc_loan") @db.Decimal(20, 2)
@@ -766,6 +775,7 @@ model MoneyEntry {
   staff             Staff?           @relation(fields: [staffId], references: [id], onDelete: Restrict)
   shop              Shop?            @relation(fields: [shopId], references: [id], onDelete: Restrict)
   expenseCategory   ExpenseCategory? @relation(fields: [expenseCategoryId], references: [id], onDelete: Restrict)
+  product           Product?         @relation(fields: [productId], references: [id], onDelete: Restrict)
   payrollRun        PayrollRun?      @relation(fields: [payrollRunId], references: [id], onDelete: Restrict)
   dsrDay            DsrDay?          @relation(fields: [dsrDayId], references: [id], onDelete: Restrict)
   cashAccount       CashAccount?     @relation("MoneyEntryAccount", fields: [cashAccountId], references: [id], onDelete: Restrict)
@@ -778,6 +788,7 @@ model MoneyEntry {
   @@index([shopId])
   @@index([payrollRunId])
   @@index([dsrDayId])
+  @@index([productId])
   @@map("money_entry")
 }
 
@@ -936,6 +947,7 @@ model Shareholder {
   updatedAt   DateTime                @updatedAt @map("updated_at")
   tenant      Tenant                  @relation(fields: [tenantId], references: [id])
   investments ShareholderInvestment[]
+  payouts     ShareholderPayout[]
 
   @@unique([tenantId, name])
   @@map("shareholder")
@@ -955,4 +967,17 @@ model ShareholderInvestment {
 
   @@unique([shareholderId, companyId, fromMonth])
   @@map("shareholder_investment")
+}
+
+/// D94: a shareholder marked paid for one month on the master panel; a missing row = not paid.
+model ShareholderPayout {
+  id            String      @id @default(cuid())
+  shareholderId String      @map("shareholder_id")
+  month         String
+  paidAt        DateTime    @default(now()) @map("paid_at")
+  paidById      String      @map("paid_by_id")
+  shareholder   Shareholder @relation(fields: [shareholderId], references: [id], onDelete: Cascade)
+
+  @@unique([shareholderId, month])
+  @@map("shareholder_payout")
 }

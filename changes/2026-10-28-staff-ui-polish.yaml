@@ -1,0 +1,24 @@
+id: 2026-10-28-staff-ui-polish
+reason: >-
+  Owner 2026-10-28, from a screenshot of আমাদের স্টাফ: remove বেতন ও খরচ's
+  now-redundant খরচ tab (D100, follows D98), show each person's home company
+  on their card (D101), and move the master panel's কোম্পানি hub to the end
+  of the sidebar (D102, amends D91).
+owners: [web, i18n]
+changes:
+  - >-
+    apps/web navigation.ts: finance/expenses removed from the nav registry and the ledgers hub's
+    tabs; app/c/[companyId]/finance/expenses route deleted; features/daily/money-page.tsx
+    (MoneyEntriesPage) deleted as it had no other caller
+  - >-
+    apps/web staff-page.tsx Staff(): looks up each record's home company name (useWorkspaces,
+    same pattern as AssignmentList) and shows it next to নিয়োগকারী/status on the card
+  - >-
+    apps/web navigation.ts masterHubDefinitions: companies hub moved to the end, after staff
+  - packages/i18n no new keys; nav.finance.expenses/money.description.expenses are now unused
+affectedActionIds: []
+financialImpact: none - UI only; the removed screen's one money kind (staffCostPaid) has no entry screen now
+backfill: none
+tests: pnpm test (318/318, incl. updated navigation.test.ts), pnpm --filter @bsd/web exec tsc --noEmit, eslint
+rollout: deploy the app; no migration
+recovery: revert the commit

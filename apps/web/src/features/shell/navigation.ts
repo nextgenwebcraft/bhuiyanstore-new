@@ -38,6 +38,7 @@ export const navigation: readonly NavSection[] = [
       item("", "nav.dashboard", "company.view"),
       item("master/company-hishab", "nav.master.companyHishab", "company.view"),
       item("master/shareholders", "nav.master.shareholders", "company.view"),
+      item("master/companies", "nav.master.companies", "company.view"),
     ],
   },
   {
@@ -83,7 +84,6 @@ export const navigation: readonly NavSection[] = [
       item("finance/company-account", "nav.finance.companyAccount", "finance.view"),
       item("finance/cash-book", "nav.finance.cashBook", "finance.view"),
       item("finance/supplier-deposits", "finance.supplierDeposit", "finance.view"),
-      item("finance/expenses", "nav.finance.expenses", "finance.view"),
     ],
   },
   {
@@ -117,6 +117,7 @@ export type HubId =
   | "monthEnd"
   | "setup"
   | "staff"
+  | "companies"
   | "shares"
   | "shareholders";
 
@@ -172,7 +173,6 @@ const hubDefinitions: readonly Omit<Hub, "shortcut">[] = [
     icon: "reports",
     tabs: [
       { path: "finance/cash-book" },
-      { path: "finance/expenses" },
       { path: "dsr/salary-recovery", labelKey: "nav.flow.payroll" },
     ],
   },
@@ -192,8 +192,8 @@ const hubDefinitions: readonly Omit<Hub, "shortcut">[] = [
 ];
 
 /**
- * The master panel's hubs (D66, D67): the dashboard, Company Hishab Reports, the শেয়ারহোল্ডার
- * module and the global staff; everything else lives in the companies.
+ * The master panel's hubs (D66, D67, D90): the dashboard, company add/edit/delete, Company Hishab
+ * Reports, the শেয়ারহোল্ডার module and the global staff; everything else lives in the companies.
  */
 const masterHubDefinitions: readonly Omit<Hub, "shortcut">[] = [
   { id: "dashboard", labelKey: "nav.master.dashboard", icon: "dashboard", tabs: [{ path: "" }] },
@@ -214,6 +214,12 @@ const masterHubDefinitions: readonly Omit<Hub, "shortcut">[] = [
     labelKey: "nav.master.staff",
     icon: "srAccounts",
     tabs: [{ path: "masters/staff", labelKey: "nav.master.staff" }],
+  },
+  {
+    id: "companies",
+    labelKey: "nav.master.companies",
+    icon: "masters",
+    tabs: [{ path: "master/companies", labelKey: "nav.master.companies" }],
   },
 ];
 

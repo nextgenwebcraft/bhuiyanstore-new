@@ -7,7 +7,6 @@ const line = (productId: string, overrides: Partial<OpeningCheckInput["stock"][n
   pieces: "100",
   unitCost: "23.48",
   salePrice: "25",
-  orderPrice: "23",
   dueFromCompany: "0",
   ...overrides,
 });

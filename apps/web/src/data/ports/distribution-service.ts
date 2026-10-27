@@ -29,6 +29,7 @@ import type {
   InvestmentsRequest,
   ShareholderCreateRequest,
   ShareholderList,
+  ShareholderPayoutRequest,
   ShareholderRecord,
   ShareholderUpdateRequest,
   MoneyEntry,
@@ -88,6 +89,8 @@ export interface DistributionService {
   createCompany(input: CompanyCreateRequest): Promise<CompanyWorkspace>;
   /** Full replace; requires `company.manage`. Turning the stock block on needs no negative stock. */
   updateCompany(companyId: string, input: CompanyUpsertRequest): Promise<CompanyWorkspace>;
+  /** Super-admin only; hard delete of a company with no activity at all (D90), else refused. */
+  deleteCompany(companyId: string): Promise<void>;
   /** Fails with COMPANY_NOT_FOUND for unknown and inaccessible companies alike. */
   getWorkspace(companyId: string, options?: RequestOptions): Promise<CompanyWorkspace>;
   /** Requires `product.view` in the company. */
@@ -228,6 +231,8 @@ export interface DistributionService {
     shareholderId: string,
     input: InvestmentsRequest,
   ): Promise<ShareholderRecord>;
+  /** D94: marks or unmarks one shareholder's one month as paid on the master panel. */
+  setShareholderPayout(companyId: string, input: ShareholderPayoutRequest): Promise<void>;
   /** Requires `report.view` (profit also `report.profit_view`, staff balances `finance.view`). */
   getReport(
     companyId: string,

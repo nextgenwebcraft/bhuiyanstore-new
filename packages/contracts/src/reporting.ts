@@ -2,7 +2,11 @@ import { z } from "zod";
 import { monthStatuses } from "./month";
 import { businessDateSchema, decimalStringSchema, idSchema } from "./primitives";
 
-/** One DSR's day: what they sold, collected and left due on the market. */
+/**
+ * One DSR's day (or range): what they sold, collected and left due on the market, plus D69's
+ * sales chain for just this person (issuedValue through totalSales; salesProfit needs
+ * `inventory.cost_view` and `report.profit_view`, same as the dashboard total).
+ */
 export const dsrDayRowSchema = z.object({
   dsrId: idSchema,
   dsrName: z.string(),
@@ -10,6 +14,12 @@ export const dsrDayRowSchema = z.object({
   salesCash: decimalStringSchema,
   marketDueCreated: decimalStringSchema,
   oldDuesCollected: decimalStringSchema,
+  issuedValue: decimalStringSchema,
+  returnValue: decimalStringSchema,
+  damageSaleValue: decimalStringSchema,
+  commission: decimalStringSchema,
+  totalSales: decimalStringSchema,
+  salesProfit: decimalStringSchema.optional(),
 });
 
 export type DsrDayRow = z.infer<typeof dsrDayRowSchema>;

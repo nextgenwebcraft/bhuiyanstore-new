@@ -75,6 +75,7 @@ export {
   moneyAllocationKinds,
   moneyCategoryKinds,
   moneyEntryKinds,
+  moneyProductKinds,
   owedAllocationSchema,
   moneyKindPermission,
   moneyKindPerson,
@@ -318,6 +319,7 @@ export {
   shareholderCreateRequestSchema,
   shareholderInvestmentsSchema,
   shareholderListSchema,
+  shareholderPayoutRequestSchema,
   shareholderSchema,
   shareholderUpdateRequestSchema,
   type CompanyHishabYear,
@@ -327,6 +329,7 @@ export {
   type ShareholderCreateRequest,
   type ShareholderInvestments,
   type ShareholderList,
+  type ShareholderPayoutRequest,
   type ShareholderRecord,
   type ShareholderUpdateRequest,
 } from "./company-hishab";

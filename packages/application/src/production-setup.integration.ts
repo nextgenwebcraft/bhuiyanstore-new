@@ -116,6 +116,7 @@ beforeAll(async () => {
         name,
         employer: "distributor",
         status: "active",
+        companyId: company,
         assignment: { roleId: dsr, from: "2026-01-01", to: null, monthlySalary },
       })
     ).id;

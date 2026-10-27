@@ -662,6 +662,9 @@ function buildTables(
     }
     case "company-account": {
       const c = m.companyPayable;
+      const productNames = new Map(names.products.map((p) => [p.id, p.name]));
+      const productsOf = (ids: readonly string[]) =>
+        ids.map((id) => productNames.get(id) ?? "").join(", ") || null;
       const undeliveredPieces = sumQuantities(["0", ...m.products.map((p) => p.dueFromCompany)]);
       const shown = (value: string) => (toDecimal(value).isZero() ? null : value);
       return [
@@ -713,6 +716,7 @@ function buildTables(
             col("orderDamage", "money"),
             col("undelivered", "money"),
             col("companyBalance", "money"),
+            product,
           ],
           [
             {
@@ -726,6 +730,7 @@ function buildTables(
                 orderDamage: null,
                 undelivered: c.undeliveredOpening,
                 companyBalance: balanceOf(c.opening),
+                product: null,
               },
             },
             ...companyStatement(output.companyEntries).map((e) => ({
@@ -739,6 +744,7 @@ function buildTables(
                 orderDamage: shown(e.damage),
                 undelivered: e.undelivered,
                 companyBalance: balanceOf(e.balance),
+                product: productsOf(e.productIds),
               },
             })),
           ],

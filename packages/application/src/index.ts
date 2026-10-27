@@ -20,6 +20,7 @@ export {
 } from "./administration";
 export {
   createCompany,
+  deleteCompany,
   getMasterWorkspace,
   getWorkspace,
   listWorkspaces,
@@ -33,6 +34,7 @@ export {
   getMasterHishabYear,
   listShareholders,
   saveInvestments,
+  setShareholderPayout,
   updateShareholder,
 } from "./company-hishab";
 export { cashAccounts, expenseCategories, staffRoles } from "./configuration";

@@ -235,6 +235,7 @@ describe("staff, roles and assignments", () => {
       name: "Mamun",
       employer: "distributor",
       status: "active",
+      companyId: drinko,
       assignment: { roleId: dsr.id, from: "2026-01-01", to: null, monthlySalary: null },
     };
 
@@ -276,6 +277,7 @@ describe("staff, roles and assignments", () => {
         name: "Mamun",
         employer: "supplier",
         status: "active",
+        companyId: drinko,
       }),
       "employer",
     );
@@ -313,6 +315,7 @@ describe("staff, roles and assignments", () => {
       name: "Raju",
       employer: "distributor",
       status: "active",
+      companyId: drinko,
       assignment: { roleId: dsr.id, from: "2026-01-01", to: null },
     });
     await addStaffAssignment(ctx, snacks, person.id, {
@@ -342,6 +345,7 @@ describe("staff, roles and assignments", () => {
         name: "Nope",
         employer: "distributor",
         status: "active",
+        companyId: drinko,
         assignment: { roleId: dsr.id, from: "2026-01-01", to: null },
       }),
       "FORBIDDEN",

@@ -101,6 +101,8 @@ export type CompanyHishabYear = z.infer<typeof companyHishabYearSchema>;
  * The master panel: every active company's totalProfit side by side, one year, filterable by
  * shareholder. totalDan is 2% of the combined totalProfit (not a sum of the per-company দান).
  * invest, shareholderProfit and profitPerLakh follow the same rule as Company Hishab Reports.
+ * perShareholder (D94) is every shareholder's own profit share and paid status for that month,
+ * always every shareholder regardless of the shareholderId filter above.
  */
 export const masterHishabYearSchema = z.object({
   year: hishabYearSchema,
@@ -118,7 +120,18 @@ export const masterHishabYearSchema = z.object({
       invest: decimalStringSchema,
       shareholderProfit: decimalStringSchema,
       profitPerLakh: decimalStringSchema,
+      perShareholder: z.array(
+        z.object({ shareholderId: idSchema, profit: decimalStringSchema, paid: z.boolean() }),
+      ),
     }),
   ),
 });
 export type MasterHishabYear = z.infer<typeof masterHishabYearSchema>;
+
+/** D94: marks (or unmarks) one shareholder's one month as paid on the master panel. */
+export const shareholderPayoutRequestSchema = z.object({
+  shareholderId: idSchema,
+  month: monthSchema,
+  paid: z.boolean(),
+});
+export type ShareholderPayoutRequest = z.input<typeof shareholderPayoutRequestSchema>;

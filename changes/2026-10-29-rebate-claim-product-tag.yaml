@@ -1,0 +1,42 @@
+id: 2026-10-29-rebate-claim-product-tag
+reason: >-
+  Owner 2026-10-29 (D105). কোম্পানিতে জমা's "damage জমা" kind already let the owner name a
+  product; the owner asked for the same product select on ইনসেনটিভ, a new "Rebet claim" kind
+  with the same product select, and for both the kind and the product to be clearly readable in
+  the company statement afterward.
+owners: [database, domain, contracts, application, web, i18n]
+changes:
+  - >-
+    packages/database migration 20261029020000_rebate_claim_product_tag: money_entry gains an
+    optional product_id column (FK to product, RESTRICT) and a new allowed kind value,
+    rebateClaim, in its kind CHECK constraint
+  - >-
+    packages/domain MoneyKind gains "rebateClaim" (same effect as companyIncentive: cash 0,
+    lowers what we owe the company); CompanyEntryKind gains "rebate" for its own statement line;
+    MoneyEntryInput gains productId, threaded through compute-month.ts's companyEntries push
+    (CompanyEntryResult.productId and company-statement.ts's productIds already existed
+    generically from the order/receipt path)
+  - >-
+    packages/contracts moneyEntryKinds/moneyKindPermission gain rebateClaim; new
+    moneyProductKinds = [companyIncentive, rebateClaim]; moneyEntryPostRequestSchema and
+    moneyEntrySchema gain productId/productName
+  - >-
+    packages/application daily.ts postMoneyEntry validates productId is only sent for a
+    moneyProductKinds entry and refers to an active product in the company, stores and returns it
+    (moneyInclude/toMoneyEntry); ledger.ts's rangeRun passes productId into the engine; products.ts
+    deleteProduct now also checks for money_entry references before allowing a hard delete;
+    month.ts's companyAccountStatement report gains a product column
+  - >-
+    apps/web company-deposit-page.tsx: a 4th kind, রিবেট ক্লেইম (rebateClaim); a product select
+    shown for ইনসেনটিভ/রিবেট ক্লেইম; the posted-entries table shows the product and includes
+    rebateClaim
+  - packages/i18n money.kind.rebateClaim, report.line.company.rebate, validation.daily.noProductForKind
+affectedActionIds: [payment.post]
+financialImpact: >-
+  none for existing kinds - companyIncentive's effect is unchanged (cash 0, lowers company
+  payable); rebateClaim has the identical effect, it is purely a new, separately labeled entry
+  point
+backfill: none - product_id is optional and only ever set going forward
+tests: pnpm test (318/318), pnpm --filter @bsd/domain/@bsd/contracts/@bsd/application/@bsd/web typecheck, eslint
+rollout: run pnpm db:migrate (applies 20261029020000_rebate_claim_product_tag), then deploy
+recovery: revert the commit; the migration only adds a column and a CHECK value, so no down-migration was written

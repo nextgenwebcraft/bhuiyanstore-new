@@ -1,0 +1,31 @@
+id: 2026-10-28-wipe-companies
+reason: >-
+  Owner 2026-10-28 (D97), explicit instruction with no backup requested:
+  keep only Fresh Group's full history, delete every other company and
+  everything in it, and remove every sample (নমুনা) staff/shop tenant-wide.
+owners: [application]
+changes:
+  - >-
+    packages/application one-time script scripts/wipe-companies.ts (pnpm db:wipe-companies, dry run
+    by default, --apply to write): deletes, per removed company, money_entry, damage_event,
+    damage_case, payroll_run, stock_entry, dsr_day, field_visit, field_day_report, opening_session,
+    product_batch, product, shop, supplier, staff_assignment, month_close, then the company row
+    (company_module/membership/shareholder_investment cascade); then deletes every staff/shop whose
+    name starts with নমুনা tenant-wide (dropping one opening_balance_line in Fresh Group that
+    referenced its sample shop, so the Restrict constraint didn't block it)
+affectedActionIds: []
+financialImpact: >-
+  destructive - permanently deletes 4 real companies' full financial history (Drinko: 32 products,
+  11 stock entries, 6 DSR days, 6 money entries, 1 damage case, 3 shareholder investments; Drinko
+  ডেমো similarly) plus 2 near-empty archived Drinko seeds and PUSTI T.K GROUP; no reversal record
+  kept in the database (owner's explicit choice)
+backfill: none
+tests: >-
+  dry run listed the exact 5 companies / 11 sample staff / 1 sample shop before --apply; row counts
+  re-checked at 0 (companies) / 0 (sample staff/shops) after; Fresh Group's own counts (19 products,
+  10 stock entries, 4 DSR days, 3 money entries, 1 opening, 3 shareholder investments) unchanged
+  except its one sample shop
+rollout: run once with `pnpm db:wipe-companies -- --apply` against the live database (already run)
+recovery: >-
+  none from the database itself (owner declined a kept backup); the agent took its own JSON export
+  to a local scratch file before running, as a safety margin independent of that instruction

@@ -4,6 +4,7 @@ import { ReportExportButtons, useReportDownload } from "@/features/reports/repor
 import {
   canViewReport,
   type DashboardSummary,
+  type DsrDayRow,
   type ReportId,
   type ReportRange,
 } from "@bsd/contracts";
@@ -20,7 +21,18 @@ import { StatePanel } from "@/components/state-panel";
 import { StatTile, type StatTone } from "@/components/stat-tile";
 import { errorCodeOf } from "@/data/ports/service-error";
 import { useDashboardSummary } from "@/data/queries";
-import { money } from "@/components/data-table";
+import {
+  money,
+  stickyCell,
+  stickyHead,
+  tableClass,
+  tdClass,
+  tdNum,
+  thClass,
+  thNum,
+  theadClass,
+} from "@/components/data-table";
+import { TableScroller } from "@/components/table-scroller";
 import { useStaffRowActions } from "@/features/accounts/staff-dialogs";
 import { ReportBody, SalesProfitBody } from "@/features/reports/report-view";
 import { companyHref } from "@/features/shell/navigation";
@@ -169,6 +181,65 @@ export function SummaryGroups({ d, singleDay }: { d: DashboardSummary; singleDay
       <SummaryCards cards={chainCards(d)} columns={5} />
       <SummaryCards cards={summaryCards(d, singleDay)} columns={5} />
     </>
+  );
+}
+
+/**
+ * DSR-wise sales (owner change request): the same D69 sales-chain figures as সারসংক্ষেপ's chain
+ * cards, one row per DSR instead of one company-wide total. Follows the page's own period filter.
+ */
+export function ByDsrTable({ rows }: { rows: DsrDayRow[] }) {
+  if (rows.length === 0) return null;
+  const showProfit = rows.every((r) => r.salesProfit !== undefined);
+  return (
+    <TableScroller>
+      <table className={tableClass}>
+        <thead className={theadClass}>
+          <tr>
+            <th scope="col" className={`${thClass} ${stickyHead}`}>
+              {t("staffCash.dsr")}
+            </th>
+            <th scope="col" className={thNum}>
+              {t("dashboard.card.issued")}
+            </th>
+            <th scope="col" className={thNum}>
+              {t("dashboard.card.returned")}
+            </th>
+            <th scope="col" className={thNum}>
+              {t("dashboard.card.damage")}
+            </th>
+            <th scope="col" className={thNum}>
+              {t("dashboard.card.commission")}
+            </th>
+            <th scope="col" className={thNum}>
+              {t("dashboard.card.totalSales")}
+            </th>
+            {showProfit ? (
+              <th scope="col" className={thNum}>
+                {t("dashboard.card.salesProfit")}
+              </th>
+            ) : null}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.dsrId} className="border-t border-border">
+              <th scope="row" className={`${tdClass} ${stickyCell} text-left font-medium`}>
+                {row.dsrName}
+              </th>
+              <td className={tdNum}>{money(row.issuedValue)}</td>
+              <td className={tdNum}>{money(row.returnValue)}</td>
+              <td className={tdNum}>{money(row.damageSaleValue)}</td>
+              <td className={tdNum}>{money(row.commission)}</td>
+              <td className={`${tdNum} font-semibold`}>{money(row.totalSales)}</td>
+              {showProfit ? (
+                <td className={`${tdNum} font-semibold`}>{money(row.salesProfit ?? "0")}</td>
+              ) : null}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </TableScroller>
   );
 }
 
@@ -352,6 +423,11 @@ function DashboardBody({ range }: { range: ReportRange }) {
       <Section title={t("dashboard.section.summary")}>
         <SummaryGroups d={d} singleDay={range.from === range.to} />
       </Section>
+      {d.byDsr.length > 0 ? (
+        <Section title={t("dashboard.section.byDsr")}>
+          <ByDsrTable rows={d.byDsr} />
+        </Section>
+      ) : null}
       {canReport ? <ReportSections range={range} /> : null}
     </div>
   );

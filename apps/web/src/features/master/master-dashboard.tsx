@@ -4,6 +4,7 @@ import type { MasterHishabYear } from "@bsd/contracts";
 import { formatMoney, monthNames, t } from "@bsd/i18n";
 import { useState } from "react";
 import { inputClass } from "@/components/field";
+import { Icon } from "@/components/icons";
 import {
   stickyCell,
   stickyHead,
@@ -15,11 +16,13 @@ import {
 } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { QueryError } from "@/components/query-error";
+import { StatePanel } from "@/components/state-panel";
 import { TableSkeleton } from "@/components/skeleton";
 import { TableScroller } from "@/components/table-scroller";
-import { useMasterHishabYear } from "@/data/queries";
+import { useMasterHishabYear, useSetShareholderPayout } from "@/data/queries";
 import { NavGate } from "@/features/shell/nav-gate";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
+import { useAsyncAction } from "@/lib/async-action";
 import { useToday } from "@/lib/today";
 
 const months = monthNames();
@@ -81,7 +84,10 @@ export function MasterDashboardPage() {
       ) : query.isError ? (
         <QueryError error={query.error} onRetry={() => void query.refetch()} />
       ) : (
-        <YearGrid view={query.data} />
+        <>
+          <YearGrid view={query.data} />
+          <ShareholderPayoutTable companyId={company.id} view={query.data} />
+        </>
       )}
     </NavGate>
   );
@@ -153,5 +159,95 @@ function YearGrid({ view }: { view: MasterHishabYear }) {
         </tbody>
       </table>
     </TableScroller>
+  );
+}
+
+/**
+ * D94: every shareholder's অংশীদারের প্রফিট per month, with a mark-as-paid toggle per cell (green
+ * once paid). Always every shareholder, regardless of the year grid's shareholder filter above.
+ */
+function ShareholderPayoutTable({
+  companyId,
+  view,
+}: {
+  companyId: string;
+  view: MasterHishabYear;
+}) {
+  const setPayout = useSetShareholderPayout(companyId);
+  const action = useAsyncAction();
+  const [pendingKey, setPendingKey] = useState<string | null>(null);
+
+  async function toggle(shareholderId: string, month: string, paid: boolean) {
+    const key = `${shareholderId}|${month}`;
+    setPendingKey(key);
+    // Unmarking an already-paid month needs a confirm; marking it paid does not (D94 amendment).
+    await action.run(
+      () => setPayout.mutateAsync({ shareholderId, month, paid: !paid }),
+      paid ? { confirm: "share.paid.unmarkConfirm" } : undefined,
+    );
+    setPendingKey(null);
+  }
+
+  if (view.shareholders.length === 0) return null;
+
+  return (
+    <div className="mt-8 flex flex-col gap-3">
+      <div>
+        <h2 className="text-lg font-semibold tracking-tight">{t("share.paid.title")}</h2>
+        <p className="mt-1 text-sm text-text-muted">{t("share.paid.hint")}</p>
+      </div>
+      {action.error ? <StatePanel tone="error" title={action.error} /> : null}
+      <TableScroller>
+        <table className={tableClass}>
+          <thead className={theadClass}>
+            <tr>
+              <th scope="col" className={`${thClass} ${stickyHead}`}>
+                {t("share.name")}
+              </th>
+              {view.months.map((month, index) => (
+                <th key={month.month} scope="col" className={thNum}>
+                  {months[index]}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {view.shareholders.map((holder) => (
+              <tr key={holder.shareholderId} className="border-t border-border">
+                <th scope="row" className={`${thClass} ${stickyCell} font-medium`}>
+                  {holder.name}
+                </th>
+                {view.months.map((month, index) => {
+                  const cell = month.perShareholder.find(
+                    (p) => p.shareholderId === holder.shareholderId,
+                  );
+                  const profit = cell?.profit ?? "0.00";
+                  const paid = cell?.paid ?? false;
+                  const key = `${holder.shareholderId}|${month.month}`;
+                  const isPending = pendingKey === key;
+                  return (
+                    <td key={month.month} className={`px-3 py-2 ${paid ? "bg-success/25" : ""}`}>
+                      <label className="flex items-center justify-end gap-2 tabular-nums">
+                        <Money value={profit} />
+                        {isPending ? (
+                          <Icon name="spinner" className="size-4 animate-spin text-text-muted" />
+                        ) : (
+                          <input
+                            type="checkbox"
+                            checked={paid}
+                            aria-label={`${holder.name} ${months[index]} ${t(paid ? "share.paid.unmark" : "share.paid.mark")}`}
+                            onChange={() => void toggle(holder.shareholderId, month.month, paid)}
+                          />
+                        )}
+                      </label>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </TableScroller>
+    </div>
   );
 }

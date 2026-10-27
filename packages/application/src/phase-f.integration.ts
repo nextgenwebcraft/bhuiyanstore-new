@@ -130,6 +130,7 @@ beforeAll(async () => {
         name,
         employer: "distributor",
         status: "active",
+        companyId: company,
         assignment: {
           roleId: must(roles.find((r) => r.kind === "dsr")).id,
           from: "2026-01-01",
@@ -151,7 +152,6 @@ beforeAll(async () => {
         pieces: "200",
         unitCost: "9.5",
         salePrice: "11",
-        orderPrice: "9.5",
         // D68: the received pieces arrive into the opening batch, so the opening owes them.
         dueFromCompany: "72",
         note: "",

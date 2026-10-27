@@ -280,6 +280,7 @@ export const moneyEntryKinds = [
   "supplierDeposit",
   "companyIncentive",
   "cashTransfer",
+  "rebateClaim",
 ] as const;
 
 export type MoneyEntryKind = (typeof moneyEntryKinds)[number];
@@ -345,10 +346,14 @@ export const moneyKindPermission: Record<MoneyEntryKind, PermissionId> = {
   supplierDeposit: "payment.post",
   companyIncentive: "payment.post",
   cashTransfer: "payment.post",
+  rebateClaim: "payment.post",
 };
 
 /** Kinds that need an expense category. */
 export const moneyCategoryKinds: readonly MoneyEntryKind[] = ["expense", "staffCostPaid"];
+
+/** D105: kinds that may name the product they are for (the company statement shows it). */
+export const moneyProductKinds: readonly MoneyEntryKind[] = ["companyIncentive", "rebateClaim"];
 
 /** Kinds that reduce what a person owes and may name the parts (default advance → loan → shortage). */
 export const moneyAllocationKinds: readonly MoneyEntryKind[] = [
@@ -382,6 +387,8 @@ export const moneyEntryPostRequestSchema = z
     /** Required for market due kinds (D35): the shop the due is given to or collected from. */
     shopId: idSchema.nullable().default(null),
     expenseCategoryId: idSchema.nullable().default(null),
+    /** D105: optional, only meaningful for `moneyProductKinds`. */
+    productId: idSchema.nullable().default(null),
     allocation: owedAllocationSchema.nullable().default(null),
     /** Required for SR loans and repayments (D42); null for every other kind. */
     srLoanType: z.enum(srLoanTypes).nullable().default(null),
@@ -418,6 +425,9 @@ export const moneyEntrySchema = z.object({
   shopName: z.string().nullable(),
   expenseCategoryId: idSchema.nullable(),
   categoryName: z.string().nullable(),
+  /** D105: the product a companyIncentive/rebateClaim is tagged to; null for every other kind. */
+  productId: idSchema.nullable(),
+  productName: z.string().nullable(),
   allocation: owedAllocationSchema.nullable(),
   srLoanType: z.enum(srLoanTypes).nullable(),
   /** Set when a payroll run posted the entry; it is then reversed only with the run. */

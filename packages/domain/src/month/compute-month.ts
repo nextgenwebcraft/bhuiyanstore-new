@@ -1132,6 +1132,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
           kind: effect.company,
           amount: str(amount),
           ...(entry.ref === undefined ? {} : { ref: entry.ref }),
+          ...(entry.productId === undefined ? {} : { productId: entry.productId }),
           balance: str(companyPayable),
           ...funds(),
           undelivered: str(totalDueValue()),

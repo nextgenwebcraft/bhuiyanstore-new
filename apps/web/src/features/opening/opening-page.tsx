@@ -8,12 +8,11 @@ import {
   type OpeningSectionSaveRequest,
 } from "@bsd/contracts";
 import { t, formatShortDate, toBengaliDigits } from "@bsd/i18n";
-import { useEffect, useId, useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { Combobox, type ComboboxOption } from "@/components/combobox";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/button";
 import { DatePicker } from "@/components/date-picker";
-import { inputClass } from "@/components/field";
 import { PageHeader } from "@/components/page-header";
 import { TableSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
@@ -122,7 +121,6 @@ type StockRow = {
   pieces: string;
   unitCost: string;
   salePrice: string;
-  orderPrice: string;
   dueFromCompany: string;
   note: string;
 };
@@ -135,7 +133,6 @@ function buildStockDraft(stock: Opening["stock"]): Record<string, StockRow> {
         pieces: line.pieces ?? "",
         unitCost: line.unitCost ?? "",
         salePrice: line.salePrice ?? "",
-        orderPrice: line.orderPrice ?? "",
         dueFromCompany: line.dueFromCompany ?? "",
         note: line.note,
       },
@@ -157,7 +154,6 @@ function StockSection({ opening, companyId }: { opening: Opening; companyId: str
         pieces: "",
         unitCost: "",
         salePrice: "",
-        orderPrice: "",
         dueFromCompany: "",
         note: "",
       };
@@ -178,7 +174,6 @@ function StockSection({ opening, companyId }: { opening: Opening; companyId: str
             pieces: row?.pieces || null,
             unitCost: row?.unitCost || null,
             salePrice: row?.salePrice || null,
-            orderPrice: row?.orderPrice || null,
             dueFromCompany: row?.dueFromCompany || null,
             note: row?.note ?? "",
           };
@@ -224,7 +219,6 @@ function StockSection({ opening, companyId }: { opening: Opening; companyId: str
               <th className={`${tdClass} text-right`}>{t("opening.stock.pieces")}</th>
               <th className={`${tdClass} text-right`}>{t("opening.stock.unitCost")}</th>
               <th className={`${tdClass} text-right`}>{t("opening.stock.salePrice")}</th>
-              <th className={`${tdClass} text-right`}>{t("opening.stock.orderPrice")}</th>
               <th className={`${tdClass} text-right`}>{t("opening.stock.dueFromCompany")}</th>
             </tr>
           </thead>
@@ -234,7 +228,6 @@ function StockSection({ opening, companyId }: { opening: Opening; companyId: str
                 pieces: "",
                 unitCost: "",
                 salePrice: "",
-                orderPrice: "",
                 dueFromCompany: "",
                 note: "",
               };
@@ -277,17 +270,6 @@ function StockSection({ opening, companyId }: { opening: Opening; companyId: str
                       disabled={disabled}
                       placeholder="০.০০"
                       onChange={(e) => set(line.productId, "salePrice", e.target.value)}
-                    />
-                  </td>
-                  <td className={tdClass}>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      className={inputSm}
-                      value={row.orderPrice}
-                      disabled={disabled}
-                      placeholder="০.০০"
-                      onChange={(e) => set(line.productId, "orderPrice", e.target.value)}
                     />
                   </td>
                   <td className={tdClass}>
@@ -380,26 +362,12 @@ function BalanceRow({
   const selectedStaff = staff.find((s) => s.id === line.staffId) ?? null;
   const selectedShop = shops.find((s) => s.id === line.shopId) ?? null;
 
-  const [staffText, setStaffText] = useState(selectedStaff?.name ?? "");
-  const [shopText, setShopText] = useState(selectedShop?.name ?? "");
+  // null = showing the selected name (re-derived once staff/shops load); a string = user editing.
+  const [staffDraft, setStaffDraft] = useState<string | null>(null);
+  const [shopDraft, setShopDraft] = useState<string | null>(null);
+  const staffText = staffDraft ?? (selectedStaff?.name ?? "");
+  const shopText = shopDraft ?? (selectedShop?.name ?? "");
   const [kindText, setKindText] = useState(BALANCE_KIND_LABEL[line.kind] ?? line.kind);
-
-  // Sync texts when query data loads after mount
-  useEffect(() => {
-    if (line.staffId && !staffText) {
-      const name = staff.find((s) => s.id === line.staffId)?.name;
-      if (name) setStaffText(name);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [staff]);
-
-  useEffect(() => {
-    if (line.shopId && !shopText) {
-      const s = shops.find((s) => s.id === line.shopId);
-      if (s) setShopText(s.name);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shops]);
 
   const staffOptions = useMemo<ComboboxOption[]>(
     () => staff.map((s) => ({ id: s.id, label: s.name })),
@@ -462,15 +430,15 @@ function BalanceRow({
           <Combobox
             id={`${uid}-staff`}
             text={staffText}
-            onTextChange={setStaffText}
+            onTextChange={setStaffDraft}
             options={staffOptions}
             selectedId={selectedStaff && staffText === selectedStaff.name ? selectedStaff.id : null}
             onChoose={(choice) => {
               if (choice.kind !== "option") return;
-              setStaffText(choice.option.label);
+              setStaffDraft(null);
               onSet({ staffId: choice.option.id });
             }}
-            onBlur={() => setStaffText(selectedStaff?.name ?? "")}
+            onBlur={() => setStaffDraft(null)}
             placeholder="— বেছে নিন —"
             emptyLabel="কর্মী পাওয়া যায়নি"
             listLabel="কর্মী"
@@ -484,15 +452,15 @@ function BalanceRow({
           <Combobox
             id={`${uid}-shop`}
             text={shopText}
-            onTextChange={setShopText}
+            onTextChange={setShopDraft}
             options={shopOptions}
             selectedId={selectedShop && shopText === selectedShop.name ? selectedShop.id : null}
             onChoose={(choice) => {
               if (choice.kind !== "option") return;
-              setShopText(choice.option.label);
+              setShopDraft(null);
               onSet({ shopId: choice.option.id });
             }}
-            onBlur={() => setShopText(selectedShop?.name ?? "")}
+            onBlur={() => setShopDraft(null)}
             placeholder="— বেছে নিন —"
             emptyLabel="দোকান পাওয়া যায়নি"
             listLabel="দোকান"

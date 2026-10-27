@@ -17,8 +17,8 @@ import {
 import { ensureMasterCompany } from "./master";
 import { recordAudit } from "./audit";
 import type { AppContext, Tx } from "./context";
-import { AppError, parseInput } from "./errors";
-import { isUniqueViolation, runIdempotent } from "./idempotency";
+import { AppError, invalid, parseInput } from "./errors";
+import { isForeignKeyViolation, isUniqueViolation, runIdempotent } from "./idempotency";
 import { runLedger } from "./ledger";
 import { applyStarterDataset } from "./starter-dataset";
 
@@ -162,6 +162,54 @@ export async function createCompany(
     return getWorkspace(ctx, companyId);
   } catch (error) {
     if (isUniqueViolation(error)) throw duplicateName();
+    throw error;
+  }
+}
+
+/**
+ * Hard delete of a company with no activity at all (D51's rule, applied tenant-wide: D90).
+ * Any product, supplier, shop, field visit/report, staff assignment, opening session, stock
+ * entry, DSR day, money entry, month close, payroll run or damage case/event makes it "used":
+ * refused, suggest deactivating instead. A company that is some staff's home company (D93) is
+ * also refused. The hidden master company is never deletable.
+ * Super-admin only, like create (D28).
+ */
+export async function deleteCompany(ctx: AppContext, companyId: string): Promise<void> {
+  requireSuperAdmin(ctx);
+  const access = await loadCompanyAccess(ctx, companyId);
+  if (access.company.isMaster) throw invalid("id", "validation.company.inUse");
+  try {
+    await ctx.db.$transaction(async (tx) => {
+      const counts = await Promise.all([
+        tx.product.count({ where: { companyId } }),
+        tx.supplier.count({ where: { companyId } }),
+        tx.shop.count({ where: { companyId } }),
+        tx.fieldVisit.count({ where: { companyId } }),
+        tx.fieldDayReport.count({ where: { companyId } }),
+        tx.staffAssignment.count({ where: { companyId } }),
+        tx.openingSession.count({ where: { companyId } }),
+        tx.stockEntry.count({ where: { companyId } }),
+        tx.dsrDay.count({ where: { companyId } }),
+        tx.moneyEntry.count({ where: { companyId } }),
+        tx.monthClose.count({ where: { companyId } }),
+        tx.payrollRun.count({ where: { companyId } }),
+        tx.damageCase.count({ where: { companyId } }),
+        tx.damageEvent.count({ where: { companyId } }),
+        tx.staff.count({ where: { companyId } }),
+      ]);
+      if (counts.some((n) => n > 0)) throw invalid("id", "validation.company.inUse");
+      // CompanyModule, Membership and ShareholderInvestment cascade with the company row.
+      await tx.company.delete({ where: { id: companyId } });
+      await recordAudit(tx, ctx, {
+        companyId,
+        action: "company.delete",
+        resourceType: "company",
+        resourceId: companyId,
+        before: toCompany(access.company),
+      });
+    });
+  } catch (error) {
+    if (isForeignKeyViolation(error)) throw invalid("id", "validation.company.inUse");
     throw error;
   }
 }

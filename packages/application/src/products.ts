@@ -389,6 +389,7 @@ export async function deleteProduct(
         tx.fieldVisitLine.count({ where: { productId } }),
         tx.fieldDayReportLine.count({ where: { productId } }),
         tx.damageCaseLine.count({ where: { productId } }),
+        tx.moneyEntry.count({ where: { productId } }),
       ]);
       if (refs.some((n) => n > 0)) throw productInUse();
       const opening = await releaseOpeningLines(tx, companyId, { productId });

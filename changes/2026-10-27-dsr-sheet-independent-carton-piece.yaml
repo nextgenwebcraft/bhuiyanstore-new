@@ -1,0 +1,22 @@
+id: 2026-10-27-dsr-sheet-independent-carton-piece
+reason: >-
+  Owner 2026-10-27 (D89, reverses D69(5)). On the DSR day sheet's
+  samari/firot (issued/returned) columns, typing a carton count used to
+  overwrite the piece field (and vice versa) because both mirrored one
+  total. The owner wants carton and loose-piece entered independently, as
+  the order, receipt and godown/stock screens already do: total = cartons ×
+  piecesPerCarton + loose pieces, and either field may be left blank.
+owners: [web]
+changes:
+  - >-
+    apps/web dsr-days-page.tsx: removed the carton/piece auto-fill (`change` no longer links the
+    pair); `piecesOf`/`netOf` now combine both fields with `toBaseQuantity`; loading a saved sheet
+    splits its total into cartons + remainder with `toCartonDisplay` instead of a fractional-carton
+    mirror; added the existing `godown.quantityHint` to the sheet's hint line
+  - docs/decisions.md D89 records the reversal of D69(5)
+affectedActionIds: []
+financialImpact: none - still one posted total issued/returned quantity per line; only the entry UI changed
+backfill: none
+tests: pnpm test (318/318), pnpm --filter @bsd/web exec tsc --noEmit, eslint on the changed file
+rollout: deploy the app; no migration
+recovery: revert the commit

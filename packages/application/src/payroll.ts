@@ -84,7 +84,8 @@ async function owedOn(db: Db, access: CompanyAccess, date: string): Promise<Map<
 
 /**
  * Distributor employees (not SR) assigned to the company or globally (master, D65) on some day of
- * the month, with the latest assignment's monthly salary as the payroll default (salary master).
+ * the month, whose home company is this one (D93: salary is paid company-wise, not by assignment),
+ * with the latest assignment's monthly salary as the payroll default (salary master).
  * D67: each company pays salaries from its own sales.
  */
 async function eligibleStaff(db: Db, companyId: string, month: string) {
@@ -96,7 +97,7 @@ async function eligibleStaff(db: Db, companyId: string, month: string) {
       from: { lte: to },
       OR: [{ to: null }, { to: { gte: from } }],
       role: { kind: { not: "sr" } },
-      staff: { employer: "distributor" },
+      staff: { employer: "distributor", companyId },
     },
     include: { staff: { select: { id: true, name: true } }, role: { select: { name: true } } },
     orderBy: { from: "desc" },

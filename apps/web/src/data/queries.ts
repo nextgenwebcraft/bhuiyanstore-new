@@ -25,6 +25,7 @@ import type {
   ReportRange,
   InvestmentsRequest,
   ShareholderCreateRequest,
+  ShareholderPayoutRequest,
   ShareholderUpdateRequest,
   RoleUpsertRequest,
   StaffAccountKind,
@@ -87,6 +88,16 @@ export function useUpdateCompany(companyId: string) {
         invalidateWorkspace(),
       ]);
     },
+  });
+}
+
+export function useDeleteCompany() {
+  const service = useService();
+  const actorId = useActorId();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (companyId: string) => service.deleteCompany(companyId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.workspaces(actorId) }),
   });
 }
 
@@ -425,6 +436,13 @@ export function useSaveInvestments(companyId: string) {
     [resourceIds.shareMonth],
     ({ shareholderId, input }: { shareholderId: string; input: InvestmentsRequest }) =>
       service.saveInvestments(companyId, shareholderId, input),
+  );
+}
+
+export function useSetShareholderPayout(companyId: string) {
+  const service = useService();
+  return useMasterMutation([resourceIds.shareMonth], (input: ShareholderPayoutRequest) =>
+    service.setShareholderPayout(companyId, input),
   );
 }
 

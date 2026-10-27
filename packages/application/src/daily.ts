@@ -6,6 +6,7 @@ import {
   dsrDaySchema,
   moneyAllocationKinds,
   moneyCategoryKinds,
+  moneyProductKinds,
   moneyEntryPostRequestSchema,
   moneyEntrySchema,
   moneyKindPermission,
@@ -786,6 +787,7 @@ export async function discardDsrDay(
 
 const MONEY_PERSON = moneyKindPerson;
 const CATEGORY_KINDS = new Set<MoneyEntryKind>(moneyCategoryKinds);
+const PRODUCT_KINDS = new Set<MoneyEntryKind>(moneyProductKinds);
 const ALLOCATION_KINDS = new Set<MoneyEntryKind>(moneyAllocationKinds);
 const MARKET_KINDS = new Set<MoneyEntryKind>(["marketDueNew", "marketDueCollected"]);
 const SR_LOAN_TYPE_KINDS = new Set<MoneyEntryKind>(srLoanTypeKinds);
@@ -794,6 +796,7 @@ const moneyInclude = {
   staff: { select: { name: true } },
   shop: { select: { name: true } },
   expenseCategory: { select: { name: true } },
+  product: { select: { name: true } },
 } as const;
 type MoneyRow = Prisma.MoneyEntryGetPayload<{ include: typeof moneyInclude }>;
 
@@ -809,6 +812,8 @@ function toMoneyEntry(row: MoneyRow): MoneyEntry {
     shopName: row.shop?.name ?? null,
     expenseCategoryId: row.expenseCategoryId,
     categoryName: row.expenseCategory?.name ?? null,
+    productId: row.productId,
+    productName: row.product?.name ?? null,
     allocation: allocationOf(row),
     srLoanType: row.srLoanType,
     payrollRunId: row.payrollRunId,
@@ -928,6 +933,10 @@ export async function postMoneyEntry(
         : "validation.money.noSrLoanTypeForKind",
     );
   }
+  // D105: optional even for a kind that may name a product (just not for any other kind).
+  if (request.productId && !PRODUCT_KINDS.has(request.kind)) {
+    throw invalid("productId", "validation.daily.noProductForKind");
+  }
   const allocation = request.allocation;
   if (allocation) {
     if (!ALLOCATION_KINDS.has(request.kind)) {
@@ -969,6 +978,12 @@ export async function postMoneyEntry(
           });
           if (!category) throw invalid("expenseCategoryId", "validation.daily.unknownCategory");
         }
+        if (request.productId) {
+          const product = await tx.product.findFirst({
+            where: { id: request.productId, companyId, status: "active" },
+          });
+          if (!product) throw invalid("productId", "validation.daily.unknownProduct");
+        }
         let shopId = request.shopId;
         if (request.newShop) {
           // D50: the shop typed on the due page. An exact-name match is reused, never duplicated;
@@ -1005,6 +1020,7 @@ export async function postMoneyEntry(
             staffId: request.staffId,
             shopId,
             expenseCategoryId: request.expenseCategoryId,
+            productId: request.productId,
             allocAdvance: allocation?.advance ?? null,
             allocLoan: allocation?.loan ?? null,
             allocShortage: allocation?.shortage ?? null,
@@ -1245,6 +1261,12 @@ export async function dashboardOf(
       salesCash: sum((r) => r.salesCash),
       marketDueCreated: sum((r) => r.marketDueCreated),
       oldDuesCollected: sum((r) => r.oldDuesCollected),
+      issuedValue: sum((r) => r.issuedValue),
+      returnValue: sum((r) => r.returnValue),
+      damageSaleValue: sum((r) => r.damageSaleValue),
+      commission: sum((r) => r.commission),
+      totalSales: sum((r) => r.totalSales),
+      ...(canSeeProfit ? { salesProfit: sum((r) => r.salesProfit) } : {}),
     };
   });
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { workspaceModuleIds, type WorkspaceModuleId } from "@bsd/contracts";
+import { workspaceModuleIds, type Company, type WorkspaceModuleId } from "@bsd/contracts";
 import { DEFAULT_COMPANY_THEME } from "@bsd/design-system";
 import { t } from "@bsd/i18n";
 import { useRouter } from "next/navigation";
@@ -8,19 +8,30 @@ import { useId, useState } from "react";
 import { Field, inputClass } from "@/components/field";
 import { FormDialog } from "@/components/form-dialog";
 import { describeError, type DescribedError } from "@/data/ports/service-error";
-import { useCreateCompany } from "@/data/queries";
+import { useCreateCompany, useUpdateCompany } from "@/data/queries";
 import { companyHref } from "@/features/shell/navigation";
 
-/** Super-admin: a new brand workspace with its theme and enabled modules (guide 4.3, D28). */
-export function CompanyForm({ onClose }: { onClose: () => void }) {
+/**
+ * Super-admin: a new brand workspace with its theme and enabled modules (guide 4.3, D28), or
+ * (with `company`, D90) a full replace of an existing one's name, theme and modules.
+ */
+export function CompanyForm({ company, onClose }: { company?: Company; onClose: () => void }) {
   const id = useId();
   const router = useRouter();
   const createCompany = useCreateCompany();
-  const [name, setName] = useState("");
-  const [primary, setPrimary] = useState<string>(DEFAULT_COMPANY_THEME.primary);
-  const [foreground, setForeground] = useState<string>(DEFAULT_COMPANY_THEME.primaryForeground);
-  const [modules, setModules] = useState<WorkspaceModuleId[]>([...workspaceModuleIds]);
+  const updateCompany = useUpdateCompany(company?.id ?? "");
+  const [name, setName] = useState(company?.name ?? "");
+  const [primary, setPrimary] = useState<string>(
+    company?.theme.primary ?? DEFAULT_COMPANY_THEME.primary,
+  );
+  const [foreground, setForeground] = useState<string>(
+    company?.theme.primaryForeground ?? DEFAULT_COMPANY_THEME.primaryForeground,
+  );
+  const [modules, setModules] = useState<WorkspaceModuleId[]>(
+    company?.modules ?? [...workspaceModuleIds],
+  );
   const [errors, setErrors] = useState<DescribedError>({ fields: {} });
+  const pending = company ? updateCompany.isPending : createCompany.isPending;
 
   function toggle(module: WorkspaceModuleId) {
     const next = new Set(modules);
@@ -36,15 +47,25 @@ export function CompanyForm({ onClose }: { onClose: () => void }) {
     }
     setErrors({ fields: {} });
     try {
-      const workspace = await createCompany.mutateAsync({
-        name: name.trim(),
-        theme: { primary, primaryForeground: foreground },
-        modules,
-        blockNegativeStock: false,
-        starterData: true,
-      });
-      onClose();
-      router.push(companyHref(workspace.company.id, "opening"));
+      if (company) {
+        await updateCompany.mutateAsync({
+          name: name.trim(),
+          theme: { primary, primaryForeground: foreground },
+          modules,
+          blockNegativeStock: company.blockNegativeStock,
+        });
+        onClose();
+      } else {
+        const workspace = await createCompany.mutateAsync({
+          name: name.trim(),
+          theme: { primary, primaryForeground: foreground },
+          modules,
+          blockNegativeStock: false,
+          starterData: true,
+        });
+        onClose();
+        router.push(companyHref(workspace.company.id, "opening"));
+      }
     } catch (error) {
       setErrors(describeError(error, ["name", "theme.primary", "theme.primaryForeground"]));
     }
@@ -53,9 +74,9 @@ export function CompanyForm({ onClose }: { onClose: () => void }) {
   return (
     <FormDialog
       open
-      title={t("company.form.createTitle")}
+      title={company ? `${t("common.edit")}: ${company.name}` : t("company.form.createTitle")}
       error={errors.form}
-      pending={createCompany.isPending}
+      pending={pending}
       onSubmit={() => void submit()}
       onClose={onClose}
     >
@@ -101,9 +122,11 @@ export function CompanyForm({ onClose }: { onClose: () => void }) {
       >
         {name.trim() || t("company.name")}
       </div>
-      <p className="rounded-xl border border-border bg-surface-muted/50 px-4 py-3 text-sm text-text-muted">
-        {t("company.starterDataHint")}
-      </p>
+      {company ? null : (
+        <p className="rounded-xl border border-border bg-surface-muted/50 px-4 py-3 text-sm text-text-muted">
+          {t("company.starterDataHint")}
+        </p>
+      )}
       <fieldset>
         <legend className="mb-1 text-sm font-medium">{t("company.modules")}</legend>
         <p className="mb-2 text-sm text-text-muted">{t("company.modulesHint")}</p>

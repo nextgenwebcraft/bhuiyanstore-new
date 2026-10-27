@@ -162,7 +162,6 @@ function toView(
         pieces: plain(line?.pieces ?? null),
         unitCost: plain(line?.unitCost ?? null),
         salePrice: plain(line?.salePrice ?? null),
-        orderPrice: plain(line?.orderPrice ?? null),
         dueFromCompany: plain(line?.dueFromCompany ?? null),
         note: line?.note ?? "",
       };
@@ -394,10 +393,11 @@ async function writeOpeningPrices(
   const lines = await tx.openingStockLine.findMany({ where: { sessionId } });
   let written = 0;
   for (const line of lines) {
+    // Owner 2026-10-29 (D104): no separate opening order price; ক্রয়মূল্য seeds the order price too.
     for (const [kind, price] of [
       ["cost", line.unitCost],
       ["sale", line.salePrice],
-      ["order", line.orderPrice],
+      ["order", line.unitCost],
     ] as const) {
       if (price === null) continue;
       const key = {
@@ -597,7 +597,6 @@ export async function saveOpeningSection(
             pieces: line.pieces,
             unitCost: line.unitCost,
             salePrice: line.salePrice,
-            orderPrice: line.orderPrice,
             dueFromCompany: line.dueFromCompany,
             note: line.note,
           };

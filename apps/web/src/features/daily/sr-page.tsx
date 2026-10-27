@@ -91,6 +91,7 @@ function SrAccounts() {
                             phone: record.phone,
                             employer: record.employer,
                             status: record.status,
+                            companyId: record.companyId,
                           })
                         }
                       >
@@ -118,7 +119,14 @@ function SrAccounts() {
             {canManage ? (
               <Button
                 variant="primary"
-                onClick={() => setPerson({ name: "", employer: "supplier", status: "active" })}
+                onClick={() =>
+                  setPerson({
+                    name: "",
+                    employer: "supplier",
+                    status: "active",
+                    companyId: company.id,
+                  })
+                }
               >
                 {t("sr.new")}
               </Button>
