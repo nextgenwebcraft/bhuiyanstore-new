@@ -53,7 +53,6 @@ const stockLines = (view: Opening) =>
     pieces: l.pieces,
     unitCost: l.unitCost,
     salePrice: l.salePrice,
-    orderPrice: l.orderPrice,
     dueFromCompany: l.dueFromCompany,
     note: l.note,
   }));
@@ -146,6 +145,7 @@ beforeAll(async () => {
       name: "Rohim",
       employer: "distributor",
       status: "active",
+      companyId: drinko,
       assignment: { roleId: role("dsr"), from: "2026-01-01", to: null },
     })
   ).id;
@@ -337,6 +337,7 @@ describe("Phase D: opening balances (save = live, D43)", () => {
       ).map((p) => [p.kind, p.price.toFixed(), p.source]);
     expect(await prices(alpha, "2026-11-30")).toEqual([
       ["cost", "9.5", "opening"],
+      ["order", "9.5", "opening"],
       ["sale", "12", "opening"],
     ]);
     let view = await getOpening(ctx, drinko);
@@ -348,6 +349,7 @@ describe("Phase D: opening balances (save = live, D43)", () => {
     );
     expect(await prices(alpha, "2026-11-30")).toEqual([
       ["cost", "9.5", "opening"],
+      ["order", "9.5", "opening"],
       ["sale", "13", "opening"],
     ]);
     // Moving the cutoff moves the prices with it.
@@ -358,6 +360,7 @@ describe("Phase D: opening balances (save = live, D43)", () => {
     expect(await prices(alpha, "2026-11-30")).toEqual([]);
     expect(await prices(alpha, "2026-12-01")).toEqual([
       ["cost", "9.5", "opening"],
+      ["order", "9.5", "opening"],
       ["sale", "13", "opening"],
     ]);
   });
@@ -393,8 +396,9 @@ describe("Phase D: opening balances (save = live, D43)", () => {
       version: view.version,
       cutoffDate: "2026-10-01",
     });
-    const stock = (orderPrice: string) =>
-      stockLines(view).map((l) => ({ ...l, pieces: "5", unitCost: "4", orderPrice }));
+    // D104: no separate opening order price; ক্রয়মূল্য (unitCost) seeds "order" too.
+    const stock = (unitCost: string) =>
+      stockLines(view).map((l) => ({ ...l, pieces: "5", unitCost }));
     view = await saveStock(ctx, company, view, stock("5"));
     await postStockEntries(ctx, company, {
       date: "2026-10-01",
@@ -403,11 +407,11 @@ describe("Phase D: opening balances (save = live, D43)", () => {
     });
     view = await saveStock(ctx, company, view, stock("6"));
     expect(await rows(withDay)).toEqual([
-      ["cost", "4", "opening"],
+      ["cost", "6", "opening"],
       ["order", "7.5", "manual"],
     ]);
     expect(await rows(withoutDay)).toEqual([
-      ["cost", "4", "opening"],
+      ["cost", "6", "opening"],
       ["order", "6", "opening"],
     ]);
   });
@@ -440,7 +444,6 @@ describe("Phase D: opening balances (save = live, D43)", () => {
         pieces: "10",
         unitCost: "5",
         salePrice: "6",
-        orderPrice: "5",
         dueFromCompany: "0",
         note: "",
       },

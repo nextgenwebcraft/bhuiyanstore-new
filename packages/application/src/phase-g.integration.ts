@@ -136,6 +136,7 @@ beforeAll(async () => {
         name,
         employer,
         status: "active",
+        companyId: company,
         assignment: { roleId: role(kind), from: "2026-01-01", to: null },
       })
     ).id;
@@ -163,7 +164,6 @@ beforeAll(async () => {
         pieces: "100",
         unitCost: "10",
         salePrice: "12",
-        orderPrice: "10",
         dueFromCompany: "0",
         note: "",
       },

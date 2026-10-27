@@ -1,0 +1,26 @@
+id: 2026-10-27-company-delete
+reason: >-
+  Owner 2026-10-27 (D90). The company picker had no way to remove a company
+  created by mistake; the owner asked for a delete option guarded by a
+  double-typed confirmation (a fixed phrase, then the company's own name)
+  given how irreversible deleting a whole company is.
+owners: [application, web, i18n]
+changes:
+  - >-
+    packages/application companies.ts: deleteCompany(ctx, companyId) - super-admin only, refused
+    (validation.company.inUse) if the company has any product, supplier, shop, field visit/report,
+    staff assignment, opening session, stock entry, DSR day, money entry, month close, payroll run
+    or damage case/event, or if it is the hidden master company; otherwise hard-deletes (company_module,
+    membership and shareholder_investment cascade) and records an audit event
+  - apps/web DELETE /api/v1/companies/{companyId} route, deleteCompany on the HTTP/mock adapters and useDeleteCompany
+  - >-
+    apps/web new DeleteCompanyDialog (company-picker) - warning text plus two fields that must
+    exactly match the fixed phrase and the company name before the delete button enables; wired
+    onto each company card's delete button (super-admin only); FormDialog gained submitDisabled
+  - packages/i18n company.delete.*, validation.company.inUse
+affectedActionIds: [company.delete]
+financialImpact: none - delete is refused unless the company has zero activity
+backfill: none
+tests: pnpm test (318/318), pnpm --filter @bsd/web exec tsc --noEmit, pnpm --filter @bsd/application typecheck, eslint
+rollout: deploy the app; no migration
+recovery: revert the commit

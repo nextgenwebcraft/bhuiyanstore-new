@@ -186,6 +186,7 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
     createCompany: (input) => request(companyWorkspaceSchema, "/companies", write("POST", input)),
     updateCompany: (companyId, input) =>
       request(companyWorkspaceSchema, company(companyId), write("PUT", input)),
+    deleteCompany: (companyId) => request(z.undefined(), company(companyId), remove()),
     getWorkspace: (companyId, options) =>
       request(companyWorkspaceSchema, company(companyId), options),
     listProducts: (companyId, options) =>
@@ -443,6 +444,12 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
       request(
         shareholderSchema,
         `${company(companyId)}/shareholders/${id(shareholderId)}/investments`,
+        write("PUT", input),
+      ),
+    setShareholderPayout: (companyId, input) =>
+      request(
+        z.undefined(),
+        `${company(companyId)}/master-shareholder-payouts`,
         write("PUT", input),
       ),
     getReport: (companyId, report, range, options) =>

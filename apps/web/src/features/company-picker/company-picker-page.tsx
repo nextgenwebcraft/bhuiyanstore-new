@@ -18,12 +18,14 @@ import { ConnectionBanner } from "@/features/shell/connection-banner";
 import { MasterPanelCard } from "@/features/master/master-link";
 import { companyHref, FIELD_PATH } from "@/features/shell/navigation";
 import { CompanyForm } from "./company-form";
+import { DeleteCompanyDialog } from "./delete-company-dialog";
 
 export function CompanyPickerPage() {
   const workspaces = useWorkspaces();
   const session = useSession();
   const canCreate = session?.me.isSuperAdmin === true;
   const [creating, setCreating] = useState(false);
+  const [deleting, setDeleting] = useState<{ id: string; name: string } | null>(null);
   const router = useRouter();
   const only = workspaces.data?.length === 1 ? workspaces.data[0] : undefined;
   const fieldTarget =
@@ -49,7 +51,7 @@ export function CompanyPickerPage() {
     body = (
       <ul className="grid gap-3 sm:grid-cols-2">
         {workspaces.data.map(({ company, permissions }) => (
-          <li key={company.id}>
+          <li key={company.id} className="relative">
             <Link
               href={companyHref(company.id, isFieldOnly(permissions) ? FIELD_PATH : "")}
               className="group flex min-h-20 items-center gap-4 rounded-xl border border-border bg-surface p-4 shadow-card transition-all hover:-translate-y-0.5 hover:border-border-strong hover:shadow-raised"
@@ -63,6 +65,14 @@ export function CompanyPickerPage() {
                 className="size-4 text-text-subtle transition-transform group-hover:translate-x-0.5 group-hover:text-text-muted"
               />
             </Link>
+            {canCreate ? (
+              <Button
+                className="absolute top-2 right-2 px-2 py-1 text-xs text-error"
+                onClick={() => setDeleting({ id: company.id, name: company.name })}
+              >
+                {t("common.delete")}
+              </Button>
+            ) : null}
           </li>
         ))}
       </ul>
@@ -90,6 +100,9 @@ export function CompanyPickerPage() {
           ) : null}
         </header>
         {creating ? <CompanyForm onClose={() => setCreating(false)} /> : null}
+        {deleting ? (
+          <DeleteCompanyDialog company={deleting} onClose={() => setDeleting(null)} />
+        ) : null}
         <MasterPanelCard />
         {body}
       </main>

@@ -1,0 +1,24 @@
+id: 2026-10-27-dsr-sheet-display-fixes
+reason: >-
+  Owner 2026-10-27, two reports on দৈনিক বিক্রয় হিসাব (sales/daily-summaries).
+  (1) বিক্রি (টাকা) only appeared on the sheet after posting; the owner wants
+  it visible always. (2) ডিএসআরের অগ্রিম ও শর্ট (StaffCashEntry) listed only
+  the DSR picked in its own form, because the form is for entering one DSR's
+  money, not for filtering the list below it; the owner wants that list to
+  show every DSR's entries for the day.
+owners: [web]
+changes:
+  - >-
+    apps/web dsr-days-page.tsx: বিক্রি (টাকা) column header and cell render unconditionally; added
+    lineAmount/previewAmounts to compute a live per-product preview from the draft's entered lines
+    before posting, falling back to the engine's posted amount once posted and unchanged
+  - >-
+    apps/web staff-cash-entry.tsx: the day's entries query drops the staffId filter so it lists
+    every DSR's staffAdvance/staffShortage/staffAbsent/staffRepayment entries for the date, not
+    only the DSR selected in the entry form above it; added a DSR/name column to the table
+affectedActionIds: []
+financialImpact: none - display only; no posted figure or money-entry scope changed
+backfill: none
+tests: pnpm test (318/318), pnpm --filter @bsd/web exec tsc --noEmit, eslint
+rollout: deploy the app; no migration
+recovery: revert the commit

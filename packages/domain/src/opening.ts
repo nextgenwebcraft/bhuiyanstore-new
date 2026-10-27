@@ -51,7 +51,6 @@ export type OpeningStockInput = {
   pieces: string | null;
   unitCost: string | null;
   salePrice: string | null;
-  orderPrice: string | null;
   dueFromCompany: string | null;
   /** D68: the stored opening batch of the product (its key and number), when there is one. */
   batch?: { key: string; seq: number } | null;
@@ -231,8 +230,8 @@ export function toMonthOpening(input: OpeningCheckInput): MonthOpening {
             ],
           }
         : {}),
-      ...(line.orderPrice !== null ? { orderPrice: line.orderPrice } : {}),
-      ...(line.unitCost !== null ? { costPrice: line.unitCost } : {}),
+      // Owner 2026-10-29: no separate opening order price; ক্রয়মূল্য seeds both (D104).
+      ...(line.unitCost !== null ? { orderPrice: line.unitCost, costPrice: line.unitCost } : {}),
       ...(line.salePrice !== null ? { salePrice: line.salePrice } : {}),
     };
   }

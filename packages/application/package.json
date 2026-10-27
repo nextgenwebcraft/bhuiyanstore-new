@@ -10,7 +10,9 @@
   "scripts": {
     "typecheck": "tsc --noEmit -p .",
     "load-cartons": "tsx src/scripts/load-cartons.ts",
-    "seed-demo": "node --max-old-space-size=8192 --import tsx src/scripts/seed-demo.ts"
+    "seed-demo": "node --max-old-space-size=8192 --import tsx src/scripts/seed-demo.ts",
+    "zero-staff-balances": "tsx src/scripts/zero-staff-balances.ts",
+    "wipe-companies": "tsx src/scripts/wipe-companies.ts"
   },
   "dependencies": {
     "@bsd/auth": "workspace:*",

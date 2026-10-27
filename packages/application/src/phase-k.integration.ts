@@ -81,6 +81,7 @@ beforeAll(async () => {
       name: "Mamun",
       employer: "distributor",
       status: "active",
+      companyId: company,
       assignment: {
         roleId: must(roles.find((r) => r.kind === "dsr")).id,
         from: "2026-01-01",
@@ -96,7 +97,6 @@ beforeAll(async () => {
         pieces: "100",
         unitCost: "10",
         salePrice: "12",
-        orderPrice: "10",
         dueFromCompany: "0",
         note: "",
       },

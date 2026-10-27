@@ -128,6 +128,8 @@ const paths = {
       <circle cx="12" cy="18.5" r="1.25" fill="currentColor" />
     </>
   ),
+  /** An open ring; pair with `animate-spin` for a loading spinner. */
+  spinner: <path d="M12 3.5a8.5 8.5 0 1 0 8.5 8.5" />,
 } as const;
 
 export type IconName = keyof typeof paths;

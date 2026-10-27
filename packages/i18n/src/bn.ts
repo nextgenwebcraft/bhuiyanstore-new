@@ -21,6 +21,11 @@ export const bn = {
   "company.primaryForeground": "প্রধান রঙের উপর লেখার রং",
   "company.modules": "চালু মডিউল",
   "company.modulesHint": "মূল তথ্য ও প্রশাসন সবসময় থাকে। পরে বদলানো যাবে।",
+  "company.delete.warning":
+    "এই কোম্পানি স্থায়ীভাবে মুছে ফেলা হবে; এটি ফিরিয়ে আনা যাবে না। এতে পণ্য, দোকান, কর্মী নিয়োগ, মজুদ, দৈনিক হিসাব বা অন্য কোনো লেনদেন থাকলে মোছা যাবে না। চালিয়ে যেতে নিচের দুটি ঘরে ঠিক ঠিক লিখুন।",
+  "company.delete.phrase": "delete my company",
+  "company.delete.phraseLabel": "নিশ্চিত করতে হুবহু লিখুন",
+  "company.delete.nameLabel": "কোম্পানির নাম লিখুন",
 
   "demo.user": "ডেমো ব্যবহারকারী",
   "demo.reset": "ডেমো রিসেট",
@@ -152,6 +157,9 @@ export const bn = {
   "validation.company.duplicateName": "এই নামে কোম্পানি আগে থেকেই আছে",
   "validation.company.negativeStockNow":
     "কিছু পণ্যের মজুদ এখন শূন্যের নিচে; আগে পণ্য গ্রহণ এন্ট্রি দিয়ে মজুদ ঠিক করুন",
+  "validation.company.inUse":
+    "এই কোম্পানিতে পণ্য, দোকান, কর্মী নিয়োগ, মজুদ, দৈনিক হিসাব বা অন্য লেনদেন আছে, তাই মোছা যাবে না।",
+  "validation.company.unknown": "এই কোম্পানি পাওয়া যায়নি",
   "validation.product.duplicateSku": "এই এসকেইউ ইতিমধ্যে ব্যবহৃত হয়েছে",
   "validation.product.unknown": "পণ্যটি পাওয়া যায়নি",
   "validation.product.packHasHistory":
@@ -282,6 +290,7 @@ export const bn = {
   "validation.daily.kindRetired": "এই ধরনের এন্ট্রি আর দেওয়া যায় না",
   "validation.daily.categoryRequired": "খরচের খাত বেছে নিন",
   "validation.daily.noCategoryForKind": "এই ধরনের সাথে খরচের খাত দেওয়া যায় না",
+  "validation.daily.noProductForKind": "এই ধরনের সাথে পণ্য দেওয়া যায় না",
   "validation.daily.staffNotAssigned": "এই তারিখে তিনি এই কোম্পানিতে দায়িত্বে নেই",
   "validation.daily.srOnly": "এই তারিখে তিনি এই কোম্পানির এসআর নন",
   "validation.daily.notForSr": "এসআরের হিসাব এসআর পাতায় দিন",
@@ -368,6 +377,7 @@ export const bn = {
   "nav.hub.setup": "সেটআপ",
   "nav.master": "মাস্টার প্যানেল",
   "nav.master.dashboard": "মাস্টার প্যানেল",
+  "nav.master.companies": "কোম্পানি",
   "nav.master.staff": "আমাদের স্টাফ",
   "nav.master.companyHishab": "কোম্পানি হিসাব রিপোর্ট",
   "nav.master.shareholders": "অংশীদার",
@@ -396,6 +406,11 @@ export const bn = {
   "share.deactivate": "বন্ধ করুন",
   "share.activate": "চালু করুন",
   "share.holders": "অংশীদার",
+  "share.paid.title": "অংশীদারদের পেমেন্ট",
+  "share.paid.hint": "ঘরে ক্লিক করে মাস অনুযায়ী অংশীদারের প্রফিট পেইড হিসেবে চিহ্নিত করুন।",
+  "share.paid.mark": "পেইড করুন",
+  "share.paid.unmark": "পেইড বাতিল করুন",
+  "share.paid.unmarkConfirm": "এই মাসের পেমেন্ট পেইড হিসেবে চিহ্নিত ছিল। আনপেইড করবেন?",
   "share.amount": "ইনভেস্ট",
   "share.fromMonth": "যে মাস থেকে",
   "validation.share.amount": "সঠিক পরিমাণ দিন (০ বা তার বেশি)",
@@ -676,6 +691,9 @@ export const bn = {
   "staff.form.createTitle": "নতুন কর্মী যোগ করুন",
   "staff.form.editTitle": "কর্মীর তথ্য এডিট করুন",
   "staff.phone": "মোবাইল",
+  "staff.homeCompany": "কোম্পানি",
+  "staff.homeCompanyHint":
+    "যে কোম্পানি থেকে এই কর্মীর বেতন দেওয়া হয়; বেতনের শিটে শুধু এই কোম্পানির আন্ডারে দেখাবে।",
   "staff.employer": "নিয়োগকারী",
   "staff.employer.distributor": "ডিস্ট্রিবিউটর",
   "staff.employer.supplier": "কোম্পানি / সরবরাহকারী",
@@ -828,7 +846,6 @@ export const bn = {
   "opening.stock.pieces": "পিস",
   "opening.stock.unitCost": "ক্রয়মূল্য / পিস",
   "opening.stock.salePrice": "বিক্রয়মূল্য / পিস",
-  "opening.stock.orderPrice": "অর্ডার মূল্য / পিস",
   "opening.stock.dueFromCompany": "কোম্পানি থেকে পাওনা পিস",
   "opening.save": "সেভ করুন",
   "opening.done": "সম্পন্ন",
@@ -1054,6 +1071,7 @@ export const bn = {
   "dsr.sheet.correctConfirm":
     "পোস্ট করা শিটটি সংশোধন করবেন? আগের শিট ও তার ঘাটতি/বাড়তি, দোকানের বাকি বাতিল হয়ে নতুন হিসাব পোস্ট হবে।",
   "dsr.sheet.history": "বাতিল ও সংশোধিত আগের শিট",
+  "dsr.operatingCost.title": "খরচ (অপারেটিং কস্ট)",
   "dsr.cash.title": "দিনশেষে নগদ মিলানো",
   "dsr.cash.sales": "বিক্রি",
   "dsr.cash.dueGiven": "নতুন বাকি দিয়েছে",
@@ -1100,6 +1118,7 @@ export const bn = {
   "money.kind.srPayment": "এসআরকে পরিশোধ",
   "money.kind.supplierDeposit": "কোম্পানিতে জমা",
   "money.kind.companyIncentive": "কোম্পানির ইনসেনটিভ (টাকা)",
+  "money.kind.rebateClaim": "রিবেট ক্লেইম",
   "money.kind.cashTransfer": "তহবিল স্থানান্তর (পুরোনো)",
   "validation.money.dsrDayOwned":
     "এই ঘাটতি/বাড়তি ডিএসআর শিট থেকে এসেছে; শিট বাতিল করলে এটিও বাতিল হবে",
@@ -1121,7 +1140,7 @@ export const bn = {
   "money.marketOutstanding": "বাজারে মোট বাকি",
   "money.unassigned": "ডিএসআর ছাড়া",
   "money.description.market": "ডিএসআর অনুযায়ী বাজারের বাকি, আদায় ও নতুন বাকি।",
-  "money.description.expenses": "দোকানের খরচ ও কর্মীর খরচ, খাত অনুযায়ী।",
+  "money.description.expenses": "কর্মীর খরচ প্রদান, খাত অনুযায়ী।",
   "money.description.supplierDeposit":
     "কোম্পানিতে জমা, কোম্পানির টাকার ইনসেনটিভ ও ড্যামেজ জমা — তিনটিতেই কোম্পানিতে জমা (ব্যালান্স) বাড়ে; শুধু অর্ডার দিলে কমে।",
   "deposit.kind.damageDeposit": "ড্যামেজ জমা",
@@ -1460,6 +1479,7 @@ export const bn = {
   "report.line.company.receipt": "মাল গ্রহণ",
   "report.line.company.deposit": "কোম্পানিতে জমা",
   "report.line.company.incentive": "কোম্পানির ইনসেনটিভ (টাকা)",
+  "report.line.company.rebate": "রিবেট ক্লেইম",
   "report.line.company.damageRefund": "ড্যামেজ বাবদ ফেরত",
   "report.table.companyAccountSummary": "কোম্পানির সাথে হিসাবের সারাংশ",
   "report.table.companyAccountStatement": "কোম্পানির সাথে লেনদেনের ইতিহাস",

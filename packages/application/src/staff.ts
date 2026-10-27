@@ -42,6 +42,7 @@ type StaffRow = {
   employer: string;
   phone: string | null;
   status: string;
+  companyId: string;
   assignments: AssignmentRow[];
   user: { email: string } | null;
 };
@@ -70,6 +71,7 @@ function toRecord(row: StaffRow, visible: Set<string>): StaffRecord {
     phone: row.phone ?? "",
     status: row.status,
     loginEmail: row.user?.email ?? null,
+    companyId: row.companyId,
     assignments: row.assignments
       .filter((a) => visible.has(a.companyId))
       .map((a) => ({
@@ -286,6 +288,11 @@ export async function createStaff(
       if (role.kind === "sr" && assignment.monthlySalary !== null) {
         throw invalid("assignment.monthlySalary", "validation.staff.srSalary");
       }
+      // D93: the home company must be a real (non-master) company of this tenant.
+      const home = await tx.company.findFirst({
+        where: { id: data.companyId, tenantId: ctx.actor.tenantId, isMaster: false },
+      });
+      if (!home) throw invalid("companyId", "validation.company.unknown");
       const created = await tx.staff.create({
         data: {
           tenantId: ctx.actor.tenantId,
@@ -293,6 +300,7 @@ export async function createStaff(
           employer: data.employer,
           phone: data.phone?.trim() || null,
           status: data.status,
+          companyId: data.companyId,
           assignments: {
             create: {
               companyId,
@@ -338,12 +346,20 @@ export async function updateStaff(
       if (before.assignments.some((a) => employerMismatch(a.role.kind, data.employer))) {
         throw invalid("employer", "validation.staff.employerRole");
       }
+      if (data.companyId !== before.companyId) {
+        // D93: the home company must be a real (non-master) company of this tenant.
+        const home = await tx.company.findFirst({
+          where: { id: data.companyId, tenantId: ctx.actor.tenantId, isMaster: false },
+        });
+        if (!home) throw invalid("companyId", "validation.company.unknown");
+      }
       const updated = await tx.staff.update({
         where: { id: staffId },
         data: {
           name: data.name,
           employer: data.employer,
           status: data.status,
+          companyId: data.companyId,
           ...(data.phone === undefined ? {} : { phone: data.phone.trim() || null }),
         },
         include: withAssignments,

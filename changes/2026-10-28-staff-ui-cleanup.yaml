@@ -1,0 +1,18 @@
+id: 2026-10-28-staff-ui-cleanup
+reason: >-
+  Owner 2026-10-28 (D95), from a screenshot marking the button for removal.
+  অন্য কোম্পানির কর্মীকে যোগ করুন (assign an existing staff person from
+  outside this company) was no longer wanted on আমাদের স্টাফ.
+owners: [web]
+changes:
+  - >-
+    apps/web staff-page.tsx: removed the button and setAssignment({}) (no-person) entry point;
+    AssignmentDraft.person is now required, the candidate-picker branch of AssignmentDialog and the
+    now-unused candidates/here computation in Staff() are removed; assigning a new period to a
+    person already in the list (the per-row "assign" button) is unchanged
+affectedActionIds: []
+financialImpact: none - UI removal only
+backfill: none
+tests: pnpm test (318/318), pnpm --filter @bsd/web exec tsc --noEmit, eslint
+rollout: deploy the app; no migration
+recovery: revert the commit

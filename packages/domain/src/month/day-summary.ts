@@ -1,7 +1,7 @@
 import { Decimal, toDecimal } from "../decimal";
 import { roundSettlement } from "../money";
 import { staffCost } from "./money-kinds";
-import { profitLinesOf, salesProfit } from "./sales-profit";
+import { profitLinesOf, salesProfit, type ProfitLine } from "./sales-profit";
 import type { DayInput, DayResult, MoneyKind, StaffId } from "./types";
 
 export type DsrDaySummary = {
@@ -11,6 +11,14 @@ export type DsrDaySummary = {
   salesCash: string;
   marketDueCreated: string;
   oldDuesCollected: string;
+  /** D69's sales chain (`salesProfit`), for this one DSR; sums the same way across a range. */
+  issuedValue: string;
+  returnValue: string;
+  damageSaleValue: string;
+  commission: string;
+  /** D74 মোট বিক্রি for this DSR: delivered × sale − damage × sale − commission. */
+  totalSales: string;
+  salesProfit: string;
 };
 
 export type DaySummary = {
@@ -68,6 +76,26 @@ export function srCost(
   );
 }
 
+/** `profitLinesOf`, grouped by the DSR who sold each line (same prices, same source data). */
+function profitLinesByDsr(day: DayResult): Map<StaffId, ProfitLine[]> {
+  const byStaff = new Map<StaffId, ProfitLine[]>();
+  for (const p of day.persons) {
+    const product = day.products.find((x) => x.productId === p.productId);
+    const batch = p.allocations[0];
+    const lines = byStaff.get(p.staffId) ?? [];
+    lines.push({
+      issued: p.issued,
+      returned: p.returned,
+      damaged: p.damaged,
+      commission: p.commission,
+      salePrice: batch?.salePrice ?? product?.salePrice ?? "0",
+      costPrice: batch?.costPrice ?? product?.costPrice ?? "0",
+    });
+    byStaff.set(p.staffId, lines);
+  }
+  return byStaff;
+}
+
 /**
  * The dashboard's per-day figures, from one engine day and that day's input (PLAN §6). Market due
  * not attributed to a DSR counts in the totals only.
@@ -123,12 +151,24 @@ export function summarizeDay(day: DayResult, input: DayInput): DaySummary {
     staffShortage: roundSettlement(ofKind("staffShortage")),
     staffCost: roundSettlement(toDecimal(staffCost(input.money ?? []))),
     salesProfit: salesProfit(profitLinesOf(day)).profit,
-    byDsr: [...dsr].map(([staffId, v]) => ({
-      staffId,
-      netSales: roundSettlement(v.sales),
-      salesCash: roundSettlement(v.sales.sub(v.dueNew)),
-      marketDueCreated: roundSettlement(v.dueNew),
-      oldDuesCollected: roundSettlement(v.collected),
-    })),
+    byDsr: (() => {
+      const dsrLines = profitLinesByDsr(day);
+      return [...dsr].map(([staffId, v]) => {
+        const parts = salesProfit(dsrLines.get(staffId) ?? []);
+        return {
+          staffId,
+          netSales: roundSettlement(v.sales),
+          salesCash: roundSettlement(v.sales.sub(v.dueNew)),
+          marketDueCreated: roundSettlement(v.dueNew),
+          oldDuesCollected: roundSettlement(v.collected),
+          issuedValue: parts.issuedValue,
+          returnValue: parts.returnValue,
+          damageSaleValue: parts.damageValue,
+          commission: parts.commission,
+          totalSales: parts.netSales,
+          salesProfit: parts.profit,
+        };
+      });
+    })(),
   };
 }

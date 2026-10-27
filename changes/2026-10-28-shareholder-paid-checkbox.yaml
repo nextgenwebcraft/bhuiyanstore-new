@@ -1,0 +1,17 @@
+id: 2026-10-28-shareholder-paid-checkbox
+reason: >-
+  Owner 2026-10-28 (D96, amends D94). Clicking the profit amount itself to
+  toggle paid was unclear; the owner asked for an explicit checkbox next to
+  the amount instead.
+owners: [web]
+changes:
+  - >-
+    apps/web master-dashboard.tsx ShareholderPayoutTable: the cell is now the অংশীদারের প্রফিট
+    amount plus a checkbox (checked = paid); the checkbox's onChange calls the same
+    useSetShareholderPayout toggle used before, still green on paid
+affectedActionIds: []
+financialImpact: none - display/interaction only
+backfill: none
+tests: pnpm test (318/318), pnpm --filter @bsd/web exec tsc --noEmit, eslint
+rollout: deploy the app; no migration
+recovery: revert the commit

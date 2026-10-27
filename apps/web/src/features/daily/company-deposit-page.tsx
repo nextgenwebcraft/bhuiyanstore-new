@@ -47,19 +47,29 @@ import { MoneyEntryTable } from "./money-entry-table";
 
 const PATH = "finance/supplier-deposits";
 
-/** D63: the three kinds of the company deposit form. */
-type DepositKind = "supplierDeposit" | "companyIncentive" | "damageDeposit";
-const KINDS: readonly DepositKind[] = ["supplierDeposit", "companyIncentive", "damageDeposit"];
+/** D63/D105: the four kinds of the company deposit form. */
+type DepositKind = "supplierDeposit" | "companyIncentive" | "damageDeposit" | "rebateClaim";
+const KINDS: readonly DepositKind[] = [
+  "supplierDeposit",
+  "companyIncentive",
+  "damageDeposit",
+  "rebateClaim",
+];
 const KIND_LABEL = {
   supplierDeposit: "money.kind.supplierDeposit",
   companyIncentive: "money.kind.companyIncentive",
   damageDeposit: "deposit.kind.damageDeposit",
+  rebateClaim: "money.kind.rebateClaim",
 } as const;
 const PERMISSION = {
   supplierDeposit: moneyKindPermission.supplierDeposit,
   companyIncentive: moneyKindPermission.companyIncentive,
   damageDeposit: "payment.post",
+  rebateClaim: moneyKindPermission.rebateClaim,
 } as const;
+
+/** D105: these two kinds may name the product they are for. */
+const PRODUCT_KINDS: readonly DepositKind[] = ["companyIncentive", "rebateClaim"];
 
 type DamageRow = { key: number; productId: string; cartons: string; pieces: string; rate: string };
 let nextRowKey = 0;
@@ -117,6 +127,7 @@ function DepositForm({
   const postStock = usePostStockEntries(companyId);
   const [kind, setKind] = useState<DepositKind>(kinds[0]);
   const [amount, setAmount] = useState("");
+  const [productId, setProductId] = useState("");
   const [rows, setRows] = useState<DamageRow[]>(() => [emptyRow()]);
   const [error, setError] = useState<string | undefined>();
   const [done, setDone] = useState(false);
@@ -171,9 +182,11 @@ function DepositForm({
           amount: value,
           staffId: null,
           expenseCategoryId: null,
+          productId: PRODUCT_KINDS.includes(kind) ? productId || null : null,
           allocation: null,
         });
         setAmount("");
+        setProductId("");
       }
       setDone(true);
     } catch (e) {
@@ -190,6 +203,7 @@ function DepositForm({
             value={kind}
             onChange={(event) => {
               setKind(event.target.value as DepositKind);
+              setProductId("");
               setError(undefined);
               setDone(false);
             }}
@@ -211,6 +225,23 @@ function DepositForm({
               onChange={(event) => setAmount(event.target.value)}
               className={inputClass}
             />
+          </Field>
+        ) : null}
+        {PRODUCT_KINDS.includes(kind) ? (
+          <Field id={`${id}-product`} label={t("godown.column.product")}>
+            <select
+              id={`${id}-product`}
+              value={productId}
+              onChange={(event) => setProductId(event.target.value)}
+              className={inputClass}
+            >
+              <option value="">{t("deposit.damage.pickProduct")}</option>
+              {view.products.map((p) => (
+                <option key={p.productId} value={p.productId}>
+                  {p.productName}
+                </option>
+              ))}
+            </select>
           </Field>
         ) : null}
       </div>
@@ -507,13 +538,14 @@ export function SupplierDepositsPage() {
             <MoneyEntryTable
               companyId={company.id}
               date={date}
-              kinds={["supplierDeposit", "companyIncentive"]}
+              kinds={["supplierDeposit", "companyIncentive", "rebateClaim"]}
               columns={[
                 {
                   label: "common.kind",
                   cell: (e) => t(`money.kind.${e.kind}` as TranslationKey),
                 },
                 { label: "common.amount", numeric: true, cell: (e) => money(e.amount) },
+                { label: "godown.column.product", cell: (e) => e.productName ?? "—" },
               ]}
             />
             <SectionTitle>{t("deposit.kind.damageDeposit")}</SectionTitle>

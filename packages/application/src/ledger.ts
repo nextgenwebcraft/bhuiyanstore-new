@@ -165,7 +165,6 @@ export async function liveOpening(db: Db, companyId: string): Promise<ActiveOpen
       pieces: plain(line.pieces),
       unitCost: plain(line.unitCost),
       salePrice: plain(line.salePrice),
-      orderPrice: plain(line.orderPrice),
       dueFromCompany: plain(line.dueFromCompany),
       batch: batches.get(line.productId) ?? null,
     })),
@@ -398,6 +397,7 @@ async function rangeInput(
       ...(entry.staffId ? { staffId: entry.staffId } : {}),
       ...(entry.shopId ? { shopId: entry.shopId } : {}),
       ...(entry.expenseCategoryId ? { category: entry.expenseCategoryId } : {}),
+      ...(entry.productId ? { productId: entry.productId } : {}),
       ...(allocation ? { allocation } : {}),
     });
   }

@@ -229,7 +229,8 @@ export type MoneyKind =
   | "srOffset"
   | "supplierDeposit"
   | "companyIncentive"
-  | "cashTransfer";
+  | "cashTransfer"
+  | "rebateClaim";
 
 /** The owed buckets in recovery/allocation order: advance, then loan, then shortage. */
 export const owedBuckets = ["advance", "loan", "shortage"] as const;
@@ -244,6 +245,8 @@ export type MoneyEntryInput = {
   shopId?: ShopId;
   /** Expense category for `expense` and `staffCostPaid`. */
   category?: string;
+  /** D105: the product a `companyIncentive` or `rebateClaim` is tagged to, for the statement. */
+  productId?: ProductId;
   /** Explicit allocation for repayments and salary recovery; default advance → loan → shortage. */
   allocation?: Partial<Record<OwedBucket, DecimalInput>>;
   /** Caller's reference (e.g. the posted entry's id), echoed on staff ledger lines. */
@@ -625,6 +628,7 @@ export type CompanyEntryKind =
   | "receipt"
   | "deposit"
   | "incentive"
+  | "rebate"
   | "damageRefund"
   | "freeGoods"
   | "replacement"

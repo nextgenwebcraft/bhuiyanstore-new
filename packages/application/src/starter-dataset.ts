@@ -288,7 +288,6 @@ export async function applyStarterDataset(
       pieces: String(STARTER_OPENING_CARTONS * p.piecesPerCarton),
       unitCost: p.cost,
       salePrice: p.sale,
-      orderPrice: p.order,
       dueFromCompany: "0",
       note: STARTER_NOTE,
     });
@@ -316,6 +315,7 @@ export async function applyStarterDataset(
         tenantId,
         name: person.name,
         employer: person.employer,
+        companyId: company.id,
         assignments: {
           create: {
             companyId: company.id,

@@ -88,11 +88,7 @@ describe("hubs", () => {
     ]);
     expect(paths("shops")).toEqual(["sales/shops"]);
     expect(paths("money")).toEqual(["finance/supplier-deposits", "finance/company-account"]);
-    expect(paths("ledgers")).toEqual([
-      "finance/cash-book",
-      "finance/expenses",
-      "dsr/salary-recovery",
-    ]);
+    expect(paths("ledgers")).toEqual(["finance/cash-book", "dsr/salary-recovery"]);
   });
 
   it("has no entry for the removed statement, receivable, payable and opening screens (D73)", () => {
@@ -108,12 +104,21 @@ describe("hubs", () => {
     }
   });
 
-  it("gives the master panel its dashboard, Company Hishab Reports, shareholders and staff", () => {
+  it("gives the master panel its dashboard, Company Hishab Reports, shareholders, staff and companies", () => {
     const paths = (id: string) => masterHubs.find((h) => h.id === id)?.tabs.map((tab) => tab.path);
-    expect(masterHubs.map((h) => h.id)).toEqual(["dashboard", "shares", "shareholders", "staff"]);
+    expect(masterHubs.map((h) => h.id)).toEqual([
+      "dashboard",
+      "shares",
+      "shareholders",
+      "staff",
+      "companies",
+    ]);
+    expect(paths("companies")).toEqual(["master/companies"]);
     expect(paths("shares")).toEqual(["master/company-hishab"]);
     expect(paths("shareholders")).toEqual(["master/shareholders"]);
     expect(paths("staff")).toEqual(["masters/staff"]);
+    expect(hubOfPath("master/companies", true)?.id).toBe("companies");
+    expect(hubOfPath("master/companies")).toBeUndefined();
     expect(hubOfPath("master/company-hishab", true)?.id).toBe("shares");
     expect(hubOfPath("master/company-hishab")).toBeUndefined();
     expect(hubOfPath("masters/staff")).toBeUndefined();

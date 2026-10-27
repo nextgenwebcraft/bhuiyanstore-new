@@ -190,6 +190,8 @@ export type PersonDraft = {
   phone?: string;
   employer: StaffEmployer;
   status: RecordStatus;
+  /** D93: the company their salary is paid from/by; set on the master panel, else the company itself. */
+  companyId: string;
 };
 
 export function PersonDialog({
@@ -198,6 +200,7 @@ export function PersonDialog({
   roles,
   onClose,
   simpleHire = false,
+  isMaster = false,
 }: {
   companyId: string;
   draft: PersonDraft;
@@ -205,10 +208,13 @@ export function PersonDialog({
   onClose: () => void;
   /** Master panel create: no employer, status or dates; the server stores today's start (D80). */
   simpleHire?: boolean;
+  /** D93: the master panel shows and requires the home company; elsewhere it stays hidden. */
+  isMaster?: boolean;
 }) {
   const id = useId();
   const createStaff = useCreateStaff(companyId);
   const updateStaff = useUpdateStaff(companyId);
+  const workspaces = useWorkspaces();
   const [values, setValues] = useState({ ...draft, phone: draft.phone ?? "" });
   const [period, setPeriod] = useState(newPeriod);
   const [errors, setErrors] = useState(noErrors);
@@ -217,6 +223,7 @@ export function PersonDialog({
   async function submit() {
     const fields: Partial<Record<string, string>> = {};
     if (!values.name.trim()) fields.name = t("validation.required");
+    if (isMaster && !values.companyId) fields.companyId = t("validation.required");
     const periodErrors = creating ? checkPeriod(period, "assignment.") : null;
     if (Object.keys(fields).length > 0 || periodErrors) {
       setErrors({ fields: { ...fields, ...periodErrors?.fields } });
@@ -228,6 +235,7 @@ export function PersonDialog({
       phone: values.phone.trim(),
       employer: values.employer,
       status: values.status,
+      companyId: values.companyId,
     };
     try {
       if (values.id) await updateStaff.mutateAsync({ staffId: values.id, input: person });
@@ -239,6 +247,7 @@ export function PersonDialog({
           "name",
           "phone",
           "employer",
+          "companyId",
           "assignment.roleId",
           "assignment.from",
           "assignment.to",
@@ -275,6 +284,28 @@ export function PersonDialog({
           className={inputClass}
         />
       </Field>
+      {isMaster ? (
+        <Field
+          id={`${id}-company`}
+          label={t("staff.homeCompany")}
+          hint={t("staff.homeCompanyHint")}
+          error={errors.fields.companyId}
+        >
+          <select
+            id={`${id}-company`}
+            value={values.companyId}
+            onChange={(event) => setValues({ ...values, companyId: event.target.value })}
+            className={inputClass}
+          >
+            <option value="">{t("common.select")}</option>
+            {(workspaces.data ?? []).map((w) => (
+              <option key={w.company.id} value={w.company.id}>
+                {w.company.name}
+              </option>
+            ))}
+          </select>
+        </Field>
+      ) : null}
       {simpleHire && creating ? null : (
         <>
           <Field id={`${id}-employer`} label={t("staff.employer")} error={errors.fields.employer}>
@@ -319,8 +350,7 @@ export function PersonDialog({
 }
 
 type AssignmentDraft = {
-  /** Unset when the person is picked in the dialog (assigning someone from another company). */
-  person?: StaffRecord;
+  person: StaffRecord;
   assignment?: StaffAssignment;
 };
 
@@ -328,18 +358,15 @@ function AssignmentDialog({
   companyId,
   draft,
   roles,
-  candidates,
   onClose,
 }: {
   companyId: string;
   draft: AssignmentDraft;
   roles: StaffRole[];
-  candidates: StaffRecord[];
   onClose: () => void;
 }) {
   const id = useId();
   const save = useSaveStaffAssignment(companyId);
-  const [personId, setPersonId] = useState(draft.person?.id ?? "");
   const [period, setPeriod] = useState<Period>(
     draft.assignment
       ? {
@@ -351,14 +378,12 @@ function AssignmentDialog({
       : newPeriod(),
   );
   const [errors, setErrors] = useState(noErrors);
-  const person = draft.person ?? candidates.find((c) => c.id === personId);
+  const person = draft.person;
 
   async function submit() {
     const checked = checkPeriod(period, "");
-    if (!person || checked) {
-      setErrors({
-        fields: { ...checked?.fields, ...(person ? {} : { staffId: t("validation.required") }) },
-      });
+    if (checked) {
+      setErrors(checked);
       return;
     }
     setErrors(noErrors);
@@ -383,39 +408,16 @@ function AssignmentDialog({
       onSubmit={() => void submit()}
       onClose={onClose}
     >
-      {draft.person ? (
-        <p className="font-medium">{draft.person.name}</p>
-      ) : (
-        <Field id={`${id}-person`} label={t("staff.person")} error={errors.fields.staffId}>
-          <select
-            id={`${id}-person`}
-            value={personId}
-            onChange={(event) => {
-              setPersonId(event.target.value);
-              setPeriod({ ...period, roleId: "" });
-            }}
-            className={inputClass}
-          >
-            <option value="">{t("common.select")}</option>
-            {candidates.map((candidate) => (
-              <option key={candidate.id} value={candidate.id}>
-                {candidate.name} ({t(`staff.employer.${candidate.employer}`)})
-              </option>
-            ))}
-          </select>
-        </Field>
-      )}
-      {person ? (
-        <PeriodFields
-          id={`${id}-period`}
-          period={period}
-          roles={roles}
-          employer={person.employer}
-          errors={errors}
-          pathPrefix=""
-          onChange={setPeriod}
-        />
-      ) : null}
+      <p className="font-medium">{person.name}</p>
+      <PeriodFields
+        id={`${id}-period`}
+        period={period}
+        roles={roles}
+        employer={person.employer}
+        errors={errors}
+        pathPrefix=""
+        onChange={setPeriod}
+      />
     </FormDialog>
   );
 }
@@ -544,6 +546,9 @@ function Staff() {
   const roles = useConfigList("staffRoles");
   const isSuperAdmin = session?.me.isSuperAdmin === true;
   const allStaff = useAllStaff(isSuperAdmin);
+  const workspaces = useWorkspaces();
+  const companyName = (id: string) =>
+    workspaces.data?.find((w) => w.company.id === id)?.company.name ?? "";
   const canManage = permissions.includes("staff.manage");
   const deleteStaff = useDeleteStaff(company.id);
   const [person, setPerson] = useState<PersonDraft | null>(null);
@@ -563,13 +568,6 @@ function Staff() {
   const isDsrHere = (record: StaffRecord) => record.assignments.some((a) => dsrRoles.has(a.roleId));
   const own = (records.data ?? []).filter((r) =>
     r.assignments.some((a) => a.companyId === company.id),
-  );
-  const here = new Set(own.map((r) => r.id));
-  const candidates = (allStaff.data ?? []).filter(
-    (r) =>
-      !here.has(r.id) &&
-      r.status === "active" &&
-      r.employer === (company.isMaster ? "distributor" : "supplier"),
   );
 
   // D80: আমাদের স্টাফ does not list SRs. They stay on এসআর হিসাব.
@@ -605,6 +603,8 @@ function Staff() {
                   ) : null}
                   {t(`staff.employer.${record.employer}`)}
                   {" · "}
+                  {companyName(record.companyId)}
+                  {" · "}
                   <span className={record.status === "active" ? "text-success" : undefined}>
                     {t(`common.status.${record.status}`)}
                   </span>
@@ -632,6 +632,7 @@ function Staff() {
                         phone: record.phone,
                         employer: record.employer,
                         status: record.status,
+                        companyId: record.companyId,
                       })
                     }
                   >
@@ -664,9 +665,6 @@ function Staff() {
         actions={
           canManage ? (
             <>
-              {isSuperAdmin && candidates.length > 0 ? (
-                <Button onClick={() => setAssignment({})}>{t("staff.assignExisting")}</Button>
-              ) : null}
               <Button
                 variant="primary"
                 onClick={() =>
@@ -674,6 +672,7 @@ function Staff() {
                     name: "",
                     employer: company.isMaster ? "distributor" : "supplier",
                     status: "active",
+                    companyId: company.isMaster ? "" : company.id,
                   })
                 }
               >
@@ -708,6 +707,7 @@ function Staff() {
           draft={person}
           roles={hireRoles}
           simpleHire={company.isMaster && !person.id}
+          isMaster={company.isMaster}
           onClose={() => setPerson(null)}
         />
       ) : null}
@@ -716,7 +716,6 @@ function Staff() {
           companyId={company.id}
           draft={assignment}
           roles={company.isMaster && !assignment.assignment ? hireRoles : companyRoles}
-          candidates={candidates}
           onClose={() => setAssignment(null)}
         />
       ) : null}

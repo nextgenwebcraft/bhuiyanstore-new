@@ -235,6 +235,7 @@ export function createMockService(
     createShareholder: demoReadOnly,
     updateShareholder: demoReadOnly,
     saveInvestments: demoReadOnly,
+    setShareholderPayout: demoReadOnly,
     getMasterMonth: demoReadOnly,
     masterMonthCommand: demoReadOnly,
     getReport: demoReadOnly,
@@ -272,6 +273,7 @@ export function createMockService(
     setProductPrice: demoReadOnly,
     createCompany: demoReadOnly,
     updateCompany: demoReadOnly,
+    deleteCompany: demoReadOnly,
     async listStaffRecords(companyId, options) {
       await delay(latencyMs, options?.signal);
       requirePermission(companyId, "company.view");
@@ -285,6 +287,7 @@ export function createMockService(
             employer: p.kind === "sr" ? "supplier" : "distributor",
             status: "active",
             loginEmail: null,
+            companyId: p.companyIds[0] ?? companyId,
             assignments: p.companyIds.filter(visible).map((id) => ({
               id: `${p.id}-${id}`,
               companyId: id,

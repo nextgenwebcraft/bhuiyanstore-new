@@ -114,7 +114,10 @@ function Roster({
                   amount: newAmounts[company.companyId]?.trim() || "0",
                 }));
               if (entries.length > 0) {
-                await saveInvestments.mutateAsync({ shareholderId: created.id, input: { entries } });
+                await saveInvestments.mutateAsync({
+                  shareholderId: created.id,
+                  input: { entries },
+                });
               }
               setName("");
               setNewAmounts({});

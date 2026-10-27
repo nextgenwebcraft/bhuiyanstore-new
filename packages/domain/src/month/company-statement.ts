@@ -72,7 +72,10 @@ function orderGroupLine(group: readonly CompanyEntryResult[]): CompanyStatementL
 
 function singleLine(entry: CompanyEntryResult): CompanyStatementLine {
   const raises =
-    entry.kind === "deposit" || entry.kind === "incentive" || entry.kind === "damageRefund";
+    entry.kind === "deposit" ||
+    entry.kind === "incentive" ||
+    entry.kind === "rebate" ||
+    entry.kind === "damageRefund";
   return {
     date: entry.date,
     kind: entry.kind,

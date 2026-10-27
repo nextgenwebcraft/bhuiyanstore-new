@@ -177,6 +177,9 @@ function Entries({ rows, companyId }: { rows: MoneyEntry[]; companyId: string })
             <thead className={theadClass}>
               <tr>
                 <th scope="col" className={thClass}>
+                  {t("staffCash.dsr")}
+                </th>
+                <th scope="col" className={thClass}>
                   {t("common.kind")}
                 </th>
                 <th scope="col" className={thNum}>
@@ -195,6 +198,7 @@ function Entries({ rows, companyId }: { rows: MoneyEntry[]; companyId: string })
                 const kind = staffCashKindOf(entry);
                 return (
                   <tr key={entry.id} className="border-t border-border">
+                    <td className={tdClass}>{entry.staffName}</td>
                     <td className={tdClass}>{kind ? t(LABEL[kind]) : null}</td>
                     <td className={tdNum}>{money(entry.amount)}</td>
                     <td className={tdClass}>
@@ -250,7 +254,8 @@ export function StaffCashEntry({
   const activeId = dsrs?.some((dsr) => dsr.id === picked)
     ? picked
     : (dsrs?.find((dsr) => dsr.id === staffId)?.id ?? dsrs?.[0]?.id ?? staffId);
-  const entries = useMoneyEntries(companyId, { from: date, to: date, staffId: activeId });
+  // Today's entries list every DSR, not only the one picked above (the form posts for that one).
+  const entries = useMoneyEntries(companyId, { from: date, to: date });
   const kinds = KINDS.filter((k) =>
     permissions.includes(moneyKindPermission[staffCashRequest(k, "0").kind]),
   );

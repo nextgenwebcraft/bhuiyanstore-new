@@ -15,6 +15,7 @@ export function FormDialog({
   error,
   pending,
   submitLabel = t("product.save"),
+  submitDisabled = false,
   onSubmit,
   onClose,
   children,
@@ -25,6 +26,8 @@ export function FormDialog({
   error?: string | undefined;
   pending: boolean;
   submitLabel?: string;
+  /** Keeps the submit button disabled beyond `pending`, e.g. until a typed confirmation matches. */
+  submitDisabled?: boolean;
   onSubmit: () => void;
   onClose: () => void;
   children: React.ReactNode;
@@ -41,7 +44,7 @@ export function FormDialog({
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    if (!pending) onSubmit();
+    if (!pending && !submitDisabled) onSubmit();
   }
 
   return (
@@ -60,7 +63,7 @@ export function FormDialog({
             <Button type="button" variant="secondary" onClick={onClose}>
               {t("common.cancel")}
             </Button>
-            <Button type="submit" variant="primary" disabled={pending}>
+            <Button type="submit" variant="primary" disabled={pending || submitDisabled}>
               {pending ? t("product.saving") : submitLabel}
             </Button>
           </div>

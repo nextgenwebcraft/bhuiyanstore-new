@@ -6,6 +6,7 @@ import {
   monthSchema,
   shareholderCreateRequestSchema,
   shareholderListSchema,
+  shareholderPayoutRequestSchema,
   shareholderSchema,
   shareholderUpdateRequestSchema,
   type CompanyHishabYear,
@@ -72,11 +73,7 @@ async function companiesOf(ctx: AppContext) {
   });
 }
 
-async function targetCompanyOf(
-  db: AppContext["db"] | Tx,
-  tenantId: string,
-  companyId: string,
-) {
+async function targetCompanyOf(db: AppContext["db"] | Tx, tenantId: string, companyId: string) {
   const company = await db.company.findFirst({
     where: { id: companyId, tenantId, isMaster: false, status: "active" },
     select: { id: true, name: true },
@@ -392,12 +389,16 @@ export async function getMasterHishabYear(
       ? shareholderIdInput
       : null;
 
-  const [companies, people, investments] = await Promise.all([
+  const [companies, people, investments, payouts] = await Promise.all([
     companiesOf(ctx),
     peopleOf(ctx),
     ctx.db.shareholderInvestment.findMany({
       where: { shareholder: { tenantId: ctx.actor.tenantId } },
       select: { shareholderId: true, companyId: true, fromMonth: true, amount: true },
+    }),
+    ctx.db.shareholderPayout.findMany({
+      where: { shareholder: { tenantId: ctx.actor.tenantId }, month: { startsWith: year } },
+      select: { shareholderId: true, month: true },
     }),
   ]);
   if (shareholderId && !people.some((person) => person.id === shareholderId)) {
@@ -407,6 +408,11 @@ export async function getMasterHishabYear(
   const today = monthOf(todayBusinessDate());
   const labels = monthsOfYear(year);
   const shareholderIds = [...new Set(investments.map((investment) => investment.shareholderId))];
+  // D94: every shareholder a row shows (same set as `shareholders` below), not only invested ones.
+  const listedPeople = people.filter(
+    (person) => person.active || hasInvestment(person, () => true),
+  );
+  const paidSet = new Set(payouts.map((p) => `${p.shareholderId}|${p.month}`));
   const months = await Promise.all(
     labels.map(async (month) => {
       const figures = await Promise.all(
@@ -449,6 +455,11 @@ export async function getMasterHishabYear(
           ? investShare(totalProfit, invest, totalInvest)
           : totalProfit,
         profitPerLakh: profitPerLakh(totalProfit, totalInvest),
+        perShareholder: listedPeople.map((person) => ({
+          shareholderId: person.id,
+          profit: investShare(totalProfit, investOf(person.id), totalInvest),
+          paid: paidSet.has(`${person.id}|${month}`),
+        })),
       };
     }),
   );
@@ -457,9 +468,49 @@ export async function getMasterHishabYear(
     year,
     shareholderId,
     companies: companies.map((company) => ({ companyId: company.id, companyName: company.name })),
-    shareholders: people
-      .filter((person) => person.active || hasInvestment(person, () => true))
-      .map((person) => ({ shareholderId: person.id, name: person.name, active: person.active })),
+    shareholders: listedPeople.map((person) => ({
+      shareholderId: person.id,
+      name: person.name,
+      active: person.active,
+    })),
     months,
+  });
+}
+
+/**
+ * D94: marks (or unmarks) one shareholder's one month as paid on the master panel. Existence of
+ * the row is the only fact; the amount is always the computed শেয়ারহোল্ডারের প্রফিট, never stored.
+ */
+export async function setShareholderPayout(
+  ctx: AppContext,
+  companyId: string,
+  input: unknown,
+): Promise<void> {
+  await requireMaster(ctx, companyId, true);
+  const request = parseInput(shareholderPayoutRequestSchema, input);
+  // Upsert-or-delete-by-unique-key is already idempotent on retry; no requestKey/idempotency
+  // record needed (same convention as deleteCompany/deleteProduct's other void-returning writes).
+  await ctx.db.$transaction(async (tx) => {
+    const person = await personOf(tx, ctx.actor.tenantId, request.shareholderId);
+    if (request.paid) {
+      await tx.shareholderPayout.upsert({
+        where: {
+          shareholderId_month: { shareholderId: person.id, month: request.month },
+        },
+        create: { shareholderId: person.id, month: request.month, paidById: ctx.actor.userId },
+        update: {},
+      });
+    } else {
+      await tx.shareholderPayout.deleteMany({
+        where: { shareholderId: person.id, month: request.month },
+      });
+    }
+    await recordAudit(tx, ctx, {
+      companyId,
+      action: "shareholder.payout",
+      resourceType: "shareholder",
+      resourceId: person.id,
+      after: { month: request.month, paid: request.paid },
+    });
   });
 }
