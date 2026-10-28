@@ -78,6 +78,21 @@ export function dsrCashSettlement(input: {
 }
 
 /**
+ * Cash actually in hand from sales alone (D106, display only): sales − new due given + old due
+ * collected, before DSR expenses or staff money. Shop credit given today is cash not received
+ * today; a collection of an older due is cash received today though it is not today's sale.
+ */
+export function cashInHandOf(input: {
+  sales: DecimalInput;
+  dueGiven: DecimalInput;
+  dueCollected: DecimalInput;
+}): string {
+  return roundSettlement(
+    toDecimal(input.sales).sub(toDecimal(input.dueGiven)).add(toDecimal(input.dueCollected)),
+  );
+}
+
+/**
  * Cash handed over below what was expected (D81). The amount is only shown: it is not a shortage
  * posting and it does not move cash or any balance. Null when the handover is missing or not short.
  */
