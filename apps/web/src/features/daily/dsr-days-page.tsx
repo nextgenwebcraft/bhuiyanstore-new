@@ -10,6 +10,7 @@ import type {
   StaffRecord,
 } from "@bsd/contracts";
 import {
+  cashInHandOf,
   dsrCashSettlement,
   salesProfit,
   sumAmounts,
@@ -26,6 +27,7 @@ import { Button } from "@/components/button";
 import { QueryError } from "@/components/query-error";
 import { ListSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
+import { StatTile } from "@/components/stat-tile";
 import { TableSummary, type SummaryItem } from "@/components/table-summary";
 import {
   useDsrDayCommand,
@@ -674,6 +676,8 @@ function SheetEditor({
       .sub(srMove("srLoan"))
       .toString(),
   };
+  // হাতে জমা (D106): sales − due given + due collected, before expenses or staff money.
+  const cashInHand = cashInHandOf(cash);
 
   /**
    * Firot = samari still in hand, damaged = pieces exchanged at shops; both go on the product's
@@ -855,6 +859,15 @@ function SheetEditor({
       {posted ? (
         <StatePanel title={t(canCorrect ? "dsr.sheet.postedEditHint" : "dsr.sheet.postedHint")} />
       ) : null}
+      <dl className="grid grid-cols-1 gap-3 sm:max-w-xs">
+        <StatTile
+          label={t("dsr.cash.inHand")}
+          value={money(cashInHand)}
+          hint={t("dsr.cash.inHandHint")}
+          tone="info"
+          large
+        />
+      </dl>
       <TableSummary label={t("table.summary")} items={sheetSummary} />
       <TableScroller>
         <table className={tableClass}>

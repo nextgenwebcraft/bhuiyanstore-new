@@ -101,8 +101,8 @@ export function profitLinesOf(day: DayResult): ProfitLine[] {
 }
 
 /**
- * D69: the dashboard. মোট খরচ = ফেরত + ড্যামেজ + কমিশন + অপারেটিং খরচ + ডিএসআর খরচ (shown only);
- * profitCost = অপারেটিং খরচ + ডিএসআর খরচ; নিট প্রফিট = মোট প্রফিট − profitCost (ফেরত and
+ * D69 (amended D106): the dashboard. মোট খরচ = কমিশন + অপারেটিং খরচ + ডিএসআর খরচ (বেতনসহ) (shown
+ * only); profitCost = অপারেটিং খরচ + ডিএসআর খরচ; নিট প্রফিট = মোট প্রফিট − profitCost (ফেরত and
  * কমিশন are already in the profit). D74 মোট বিক্রি = মোট সামারি − মোট খরচ.
  */
 export function dashboardTotals(input: {
@@ -115,10 +115,7 @@ export function dashboardTotals(input: {
   salesProfit?: DecimalInput;
 }): { totalCost: string; profitCost: string; totalSales: string; netProfit: string | null } {
   const running = toDecimal(input.expenses).add(toDecimal(input.staffCost));
-  const totalCost = running
-    .add(toDecimal(input.returnValue))
-    .add(toDecimal(input.damageSaleValue))
-    .add(toDecimal(input.commission));
+  const totalCost = running.add(toDecimal(input.commission));
   return {
     profitCost: roundSettlement(running),
     totalCost: roundSettlement(totalCost),

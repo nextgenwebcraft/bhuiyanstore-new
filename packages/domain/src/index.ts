@@ -53,6 +53,7 @@ export {
   type OpeningStockInput,
 } from "./opening";
 export {
+  cashInHandOf,
   dsrCashSettlement,
   handoverShortOf,
   fieldRemaining,

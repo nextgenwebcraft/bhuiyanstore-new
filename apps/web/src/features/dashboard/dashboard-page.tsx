@@ -127,7 +127,11 @@ export function chainCards(d: DashboardSummary): Card[] {
   ];
 }
 
-/** The position cards beside the chain: dues, goods and what the SRs owe (D60, D67, D69). */
+/**
+ * The position cards beside the chain: dues, goods and what the SRs owe (D60, D67, D69). হাতে জমা
+ * (D106) is sales cash in hand before DSR expenses or staff money: netSales − marketDueCreated +
+ * oldDuesCollected (domain `cashCollected`, already summed for the range).
+ */
 export function summaryCards(d: DashboardSummary, singleDay: boolean): Card[] {
   return [
     ...(singleDay
@@ -141,6 +145,7 @@ export function summaryCards(d: DashboardSummary, singleDay: boolean): Card[] {
     { label: "dashboard.card.undelivered", value: d.undeliveredValue },
     { label: "dashboard.card.stock", value: d.stockValue, tone: "info" },
     { label: "dashboard.card.srCost", value: d.srCost, tone: "warning" },
+    { label: "dashboard.card.cashInHand", value: d.cashCollected, tone: "info" },
     { label: "dashboard.card.handoverShort", value: d.handoverShort, tone: "warning" },
   ];
 }

@@ -43,7 +43,7 @@ describe("staff cost (D67)", () => {
     });
   });
 
-  it("totals the dashboard costs and takes only running costs off the profit (D69)", () => {
+  it("totals the dashboard costs and takes only running costs off the profit (D69, D106)", () => {
     expect(
       dashboardTotals({
         issuedValue: "2500",
@@ -55,9 +55,9 @@ describe("staff cost (D67)", () => {
         salesProfit: "250",
       }),
     ).toEqual({
-      totalCost: "1825.00",
+      totalCost: "1450.00",
       profitCost: "1400.00",
-      totalSales: "675.00",
+      totalSales: "1050.00",
       netProfit: "-1150.00",
     });
   });
