@@ -10,6 +10,7 @@ import type {
   StaffRecord,
 } from "@bsd/contracts";
 import {
+  cashCheckSales,
   cashInHandOf,
   dsrCashSettlement,
   salesProfit,
@@ -516,6 +517,7 @@ function FieldEntries({
 /** Day-end cash check (D39, D62): the difference is shown only, never posted. */
 function CashCheck({
   sales,
+  damage,
   dueGiven,
   dueCollected,
   expenses,
@@ -525,6 +527,8 @@ function CashCheck({
   onHandedOver,
 }: {
   sales: string;
+  /** ড্যামেজ (বিক্রয় মূল্যে), subtracted from জমা হওয়ার কথা. */
+  damage: string;
   dueGiven: string;
   dueCollected: string;
   expenses: string;
@@ -536,6 +540,7 @@ function CashCheck({
   const handed = clean(handedOver);
   const settlement = dsrCashSettlement({
     sales,
+    damage,
     dueGiven,
     dueCollected,
     expenses,
@@ -550,6 +555,7 @@ function CashCheck({
         {(
           [
             ["dsr.cash.sales", sales],
+            ["dsr.profit.damaged", damage],
             ["dsr.cash.dueGiven", dueGiven],
             ["dsr.cash.dueCollected", dueCollected],
             ["dsr.cash.expenses", expenses],
@@ -1164,6 +1170,8 @@ function SheetEditor({
       <OperatingCostEntry companyId={companyId} date={date} />
       <CashCheck
         {...cash}
+        sales={cashCheckSales(parts.netSales, parts.damageValue)}
+        damage={parts.damageValue}
         handedOver={draft.handedOver}
         locked={locked}
         onHandedOver={(handedOver) => setDraft((d) => ({ ...d, handedOver }))}

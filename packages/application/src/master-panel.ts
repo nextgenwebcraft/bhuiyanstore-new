@@ -49,6 +49,7 @@ const SUMMED = [
   "commission",
   "damageSaleValue",
   "handoverShort",
+  "totalSales",
 ] as const;
 
 const SUMMED_OPTIONAL = [
@@ -58,7 +59,7 @@ const SUMMED_OPTIONAL = [
   "srCost",
   "totalCost",
   "profitCost",
-  "totalSales",
+  "cashInHand",
   "salesProfit",
   "netProfit",
   "damageValue",

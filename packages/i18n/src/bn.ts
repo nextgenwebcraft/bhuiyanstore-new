@@ -605,6 +605,7 @@ export const bn = {
   "dashboard.card.commission": "মোট কমিশন",
   "dashboard.card.operating": "মোট অপারেটিং খরচ",
   "dashboard.card.newDue": "নতুন বকেয়া",
+  "dashboard.card.dueCollected": "বকেয়া জমা",
   "dashboard.card.oldDue": "আগের বকেয়া",
   "dashboard.card.totalDue": "মোট বকেয়া",
   "dashboard.card.undelivered": "আনডেলিভারি পণ্যের মূল্য",

@@ -16,7 +16,7 @@ export type DsrDaySummary = {
   returnValue: string;
   damageSaleValue: string;
   commission: string;
-  /** D74 মোট বিক্রি for this DSR: delivered × sale − damage × sale − commission. */
+  /** D107 মোট বিক্রি for this DSR: issued × sale − returned × sale. */
   totalSales: string;
   salesProfit: string;
 };
@@ -165,7 +165,9 @@ export function summarizeDay(day: DayResult, input: DayInput): DaySummary {
           returnValue: parts.returnValue,
           damageSaleValue: parts.damageValue,
           commission: parts.commission,
-          totalSales: parts.netSales,
+          totalSales: roundSettlement(
+            toDecimal(parts.issuedValue).sub(toDecimal(parts.returnValue)),
+          ),
           salesProfit: parts.profit,
         };
       });

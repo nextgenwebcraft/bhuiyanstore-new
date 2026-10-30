@@ -104,53 +104,52 @@ type Card = {
   value: string | undefined;
   /** Its colour; "result" is success when the value is 0 or more and error below. */
   tone?: StatTone | "result";
-  /** Its step in the calculation chain: subtracted (−) or a result (=). */
-  op?: "minus" | "equals";
+  /** Its step in the calculation chain: subtracted (−), added (+) or a result (=). */
+  op?: "minus" | "plus" | "equals";
 };
 
 /**
- * D69: মোট সামারি to ডিএসআর খরচ, and মোট বিক্রি = সামারি minus those five (D74); then মোট প্রফিট (from the DSR lines) − অপারেটিং
- * + ডিএসআর খরচ = নিট প্রফিট (domain `dashboardTotals`). A card without permission is left out.
+ * D107, in formula order: মোট বিক্রি = মোট সামারি − মোট ফেরত; হাতে জমা = মোট বিক্রি − মোট ড্যামেজ −
+ * মোট কমিশন − অপারেটিং খরচ − ডিএসআর খরচ − নতুন বকেয়া + বকেয়া জমা (domain `dashboardTotals`).
+ * A card without permission is left out.
  */
 export function chainCards(d: DashboardSummary): Card[] {
   return [
     { label: "dashboard.card.issued", value: d.issuedValue, tone: "info" },
-    { label: "dashboard.card.returned", value: d.returnValue },
-    { label: "dashboard.card.damage", value: d.damageSaleValue },
-    { label: "dashboard.card.commission", value: d.commission },
-    { label: "dashboard.card.operating", value: d.expenses },
-    { label: "dashboard.card.staffCost", value: d.staffCost },
+    { label: "dashboard.card.returned", value: d.returnValue, op: "minus" },
     { label: "dashboard.card.totalSales", value: d.totalSales, op: "equals", tone: "result" },
-    { label: "dashboard.card.salesProfit", value: d.salesProfit, tone: "result" },
-    { label: "dashboard.card.profitCost", value: d.profitCost, op: "minus", tone: "error" },
-    { label: "dashboard.card.netProfit", value: d.netProfit, op: "equals", tone: "result" },
+    { label: "dashboard.card.damage", value: d.damageSaleValue, op: "minus" },
+    { label: "dashboard.card.commission", value: d.commission, op: "minus" },
+    { label: "dashboard.card.operating", value: d.expenses, op: "minus" },
+    { label: "dashboard.card.staffCost", value: d.staffCost, op: "minus" },
+    { label: "dashboard.card.newDue", value: d.marketDueCreated, op: "minus" },
+    { label: "dashboard.card.dueCollected", value: d.oldDuesCollected, op: "plus" },
+    { label: "dashboard.card.cashInHand", value: d.cashInHand, op: "equals", tone: "result" },
   ];
 }
 
 /**
- * The position cards beside the chain: dues, goods and what the SRs owe (D60, D67, D69). হাতে জমা
- * (D106) is sales cash in hand before DSR expenses or staff money: netSales − marketDueCreated +
- * oldDuesCollected (domain `cashCollected`, already summed for the range).
+ * Cards outside the cash chain. মোট প্রফিট − অপারেটিং − ডিএসআর খরচ = নিট প্রফিট (D69). The position
+ * cards are dues, goods and what the SRs owe (D60, D67). Their figures are unchanged.
  */
 export function summaryCards(d: DashboardSummary, singleDay: boolean): Card[] {
   return [
+    { label: "dashboard.card.salesProfit", value: d.salesProfit, tone: "result" },
+    { label: "dashboard.card.profitCost", value: d.profitCost, op: "minus", tone: "error" },
+    { label: "dashboard.card.netProfit", value: d.netProfit, op: "equals", tone: "result" },
     ...(singleDay
-      ? ([
-          { label: "dashboard.card.newDue", value: d.marketDueCreated },
-          { label: "dashboard.card.oldDue", value: d.marketDueOpening },
-        ] satisfies Card[])
+      ? ([{ label: "dashboard.card.oldDue", value: d.marketDueOpening }] satisfies Card[])
       : []),
     { label: "dashboard.card.totalDue", value: d.marketDueOutstanding, tone: "warning" },
     { label: "dashboard.card.totalCost", value: d.totalCost, tone: "error" },
     { label: "dashboard.card.undelivered", value: d.undeliveredValue },
     { label: "dashboard.card.stock", value: d.stockValue, tone: "info" },
     { label: "dashboard.card.srCost", value: d.srCost, tone: "warning" },
-    { label: "dashboard.card.cashInHand", value: d.cashCollected, tone: "info" },
     { label: "dashboard.card.handoverShort", value: d.handoverShort, tone: "warning" },
   ];
 }
 
-const OP_SIGN = { minus: "−", equals: "=" } as const;
+const OP_SIGN = { minus: "−", plus: "+", equals: "=" } as const;
 
 export function SummaryCards({ cards, columns = 4 }: { cards: Card[]; columns?: 4 | 5 }) {
   return (
@@ -190,8 +189,8 @@ export function SummaryGroups({ d, singleDay }: { d: DashboardSummary; singleDay
 }
 
 /**
- * DSR-wise sales (owner change request): the same D69 sales-chain figures as সারসংক্ষেপ's chain
- * cards, one row per DSR instead of one company-wide total. Follows the page's own period filter.
+ * DSR-wise sales: সামারি, ফেরত and মোট বিক্রি (সামারি − ফেরত, D107), then ড্যামেজ, কমিশন and
+ * মোট প্রফিট. One row per DSR. Follows the page's own period filter.
  */
 export function ByDsrTable({ rows }: { rows: DsrDayRow[] }) {
   if (rows.length === 0) return null;
@@ -211,13 +210,13 @@ export function ByDsrTable({ rows }: { rows: DsrDayRow[] }) {
               {t("dashboard.card.returned")}
             </th>
             <th scope="col" className={thNum}>
+              {t("dashboard.card.totalSales")}
+            </th>
+            <th scope="col" className={thNum}>
               {t("dashboard.card.damage")}
             </th>
             <th scope="col" className={thNum}>
               {t("dashboard.card.commission")}
-            </th>
-            <th scope="col" className={thNum}>
-              {t("dashboard.card.totalSales")}
             </th>
             {showProfit ? (
               <th scope="col" className={thNum}>
@@ -234,9 +233,9 @@ export function ByDsrTable({ rows }: { rows: DsrDayRow[] }) {
               </th>
               <td className={tdNum}>{money(row.issuedValue)}</td>
               <td className={tdNum}>{money(row.returnValue)}</td>
+              <td className={`${tdNum} font-semibold`}>{money(row.totalSales)}</td>
               <td className={tdNum}>{money(row.damageSaleValue)}</td>
               <td className={tdNum}>{money(row.commission)}</td>
-              <td className={`${tdNum} font-semibold`}>{money(row.totalSales)}</td>
               {showProfit ? (
                 <td className={`${tdNum} font-semibold`}>{money(row.salesProfit ?? "0")}</td>
               ) : null}

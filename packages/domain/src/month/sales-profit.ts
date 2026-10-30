@@ -101,9 +101,10 @@ export function profitLinesOf(day: DayResult): ProfitLine[] {
 }
 
 /**
- * D69 (amended D106): the dashboard. মোট খরচ = কমিশন + অপারেটিং খরচ + ডিএসআর খরচ (বেতনসহ) (shown
- * only); profitCost = অপারেটিং খরচ + ডিএসআর খরচ; নিট প্রফিট = মোট প্রফিট − profitCost (ফেরত and
- * কমিশন are already in the profit). D74 মোট বিক্রি = মোট সামারি − মোট খরচ.
+ * D69 (amended D106, D107): the dashboard. মোট খরচ = কমিশন + অপারেটিং খরচ + ডিএসআর খরচ (বেতনসহ)
+ * (shown only); profitCost = অপারেটিং খরচ + ডিএসআর খরচ; নিট প্রফিট = মোট প্রফিট − profitCost (ফেরত
+ * and কমিশন are already in the profit). D107 মোট বিক্রি = মোট সামারি − মোট ফেরত. হাতে জমা = মোট বিক্রি
+ * − মোট ড্যামেজ − মোট কমিশন − অপারেটিং খরচ − ডিএসআর খরচ − নতুন বকেয়া + বকেয়া জমা (দোকানের আদায়).
  */
 export function dashboardTotals(input: {
   issuedValue: DecimalInput;
@@ -112,14 +113,32 @@ export function dashboardTotals(input: {
   commission: DecimalInput;
   expenses: DecimalInput;
   staffCost: DecimalInput;
+  /** New shop credit given in the range (নতুন বকেয়া). */
+  marketDueCreated: DecimalInput;
+  /** Old shop dues collected in the range (বকেয়া জমা / দোকানের আদায়). */
+  oldDuesCollected: DecimalInput;
   salesProfit?: DecimalInput;
-}): { totalCost: string; profitCost: string; totalSales: string; netProfit: string | null } {
+}): {
+  totalCost: string;
+  profitCost: string;
+  totalSales: string;
+  cashInHand: string;
+  netProfit: string | null;
+} {
   const running = toDecimal(input.expenses).add(toDecimal(input.staffCost));
   const totalCost = running.add(toDecimal(input.commission));
+  const totalSales = toDecimal(input.issuedValue).sub(toDecimal(input.returnValue));
+  const cashInHand = totalSales
+    .sub(toDecimal(input.damageSaleValue))
+    .sub(toDecimal(input.commission))
+    .sub(running)
+    .sub(toDecimal(input.marketDueCreated))
+    .add(toDecimal(input.oldDuesCollected));
   return {
     profitCost: roundSettlement(running),
     totalCost: roundSettlement(totalCost),
-    totalSales: roundSettlement(toDecimal(input.issuedValue).sub(totalCost)),
+    totalSales: roundSettlement(totalSales),
+    cashInHand: roundSettlement(cashInHand),
     netProfit:
       input.salesProfit === undefined
         ? null

@@ -18,6 +18,7 @@ export const dsrDayRowSchema = z.object({
   returnValue: decimalStringSchema,
   damageSaleValue: decimalStringSchema,
   commission: decimalStringSchema,
+  /** D107 মোট বিক্রি: issuedValue − returnValue. */
   totalSales: decimalStringSchema,
   salesProfit: decimalStringSchema.optional(),
 });
@@ -70,8 +71,13 @@ export const dashboardSummarySchema = z.object({
   totalCost: decimalStringSchema.optional(),
   /** D69: অপারেটিং খরচ + ডিএসআর খরচ, what নিট প্রফিট takes off the profit; requires `finance.view`. */
   profitCost: decimalStringSchema.optional(),
-  /** D74 মোট বিক্রি: issuedValue − totalCost; requires `finance.view`. */
-  totalSales: decimalStringSchema.optional(),
+  /**
+   * D107 হাতে জমা: মোট বিক্রি − ড্যামেজ − কমিশন − অপারেটিং খরচ − ডিএসআর খরচ − নতুন বকেয়া + বকেয়া জমা.
+   * Requires `finance.view` because operating cost and DSR cost are part of it.
+   */
+  cashInHand: decimalStringSchema.optional(),
+  /** D107 মোট বিক্রি: issuedValue − returnValue. */
+  totalSales: decimalStringSchema,
   /** D69: the DSR-line profit (domain `salesProfit`); requires `inventory.cost_view` and `report.profit_view`. */
   salesProfit: decimalStringSchema.optional(),
   /** D69: salesProfit − অপারেটিং খরচ − ডিএসআর খরচ; requires `finance.view` too. */

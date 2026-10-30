@@ -43,7 +43,7 @@ describe("staff cost (D67)", () => {
     });
   });
 
-  it("totals the dashboard costs and takes only running costs off the profit (D69, D106)", () => {
+  it("totals the dashboard costs and the cash chain (D69, D106, D107)", () => {
     expect(
       dashboardTotals({
         issuedValue: "2500",
@@ -52,12 +52,16 @@ describe("staff cost (D67)", () => {
         commission: "50",
         expenses: "400",
         staffCost: "1000",
+        marketDueCreated: "200",
+        oldDuesCollected: "80",
         salesProfit: "250",
       }),
     ).toEqual({
       totalCost: "1450.00",
       profitCost: "1400.00",
-      totalSales: "1050.00",
+      // মোট বিক্রি = 2500 − 250. হাতে জমা = 2250 − 125 − 50 − 400 − 1000 − 200 + 80.
+      totalSales: "2250.00",
+      cashInHand: "555.00",
       netProfit: "-1150.00",
     });
   });
