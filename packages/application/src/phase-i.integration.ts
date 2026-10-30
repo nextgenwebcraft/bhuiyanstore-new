@@ -8,19 +8,19 @@ import { createRole, createUser } from "./administration";
 import { createCompany } from "./companies";
 import type { AppContext } from "./context";
 import { postMoneyEntry, postStockEntries } from "./daily";
-import { fromDbDate } from "./dates";
+import { fromDbDate, toDbDate } from "./dates";
+import { ensureMasterCompany } from "./master";
 import { AppError } from "./errors";
 import { getOpening, saveOpeningCutoff, saveOpeningSection } from "./opening";
 import { createProduct, deleteProduct } from "./products";
 import { deleteShop, listShops } from "./shops";
-import { deleteStaff, listStaffRecords } from "./staff";
+import { deleteStaff } from "./staff";
 import {
   STANDARD_CASH_ACCOUNTS,
   STANDARD_EXPENSE_CATEGORIES,
   STARTER_CASH,
   STARTER_COMPANY_ADVANCE,
   STARTER_NOTE,
-  STARTER_PEOPLE,
   STARTER_PRODUCTS,
   STARTER_SHOPS,
   starterCashAccountName,
@@ -121,9 +121,8 @@ describe("D51 starter dataset", () => {
       await db.product.count({ where: { companyId: starter, name: { startsWith: "নমুনা" } } }),
     ).toBe(STARTER_PRODUCTS.length);
     expect(await db.shop.count({ where: { companyId: starter } })).toBe(STARTER_SHOPS.length);
-    expect(await db.staffAssignment.count({ where: { companyId: starter } })).toBe(
-      STARTER_PEOPLE.length,
-    );
+    expect(await db.staff.count({ where: { companyId: starter } })).toBe(0);
+    expect(await db.staffAssignment.count({ where: { companyId: starter } })).toBe(0);
     // The seeded opening wrote its prices at the go-live date; they replaced the sample prices.
     expect(await db.priceChange.count({ where: { product: { companyId: starter } } })).toBe(
       STARTER_PRODUCTS.length * 3,
@@ -145,11 +144,12 @@ describe("D51 starter dataset", () => {
     const opening = await getOpening(ctx, starter);
     expect(opening.cutoffDate).toBe(POST_DAY);
     expect(opening.issues.filter((i) => i.severity === "error")).toEqual([]);
+    // D110: no sample people, so staff stays blank and market due has no DSR bucket (optional).
     expect(opening.sections.map((s) => [s.section, s.state])).toEqual([
       ["stock", "done"],
-      ["marketDue", "done"],
+      ["marketDue", "optional"],
       ["shopDue", "done"],
-      ["staff", "done"],
+      ["staff", "pending"],
       ["company", "done"],
       ["cash", "done"],
     ]);
@@ -203,15 +203,10 @@ describe("D51 starter dataset", () => {
     expect(account.name).toBe(starterCashAccountName("Second"));
   });
 
-  it("rolls the whole company back when the dataset cannot be created", async () => {
+  it("creates the company with no staff even when the DSR role is inactive", async () => {
     await db.staffRole.updateMany({ where: { kind: "dsr" }, data: { active: false } });
-    const companies = await db.company.count();
-    const products = await db.product.count();
-    await expect(
-      createCompany(ctx, { name: "Broken", theme, modules: ["sales"] }),
-    ).rejects.toThrow();
-    expect(await db.company.count()).toBe(companies);
-    expect(await db.product.count()).toBe(products);
+    const created = await createCompany(ctx, { name: "No staff", theme, modules: ["sales"] });
+    expect(await db.staff.count({ where: { companyId: created.company.id } })).toBe(0);
     await db.staffRole.updateMany({ where: { kind: "dsr" }, data: { active: true } });
   });
 
@@ -244,7 +239,8 @@ describe("D51 starter dataset", () => {
       await db.priceChange.findFirst({ where: { productId: product.id, kind: "cost" } }),
     );
     expect(cost.price.toString()).toBe("19");
-    expect(view.sections.every((s) => s.state === "done")).toBe(true);
+    expect(view.sections.find((s) => s.section === "stock")?.state).toBe("done");
+    expect(view.sections.find((s) => s.section === "staff")?.state).toBe("pending");
   });
 });
 
@@ -252,11 +248,28 @@ describe("D50 new shop from a due entry", () => {
   const roles = {} as { sale: AppContext; collect: AppContext; none: AppContext };
 
   beforeAll(async () => {
-    const dsr = must(
-      await db.staff.findFirst({
-        where: { name: "নমুনা ডিএসআর ১", assignments: { some: { companyId: starter } } },
+    const role = must(
+      await db.staffRole.findFirst({
+        where: { tenantId: admin.tenantId, kind: "dsr", active: true },
       }),
     );
+    const dsr = await db.staff.create({
+      data: {
+        tenantId: admin.tenantId,
+        name: "নমুনা ডিএসআর ১",
+        employer: "distributor",
+        companyId: starter,
+        assignments: {
+          create: {
+            companyId: starter,
+            roleId: role.id,
+            from: toDbDate(POST_DAY),
+            to: null,
+            monthlySalary: "12000",
+          },
+        },
+      },
+    });
     dsrId = dsr.id;
     roles.sale = await userWith(starter, ["company.view", "sale.post"]);
     roles.collect = await userWith(starter, ["company.view", "collection.post"]);
@@ -407,16 +420,71 @@ describe("D51 delete only what was never used", () => {
     expect(await db.shop.count({ where: { id: used.id } })).toBe(1);
   });
 
-  it("deletes an unused person with the assignment and refuses one with entries", async () => {
-    const records = await listStaffRecords(ctx, starter);
-    const manager = must(records.find((r) => r.name === "নমুনা ম্যানেজার"));
+  it("deletes an unused person from the master panel and refuses one with entries", async () => {
+    const role = must(
+      await db.staffRole.findFirst({
+        where: { tenantId: admin.tenantId, kind: "general", active: true },
+      }),
+    );
+    const srRole = must(
+      await db.staffRole.findFirst({
+        where: { tenantId: admin.tenantId, kind: "sr", active: true },
+      }),
+    );
+    const manager = await db.staff.create({
+      data: {
+        tenantId: admin.tenantId,
+        name: "নমুনা ম্যানেজার",
+        employer: "distributor",
+        companyId: starter,
+        assignments: {
+          create: {
+            companyId: starter,
+            roleId: role.id,
+            from: toDbDate(POST_DAY),
+            to: null,
+            monthlySalary: "25000",
+          },
+        },
+      },
+    });
+    const session = must(await db.openingSession.findUnique({ where: { companyId: starter } }));
+    await db.openingBalanceLine.create({
+      data: {
+        sessionId: session.id,
+        kind: "salary_payable",
+        staffId: manager.id,
+        partyKey: manager.id,
+        amount: "0",
+      },
+    });
+    const sr = await db.staff.create({
+      data: {
+        tenantId: admin.tenantId,
+        name: "নমুনা এসআর",
+        employer: "supplier",
+        companyId: starter,
+        assignments: {
+          create: {
+            companyId: starter,
+            roleId: srRole.id,
+            from: toDbDate(POST_DAY),
+            to: null,
+            monthlySalary: null,
+          },
+        },
+      },
+    });
+    const masterId = await ensureMasterCompany(db, admin.tenantId);
     expect(await db.openingBalanceLine.count({ where: { staffId: manager.id } })).toBe(1);
-    await deleteStaff(ctx, starter, manager.id);
+    await deleteStaff(ctx, masterId, manager.id);
     expect(await db.staff.count({ where: { id: manager.id } })).toBe(0);
     expect(await db.staffAssignment.count({ where: { staffId: manager.id } })).toBe(0);
     expect(await db.openingBalanceLine.count({ where: { staffId: manager.id } })).toBe(0);
+    await expectField(deleteStaff(ctx, masterId, sr.id), "id", "validation.staff.unknown");
+    expect(await db.staff.count({ where: { id: sr.id } })).toBe(1);
     // The DSR has money entries from the D50 tests.
-    await expectField(deleteStaff(ctx, starter, dsrId), "id", "validation.staff.inUse");
+    await expectField(deleteStaff(ctx, masterId, dsrId), "id", "validation.staff.inUse");
     expect(await db.staff.count({ where: { id: dsrId } })).toBe(1);
   });
 

@@ -1,8 +1,14 @@
 "use client";
 
 import { moneyKindPermission, type DayView, type StockEntry } from "@bsd/contracts";
-import { depositInvestmentPreview, sumAmounts, toBaseQuantity, toDecimal } from "@bsd/domain";
-import { formatRate, t, type TranslationKey } from "@bsd/i18n";
+import {
+  damageRateKey,
+  depositInvestmentPreview,
+  sumAmounts,
+  toBaseQuantity,
+  toDecimal,
+} from "@bsd/domain";
+import { formatCount, formatRate, t, type TranslationKey } from "@bsd/i18n";
 import { useId, useState } from "react";
 import { Button } from "@/components/button";
 import {
@@ -71,43 +77,58 @@ const PERMISSION = {
 /** D105: these two kinds may name the product they are for. */
 const PRODUCT_KINDS: readonly DepositKind[] = ["companyIncentive", "rebateClaim"];
 
-type DamageRow = { key: number; productId: string; cartons: string; pieces: string; rate: string };
+type DamageRow = { key: number; lotKey: string; cartons: string; pieces: string };
 let nextRowKey = 0;
 const emptyRow = (): DamageRow => ({
   key: nextRowKey++,
-  productId: "",
+  lotKey: "",
   cartons: "",
   pieces: "",
-  rate: "",
 });
 const amountPattern = /^\d+(\.\d{1,2})?$/;
-const ratePattern = /^\d+(\.\d{1,6})?$/;
 
-type Product = DayView["products"][number];
+/** One stored damage lot: a product at one rate (D109). */
+type HeldLot = {
+  key: string;
+  productId: string;
+  productName: string;
+  rate: string;
+  pieces: string;
+  piecesPerCarton: string;
+};
 
-/** The purchase price per piece a damage deposit starts at (editable). */
-const defaultRate = (product: Product | undefined) =>
-  product?.costPrice ? toDecimal(product.costPrice).toDecimalPlaces(2).toString() : "";
+function heldLots(view: DayView): HeldLot[] {
+  return view.products.flatMap((product) =>
+    product.damageLots
+      .filter((lot) => !toDecimal(lot.pieces).lte(0))
+      .map((lot) => ({
+        key: `${product.productId}|${damageRateKey(lot.rate)}`,
+        productId: product.productId,
+        productName: product.productName,
+        rate: lot.rate,
+        pieces: lot.pieces,
+        piecesPerCarton: product.piecesPerCarton,
+      })),
+  );
+}
 
 /** One damage row's pieces and taka, or an error message; null when the row is empty. */
 function damageLine(
   row: DamageRow,
-  product: Product | undefined,
+  lot: HeldLot | undefined,
 ): { pieces: string; rate: string; amount: string } | { error: string } | null {
-  if (!product)
-    return row.cartons || row.pieces ? { error: t("deposit.damage.pickProduct") } : null;
+  if (!lot) return row.cartons || row.pieces ? { error: t("deposit.damage.pickProduct") } : null;
   const cartons = clean(row.cartons) || "0";
   const pieces = clean(row.pieces) || "0";
   if (!/^\d+$/.test(cartons) || !/^\d+$/.test(pieces))
     return { error: t("validation.wholeNumber") };
-  const total = toBaseQuantity(cartons, pieces, product.piecesPerCarton);
+  const total = toBaseQuantity(cartons, pieces, lot.piecesPerCarton);
   if (total === "0") return null;
-  const rate = clean(row.rate || defaultRate(product));
-  if (!ratePattern.test(rate)) return { error: t("godown.order.rateMissing") };
+  if (toDecimal(total).gt(lot.pieces)) return { error: t("validation.daily.damageLot") };
   return {
     pieces: total,
-    rate,
-    amount: toDecimal(total).mul(rate).toDecimalPlaces(2).toString(),
+    rate: lot.rate,
+    amount: toDecimal(total).mul(lot.rate).toDecimalPlaces(2).toFixed(2),
   };
 }
 
@@ -132,8 +153,9 @@ function DepositForm({
   const [error, setError] = useState<string | undefined>();
   const [done, setDone] = useState(false);
   const pending = postMoney.isPending || postStock.isPending;
-  const productOf = (productId: string) => view.products.find((p) => p.productId === productId);
-  const lines = rows.map((row) => ({ row, line: damageLine(row, productOf(row.productId)) }));
+  const lots = heldLots(view);
+  const lotOf = (key: string) => lots.find((lot) => lot.key === key);
+  const lines = rows.map((row) => ({ row, line: damageLine(row, lotOf(row.lotKey)) }));
   const damageTotal = sumAmounts([
     "0",
     ...lines.flatMap(({ line }) => (line && !("error" in line) ? [line.amount] : [])),
@@ -162,7 +184,7 @@ function DepositForm({
             ? [
                 {
                   kind: "damageDeposit" as const,
-                  productId: row.productId,
+                  productId: lotOf(row.lotKey)?.productId ?? "",
                   pieces: line.pieces,
                   unitPrice: line.rate,
                 },
@@ -288,32 +310,38 @@ function DepositForm({
               </thead>
               <tbody>
                 {lines.map(({ row, line }) => {
-                  const product = productOf(row.productId);
+                  const lot = lotOf(row.lotKey);
+                  const taken = new Set(
+                    rows.filter((other) => other.key !== row.key).map((other) => other.lotKey),
+                  );
+                  const choices = lots.filter((option) => !taken.has(option.key));
                   return (
                     <tr key={row.key} className="border-t border-border">
                       <td className={tdClass}>
                         <select
                           aria-label={t("godown.column.product")}
-                          value={row.productId}
+                          value={row.lotKey}
                           onChange={(event) =>
-                            setRow(row.key, { productId: event.target.value, rate: "" })
+                            setRow(row.key, {
+                              lotKey: event.target.value,
+                              cartons: "",
+                              pieces: "",
+                            })
                           }
-                          className={`${inputClass} min-w-48`}
+                          className={`${inputClass} min-w-64`}
                         >
                           <option value="">{t("deposit.damage.pickProduct")}</option>
-                          {view.products.map((p) => (
-                            <option key={p.productId} value={p.productId}>
-                              {p.productName}
+                          {choices.map((option) => (
+                            <option key={option.key} value={option.key}>
+                              {option.productName} — {formatRate(option.rate)} (
+                              {formatCount(option.pieces)})
                             </option>
                           ))}
                         </select>
                       </td>
                       <td className={tdNum}>
-                        {product ? (
-                          <CartonQty
-                            pieces={product.damagedStock}
-                            piecesPerCarton={product.piecesPerCarton}
-                          />
+                        {lot ? (
+                          <CartonQty pieces={lot.pieces} piecesPerCarton={lot.piecesPerCarton} />
                         ) : (
                           "—"
                         )}
@@ -334,16 +362,7 @@ function DepositForm({
                           width="w-16"
                         />
                       </td>
-                      <td className={tdNum}>
-                        <CellInput
-                          label={t("deposit.damage.rate")}
-                          value={row.rate || defaultRate(product)}
-                          placeholder={product?.costPrice ? formatRate(product.costPrice) : "৳"}
-                          onChange={(rate) => setRow(row.key, { rate })}
-                          mode="decimal"
-                          width="w-24"
-                        />
-                      </td>
+                      <td className={tdNum}>{lot ? formatRate(lot.rate) : "—"}</td>
                       <td className={tdNum}>
                         {line && !("error" in line) ? money(line.amount) : "—"}
                       </td>

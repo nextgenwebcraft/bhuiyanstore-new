@@ -301,10 +301,12 @@ export {
 } from "./shops";
 export {
   dashboardSummarySchema,
+  damageLotRowSchema,
   dsrDayRowSchema,
   masterMonthSchema,
   masterSummarySchema,
   type DashboardSummary,
+  type DamageLotRow,
   type DsrDayRow,
   type MasterMonth,
   type MasterSummary,

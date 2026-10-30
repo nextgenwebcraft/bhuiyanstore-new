@@ -551,11 +551,19 @@ export async function saveFieldDayEnd(
         if (row) {
           await tx.dsrLine.updateMany({
             where: { dsrDayId: row.dsrDayId, productId: line.productId, id: { not: row.id } },
-            data: { returned: "0", damaged: "0" },
+            data: { returned: "0", damaged: "0", damageRate: null },
           });
           await tx.dsrLine.update({
             where: { id: row.id },
-            data: { returned: line.returned, damaged: line.damaged },
+            data: {
+              returned: line.returned,
+              damaged: line.damaged,
+              ...(line.damaged === "0"
+                ? { damageRate: null }
+                : row.damageRate === null && row.salePrice !== null
+                  ? { damageRate: row.salePrice }
+                  : {}),
+            },
           });
         } else if (line.returned !== "0" || line.damaged !== "0") {
           await tx.dsrLine.create({
@@ -697,6 +705,7 @@ export async function approveFieldDayReport(
         commission: plain(l.commission),
         ...(l.salePrice === null ? {} : { salePrice: plain(l.salePrice) }),
         ...(l.costPrice === null ? {} : { costPrice: plain(l.costPrice) }),
+        ...(l.damageRate === null ? {} : { damageRate: plain(l.damageRate) }),
       }));
       for (const r of report.lines) {
         const target = lastBatchLine(sheet.lines, r.productId);

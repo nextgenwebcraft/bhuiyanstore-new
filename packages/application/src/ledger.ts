@@ -339,6 +339,7 @@ async function rangeInput(
         returned: plain(line.returned),
         damaged: plain(line.damaged),
         commission: plain(line.commission),
+        ...(line.damageRate === null ? {} : { damageRate: plain(line.damageRate) }),
         priceSplits: line.splits.map((s) => ({
           quantity: plain(s.quantity),
           unitPrice: plain(s.unitPrice),

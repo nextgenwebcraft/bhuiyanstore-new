@@ -52,6 +52,11 @@ export type OpeningProduct = {
   damagedStock?: DecimalInput;
   /** Damaged pieces at the company waiting for its decision (D53); default 0. */
   damageAtCompany?: DecimalInput;
+  /**
+   * D109: damaged pieces still held, by the rate they were stored at. Absent in an opening or a
+   * month-close snapshot from before this (read as none).
+   */
+  damageLots?: readonly { rate: DecimalInput; pieces: DecimalInput }[];
 };
 
 /** One person's money balances by type (D27, guide §11.9). Never one signed figure. */
@@ -199,6 +204,11 @@ export type DsrLineInput = {
   /** Taka given to shops on this line (D41); lowers its sales, cash and profit. */
   commission?: DecimalInput;
   /**
+   * D109: taka per damaged piece stored for the company claim. Absent = the line's sale price.
+   * It does not change the sheet's sales, profit or cash, and it does not reprice the batch.
+   */
+  damageRate?: DecimalInput;
+  /**
    * D68: the batch the pieces come from, at these prices (sales at its sale price, cost at its
    * purchase price). Absent = the oldest batches first (FIFO, history).
    */
@@ -345,6 +355,8 @@ export type ProductDayResult = {
   damagedStock: string;
   /** Damaged pieces at the company awaiting its decision (D53). */
   damageAtCompany: string;
+  /** D109: pieces still held at each stored rate. A deposited rate is omitted. */
+  damageLots: { rate: string; pieces: string }[];
 };
 
 /** A batch with what is left of it (D49). */
@@ -586,6 +598,8 @@ export type MonthClosing = {
       /** D53: absent in snapshots stored before damaged-goods stock; read as 0. */
       damagedStock?: string;
       damageAtCompany?: string;
+      /** D109: absent in snapshots stored before rate-wise damage; read as none. */
+      damageLots?: { rate: string; pieces: string }[];
     } & Partial<Record<PriceKind, string>>
   >;
   marketDue: Record<StaffId, string>;

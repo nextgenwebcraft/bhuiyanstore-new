@@ -37,6 +37,7 @@ import {
   pieceFromCarton,
   toDecimal,
   todayBusinessDate,
+  damageRateKey,
   type MonthOutput,
 } from "@bsd/domain";
 import {
@@ -209,6 +210,48 @@ export async function listStockEntries(
 }
 
 /** Posts a day's godown lines and price changes together (one Excel row edit). */
+/** D109: a damage deposit can take only pieces still held at that product and rate. */
+async function ensureDamageLots(
+  db: Tx,
+  access: CompanyAccess,
+  date: string,
+  lines: readonly {
+    kind: string;
+    productId: string;
+    pieces: string;
+    unitPrice?: string | undefined;
+  }[],
+): Promise<void> {
+  const deposits = lines.flatMap((line, index) =>
+    line.kind === "damageDeposit" && line.unitPrice !== undefined
+      ? [{ index, productId: line.productId, pieces: line.pieces, rate: line.unitPrice }]
+      : [],
+  );
+  if (deposits.length === 0) return;
+  const run = await runLedger(db, access, date);
+  const day = run?.output.days.find((d) => d.date === date);
+  const held = new Map<string, ReturnType<typeof toDecimal>>();
+  for (const product of day?.products ?? []) {
+    for (const lot of product.damageLots) {
+      held.set(`${product.productId}|${damageRateKey(lot.rate)}`, toDecimal(lot.pieces));
+    }
+  }
+  const asked = new Map<string, { pieces: ReturnType<typeof toDecimal>; index: number }>();
+  for (const row of deposits) {
+    const key = `${row.productId}|${damageRateKey(row.rate)}`;
+    const prev = asked.get(key);
+    asked.set(key, {
+      pieces: toDecimal(row.pieces).add(prev?.pieces ?? "0"),
+      index: prev?.index ?? row.index,
+    });
+  }
+  for (const [key, row] of asked) {
+    if (row.pieces.gt(held.get(key) ?? "0")) {
+      throw invalid(`lines.${row.index}.pieces`, "validation.daily.damageLot");
+    }
+  }
+}
+
 export async function postStockEntries(
   ctx: AppContext,
   companyId: string,
@@ -264,6 +307,7 @@ export async function postStockEntries(
           : [],
       );
       await ensureBatchDue(tx, companyId, request.date, receipts);
+      await ensureDamageLots(tx, access, request.date, request.lines);
       for (const [index, line] of request.lines.entries()) {
         const base = {
           ...owner,
@@ -427,6 +471,7 @@ function toDsrDay(row: DsrRow, canSeeCost: boolean): DsrDay {
       batchSeq: line.batchSeq,
       costPrice: canSeeCost && line.costPrice !== null ? plain(line.costPrice) : null,
       salePrice: line.salePrice === null ? null : plain(line.salePrice),
+      damageRate: line.damageRate === null ? null : plain(line.damageRate),
     })),
     postedAt: iso(row.postedAt),
     reversedAt: iso(row.reversedAt),
@@ -625,6 +670,7 @@ export async function saveDsrDayIn(
         returned: line.returned,
         damaged: line.damaged,
         commission: line.commission,
+        damageRate: line.damaged === "0" ? null : (line.damageRate ?? null),
         ...(await dsrLineBatch(tx, companyId, seesCost(access), line, request.lines.indexOf(line))),
       },
     });
@@ -1206,6 +1252,25 @@ export async function getDayView(
  * The dashboard's report for a range (guide 5.2): one engine run over [from, to], each day
  * summarised by the domain and summed here; `to` stops at today (same rules as reports).
  */
+function damageLotsOf(run: { output: MonthOutput } | null, to: string, names: Map<string, string>) {
+  const day = run?.output.days.find((d) => d.date === to) ?? run?.output.days.at(-1);
+  return (day?.products ?? [])
+    .flatMap((product) =>
+      product.damageLots.map((lot) => ({
+        productId: product.productId,
+        productName: names.get(product.productId) ?? "",
+        rate: lot.rate,
+        pieces: lot.pieces,
+        amount: toDecimal(lot.pieces).mul(lot.rate).toDecimalPlaces(2).toFixed(2),
+      })),
+    )
+    .sort(
+      (a, b) =>
+        a.productName.localeCompare(b.productName, "bn") ||
+        (toDecimal(a.rate).comparedTo(b.rate) ?? 0),
+    );
+}
+
 export async function getDashboardSummary(
   ctx: AppContext,
   companyId: string,
@@ -1229,10 +1294,14 @@ export async function dashboardOf(
   const canSeeProfit = canSeeCost && access.permissions.includes("report.profit_view");
   const dates = { gte: toDbDate(range.from), lte: toDbDate(range.to) };
   const active = await liveOpening(ctx.db, companyId);
-  const [run, names, sheets, receipts, handoverShorts] = await Promise.all([
+  const [run, names, products, sheets, receipts, handoverShorts] = await Promise.all([
     rangeRun(ctx.db, access, range.from, range.to, active),
     ctx.db.staff.findMany({
       where: { tenantId: access.company.tenantId },
+      select: { id: true, name: true },
+    }),
+    ctx.db.product.findMany({
+      where: { companyId },
       select: { id: true, name: true },
     }),
     ctx.db.dsrDay.count({ where: { companyId, date: dates, status: "posted" } }),
@@ -1250,6 +1319,7 @@ export async function dashboardOf(
   const total = (pick: (s: (typeof summaries)[number]) => string) =>
     sumAmounts(summaries.map(pick));
   const staffName = new Map(names.map((s) => [s.id, s.name]));
+  const productName = new Map(products.map((p) => [p.id, p.name]));
   const dsrIds = [...new Set(summaries.flatMap((s) => s.byDsr.map((r) => r.staffId)))];
   const byDsr = dsrIds.map((staffId) => {
     const rows = summaries.flatMap((s) => s.byDsr.filter((r) => r.staffId === staffId));
@@ -1316,6 +1386,7 @@ export async function dashboardOf(
     postedSummaryCount: sheets,
     postedReceiptCount: receipts,
     byDsr,
+    damageLots: damageLotsOf(run, range.to, productName),
     ...(canSeeProfit && run
       ? {
           grossProfit: total((s) => s.grossProfit),

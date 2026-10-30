@@ -25,6 +25,18 @@ export const dsrDayRowSchema = z.object({
 
 export type DsrDayRow = z.infer<typeof dsrDayRowSchema>;
 
+/** D109: damaged pieces still held for one product at one rate. */
+export const damageLotRowSchema = z.object({
+  productId: idSchema,
+  productName: z.string(),
+  rate: decimalStringSchema,
+  pieces: decimalStringSchema,
+  /** pieces × rate, rounded to 2 decimals. */
+  amount: decimalStringSchema,
+});
+
+export type DamageLotRow = z.infer<typeof damageLotRowSchema>;
+
 /**
  * The dashboard's report for a date range (guide 5.2 "date filters; sales, collections, gross
  * profit if permitted, stock value, dues"). Derived from posted events only (guide 5.3, 21.1);
@@ -95,6 +107,8 @@ export const dashboardSummarySchema = z.object({
   receivedValue: decimalStringSchema.optional(),
   /** Cost-based saleable inventory value at the end of the range; requires `inventory.cost_view`. */
   stockValue: decimalStringSchema.optional(),
+  /** D109: damaged pieces still held at the end of the range, one row per product and rate. */
+  damageLots: z.array(damageLotRowSchema),
 });
 
 export type DashboardSummary = z.infer<typeof dashboardSummarySchema>;

@@ -20,6 +20,7 @@ import {
   type BatchLayer,
   type LayerAllocation,
 } from "./batches";
+import { addDamageLot, damageLotsFrom, damageLotsResult } from "./damage-lots";
 import { owedBuckets } from "./types";
 import type {
   BatchCarry,
@@ -117,6 +118,8 @@ type ProductState = {
   damagedStock: Decimal;
   /** Damaged pieces at the company awaiting its decision (D53). */
   damageAtCompany: Decimal;
+  /** D109: pieces held at each stored rate. */
+  damageLots: Map<string, Decimal>;
 };
 
 /** A company ledger line before the balances after it are known. */
@@ -383,6 +386,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
       },
       damagedStock: dec(o?.damagedStock),
       damageAtCompany: dec(o?.damageAtCompany),
+      damageLots: damageLotsFrom(o?.damageLots),
     });
   }
   for (const id of Object.keys(input.opening.products)) requireProduct(id);
@@ -686,6 +690,14 @@ export function computeMonth(input: MonthInput): MonthOutput {
       agg.issuedValue = agg.issuedValue.add(issued.mul(listSale));
       agg.returnValue = agg.returnValue.add(returned.mul(listSale));
       lineAggregates.set(line.productId, agg);
+      // D109: the stored rate is the claim price. Absent means the sale price. Sales stay at sale price.
+      if (damaged.gt(0)) {
+        const rate = line.damageRate === undefined ? listSale : toDecimal(line.damageRate);
+        if (rate.isNegative()) {
+          throw new RangeError(`invalid damage rate: ${line.staffId}/${line.productId}`);
+        }
+        addDamageLot(lineState.damageLots, rate, damaged);
+      }
 
       const dsr = dsrOf(line.staffId);
       dsr.sales = dsr.sales.add(soldValue);
@@ -778,6 +790,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
         }
         const amount = quantity.mul(unitCost);
         companyRefunds = companyRefunds.add(amount);
+        addDamageLot(state.damageLots, unitCost, quantity.neg());
         refundValue = refundValue.add(amount);
         dayRefunds.push({
           date: day.date,
@@ -994,6 +1007,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
         batches: state.batches.map(toBatchResult),
         damagedStock: str(state.damagedStock),
         damageAtCompany: str(state.damageAtCompany),
+        damageLots: damageLotsResult(state.damageLots, true),
       });
     }
 
@@ -1338,6 +1352,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
           const price = s.prices[kind];
           if (price !== null) prices[kind] = str(price);
         }
+        const damageLots = damageLotsResult(s.damageLots, false);
         return [
           id,
           {
@@ -1348,6 +1363,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
             damagedStock: str(s.damagedStock),
             damageAtCompany: str(s.damageAtCompany),
             ...prices,
+            ...(damageLots.length === 0 ? {} : { damageLots }),
           },
         ];
       }),
