@@ -19,7 +19,7 @@ import { invalid, parseInput } from "./errors";
 import { isForeignKeyViolation, runIdempotent } from "./idempotency";
 import { masterCompanyId, staffCompanyIds } from "./master";
 import { plain } from "./numeric";
-import { releaseOpeningLines } from "./opening-lock";
+import { releaseOpeningLines, releaseStaffOpenings } from "./opening-lock";
 
 const withAssignments = {
   assignments: { include: { role: true }, orderBy: { from: "asc" } },
@@ -446,11 +446,17 @@ async function writeAssignment(
   });
 }
 
+/** An SR is deleted from their own company, never from the master panel (D80, D110). */
+function isSr(staff: { employer: string; assignments: readonly { role: { kind: string } }[] }) {
+  return staff.employer === "supplier" || staff.assignments.some((a) => a.role.kind === "sr");
+}
+
 /**
- * Hard delete of a person nothing refers to (D51): no DSR sheet, field visit, money entry, payroll
- * line, damage case or shop added by them, no login, no assignment in another company, and no
- * opening balance once the opening is locked. Their own assignments in this company and an
- * unlocked opening's balances go with them (D59).
+ * Hard delete of a person nothing refers to (D51): no DSR sheet, field visit or field report,
+ * money entry, payroll line, damage case or shop added by them, and no login. From a company,
+ * an assignment or opening line in another company also blocks it (D59). From the master panel,
+ * assignments in the operating companies are the person's own work and go with them; opening
+ * lines are released in every company whose opening is still unlocked (D110).
  */
 export async function deleteStaff(
   ctx: AppContext,
@@ -461,20 +467,33 @@ export async function deleteStaff(
   const visible = await visibleCompanyIds(ctx);
   try {
     await ctx.db.$transaction(async (tx) => {
-      const before = await loadCompanyStaff(tx, ctx, companyId, staffId);
+      const acting = await tx.company.findUnique({
+        where: { id: companyId },
+        select: { isMaster: true },
+      });
+      const before = acting?.isMaster
+        ? await loadStaff(tx, ctx, staffId)
+        : await loadCompanyStaff(tx, ctx, companyId, staffId);
+      if (acting?.isMaster && isSr(before)) throw invalid("id", "validation.staff.unknown");
       const refs = await Promise.all([
         tx.dsrDay.count({ where: { staffId } }),
         tx.fieldVisit.count({ where: { staffId } }),
+        tx.fieldDayReport.count({ where: { staffId } }),
         tx.moneyEntry.count({ where: { staffId } }),
         tx.payrollLine.count({ where: { staffId } }),
         tx.damageCase.count({ where: { staffId } }),
         tx.shop.count({ where: { addedByStaffId: staffId } }),
       ]);
-      const elsewhere = before.assignments.some((a) => a.companyId !== companyId);
-      if (refs.some((n) => n > 0) || elsewhere || before.user !== null) {
+      if (refs.some((n) => n > 0) || before.user !== null) {
         throw invalid("id", "validation.staff.inUse");
       }
-      const opening = await releaseOpeningLines(tx, companyId, { staffId });
+      const elsewhere =
+        !acting?.isMaster && before.assignments.some((a) => a.companyId !== companyId);
+      const opening = elsewhere
+        ? false
+        : acting?.isMaster
+          ? await releaseStaffOpenings(tx, staffId)
+          : await releaseOpeningLines(tx, companyId, { staffId });
       if (!opening) throw invalid("id", "validation.staff.inUse");
       await tx.staff.delete({ where: { id: staffId } });
       await recordAudit(tx, ctx, {

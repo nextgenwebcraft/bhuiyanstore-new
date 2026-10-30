@@ -40,3 +40,28 @@ export async function releaseOpeningLines(
   if (balanceWhere) await tx.openingBalanceLine.deleteMany({ where: balanceWhere });
   return { stock, balances };
 }
+
+/**
+ * D110: deleting a person from the master panel releases their opening lines in every company.
+ * A locked opening in any of those companies keeps the person (the lines are part of a closed month).
+ */
+export async function releaseStaffOpenings(
+  tx: Tx,
+  staffId: string,
+): Promise<{ stock: number; balances: number } | false> {
+  const lines = await tx.openingBalanceLine.findMany({
+    where: { staffId },
+    select: { session: { select: { companyId: true } } },
+  });
+  const companyIds = [...new Set(lines.map((line) => line.session.companyId))];
+  if (companyIds.length > 0) {
+    const locked = await tx.monthClose.findFirst({
+      where: { companyId: { in: companyIds } },
+      select: { id: true },
+    });
+    if (locked) return false;
+  }
+  if (lines.length === 0) return { stock: 0, balances: 0 };
+  await tx.openingBalanceLine.deleteMany({ where: { staffId } });
+  return { stock: 0, balances: lines.length };
+}

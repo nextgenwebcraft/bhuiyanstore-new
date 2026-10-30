@@ -634,6 +634,8 @@ model DsrLine {
   batchSeq        Int?            @map("batch_seq")
   costPrice       Decimal?        @map("cost_price") @db.Decimal(20, 6)
   salePrice       Decimal?        @map("sale_price") @db.Decimal(20, 6)
+  /// D109: taka per damaged piece. Null when the line has no damage. Does not reprice the batch.
+  damageRate      Decimal?        @map("damage_rate") @db.Decimal(20, 6)
   dsrDay          DsrDay          @relation(fields: [dsrDayId], references: [id], onDelete: Cascade)
   product         Product         @relation(fields: [productId], references: [id])
   splits          DsrPriceSplit[]

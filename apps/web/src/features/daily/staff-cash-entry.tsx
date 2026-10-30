@@ -114,7 +114,14 @@ function EntryForm({
     <div className="flex flex-col gap-3">
       <div className={`grid gap-3 ${dsr ? "grid-cols-3" : "grid-cols-2"}`}>
         {dsr ? (
-          <DsrSelect id={`${id}-dsr`} value={dsr.id} dsrs={dsr.dsrs} onChange={dsr.onChange} />
+          <DsrSelect
+            id={`${id}-dsr`}
+            value={dsr.id}
+            dsrs={dsr.dsrs}
+            onChange={dsr.onChange}
+            label="staff.person"
+            emptyLabel="staffCash.personEmpty"
+          />
         ) : null}
         <Field id={`${id}-kind`} label={t("common.kind")}>
           <select
@@ -177,7 +184,7 @@ function Entries({ rows, companyId }: { rows: MoneyEntry[]; companyId: string })
             <thead className={theadClass}>
               <tr>
                 <th scope="col" className={thClass}>
-                  {t("staffCash.dsr")}
+                  {t("staff.person")}
                 </th>
                 <th scope="col" className={thClass}>
                   {t("common.kind")}

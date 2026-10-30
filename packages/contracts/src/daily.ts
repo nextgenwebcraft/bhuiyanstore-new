@@ -178,6 +178,11 @@ export const dsrLineRequestSchema = z.object({
   batchKey: z.string().max(64).default(""),
   costPrice: unitPriceSchema.optional(),
   salePrice: unitPriceSchema.optional(),
+  /**
+   * D109: taka per damaged piece. Omitted with no damage, or when it should stay the line's sale
+   * price. It does not change the batch.
+   */
+  damageRate: unitPriceSchema.optional(),
 });
 
 export const dsrDaySaveRequestSchema = z.object({
@@ -210,6 +215,8 @@ export const dsrLineSchema = dsrLineRequestSchema.extend({
   /** Null without cost view, or for a line without a batch. */
   costPrice: decimalStringSchema.nullable(),
   salePrice: decimalStringSchema.nullable(),
+  /** D109: null when the line has no damage, or damage stored before a rate was entered. */
+  damageRate: decimalStringSchema.nullable(),
 });
 
 export const dsrDaySchema = z.object({
@@ -529,6 +536,13 @@ export const dayProductRowSchema = z.object({
   /** Damaged goods stock in the godown and damaged pieces at the company (D53). */
   damagedStock: money,
   damageAtCompany: money,
+  /** D109: pieces of this product still held, one row per stored rate. */
+  damageLots: z.array(
+    z.object({
+      rate: decimalStringSchema,
+      pieces: decimalStringSchema,
+    }),
+  ),
   dueFromCompany: money,
   /** Billed value of the goods not yet received (D48). */
   dueFromCompanyValue: money,

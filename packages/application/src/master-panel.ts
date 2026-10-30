@@ -90,6 +90,7 @@ function totalOf(range: { from: string; to: string }, parts: DashboardSummary[])
     postedSummaryCount: parts.reduce((n, p) => n + p.postedSummaryCount, 0),
     postedReceiptCount: parts.reduce((n, p) => n + p.postedReceiptCount, 0),
     byDsr: [],
+    damageLots: [],
   });
 }
 

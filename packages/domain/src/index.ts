@@ -64,6 +64,7 @@ export {
   type FieldVisitTotals,
 } from "./field";
 export { computeMonth } from "./month/compute-month";
+export { damageRateKey } from "./month/damage-lots";
 export {
   depositInvestment,
   depositInvestmentPreview,

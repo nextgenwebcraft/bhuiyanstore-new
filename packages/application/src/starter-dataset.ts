@@ -6,10 +6,11 @@ import { toDbDate } from "./dates";
 import { writeSeededOpening, type SeededOpening } from "./opening";
 
 /**
- * D51, D59: the synthetic starter dataset cloned into every new company, and the standard tenant
- * lists. Everything here is invented sample data owned by this file; nothing comes from the
- * workbook. It holds masters plus a complete opening (প্রারম্ভিক তথ্য, go-live = creation day)
- * and no daily record, so every row stays editable and, until used by a daily record, deletable.
+ * D51, D59, D110: the synthetic starter dataset cloned into every new company, and the standard
+ * tenant lists. Everything here is invented sample data owned by this file; nothing comes from the
+ * workbook. It holds sample products and shops plus an opening (প্রারম্ভিক তথ্য, go-live =
+ * creation day) and no people and no daily record, so every row stays editable and, until used by
+ * a daily record, deletable. Staff are entered by hand.
  */
 
 /** Note on every seeded opening line, so the owner can tell sample values from entered ones. */
@@ -118,47 +119,6 @@ export const STARTER_PRODUCTS: readonly StarterProduct[] = [
   },
 ];
 
-type StarterPerson = {
-  name: string;
-  employer: "distributor" | "supplier";
-  roleKind: "dsr" | "sr" | "general";
-  /** SR assignments carry no salary (D18). */
-  monthlySalary: string | null;
-  /** The person's opening balance; the kind must suit the role (D18, D27). */
-  opening: { kind: OpeningBalanceKind; amount: string };
-};
-
-export const STARTER_PEOPLE: readonly StarterPerson[] = [
-  {
-    name: "নমুনা ডিএসআর ১",
-    employer: "distributor",
-    roleKind: "dsr",
-    monthlySalary: "12000",
-    opening: { kind: "advance", amount: "1000" },
-  },
-  {
-    name: "নমুনা ডিএসআর ২",
-    employer: "distributor",
-    roleKind: "dsr",
-    monthlySalary: "12000",
-    opening: { kind: "loan", amount: "2000" },
-  },
-  {
-    name: "নমুনা ম্যানেজার",
-    employer: "distributor",
-    roleKind: "general",
-    monthlySalary: "25000",
-    opening: { kind: "salary_payable", amount: "0" },
-  },
-  {
-    name: "নমুনা এসআর",
-    employer: "supplier",
-    roleKind: "sr",
-    monthlySalary: null,
-    opening: { kind: "sr_loan", amount: "1500" },
-  },
-];
-
 export const STARTER_SHOPS = [
   { name: "নমুনা দোকান ১", ownerName: "নমুনা মালিক ১", area: "বাজার রোড", openingDue: "1500" },
   { name: "নমুনা দোকান ২", ownerName: "নমুনা মালিক ২", area: "স্টেশন রোড", openingDue: "800" },
@@ -253,16 +213,6 @@ export async function applyStarterDataset(
     skipDuplicates: true,
   });
 
-  const activeRoles = await tx.staffRole.findMany({ where: { tenantId, active: true } });
-  const roleOf = (kind: StarterPerson["roleKind"]): string => {
-    const wanted = STANDARD_STAFF_ROLES.find((r) => r.kind === kind)?.name;
-    const found =
-      activeRoles.find((r) => r.kind === kind && r.name === wanted) ??
-      activeRoles.find((r) => r.kind === kind);
-    if (!found) throw new Error(`no active ${kind} staff role for the starter dataset`);
-    return found.id;
-  };
-
   const stock: SeededOpening["stock"] = [];
   for (const p of STARTER_PRODUCTS) {
     const product = await tx.product.create({
@@ -297,7 +247,7 @@ export async function applyStarterDataset(
     kind: OpeningBalanceKind,
     amount: string,
     party: { staffId?: string; shopId?: string; cashAccountId?: string } = {},
-    personRoleKind: StarterPerson["roleKind"] | null = null,
+    personRoleKind: "dsr" | "sr" | "general" | null = null,
   ): SeededOpening["balances"][number] => ({
     kind,
     staffId: party.staffId ?? null,
@@ -309,32 +259,6 @@ export async function applyStarterDataset(
   });
   const balances: SeededOpening["balances"] = [];
 
-  for (const person of STARTER_PEOPLE) {
-    const staff = await tx.staff.create({
-      data: {
-        tenantId,
-        name: person.name,
-        employer: person.employer,
-        companyId: company.id,
-        assignments: {
-          create: {
-            companyId: company.id,
-            roleId: roleOf(person.roleKind),
-            from: today,
-            to: null,
-            monthlySalary: person.monthlySalary,
-          },
-        },
-      },
-    });
-    balances.push(
-      balance(person.opening.kind, person.opening.amount, { staffId: staff.id }, person.roleKind),
-    );
-    // Shop dues carry the market due (D38); each DSR's own bucket opens at zero.
-    if (person.roleKind === "dsr") {
-      balances.push(balance("market_due", "0", { staffId: staff.id }, person.roleKind));
-    }
-  }
   for (const s of STARTER_SHOPS) {
     const { openingDue, ...data } = s;
     const shop = await tx.shop.create({ data: { ...data, tenantId, companyId: company.id } });
@@ -348,7 +272,7 @@ export async function applyStarterDataset(
 
   const summary: StarterSummary = {
     products: STARTER_PRODUCTS.length,
-    people: STARTER_PEOPLE.length,
+    people: 0,
     shops: STARTER_SHOPS.length,
     expenseCategoriesAdded: categories.count,
     cashAccountsAdded: accounts.count + (cash.created ? 1 : 0),

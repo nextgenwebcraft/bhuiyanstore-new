@@ -102,6 +102,7 @@ type LineDraft = {
   returnedCartons: string;
   returnedPieces: string;
   damaged: string;
+  damageRate?: string | undefined;
   commission: string;
   salePrice?: string | undefined;
   costPrice?: string | undefined;
@@ -174,6 +175,12 @@ function nextBatch(options: BatchOption[], taken: readonly string[]): string {
 export function dsrsOn(records: StaffRecord[]) {
   return records.filter((s) => s.assignments.some((a) => a.roleKind === "dsr"));
 }
+
+/** আমাদের স্টাফ: distributor-employed people (DSR, manager, driver), not the SR list (D79). */
+export function ourStaffOn(records: StaffRecord[]) {
+  return records.filter((s) => s.employer === "distributor");
+}
+
 /**
  * The same people as এসআর হিসাব (D65, D79): supplier-employed, whatever the assignment
  * role is called. A supplier-employed manager still belongs on this list.
@@ -229,6 +236,7 @@ function draftOf(sheet: DsrDay | undefined): SheetDraft {
       returnedCartons,
       returnedPieces,
       damaged: line.damaged === "0" ? "" : line.damaged,
+      damageRate: priceText(line.damageRate),
       commission: toDecimal(line.commission).isZero() ? "" : line.commission,
       salePrice: priceText(line.salePrice),
       costPrice: priceText(line.costPrice),
@@ -313,6 +321,17 @@ function requestOf(
       if ([salePrice, costPrice].some((p) => p !== undefined && !isUnitPrice(p))) {
         return `${product.productName}: ${t("validation.unitPrice.invalid")}`;
       }
+      const damageRate =
+        damaged === "0"
+          ? undefined
+          : clean(d.damageRate ?? "") ||
+            saleOf(
+              { productId: product.productId, batchKey: d.batchKey, salePrice: d.salePrice },
+              view,
+            );
+      if (damageRate !== undefined && !isUnitPrice(damageRate)) {
+        return `${product.productName}: ${t("validation.unitPrice.invalid")}`;
+      }
       lines.push({
         productId: product.productId,
         batchKey: d.batchKey,
@@ -322,6 +341,7 @@ function requestOf(
         commission: noCommission ? "0" : commission,
         ...(salePrice === undefined ? {} : { salePrice }),
         ...(costPrice === undefined ? {} : { costPrice }),
+        ...(damageRate === undefined ? {} : { damageRate }),
       });
     }
   }
@@ -653,6 +673,10 @@ function SheetEditor({
   );
   const records = useStaffRecords(companyId);
   const dsrChoices = dsrsOn(records.data ?? []).map((dsr) => ({ id: dsr.id, name: dsr.name }));
+  const staffChoices = ourStaffOn(records.data ?? []).map((person) => ({
+    id: person.id,
+    name: person.name,
+  }));
   const entries = useMoneyEntries(companyId, { from: date, to: date, staffId: staff.id });
   const field = fieldDay.data && fieldDay.data.visits.length > 0 ? fieldDay.data : null;
   const posts = (entries.data ?? []).filter((e) => e.status === "posted");
@@ -830,7 +854,10 @@ function SheetEditor({
     );
   }
 
-  type QuantityField = Exclude<keyof LineDraft, "id" | "batchKey" | "salePrice" | "costPrice">;
+  type QuantityField = Exclude<
+    keyof LineDraft,
+    "id" | "batchKey" | "salePrice" | "costPrice" | "damageRate"
+  >;
   // D89: cartons and loose pieces are entered independently; neither fills the other.
   const change = (productId: string, line: LineDraft, field: QuantityField, value: string) =>
     setLine(productId, line.id, { [field]: value });
@@ -893,6 +920,9 @@ function SheetEditor({
               </th>
               <th scope="col" rowSpan={2} className={`${loneHead} ${GROUP.damaged.head}`}>
                 {t("dsr.sheet.damaged")}
+              </th>
+              <th scope="col" rowSpan={2} className={`${loneHead} ${GROUP.damaged.head}`}>
+                {t("dsr.sheet.damageRate")}
               </th>
               <th scope="col" rowSpan={2} className={`${loneHead} ${GROUP.commission.head}`}>
                 {t("dsr.sheet.commission")}
@@ -1077,6 +1107,23 @@ function SheetEditor({
                         off,
                       )}
                     </td>
+                    <td className={`${inputCell} ${GROUP.damaged.cell}`}>
+                      <CellInput
+                        label={`${name} ${t("dsr.sheet.damageRate")}`}
+                        value={
+                          line.damageRate ??
+                          line.salePrice ??
+                          priceText(batch?.salePrice ?? product.salePrice) ??
+                          ""
+                        }
+                        onChange={(damageRate) =>
+                          setLine(product.productId, line.id, { damageRate })
+                        }
+                        disabled={off}
+                        mode="decimal"
+                        width="w-24"
+                      />
+                    </td>
                     <td className={`${inputCell} border-l ${GROUP.commission.cell}`}>
                       {cell(
                         product.productId,
@@ -1165,7 +1212,7 @@ function SheetEditor({
         fieldOwned={field !== null}
         dsrs={dsrChoices}
       />
-      <StaffCashEntry companyId={companyId} staffId={staff.id} date={date} dsrs={dsrChoices} />
+      <StaffCashEntry companyId={companyId} staffId={staff.id} date={date} dsrs={staffChoices} />
       <SrCashEntry companyId={companyId} staffId={staff.id} date={date} />
       <OperatingCostEntry companyId={companyId} date={date} />
       <CashCheck

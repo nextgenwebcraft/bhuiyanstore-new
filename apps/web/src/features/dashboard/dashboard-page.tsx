@@ -9,7 +9,7 @@ import {
   type ReportRange,
 } from "@bsd/contracts";
 import { Decimal } from "@bsd/domain";
-import { t, type TranslationKey, formatBusinessDate } from "@bsd/i18n";
+import { t, type TranslationKey, formatBusinessDate, formatRate } from "@bsd/i18n";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { DateRangePicker } from "@/components/date-picker";
@@ -23,6 +23,7 @@ import { errorCodeOf } from "@/data/ports/service-error";
 import { useDashboardSummary } from "@/data/queries";
 import {
   money,
+  quantity,
   stickyCell,
   stickyHead,
   tableClass,
@@ -247,6 +248,46 @@ export function ByDsrTable({ rows }: { rows: DsrDayRow[] }) {
   );
 }
 
+/** Damaged pieces still held, one row per product and rate (D109). */
+export function DamageLotsTable({ rows }: { rows: DashboardSummary["damageLots"] }) {
+  if (rows.length === 0)
+    return <p className="text-sm text-text-muted">{t("dashboard.damageLots.empty")}</p>;
+  return (
+    <TableScroller>
+      <table className={tableClass}>
+        <thead className={theadClass}>
+          <tr>
+            <th scope="col" className={`${thClass} ${stickyHead}`}>
+              {t("godown.column.product")}
+            </th>
+            <th scope="col" className={thNum}>
+              {t("deposit.damage.rate")}
+            </th>
+            <th scope="col" className={thNum}>
+              {t("godown.column.pieces")}
+            </th>
+            <th scope="col" className={thNum}>
+              {t("common.amount")}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={`${row.productId}|${row.rate}`} className="border-t border-border">
+              <th scope="row" className={`${tdClass} ${stickyCell} text-left font-medium`}>
+                {row.productName}
+              </th>
+              <td className={tdNum}>{formatRate(row.rate)}</td>
+              <td className={tdNum}>{quantity(row.pieces)}</td>
+              <td className={`${tdNum} font-semibold`}>{money(row.amount)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </TableScroller>
+  );
+}
+
 // ---------------------------------------------------------------- report sections
 
 export function Section({
@@ -432,6 +473,9 @@ function DashboardBody({ range }: { range: ReportRange }) {
           <ByDsrTable rows={d.byDsr} />
         </Section>
       ) : null}
+      <Section title={t("dashboard.section.damageLots")}>
+        <DamageLotsTable rows={d.damageLots} />
+      </Section>
       {canReport ? <ReportSections range={range} /> : null}
     </div>
   );

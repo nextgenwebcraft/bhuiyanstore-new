@@ -1,0 +1,22 @@
+id: 2026-10-31-staff-cash-all-staff
+reason: >-
+  Owner 2026-10-31 (D108). On দৈনিক বিক্রয় হিসাব, ডিএসআরের অগ্রিম ও শর্ট must list every
+  আমাদের স্টাফ person. The dropdown was DSR-only. Shop due and the SR cash card stay as they are.
+owners: [web, i18n]
+changes:
+  - >-
+    apps/web dsr-days-page.tsx: StaffCashEntry receives ourStaffOn (employer distributor),
+    not dsrsOn. ShopDueEntry still receives the DSR list
+  - >-
+    apps/web dsr-select.tsx: optional label and emptyLabel so the staff-cash pick can say
+    কর্মী while the shop-due pick stays ডিএসআর
+  - apps/web staff-cash-entry.tsx: dropdown and posted-row column use কর্মী
+  - packages/i18n bn.ts: staffCash.personEmpty
+affectedActionIds: []
+financialImpact: >-
+  no formula change. A manager or driver can now be the person on a staff-advance, shortage,
+  repayment or absent-fee entry. Those kinds already posted for any distributor employee.
+backfill: none
+tests: none; the filter is a list passed into an existing form
+rollout: deploy the app; no migration
+recovery: revert the commit
