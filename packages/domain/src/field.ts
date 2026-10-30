@@ -49,9 +49,19 @@ export function fieldRemaining(
 }
 
 /**
- * DSR cash handover (D39, D62, display only). Expected = the DSR's sales − new due given + old due
- * collected − expenses paid from that cash + staff money (repayments − advances − shortages); the
- * difference is handed over − expected.
+ * Day-end বিক্রি (D107). মোট বিক্রি and ড্যামেজ are already at the settlement scale; adding them
+ * keeps বিক্রি − ড্যামেজ equal to মোট বিক্রি. Summing each line's already-rounded amount and then
+ * subtracting the rounded damage can leave a one-paisa gap.
+ */
+export function cashCheckSales(netSales: DecimalInput, damageSaleValue: DecimalInput): string {
+  return roundSettlement(toDecimal(netSales).add(toDecimal(damageSaleValue)));
+}
+
+/**
+ * DSR cash handover (D39, D62, D107, display only). Expected = the DSR's sales − damage at the sale
+ * price − new due given + old due collected − expenses paid from that cash + staff money
+ * (repayments − advances − shortages); the difference is handed over − expected. `damage` defaults
+ * to 0 where the sales figure already excludes damaged pieces.
  */
 export function dsrCashSettlement(input: {
   sales: DecimalInput;
@@ -59,9 +69,12 @@ export function dsrCashSettlement(input: {
   dueCollected: DecimalInput;
   expenses: DecimalInput;
   staffMoney?: DecimalInput;
+  /** ড্যামেজ (বিক্রয় মূল্যে), taken off expected cash. Omit when `sales` is already net of damage. */
+  damage?: DecimalInput;
   handedOver: DecimalInput | null;
 }): { expected: string; handedOver: string | null; difference: string | null } {
   const expected = toDecimal(input.sales)
+    .sub(toDecimal(input.damage ?? "0"))
     .sub(toDecimal(input.dueGiven))
     .add(toDecimal(input.dueCollected))
     .sub(toDecimal(input.expenses))

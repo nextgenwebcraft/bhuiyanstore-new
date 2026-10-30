@@ -1280,6 +1280,8 @@ export async function dashboardOf(
     commission: total((s) => s.commission),
     expenses: total((s) => s.expenses),
     staffCost: total((s) => s.staffCost),
+    marketDueCreated: total((s) => s.marketDueCreated),
+    oldDuesCollected: total((s) => s.oldDuesCollected),
     salesProfit,
   });
 
@@ -1298,6 +1300,7 @@ export async function dashboardOf(
     issuedValue: total((s) => s.issuedValue),
     returnValue: total((s) => s.returnValue),
     commission: total((s) => s.commission),
+    totalSales: totals.totalSales,
     handoverShort: sumAmounts(["0", ...handoverShorts.map((row) => row.amount)]),
     ...(seesFinance
       ? {
@@ -1307,7 +1310,7 @@ export async function dashboardOf(
           srCost,
           totalCost: totals.totalCost,
           profitCost: totals.profitCost,
-          totalSales: totals.totalSales,
+          cashInHand: totals.cashInHand,
         }
       : {}),
     postedSummaryCount: sheets,
