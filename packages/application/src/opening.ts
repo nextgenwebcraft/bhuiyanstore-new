@@ -160,6 +160,7 @@ function toView(
         productName: p.name,
         piecesPerCarton: p.piecesPerCarton,
         pieces: plain(line?.pieces ?? null),
+        damagedPieces: plain(line?.damagedPieces ?? null),
         unitCost: plain(line?.unitCost ?? null),
         salePrice: plain(line?.salePrice ?? null),
         dueFromCompany: plain(line?.dueFromCompany ?? null),
@@ -503,11 +504,48 @@ function stockMistakes(
   cutoffDate: string | null,
   stock: Extract<OpeningSectionSaveRequest, { section: "stock" }>["stock"],
 ): FieldError[] {
-  const { issues } = checkOpening({ cutoffDate, stock, balances: [] });
+  const { issues } = checkOpening({
+    cutoffDate,
+    stock: stock.map((l) => ({ ...l, damagedPieces: null })),
+    balances: [],
+  });
   return issues
     .filter((i) => i.severity === "error" && i.productId)
     .map((i) => ({
       path: `stock.${stock.findIndex((l) => l.productId === i.productId)}.pieces`,
+      code: i.code,
+    }));
+}
+
+/** Real mistakes in opening damage; blanks OK, but pieces > 0 need a unit cost (damage lot rate). */
+function damageMistakes(
+  cutoffDate: string | null,
+  stock: Extract<OpeningSectionSaveRequest, { section: "damage" }>["stock"],
+): FieldError[] {
+  const { issues } = checkOpening({
+    cutoffDate,
+    stock: stock.map((l) => ({
+      productId: l.productId,
+      pieces: null,
+      damagedPieces: l.damagedPieces,
+      unitCost: l.unitCost,
+      salePrice: null,
+      dueFromCompany: null,
+    })),
+    balances: [],
+  });
+  return issues
+    .filter(
+      (i) =>
+        i.severity === "error" &&
+        i.productId &&
+        (i.code === "opening.issue.damageInvalid" ||
+          i.code === "opening.issue.damageCostMissing"),
+    )
+    .map((i) => ({
+      path: `stock.${stock.findIndex((l) => l.productId === i.productId)}.${
+        i.code === "opening.issue.damageCostMissing" ? "unitCost" : "damagedPieces"
+      }`,
       code: i.code,
     }));
 }
@@ -608,6 +646,30 @@ export async function saveOpeningSection(
         }
         prices = await writeOpeningPrices(tx, companyId, session.id, cutoffDate);
         await syncOpeningBatches(tx, { tenantId: access.company.tenantId, companyId });
+      } else if (data.section === "damage") {
+        validateRefs(catalog, data.stock, []);
+        const mistakes = damageMistakes(cutoffDate, data.stock);
+        if (mistakes.length) throw new AppError("VALIDATION_FAILED", mistakes);
+        for (const line of data.stock) {
+          const values = {
+            damagedPieces: line.damagedPieces,
+            // Keep the lot rate with the damage row when cost is entered; leave existing cost
+            // alone when this product has no damage (null unitCost in the request).
+            ...(line.unitCost !== null ? { unitCost: line.unitCost } : {}),
+          };
+          await tx.openingStockLine.upsert({
+            where: { sessionId_productId: { sessionId: session.id, productId: line.productId } },
+            create: {
+              sessionId: session.id,
+              productId: line.productId,
+              ...values,
+            },
+            update: values,
+          });
+        }
+        if (cutoffDate) {
+          prices = await writeOpeningPrices(tx, companyId, session.id, cutoffDate);
+        }
       } else {
         validateRefs(catalog, [], data.balances);
         const mistakes = balanceMistakes(catalog, data.balances);

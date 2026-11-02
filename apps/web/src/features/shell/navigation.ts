@@ -53,6 +53,20 @@ export const navigation: readonly NavSection[] = [
     ],
   },
   {
+    id: "history",
+    labelKey: "nav.history",
+    items: [
+      item("history/orders", "nav.history.orders", "purchase.view"),
+      item("history/stock", "nav.history.stock", "purchase.view"),
+      item("history/damage", "nav.history.damage", "purchase.view"),
+      item("history/shop-dues", "nav.history.shopDues", "sale.view"),
+      item("history/staff-cash", "nav.history.staffCash", "finance.view"),
+      item("history/sr-cash", "nav.history.srCash", "sr_loan.view"),
+      item("history/expenses", "nav.history.expenses", "finance.view"),
+      item("history/dsr-sheets", "nav.history.dsrSheets", "sale.view"),
+    ],
+  },
+  {
     id: "purchases",
     labelKey: "nav.purchases",
     module: "purchases",
@@ -115,6 +129,7 @@ export type HubId =
   | "money"
   | "ledgers"
   | "monthEnd"
+  | "history"
   | "setup"
   | "staff"
   | "companies"
@@ -174,6 +189,21 @@ const hubDefinitions: readonly Omit<Hub, "shortcut">[] = [
     tabs: [
       { path: "finance/cash-book" },
       { path: "dsr/salary-recovery", labelKey: "nav.flow.payroll" },
+    ],
+  },
+  {
+    id: "history",
+    labelKey: "nav.history",
+    icon: "calendar",
+    tabs: [
+      { path: "history/orders" },
+      { path: "history/stock" },
+      { path: "history/damage" },
+      { path: "history/shop-dues" },
+      { path: "history/staff-cash" },
+      { path: "history/sr-cash" },
+      { path: "history/expenses" },
+      { path: "history/dsr-sheets" },
     ],
   },
   {

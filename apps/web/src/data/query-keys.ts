@@ -59,6 +59,36 @@ export const queryKeys = {
       staffId,
       shopId,
     ] as const,
+  historyStock: (
+    actorId: string,
+    companyId: string,
+    group: string,
+    page: number,
+    pageSize: number,
+  ) =>
+    [
+      ...companyResource(actorId, companyId, resourceIds.stockEntry),
+      "history",
+      group,
+      page,
+      pageSize,
+    ] as const,
+  historyMoney: (
+    actorId: string,
+    companyId: string,
+    group: string,
+    page: number,
+    pageSize: number,
+  ) =>
+    [
+      ...companyResource(actorId, companyId, resourceIds.moneyEntry),
+      "history",
+      group,
+      page,
+      pageSize,
+    ] as const,
+  historyDsr: (actorId: string, companyId: string, page: number, pageSize: number) =>
+    [...companyResource(actorId, companyId, resourceIds.dsrDay), "history", page, pageSize] as const,
   monthView: (actorId: string, companyId: string, month: string) =>
     [...companyResource(actorId, companyId, resourceIds.ledger), "month", month] as const,
   report: (actorId: string, companyId: string, report: string, from: string, to: string) =>

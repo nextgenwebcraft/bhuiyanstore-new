@@ -32,6 +32,11 @@ import type {
   ShareholderPayoutRequest,
   ShareholderRecord,
   ShareholderUpdateRequest,
+  HistoryDsrPage,
+  HistoryMoneyKindGroup,
+  HistoryMoneyPage,
+  HistoryStockKindGroup,
+  HistoryStockPage,
   MoneyEntry,
   MoneyEntryPostRequest,
   MonthCloseResult,
@@ -170,6 +175,27 @@ export interface DistributionService {
   postMoneyEntry(companyId: string, input: MoneyEntryPostRequest): Promise<MoneyEntry>;
   /** Requires `payment.reverse`. */
   reverseMoneyEntry(companyId: string, entryId: string): Promise<MoneyEntry>;
+
+  /** History hub: paginated stock entries by kind group (latest first). */
+  listHistoryStockEntries(
+    companyId: string,
+    group: HistoryStockKindGroup,
+    query: { page?: number; pageSize?: number },
+    options?: RequestOptions,
+  ): Promise<HistoryStockPage>;
+  /** History hub: paginated money entries by kind group (latest first). */
+  listHistoryMoneyEntries(
+    companyId: string,
+    group: HistoryMoneyKindGroup,
+    query: { page?: number; pageSize?: number },
+    options?: RequestOptions,
+  ): Promise<HistoryMoneyPage>;
+  /** History hub: paginated DSR sheets (latest first). */
+  listHistoryDsrDays(
+    companyId: string,
+    query: { page?: number; pageSize?: number },
+    options?: RequestOptions,
+  ): Promise<HistoryDsrPage>;
 
   // Month view, reports and closing (PLAN §9 Phase F). The demo mock has none.
 

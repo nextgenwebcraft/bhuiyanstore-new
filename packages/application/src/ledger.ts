@@ -163,6 +163,7 @@ export async function liveOpening(db: Db, companyId: string): Promise<ActiveOpen
     stock: session.stock.map((line) => ({
       productId: line.productId,
       pieces: plain(line.pieces),
+      damagedPieces: plain(line.damagedPieces),
       unitCost: plain(line.unitCost),
       salePrice: plain(line.salePrice),
       dueFromCompany: plain(line.dueFromCompany),

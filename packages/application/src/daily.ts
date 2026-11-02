@@ -694,9 +694,25 @@ export async function saveDsrDayIn(
 }
 
 /**
+ * Money kinds shown on the daily sheet page next to the সামারি (shop due, staff cash, SR cash).
+ * Reversing the sheet also reverses these for the sheet's person and date.
+ */
+const DSR_DAY_PAGE_MONEY_KINDS = [
+  "marketDueNew",
+  "marketDueCollected",
+  "staffAdvance",
+  "staffShortage",
+  "staffRepayment",
+  "staffAbsent",
+  "srLoan",
+  "srRepayment",
+] as const;
+
+/**
  * Posts or reverses a sheet with everything it owns: the field visits' dues and exchange case
  * (D40). The handover difference is shown only (D62); reversing still removes entries an earlier
- * posting created (D54 history). The stock check is left to the caller.
+ * posting created (D54 history). On reverse, also reverses the day's page money for this person
+ * and all operating-cost (`expense`) rows for the date. The stock check is left to the caller.
  */
 async function moveDsrDay(
   tx: Tx,
@@ -720,6 +736,35 @@ async function moveDsrDay(
     await postFieldVisits(tx, ctx, access, { ...row, ...day });
   } else {
     await reverseFieldVisits(tx, ctx, access.company.id, day);
+    const moneyStamp = {
+      status: "reversed" as const,
+      reversedAt: now,
+      reversedById: ctx.actor.userId,
+    };
+    // Hand-entered page money for this person/date (field-/sheet-owned rows already reversed).
+    await tx.moneyEntry.updateMany({
+      where: {
+        companyId: access.company.id,
+        date: row.date,
+        staffId: day.staffId,
+        status: "posted",
+        payrollRunId: null,
+        dsrDayId: null,
+        kind: { in: [...DSR_DAY_PAGE_MONEY_KINDS] },
+      },
+      data: moneyStamp,
+    });
+    // খরচ is company-wide for the date (not per DSR).
+    await tx.moneyEntry.updateMany({
+      where: {
+        companyId: access.company.id,
+        date: row.date,
+        status: "posted",
+        payrollRunId: null,
+        kind: "expense",
+      },
+      data: moneyStamp,
+    });
   }
 }
 

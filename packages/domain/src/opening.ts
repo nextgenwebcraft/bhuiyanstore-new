@@ -49,6 +49,8 @@ export type OpeningKind = keyof typeof OPENING_KIND_EFFECTS;
 export type OpeningStockInput = {
   productId: string;
   pieces: string | null;
+  /** Damaged pieces held at go-live; blank counts as 0 in the engine. */
+  damagedPieces?: string | null;
   unitCost: string | null;
   salePrice: string | null;
   dueFromCompany: string | null;
@@ -120,8 +122,17 @@ export function checkOpening(input: OpeningCheckInput): {
       rowIssues.push({ code, severity, productId: line.productId });
     if (line.pieces === null) add("opening.issue.stockUnknown", "warning");
     else if (!isWholeNonNegative(line.pieces)) add("opening.issue.stockInvalid", "error");
+    if (line.damagedPieces !== null && line.damagedPieces !== undefined) {
+      if (!isWholeNonNegative(line.damagedPieces)) add("opening.issue.damageInvalid", "error");
+    }
     const hasStock = line.pieces !== null && toDecimal(line.pieces).gt(0);
+    const hasDamage =
+      line.damagedPieces !== null &&
+      line.damagedPieces !== undefined &&
+      isWholeNonNegative(line.damagedPieces) &&
+      toDecimal(line.damagedPieces).gt(0);
     if (hasStock && line.unitCost === null) add("opening.issue.costMissing", "error");
+    if (hasDamage && line.unitCost === null) add("opening.issue.damageCostMissing", "error");
     if (hasStock && line.salePrice === null) add("opening.issue.salePriceMissing", "warning");
     if (line.dueFromCompany !== null && !isWholeNonNegative(line.dueFromCompany)) {
       add("opening.issue.dueInvalid", "error");
@@ -209,6 +220,7 @@ export function toMonthOpening(input: OpeningCheckInput): MonthOpening {
   const products: Record<string, OpeningProduct> = {};
   for (const line of input.stock) {
     const pieces = line.pieces ?? "0";
+    const damaged = line.damagedPieces ?? "0";
     products[line.productId] = {
       stock: pieces,
       dueFromCompany: line.dueFromCompany ?? "0",
@@ -233,6 +245,12 @@ export function toMonthOpening(input: OpeningCheckInput): MonthOpening {
       // Owner 2026-10-29: no separate opening order price; ক্রয়মূল্য seeds both (D104).
       ...(line.unitCost !== null ? { orderPrice: line.unitCost, costPrice: line.unitCost } : {}),
       ...(line.salePrice !== null ? { salePrice: line.salePrice } : {}),
+      ...(toDecimal(damaged).gt(0)
+        ? {
+            damagedStock: damaged,
+            damageLots: [{ rate: line.unitCost ?? "0", pieces: damaged }],
+          }
+        : {}),
     };
   }
   const marketDue: Record<string, string> = {};

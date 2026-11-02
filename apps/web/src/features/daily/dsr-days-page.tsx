@@ -25,11 +25,13 @@ import { formatCount, formatDateTime, formatRate, t } from "@bsd/i18n";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/button";
+import { FormDialog } from "@/components/form-dialog";
 import { QueryError } from "@/components/query-error";
 import { ListSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
 import { StatTile } from "@/components/stat-tile";
 import { TableSummary, type SummaryItem } from "@/components/table-summary";
+import { describeError } from "@/data/ports/service-error";
 import {
   useDsrDayCommand,
   useDsrDays,
@@ -641,6 +643,9 @@ function SheetEditor({
   const command = useDsrDayCommand(companyId);
   const [draft, setDraft] = useState(() => draftOf(sheet));
   const [error, setError] = useState<string | undefined>();
+  const [reverseOpen, setReverseOpen] = useState(false);
+  const [reversePending, setReversePending] = useState(false);
+  const [reverseError, setReverseError] = useState<string | undefined>();
   const action = useAsyncAction();
   const shownError = error ?? action.error;
   const posted = sheet?.status === "posted";
@@ -845,13 +850,36 @@ function SheetEditor({
       return;
     }
     if (!sheet) return;
+    if (kind === "reverse") {
+      setReverseError(undefined);
+      setReverseOpen(true);
+      return;
+    }
     await action.run(
       async () => {
         await command.mutateAsync({ action: kind, dayId: sheet.id, version: sheet.version });
         if (kind === "discard") setDraft(draftOf(undefined));
       },
-      { confirm: kind === "reverse" ? "dsr.sheet.reverseConfirm" : "dsr.sheet.discardConfirm" },
+      { confirm: "dsr.sheet.discardConfirm" },
     );
+  }
+
+  async function confirmReverse() {
+    if (!sheet) return;
+    setReversePending(true);
+    setReverseError(undefined);
+    try {
+      await command.mutateAsync({
+        action: "reverse",
+        dayId: sheet.id,
+        version: sheet.version,
+      });
+      setReverseOpen(false);
+    } catch (e) {
+      setReverseError(describeError(e, []).form);
+    } finally {
+      setReversePending(false);
+    }
   }
 
   type QuantityField = Exclude<
@@ -1186,13 +1214,35 @@ function SheetEditor({
           </tbody>
         </table>
       </TableScroller>
-      {!posted && permissions.includes("sale.create") ? (
-        <div className="flex">
+      <div className="flex flex-wrap items-center gap-2">
+        {!posted && permissions.includes("sale.create") ? (
           <Button disabled={pending || (!dirty && Boolean(sheet))} onClick={() => void run("save")}>
             {save.isPending ? t("common.saving") : t("dsr.sheet.saveDraft")}
           </Button>
-        </div>
-      ) : null}
+        ) : null}
+        {posted && permissions.includes("sale.reverse") ? (
+          <Button disabled={pending || reversePending} onClick={() => void run("reverse")}>
+            {t("dsr.sheet.reverse")}
+          </Button>
+        ) : null}
+      </div>
+      <FormDialog
+        open={reverseOpen}
+        title={t("dsr.sheet.reverse")}
+        error={reverseError}
+        pending={reversePending}
+        submitLabel={t("dsr.sheet.reverse")}
+        onSubmit={() => void confirmReverse()}
+        onClose={() => {
+          if (!reversePending) {
+            setReverseOpen(false);
+            setReverseError(undefined);
+          }
+        }}
+      >
+        <p className="text-sm text-text-muted">{t("dsr.sheet.reverseConfirm")}</p>
+        <p className="text-sm text-text-muted">{t("dsr.sheet.reverseConfirmDetail")}</p>
+      </FormDialog>
       <p className="text-xs text-text-muted">
         {t("godown.quantityHint")} {t("dsr.sheet.hint")} {t("dsr.sheet.batchHint")}
       </p>
@@ -1242,11 +1292,6 @@ function SheetEditor({
             onClick={() => void run("correct")}
           >
             {save.isPending ? t("common.posting") : t("dsr.sheet.correct")}
-          </Button>
-        ) : null}
-        {posted && permissions.includes("sale.reverse") ? (
-          <Button disabled={pending} onClick={() => void run("reverse")}>
-            {t("dsr.sheet.reverse")}
           </Button>
         ) : null}
       </div>

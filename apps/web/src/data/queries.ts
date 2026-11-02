@@ -307,6 +307,45 @@ export function useReverseMoneyEntry(companyId: string) {
   );
 }
 
+export function useHistoryStockEntries(
+  companyId: string,
+  group: import("@bsd/contracts").HistoryStockKindGroup,
+  page: number,
+  pageSize = 25,
+) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.historyStock(actorId, companyId, group, page, pageSize),
+    queryFn: ({ signal }) =>
+      service.listHistoryStockEntries(companyId, group, { page, pageSize }, { signal }),
+  });
+}
+
+export function useHistoryMoneyEntries(
+  companyId: string,
+  group: import("@bsd/contracts").HistoryMoneyKindGroup,
+  page: number,
+  pageSize = 25,
+) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.historyMoney(actorId, companyId, group, page, pageSize),
+    queryFn: ({ signal }) =>
+      service.listHistoryMoneyEntries(companyId, group, { page, pageSize }, { signal }),
+  });
+}
+
+export function useHistoryDsrDays(companyId: string, page: number, pageSize = 25) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.historyDsr(actorId, companyId, page, pageSize),
+    queryFn: ({ signal }) => service.listHistoryDsrDays(companyId, { page, pageSize }, { signal }),
+  });
+}
+
 // ------------------------------------------------------------- month view and reports (Phase F)
 
 export function useMonthView(companyId: string, month: string) {

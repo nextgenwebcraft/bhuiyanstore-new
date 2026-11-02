@@ -236,6 +236,7 @@ export async function applyStarterDataset(
     stock.push({
       productId: product.id,
       pieces: String(STARTER_OPENING_CARTONS * p.piecesPerCarton),
+      damagedPieces: null,
       unitCost: p.cost,
       salePrice: p.sale,
       dueFromCompany: "0",

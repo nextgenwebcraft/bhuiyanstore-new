@@ -18,39 +18,30 @@ import {
 import { EmptyListNote } from "@/components/empty-list-note";
 import { Field, inputClass } from "@/components/field";
 import { QueryError } from "@/components/query-error";
-import { ReverseCell } from "@/components/reverse-cell";
 import { FormSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
 import { TableScroller } from "@/components/table-scroller";
 import { describeError } from "@/data/ports/service-error";
-import {
-  useConfigList,
-  useMoneyEntries,
-  usePostMoneyEntry,
-  useReverseMoneyEntry,
-} from "@/data/queries";
+import { useConfigList, useMoneyEntries, usePostMoneyEntry } from "@/data/queries";
 import { clean } from "@/features/daily/daily-kit";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
-import { useAsyncAction } from "@/lib/async-action";
 
 /**
  * Operating cost for the day (owner change request, formerly on বেতন ও খরচ): শুধু খরচের খাত ও
  * টাকা, no kind picker (always the plain `expense` kind). Feeds the same operating-cost figure
  * everywhere else already reads it (dashboard, Company Hishab Reports) — no engine change.
+ * Per-row reverse lives on the History hub; day reverse cascades expenses with the sheet.
  */
 export function OperatingCostEntry({ companyId, date }: { companyId: string; date: string }) {
   const id = useId();
   const { permissions } = useCurrentWorkspace();
   const categories = useConfigList("expenseCategories");
   const post = usePostMoneyEntry(companyId);
-  const reverse = useReverseMoneyEntry(companyId);
-  const action = useAsyncAction();
   const entries = useMoneyEntries(companyId, { from: date, to: date });
   const [categoryId, setCategoryId] = useState("");
   const [amount, setAmount] = useState("");
   const [error, setError] = useState<string | undefined>();
   const canPost = permissions.includes("payment.post");
-  const canReverse = permissions.includes("payment.reverse");
 
   async function submit() {
     setError(undefined);
@@ -126,30 +117,13 @@ export function OperatingCostEntry({ companyId, date }: { companyId: string; dat
       ) : entries.isError ? (
         <QueryError error={entries.error} onRetry={() => void entries.refetch()} />
       ) : (
-        <Entries
-          companyId={companyId}
-          rows={(entries.data ?? []).filter((e) => e.kind === "expense")}
-          canReverse={canReverse}
-          reverse={reverse}
-          action={action}
-        />
+        <Entries rows={(entries.data ?? []).filter((e) => e.kind === "expense")} />
       )}
     </section>
   );
 }
 
-function Entries({
-  rows,
-  canReverse,
-  reverse,
-  action,
-}: {
-  companyId: string;
-  rows: MoneyEntry[];
-  canReverse: boolean;
-  reverse: ReturnType<typeof useReverseMoneyEntry>;
-  action: ReturnType<typeof useAsyncAction>;
-}) {
+function Entries({ rows }: { rows: MoneyEntry[] }) {
   const total = sumAmounts([
     "0",
     ...rows.filter((e) => e.status === "posted").map((e) => e.amount),
@@ -157,7 +131,6 @@ function Entries({
   return (
     <div className="flex flex-col gap-2">
       <h4 className="text-sm font-semibold">{t("money.posted")}</h4>
-      {action.error ? <StatePanel tone="error" title={action.error} /> : null}
       {rows.length === 0 ? (
         <EmptyListNote textKey="money.empty" />
       ) : (
@@ -174,9 +147,6 @@ function Entries({
                 <th scope="col" className={thClass}>
                   {t("common.status")}
                 </th>
-                <th scope="col" className={thClass}>
-                  <span className="sr-only">{t("common.reverse")}</span>
-                </th>
               </tr>
             </thead>
             <tbody>
@@ -187,16 +157,6 @@ function Entries({
                   <td className={tdClass}>
                     <StatusChip status={entry.status} />
                   </td>
-                  <ReverseCell
-                    canReverse={canReverse}
-                    posted={entry.status === "posted"}
-                    pending={reverse.isPending}
-                    onReverse={() =>
-                      void action.run(() => reverse.mutateAsync(entry.id), {
-                        confirm: "money.reverseConfirm",
-                      })
-                    }
-                  />
                 </tr>
               ))}
             </tbody>

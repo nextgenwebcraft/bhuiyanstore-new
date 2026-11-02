@@ -21,21 +21,13 @@ import {
 import { EmptyListNote } from "@/components/empty-list-note";
 import { Field, inputClass } from "@/components/field";
 import { QueryError } from "@/components/query-error";
-import { ReverseCell } from "@/components/reverse-cell";
 import { FormSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
 import { TableScroller } from "@/components/table-scroller";
 import { describeError } from "@/data/ports/service-error";
-import {
-  useDsrFieldDay,
-  useMoneyEntries,
-  usePostMoneyEntry,
-  useReverseMoneyEntry,
-  useShops,
-} from "@/data/queries";
+import { useDsrFieldDay, useMoneyEntries, usePostMoneyEntry, useShops } from "@/data/queries";
 import { clean } from "@/features/daily/daily-kit";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
-import { useAsyncAction } from "@/lib/async-action";
 import { overLimit } from "./shops-page";
 
 type DueKind = "marketDueNew" | "marketDueCollected";
@@ -218,11 +210,7 @@ function Entries({
   staffId: string;
   date: string;
 }) {
-  const { permissions } = useCurrentWorkspace();
   const entries = useMoneyEntries(companyId, { from: date, to: date, staffId });
-  const reverse = useReverseMoneyEntry(companyId);
-  const action = useAsyncAction();
-  const canReverse = permissions.includes("payment.reverse");
 
   if (entries.isPending) return <FormSkeleton fields={1} />;
   if (entries.isError)
@@ -238,7 +226,6 @@ function Entries({
   return (
     <div className="flex flex-col gap-2">
       <h4 className="text-sm font-semibold">{t("money.posted")}</h4>
-      {action.error ? <StatePanel tone="error" title={action.error} /> : null}
       {rows.length === 0 ? (
         <EmptyListNote textKey="money.empty" />
       ) : (
@@ -258,9 +245,6 @@ function Entries({
                 <th scope="col" className={thClass}>
                   {t("common.status")}
                 </th>
-                <th scope="col" className={thClass}>
-                  <span className="sr-only">{t("common.reverse")}</span>
-                </th>
               </tr>
             </thead>
             <tbody>
@@ -272,16 +256,6 @@ function Entries({
                   <td className={tdClass}>
                     <StatusChip status={entry.status} />
                   </td>
-                  <ReverseCell
-                    canReverse={canReverse && entry.dsrDayId === null}
-                    posted={entry.status === "posted"}
-                    pending={reverse.isPending}
-                    onReverse={() =>
-                      void action.run(() => reverse.mutateAsync(entry.id), {
-                        confirm: "money.reverseConfirm",
-                      })
-                    }
-                  />
                 </tr>
               ))}
             </tbody>

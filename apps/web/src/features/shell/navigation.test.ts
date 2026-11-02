@@ -59,7 +59,7 @@ describe("hubs", () => {
     expect([...new Set([...companyTabs, ...masterTabs])].sort()).toEqual([...built].sort());
   });
 
-  it("is the company hubs in sidebar order, Alt+1…7 by position, dashboard first", () => {
+  it("is the company hubs in sidebar order, Alt+1…8 by position, dashboard first", () => {
     expect(hubs.map((h) => h.id)).toEqual([
       "dashboard",
       "sales",
@@ -67,9 +67,10 @@ describe("hubs", () => {
       "shops",
       "money",
       "ledgers",
+      "history",
       "setup",
     ]);
-    expect(hubs.map((h) => h.shortcut)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(hubs.map((h) => h.shortcut)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
     expect(hubs[0]?.tabs.map((tab) => tab.path)).toEqual([""]);
     for (const hub of [...hubs, ...masterHubs]) {
       expect(bn[hub.labelKey]).toBeTruthy();
@@ -89,6 +90,16 @@ describe("hubs", () => {
     expect(paths("shops")).toEqual(["sales/shops"]);
     expect(paths("money")).toEqual(["finance/supplier-deposits", "finance/company-account"]);
     expect(paths("ledgers")).toEqual(["finance/cash-book", "dsr/salary-recovery"]);
+    expect(paths("history")).toEqual([
+      "history/orders",
+      "history/stock",
+      "history/damage",
+      "history/shop-dues",
+      "history/staff-cash",
+      "history/sr-cash",
+      "history/expenses",
+      "history/dsr-sheets",
+    ]);
   });
 
   it("has no entry for the removed statement, receivable, payable and opening screens (D73)", () => {

@@ -184,6 +184,28 @@ describe("toMonthOpening", () => {
     ]);
   });
 
+  it("opens damaged stock and a damage lot at the line's unit cost", () => {
+    const opening = toMonthOpening({
+      cutoffDate: "2026-11-01",
+      stock: [line("a", { damagedPieces: "12" })],
+      balances: [],
+    });
+    expect(opening.products.a).toMatchObject({
+      damagedStock: "12",
+      damageLots: [{ rate: "23.48", pieces: "12" }],
+    });
+  });
+
+  it("refuses damaged pieces without a unit cost", () => {
+    expect(
+      codes({
+        cutoffDate: "2026-11-01",
+        stock: [line("a", { damagedPieces: "5", unitCost: null, pieces: null, salePrice: null })],
+        balances: [],
+      }),
+    ).toContainEqual(["opening.issue.damageCostMissing", "error", "a"]);
+  });
+
   it("opens each shop's due and counts it in the market due total (D38)", () => {
     const opening = toMonthOpening({
       cutoffDate: "2026-11-01",
