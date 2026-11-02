@@ -9,6 +9,9 @@ import {
   fieldDaySchema,
   fieldShopSchema,
   fieldVisitSchema,
+  historyDsrPageSchema,
+  historyMoneyPageSchema,
+  historyStockPageSchema,
   meSchema,
   moneyEntrySchema,
   openingSchema,
@@ -277,6 +280,37 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
     },
     postMoneyEntry: (companyId, input) =>
       request(moneyEntrySchema, `${company(companyId)}/money-entries`, write("POST", input)),
+    listHistoryStockEntries: (companyId, group, query, options) => {
+      const params = new URLSearchParams({ group });
+      if (query.page) params.set("page", String(query.page));
+      if (query.pageSize) params.set("pageSize", String(query.pageSize));
+      return request(
+        historyStockPageSchema,
+        `${company(companyId)}/history/stock-entries?${params.toString()}`,
+        options,
+      );
+    },
+    listHistoryMoneyEntries: (companyId, group, query, options) => {
+      const params = new URLSearchParams({ group });
+      if (query.page) params.set("page", String(query.page));
+      if (query.pageSize) params.set("pageSize", String(query.pageSize));
+      return request(
+        historyMoneyPageSchema,
+        `${company(companyId)}/history/money-entries?${params.toString()}`,
+        options,
+      );
+    },
+    listHistoryDsrDays: (companyId, query, options) => {
+      const params = new URLSearchParams();
+      if (query.page) params.set("page", String(query.page));
+      if (query.pageSize) params.set("pageSize", String(query.pageSize));
+      const q = params.toString();
+      return request(
+        historyDsrPageSchema,
+        `${company(companyId)}/history/dsr-days${q ? `?${q}` : ""}`,
+        options,
+      );
+    },
     reverseMoneyEntry: (companyId, entryId) =>
       request(
         moneyEntrySchema,

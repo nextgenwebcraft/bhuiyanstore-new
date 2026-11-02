@@ -57,8 +57,8 @@ export const openingBalanceSections = Object.keys(openingSectionKinds) as [
 ];
 export type OpeningBalanceSectionId = keyof typeof openingSectionKinds;
 
-/** The opening's sections in screen order: stock, then the money sections. */
-export const openingSections = ["stock", ...openingBalanceSections] as const;
+/** The opening's sections in screen order: stock, damage stock, then the money sections. */
+export const openingSections = ["stock", "damage", ...openingBalanceSections] as const;
 export type OpeningSectionId = (typeof openingSections)[number];
 
 /** The section a balance kind is saved with. */
@@ -74,6 +74,8 @@ export const openingStockLineSchema = z.object({
   productName: z.string(),
   piecesPerCarton: z.string(),
   pieces: piecesSchema.nullable(),
+  /** Damaged pieces held at go-live; NULL = unknown (same as saleable pieces). */
+  damagedPieces: piecesSchema.nullable(),
   unitCost: unitPriceSchema.nullable(),
   salePrice: unitPriceSchema.nullable(),
   dueFromCompany: wholeNumberStringSchema("validation.opening.due").nullable(),
@@ -184,9 +186,16 @@ const stockSaveLine = openingStockLineSchema.pick({
   note: true,
 });
 
+const damageSaveLine = openingStockLineSchema.pick({
+  productId: true,
+  damagedPieces: true,
+  /** Required when damaged pieces > 0: the damage-lot rate (ক্রয়মূল্য / পিস). */
+  unitCost: true,
+});
+
 /**
- * Saves one section and nothing else: the stock lines, or the balance lines whose kind belongs to
- * that section (`openingSectionKinds`).
+ * Saves one section and nothing else: the stock lines, damage pieces, or the balance lines whose
+ * kind belongs to that section (`openingSectionKinds`).
  */
 export const openingSectionSaveRequestSchema = z
   .discriminatedUnion("section", [
@@ -196,13 +205,18 @@ export const openingSectionSaveRequestSchema = z
       stock: z.array(stockSaveLine),
     }),
     z.object({
+      section: z.literal("damage"),
+      version: z.number().int().nonnegative(),
+      stock: z.array(damageSaveLine),
+    }),
+    z.object({
       section: z.enum(openingBalanceSections),
       version: z.number().int().nonnegative(),
       balances: z.array(openingBalanceLineSchema),
     }),
   ])
   .superRefine((request, ctx) => {
-    if (request.section === "stock") return;
+    if (request.section === "stock" || request.section === "damage") return;
     const allowed: readonly OpeningBalanceKind[] = openingSectionKinds[request.section];
     request.balances.forEach((line, index) => {
       if (!allowed.includes(line.kind)) {

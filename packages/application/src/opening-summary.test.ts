@@ -72,7 +72,7 @@ describe("summarizeSections", () => {
   it("lists the sections in screen order", () => {
     expect(
       summarizeSections({ stock: [], balances: [], totals }, parties).map((s) => s.section),
-    ).toEqual(["stock", "marketDue", "shopDue", "staff", "company", "cash"]);
+    ).toEqual(["stock", "damage", "marketDue", "shopDue", "staff", "company", "cash"]);
   });
 
   it("marks stock done only when every product has a count", () => {

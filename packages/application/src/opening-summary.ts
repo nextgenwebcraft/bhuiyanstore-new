@@ -33,7 +33,8 @@ const COMPANY_ROWS = openingSectionKinds.company.map((kind) => `${kind}|`);
 
 export function summarizeSections(
   opening: {
-    stock: readonly Pick<OpeningStockLine, "pieces">[];
+    stock: readonly (Pick<OpeningStockLine, "pieces"> &
+      Partial<Pick<OpeningStockLine, "damagedPieces">>)[];
     balances: readonly OpeningBalanceLine[];
     totals: OpeningTotals;
   },
@@ -61,6 +62,7 @@ export function summarizeSections(
     r.entered > 0 ? "done" : otherwise;
 
   const stockEntered = opening.stock.filter((l) => l.pieces !== null).length;
+  const damageEntered = opening.stock.filter((l) => l.damagedPieces !== null).length;
   const market = rows(
     openingSectionKinds.marketDue,
     ["", ...parties.dsrIds].map((id) => `market_due|${id}`),
@@ -83,6 +85,13 @@ export function summarizeSections(
       total: opening.stock.length,
       state: allDone({ entered: stockEntered, total: opening.stock.length }),
       amounts: [{ key: "total", value: totals.stockValue }],
+    },
+    {
+      section: "damage",
+      entered: damageEntered,
+      total: opening.stock.length,
+      state: anyDone({ entered: damageEntered }, "optional"),
+      amounts: [{ key: "total", value: "0" }],
     },
     {
       section: "marketDue",

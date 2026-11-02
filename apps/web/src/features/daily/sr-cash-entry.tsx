@@ -17,15 +17,13 @@ import {
 } from "@/components/data-table";
 import { Field, inputClass } from "@/components/field";
 import { QueryError } from "@/components/query-error";
-import { ReverseCell } from "@/components/reverse-cell";
 import { FormSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
 import { TableScroller } from "@/components/table-scroller";
 import { describeError } from "@/data/ports/service-error";
-import { useMoneyEntries, usePostMoneyEntry, useReverseMoneyEntry } from "@/data/queries";
+import { useMoneyEntries, usePostMoneyEntry } from "@/data/queries";
 import { clean } from "@/features/daily/daily-kit";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
-import { useAsyncAction } from "@/lib/async-action";
 
 /** D79: advance and short for the SR whose sheet is open. No absent fee, no SR picker. */
 type SrCashKind = "advance" | "shortage" | "advanceReturn" | "shortageReturn";
@@ -69,8 +67,6 @@ export function SrCashEntry({
   const id = useId();
   const { permissions } = useCurrentWorkspace();
   const post = usePostMoneyEntry(companyId);
-  const reverse = useReverseMoneyEntry(companyId);
-  const action = useAsyncAction();
   const entries = useMoneyEntries(companyId, { from: date, to: date, staffId });
   const canLoan = permissions.includes(moneyKindPermission.srLoan);
   const canRepay = permissions.includes(moneyKindPermission.srRepayment);
@@ -80,7 +76,6 @@ export function SrCashEntry({
   const [kind, setKind] = useState<SrCashKind>(kinds[0] ?? "advance");
   const [amount, setAmount] = useState("");
   const [error, setError] = useState<string | undefined>();
-  const canReverse = permissions.includes("payment.reverse");
   const rows = (entries.data ?? []).filter((entry) => postedKind(entry) !== null);
   const total = (cardKind: SrCashKind) =>
     sumAmounts([
@@ -152,7 +147,6 @@ export function SrCashEntry({
       ) : (
         <div className="flex flex-col gap-2">
           <h4 className="text-sm font-semibold">{t("money.posted")}</h4>
-          {action.error ? <StatePanel tone="error" title={action.error} /> : null}
           {rows.length === 0 ? (
             <p className="text-sm text-text-muted">{t("money.empty")}</p>
           ) : (
@@ -168,9 +162,6 @@ export function SrCashEntry({
                     </th>
                     <th scope="col" className={thClass}>
                       {t("common.status")}
-                    </th>
-                    <th scope="col" className={thClass}>
-                      <span className="sr-only">{t("common.reverse")}</span>
                     </th>
                   </tr>
                 </thead>
@@ -190,16 +181,6 @@ export function SrCashEntry({
                         <td className={tdClass}>
                           <StatusChip status={entry.status} />
                         </td>
-                        <ReverseCell
-                          canReverse={canReverse}
-                          posted={entry.status === "posted"}
-                          pending={reverse.isPending}
-                          onReverse={() =>
-                            void action.run(() => reverse.mutateAsync(entry.id), {
-                              confirm: "money.reverseConfirm",
-                            })
-                          }
-                        />
                       </tr>
                     );
                   })}

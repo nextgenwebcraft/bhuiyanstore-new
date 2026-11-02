@@ -504,6 +504,8 @@ model OpeningStockLine {
   sessionId      String         @map("session_id")
   productId      String         @map("product_id")
   pieces         Decimal?       @db.Decimal(20, 6)
+  /// Damaged pieces held in the godown at go-live (not saleable); NULL = unknown.
+  damagedPieces  Decimal?       @map("damaged_pieces") @db.Decimal(20, 6)
   unitCost       Decimal?       @map("unit_cost") @db.Decimal(20, 6)
   salePrice      Decimal?       @map("sale_price") @db.Decimal(20, 6)
   dueFromCompany Decimal?       @map("due_from_company") @db.Decimal(20, 6)

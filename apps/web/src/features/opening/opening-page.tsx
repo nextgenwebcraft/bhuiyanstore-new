@@ -7,7 +7,8 @@ import {
   type OpeningBalanceSectionId,
   type OpeningSectionSaveRequest,
 } from "@bsd/contracts";
-import { t, formatShortDate, toBengaliDigits } from "@bsd/i18n";
+import { toBaseQuantity, toCartonDisplay } from "@bsd/domain";
+import { t, formatShortDate, normalizeDigits, toBengaliDigits } from "@bsd/i18n";
 import { useId, useMemo, useState } from "react";
 import { Combobox, type ComboboxOption } from "@/components/combobox";
 import { useRouter } from "next/navigation";
@@ -58,6 +59,8 @@ const sectionStateBg: Record<string, string> = {
 };
 
 function SectionBadge({ state }: { state: "done" | "pending" | "optional" }) {
+  // Owner: no need to show অসম্পূর্ণ (pending) on opening cards.
+  if (state === "pending") return null;
   return (
     <span
       className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${sectionStateBg[state] ?? ""}`}
@@ -65,6 +68,30 @@ function SectionBadge({ state }: { state: "done" | "pending" | "optional" }) {
       {t(`opening.${state}`)}
     </span>
   );
+}
+
+const cleanQty = (value: string) => normalizeDigits(value).trim();
+
+/** Split stored pieces into carton + loose fields for editing (D89). */
+function splitPieces(total: string | null, piecesPerCarton: string): { cartons: string; pieces: string } {
+  if (total === null || total === "") return { cartons: "", pieces: "" };
+  const { cartons, loosePieces } = toCartonDisplay(total, piecesPerCarton);
+  return {
+    cartons: cartons === "0" ? "" : cartons,
+    pieces: loosePieces === "0" ? "" : loosePieces,
+  };
+}
+
+/** Carton + loose → base pieces; blank both → null (unknown). */
+function joinPieces(
+  cartons: string,
+  pieces: string,
+  piecesPerCarton: string,
+): string | null {
+  const c = cleanQty(cartons);
+  const p = cleanQty(pieces);
+  if (!c && !p) return null;
+  return toBaseQuantity(c || "0", p || "0", piecesPerCarton);
 }
 
 // ─── cutoff section ───────────────────────────────────────────────────────────
@@ -118,6 +145,7 @@ function CutoffSection({ opening, companyId }: { opening: Opening; companyId: st
 // ─── stock section ────────────────────────────────────────────────────────────
 
 type StockRow = {
+  cartons: string;
   pieces: string;
   unitCost: string;
   salePrice: string;
@@ -127,17 +155,30 @@ type StockRow = {
 
 function buildStockDraft(stock: Opening["stock"]): Record<string, StockRow> {
   return Object.fromEntries(
-    stock.map((line) => [
-      line.productId,
-      {
-        pieces: line.pieces ?? "",
-        unitCost: line.unitCost ?? "",
-        salePrice: line.salePrice ?? "",
-        dueFromCompany: line.dueFromCompany ?? "",
-        note: line.note,
-      },
-    ]),
+    stock.map((line) => {
+      const qty = splitPieces(line.pieces, line.piecesPerCarton);
+      return [
+        line.productId,
+        {
+          cartons: qty.cartons,
+          pieces: qty.pieces,
+          unitCost: line.unitCost ?? "",
+          salePrice: line.salePrice ?? "",
+          dueFromCompany: line.dueFromCompany ?? "",
+          note: line.note,
+        },
+      ];
+    }),
   );
+}
+
+function sortStock(stock: Opening["stock"]) {
+  return [...stock].sort((a, b) => {
+    const numA = parseInt(a.sku.replace(/\D+/g, ""), 10);
+    const numB = parseInt(b.sku.replace(/\D+/g, ""), 10);
+    if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+    return a.sku.localeCompare(b.sku);
+  });
 }
 
 function StockSection({ opening, companyId }: { opening: Opening; companyId: string }) {
@@ -151,6 +192,7 @@ function StockSection({ opening, companyId }: { opening: Opening; companyId: str
   function set(productId: string, field: keyof StockRow, value: string) {
     setDraft((prev) => {
       const existing = prev[productId] ?? {
+        cartons: "",
         pieces: "",
         unitCost: "",
         salePrice: "",
@@ -171,7 +213,7 @@ function StockSection({ opening, companyId }: { opening: Opening; companyId: str
           const row = draft[line.productId];
           return {
             productId: line.productId,
-            pieces: row?.pieces || null,
+            pieces: joinPieces(row?.cartons ?? "", row?.pieces ?? "", line.piecesPerCarton),
             unitCost: row?.unitCost || null,
             salePrice: row?.salePrice || null,
             dueFromCompany: row?.dueFromCompany || null,
@@ -196,12 +238,7 @@ function StockSection({ opening, companyId }: { opening: Opening; companyId: str
     );
   }
 
-  const sortedStock = [...opening.stock].sort((a, b) => {
-    const numA = parseInt(a.sku.replace(/\D+/g, ""), 10);
-    const numB = parseInt(b.sku.replace(/\D+/g, ""), 10);
-    if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
-    return a.sku.localeCompare(b.sku);
-  });
+  const sortedStock = sortStock(opening.stock);
 
   return (
     <section className="rounded-xl border border-border bg-surface p-4">
@@ -216,6 +253,7 @@ function StockSection({ opening, companyId }: { opening: Opening; companyId: str
               <th className={tdClass}>SKU</th>
               <th className={tdClass}>{t("product.name")}</th>
               <th className={`${tdClass} text-right`}>{t("product.piecesPerCarton")}</th>
+              <th className={`${tdClass} text-right`}>{t("godown.column.cartons")}</th>
               <th className={`${tdClass} text-right`}>{t("opening.stock.pieces")}</th>
               <th className={`${tdClass} text-right`}>{t("opening.stock.unitCost")}</th>
               <th className={`${tdClass} text-right`}>{t("opening.stock.salePrice")}</th>
@@ -225,6 +263,7 @@ function StockSection({ opening, companyId }: { opening: Opening; companyId: str
           <tbody>
             {sortedStock.map((line) => {
               const row = draft[line.productId] ?? {
+                cartons: "",
                 pieces: "",
                 unitCost: "",
                 salePrice: "",
@@ -238,6 +277,17 @@ function StockSection({ opening, companyId }: { opening: Opening; companyId: str
                   <td className={tdClass}>{line.productName}</td>
                   <td className={`${tdClass} text-right tabular-nums`}>
                     {toBengaliDigits(line.piecesPerCarton)}
+                  </td>
+                  <td className={tdClass}>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      className={inputSm}
+                      value={row.cartons}
+                      disabled={disabled}
+                      placeholder="০"
+                      onChange={(e) => set(line.productId, "cartons", e.target.value)}
+                    />
                   </td>
                   <td className={tdClass}>
                     <input
@@ -281,6 +331,146 @@ function StockSection({ opening, companyId }: { opening: Opening; companyId: str
                       disabled={disabled}
                       placeholder="০"
                       onChange={(e) => set(line.productId, "dueFromCompany", e.target.value)}
+                    />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {!opening.locked ? (
+        <div className="mt-3 flex items-center gap-3">
+          <Button variant="primary" disabled={saveCmd.isPending} onClick={() => void save()}>
+            {t("opening.save")}
+          </Button>
+          {error.form ? <span className="text-sm text-error">{error.form}</span> : null}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+// ─── damage stock section ─────────────────────────────────────────────────────
+
+type DamageRow = { cartons: string; pieces: string; unitCost: string };
+
+function buildDamageDraft(stock: Opening["stock"]): Record<string, DamageRow> {
+  return Object.fromEntries(
+    stock.map((line) => {
+      const qty = splitPieces(line.damagedPieces, line.piecesPerCarton);
+      return [
+        line.productId,
+        { cartons: qty.cartons, pieces: qty.pieces, unitCost: line.unitCost ?? "" },
+      ];
+    }),
+  );
+}
+
+function DamageSection({ opening, companyId }: { opening: Opening; companyId: string }) {
+  const [draft, setDraft] = useState<Record<string, DamageRow>>(() =>
+    buildDamageDraft(opening.stock),
+  );
+  const saveCmd = useSaveOpeningSection(companyId);
+  const [error, setError] = useState<DescribedError>({ fields: {} });
+  const section = opening.sections.find((s) => s.section === "damage");
+
+  function set(productId: string, field: keyof DamageRow, value: string) {
+    setDraft((prev) => {
+      const existing = prev[productId] ?? { cartons: "", pieces: "", unitCost: "" };
+      return { ...prev, [productId]: { ...existing, [field]: value } };
+    });
+  }
+
+  async function save() {
+    setError({ fields: {} });
+    try {
+      await saveCmd.mutateAsync({
+        section: "damage",
+        version: opening.version,
+        stock: opening.stock.map((line) => {
+          const row = draft[line.productId];
+          return {
+            productId: line.productId,
+            damagedPieces: joinPieces(
+              row?.cartons ?? "",
+              row?.pieces ?? "",
+              line.piecesPerCarton,
+            ),
+            unitCost: row?.unitCost || null,
+          };
+        }),
+      });
+    } catch (err) {
+      setError(describeError(err, []));
+    }
+  }
+
+  if (opening.stock.length === 0) return null;
+
+  const sortedStock = sortStock(opening.stock);
+
+  return (
+    <section className="rounded-xl border border-border bg-surface p-4">
+      <div className="mb-3 flex items-center gap-2">
+        <h2 className="text-base font-semibold">{t("opening.section.damage")}</h2>
+        {section ? <SectionBadge state={section.state} /> : null}
+      </div>
+      <p className="mb-3 text-xs text-text-muted">{t("opening.damage.hint")}</p>
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-left">
+          <thead>
+            <tr className="bg-surface-muted text-xs text-text-muted">
+              <th className={tdClass}>SKU</th>
+              <th className={tdClass}>{t("product.name")}</th>
+              <th className={`${tdClass} text-right`}>{t("product.piecesPerCarton")}</th>
+              <th className={`${tdClass} text-right`}>{t("godown.column.cartons")}</th>
+              <th className={`${tdClass} text-right`}>{t("opening.stock.pieces")}</th>
+              <th className={`${tdClass} text-right`}>{t("opening.stock.unitCost")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sortedStock.map((line) => {
+              const row = draft[line.productId] ?? { cartons: "", pieces: "", unitCost: "" };
+              const disabled = opening.locked;
+              return (
+                <tr key={line.productId} className="hover:bg-surface-muted/40">
+                  <td className={tdClass}>{line.sku}</td>
+                  <td className={tdClass}>{line.productName}</td>
+                  <td className={`${tdClass} text-right tabular-nums`}>
+                    {toBengaliDigits(line.piecesPerCarton)}
+                  </td>
+                  <td className={tdClass}>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      className={inputSm}
+                      value={row.cartons}
+                      disabled={disabled}
+                      placeholder="০"
+                      onChange={(e) => set(line.productId, "cartons", e.target.value)}
+                    />
+                  </td>
+                  <td className={tdClass}>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      className={inputSm}
+                      value={row.pieces}
+                      disabled={disabled}
+                      placeholder="০"
+                      onChange={(e) => set(line.productId, "pieces", e.target.value)}
+                    />
+                  </td>
+                  <td className={tdClass}>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      className={inputSm}
+                      value={row.unitCost}
+                      disabled={disabled}
+                      placeholder="০.০০"
+                      onChange={(e) => set(line.productId, "unitCost", e.target.value)}
                     />
                   </td>
                 </tr>
@@ -708,6 +898,7 @@ function OpeningPageInner({ companyId }: { companyId: string }) {
       <div className="flex flex-col gap-4">
         <CutoffSection key={opening.version} opening={opening} companyId={companyId} />
         <StockSection key={`stock-${opening.version}`} opening={opening} companyId={companyId} />
+        <DamageSection key={`damage-${opening.version}`} opening={opening} companyId={companyId} />
         <BalanceSection
           key={`marketDue-${opening.version}`}
           section="marketDue"
