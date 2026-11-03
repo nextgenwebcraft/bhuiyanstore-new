@@ -32,6 +32,8 @@ import type {
   StaffAssignmentRequest,
   StaffCreateRequest,
   StaffLoginCreateRequest,
+  StaffLoginPasswordResetRequest,
+  StaffLoginUpdateRequest,
   StaffUpsertRequest,
   ShopUpsertRequest,
   StockEntryPostRequest,
@@ -241,13 +243,22 @@ export function useDsrDayCommand(companyId: string) {
       action,
       dayId,
       version,
+      cashHandedOver,
     }: {
-      action: "post" | "reverse" | "discard";
+      action: "post" | "reverse" | "discard" | "handover-submit" | "handover-approve";
       dayId: string;
       version: number;
+      cashHandedOver?: string;
     }): Promise<DsrDay | null> => {
       if (action === "post") return service.postDsrDay(companyId, dayId, { version });
       if (action === "reverse") return service.reverseDsrDay(companyId, dayId, { version });
+      if (action === "handover-submit") {
+        if (cashHandedOver === undefined) throw new Error("cashHandedOver required");
+        return service.submitDsrHandover(companyId, dayId, { version, cashHandedOver });
+      }
+      if (action === "handover-approve") {
+        return service.approveDsrHandover(companyId, dayId, { version });
+      }
       await service.discardDsrDay(companyId, dayId, { version });
       return null;
     },
@@ -311,14 +322,42 @@ export function useHistoryStockEntries(
   companyId: string,
   group: import("@bsd/contracts").HistoryStockKindGroup,
   page: number,
-  pageSize = 25,
+  pageSize: number,
+  date: string | undefined,
+  status: import("@bsd/contracts").HistoryStatusFilter,
+  /** When true, skip the request until a date is chosen (orders/stock date-card drill-in). */
+  requireDate = false,
 ) {
+  "use no memo";
   const service = useService();
   const actorId = useActorId();
   return useQuery({
-    queryKey: queryKeys.historyStock(actorId, companyId, group, page, pageSize),
+    queryKey: queryKeys.historyStock(actorId, companyId, group, page, pageSize, date, status),
     queryFn: ({ signal }) =>
-      service.listHistoryStockEntries(companyId, group, { page, pageSize }, { signal }),
+      service.listHistoryStockEntries(
+        companyId,
+        group,
+        { page, pageSize, ...(date ? { date } : {}), status },
+        { signal },
+      ),
+    enabled: !requireDate || Boolean(date),
+  });
+}
+
+export function useHistoryStockDateSummaries(
+  companyId: string,
+  group: import("@bsd/contracts").HistoryStockKindGroup,
+  status: import("@bsd/contracts").HistoryStatusFilter,
+  enabled = true,
+) {
+  "use no memo";
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.historyStockDates(actorId, companyId, group, status),
+    queryFn: ({ signal }) =>
+      service.listHistoryStockDateSummaries(companyId, group, { status }, { signal }),
+    enabled,
   });
 }
 
@@ -326,23 +365,43 @@ export function useHistoryMoneyEntries(
   companyId: string,
   group: import("@bsd/contracts").HistoryMoneyKindGroup,
   page: number,
-  pageSize = 25,
+  pageSize: number,
+  date: string | undefined,
+  status: import("@bsd/contracts").HistoryStatusFilter,
 ) {
+  "use no memo";
   const service = useService();
   const actorId = useActorId();
   return useQuery({
-    queryKey: queryKeys.historyMoney(actorId, companyId, group, page, pageSize),
+    queryKey: queryKeys.historyMoney(actorId, companyId, group, page, pageSize, date, status),
     queryFn: ({ signal }) =>
-      service.listHistoryMoneyEntries(companyId, group, { page, pageSize }, { signal }),
+      service.listHistoryMoneyEntries(
+        companyId,
+        group,
+        { page, pageSize, ...(date ? { date } : {}), status },
+        { signal },
+      ),
   });
 }
 
-export function useHistoryDsrDays(companyId: string, page: number, pageSize = 25) {
+export function useHistoryDsrDays(
+  companyId: string,
+  page: number,
+  pageSize: number,
+  date: string | undefined,
+  status: import("@bsd/contracts").HistoryStatusFilter,
+) {
+  "use no memo";
   const service = useService();
   const actorId = useActorId();
   return useQuery({
-    queryKey: queryKeys.historyDsr(actorId, companyId, page, pageSize),
-    queryFn: ({ signal }) => service.listHistoryDsrDays(companyId, { page, pageSize }, { signal }),
+    queryKey: queryKeys.historyDsr(actorId, companyId, page, pageSize, date, status),
+    queryFn: ({ signal }) =>
+      service.listHistoryDsrDays(
+        companyId,
+        { page, pageSize, ...(date ? { date } : {}), status },
+        { signal },
+      ),
   });
 }
 
@@ -645,6 +704,39 @@ export function useShops(companyId: string) {
   });
 }
 
+export function useOrderTargets(companyId: string, dashboardOnly = false) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.orderTargets(actorId, companyId, dashboardOnly),
+    queryFn: ({ signal }) => service.listOrderTargets(companyId, { dashboardOnly }, { signal }),
+  });
+}
+
+export function useSaveOrderTarget(companyId: string) {
+  const service = useService();
+  return useMasterMutation(
+    [resourceIds.orderTarget],
+    ({
+      targetId,
+      input,
+    }: {
+      targetId?: string;
+      input: import("@bsd/contracts").OrderTargetUpsertRequest;
+    }) =>
+      targetId
+        ? service.updateOrderTarget(companyId, targetId, input)
+        : service.createOrderTarget(companyId, input),
+  );
+}
+
+export function useArchiveOrderTarget(companyId: string) {
+  const service = useService();
+  return useMasterMutation([resourceIds.orderTarget], (targetId: string) =>
+    service.archiveOrderTarget(companyId, targetId),
+  );
+}
+
 export function useSaveShop(companyId: string) {
   const service = useService();
   return useMasterMutation(
@@ -862,21 +954,46 @@ export function useCreateFieldShop(companyId: string) {
   );
 }
 
-export function useCreateStaffLogin(companyId: string) {
-  const service = useService();
+function useStaffLoginInvalidate(companyId: string) {
   const actorId = useActorId();
   const queryClient = useQueryClient();
   const invalidate = useInvalidate(companyId, "staffLogin");
+  return () =>
+    Promise.all([
+      invalidate(),
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.tenant(actorId, resourceIds.role),
+      }),
+    ]);
+}
+
+export function useCreateStaffLogin(companyId: string) {
+  const service = useService();
+  const onSuccess = useStaffLoginInvalidate(companyId);
   return useMutation({
     mutationFn: ({ staffId, input }: { staffId: string; input: StaffLoginCreateRequest }) =>
       service.createStaffLogin(companyId, staffId, input),
-    onSuccess: () =>
-      Promise.all([
-        invalidate(),
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.tenant(actorId, resourceIds.role),
-        }),
-      ]),
+    onSuccess,
+  });
+}
+
+export function useUpdateStaffLogin(companyId: string) {
+  const service = useService();
+  const onSuccess = useStaffLoginInvalidate(companyId);
+  return useMutation({
+    mutationFn: ({ staffId, input }: { staffId: string; input: StaffLoginUpdateRequest }) =>
+      service.updateStaffLogin(companyId, staffId, input),
+    onSuccess,
+  });
+}
+
+export function useResetStaffLoginPassword(companyId: string) {
+  const service = useService();
+  const onSuccess = useStaffLoginInvalidate(companyId);
+  return useMutation({
+    mutationFn: ({ staffId, input }: { staffId: string; input: StaffLoginPasswordResetRequest }) =>
+      service.resetStaffLoginPassword(companyId, staffId, input),
+    onSuccess,
   });
 }
 

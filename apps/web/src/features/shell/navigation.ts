@@ -48,7 +48,6 @@ export const navigation: readonly NavSection[] = [
     items: [
       item("sales/daily-summaries", "nav.sales.dailySummaries", "sale.view"),
       item("sales/shops", "nav.sales.shops", "company.view"),
-      item("sales/field", "nav.sales.field", "field.entry"),
       item("sales/sr", "nav.sales.sr", "sr_loan.view"),
     ],
   },
@@ -106,17 +105,10 @@ export const navigation: readonly NavSection[] = [
     items: [
       item("masters/products", "nav.masters.products", "product.view"),
       item("masters/cartons", "nav.masters.cartons", "product.view"),
+      item("masters/targets", "nav.masters.targets", "company.view"),
       item("masters/staff", "nav.masters.staff", "company.view"),
       item("masters/lists", "nav.masters.lists", "company.view"),
       item("opening", "opening.title", "opening.prepare"),
-    ],
-  },
-  {
-    id: "administration",
-    labelKey: "nav.administration",
-    items: [
-      item("admin/users", "nav.administration.users", "membership.manage"),
-      item("admin/roles", "nav.administration.roles", "role.manage"),
     ],
   },
 ];
@@ -157,7 +149,7 @@ const hubDefinitions: readonly Omit<Hub, "shortcut">[] = [
     id: "sales",
     labelKey: "nav.hub.sales",
     icon: "sales",
-    tabs: [{ path: "sales/daily-summaries" }, { path: "sales/sr" }, { path: "sales/field" }],
+    tabs: [{ path: "sales/daily-summaries" }, { path: "sales/sr" }],
   },
   {
     id: "goods",
@@ -213,10 +205,9 @@ const hubDefinitions: readonly Omit<Hub, "shortcut">[] = [
     tabs: [
       { path: "masters/products" },
       { path: "masters/cartons" },
+      { path: "masters/targets" },
       { path: "masters/lists" },
       { path: "opening", labelKey: "opening.title" },
-      { path: "admin/users" },
-      { path: "admin/roles" },
     ],
   },
 ];
@@ -346,9 +337,6 @@ export function equivalentPath(path: string, destination: CompanyWorkspace): str
   const entry = findNavEntry(path);
   return entry && navAccess(destination, entry.section, entry.item) === "ok" ? path : "";
 }
-
-/** The DSR field panel (D40); field-only members see nothing else. */
-export const FIELD_PATH = "sales/field";
 
 export function companyHref(companyId: string, path = ""): string {
   return path ? `/c/${companyId}/${path}` : `/c/${companyId}`;

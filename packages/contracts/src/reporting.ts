@@ -88,6 +88,16 @@ export const dashboardSummarySchema = z.object({
    * Requires `finance.view` because operating cost and DSR cost are part of it.
    */
   cashInHand: decimalStringSchema.optional(),
+  /**
+   * D112: badge on হাতে জমা when Managers have submitted day-end cash in the range.
+   * `pending` if any sheet is pending; else `approved` if any approved; else omitted/`none`.
+   */
+  cashInHandHandover: z
+    .object({
+      status: z.enum(["none", "pending", "approved"]),
+      amount: decimalStringSchema.nullable(),
+    })
+    .optional(),
   /** D107 মোট বিক্রি: issuedValue − returnValue. */
   totalSales: decimalStringSchema,
   /** D69: the DSR-line profit (domain `salesProfit`); requires `inventory.cost_view` and `report.profit_view`. */

@@ -31,11 +31,14 @@ import {
   useCreateStaff,
   useCreateStaffLogin,
   useDeleteStaff,
+  useResetStaffLoginPassword,
   useSaveStaffAssignment,
   useStaffRecords,
   useUpdateStaff,
+  useUpdateStaffLogin,
   useWorkspaces,
 } from "@/data/queries";
+import { PasswordInput } from "@/components/password-input";
 import { NavGate } from "@/features/shell/nav-gate";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 
@@ -422,74 +425,198 @@ function AssignmentDialog({
   );
 }
 
-/** Super-admin: a field-panel sign-in for a DSR (D40). */
+/** Super-admin on master আমাদের স্টাফ: create or edit Manager/DSR login (D113). */
 function LoginDialog({
   companyId,
   person,
+  companies,
   onClose,
 }: {
   companyId: string;
   person: StaffRecord;
+  companies: { id: string; name: string }[];
   onClose: () => void;
 }) {
   const id = useId();
+  const editing = person.loginEmail !== null;
   const create = useCreateStaffLogin(companyId);
+  const update = useUpdateStaffLogin(companyId);
+  const resetPassword = useResetStaffLoginPassword(companyId);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [resetting, setResetting] = useState(false);
+  const [roleKind, setRoleKind] = useState<"manager" | "dsr">(person.loginRoleKind ?? "dsr");
+  const [active, setActive] = useState(person.loginActive ?? true);
+  const onlyCompany = companies.length === 1 ? companies[0] : undefined;
+  const [companyIds, setCompanyIds] = useState<string[]>(
+    person.loginCompanyIds.length > 0
+      ? person.loginCompanyIds
+      : onlyCompany
+        ? [onlyCompany.id]
+        : [],
+  );
   const [errors, setErrors] = useState(noErrors);
+
+  function toggleCompany(cid: string, on: boolean) {
+    setCompanyIds((prev) => (on ? [...prev, cid] : prev.filter((x) => x !== cid)));
+  }
 
   async function submit() {
     const fields: Partial<Record<string, string>> = {};
-    if (!email.trim()) fields.email = t("validation.required");
-    if (password.length < MIN_PASSWORD_LENGTH) fields.password = t("auth.passwordTooShort");
+    if (companyIds.length === 0) fields.companyIds = t("staff.login.companiesRequired");
+    if (!editing) {
+      if (!email.trim()) fields.email = t("validation.required");
+      if (password.length < MIN_PASSWORD_LENGTH) fields.password = t("auth.passwordTooShort");
+    } else if (resetting && password.length < MIN_PASSWORD_LENGTH) {
+      fields.password = t("auth.passwordTooShort");
+    }
     if (Object.keys(fields).length > 0) {
       setErrors({ fields });
       return;
     }
     setErrors(noErrors);
     try {
-      await create.mutateAsync({ staffId: person.id, input: { email: email.trim(), password } });
+      if (!editing) {
+        await create.mutateAsync({
+          staffId: person.id,
+          input: {
+            email: email.trim(),
+            password,
+            roleKind,
+            companyIds,
+          },
+        });
+      } else {
+        await update.mutateAsync({
+          staffId: person.id,
+          input: { roleKind, companyIds, active },
+        });
+        if (resetting) {
+          await resetPassword.mutateAsync({ staffId: person.id, input: { password } });
+        }
+      }
       onClose();
     } catch (error) {
-      setErrors(describeError(error, ["email", "password"]));
+      setErrors(describeError(error, ["email", "password", "roleKind", "companyIds", "active"]));
     }
   }
+
+  const pending = create.isPending || update.isPending || resetPassword.isPending;
 
   return (
     <FormDialog
       open
+      wide
       title={t("staff.login.title")}
       error={errors.form}
-      pending={create.isPending}
+      pending={pending}
       onSubmit={() => void submit()}
       onClose={onClose}
     >
       <p className="font-medium">{person.name}</p>
-      <p className="text-sm text-text-muted">{t("staff.login.hint")}</p>
-      <Field id={`${id}-email`} label={t("auth.email")} error={errors.fields.email}>
-        <input
-          id={`${id}-email`}
-          type="email"
-          autoComplete="off"
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-          className={inputClass}
-        />
-      </Field>
-      <Field
-        id={`${id}-password`}
-        label={t("user.temporaryPassword")}
-        error={errors.fields.password}
-      >
-        <input
-          id={`${id}-password`}
-          type="text"
-          autoComplete="new-password"
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          className={inputClass}
-        />
-      </Field>
+      <p className="text-sm text-text-muted">
+        {t(editing ? "staff.login.editHint" : "staff.login.hint")}
+      </p>
+      {editing && person.loginEmail ? (
+        <p className="text-sm text-text-muted">
+          {t("staff.login.linked")}: {person.loginEmail}
+        </p>
+      ) : null}
+      <fieldset className="flex flex-wrap gap-4">
+        <legend className="mb-1 text-sm font-medium">{t("staff.login.role")}</legend>
+        {(["dsr", "manager"] as const).map((kind) => (
+          <label key={kind} className="flex min-h-(--touch-target) items-center gap-2 text-sm">
+            <input
+              type="radio"
+              name={`${id}-role`}
+              checked={roleKind === kind}
+              onChange={() => setRoleKind(kind)}
+            />
+            {kind === "dsr" ? t("role.kind.dsr") : t("role.kind.manager")}
+          </label>
+        ))}
+      </fieldset>
+      <fieldset className="flex max-h-[30dvh] flex-col gap-2 overflow-y-auto">
+        <legend className="mb-1 text-sm font-medium">{t("staff.login.companies")}</legend>
+        {companies.map((c) => (
+          <label key={c.id} className="flex min-h-(--touch-target) items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={companyIds.includes(c.id)}
+              onChange={(event) => toggleCompany(c.id, event.target.checked)}
+            />
+            {c.name}
+          </label>
+        ))}
+        {errors.fields.companyIds ? (
+          <p className="text-sm text-error" role="alert">
+            {errors.fields.companyIds}
+          </p>
+        ) : null}
+      </fieldset>
+      {!editing ? (
+        <>
+          <Field id={`${id}-email`} label={t("auth.email")} error={errors.fields.email}>
+            <input
+              id={`${id}-email`}
+              type="email"
+              autoComplete="off"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              className={inputClass}
+            />
+          </Field>
+          <Field
+            id={`${id}-password`}
+            label={t("user.temporaryPassword")}
+            hint={t("user.temporaryPasswordHint")}
+            error={errors.fields.password}
+          >
+            <PasswordInput
+              id={`${id}-password`}
+              autoComplete="new-password"
+              minLength={MIN_PASSWORD_LENGTH}
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+            />
+          </Field>
+        </>
+      ) : (
+        <>
+          <label className="flex min-h-(--touch-target) items-center gap-2 font-medium">
+            <input
+              type="checkbox"
+              checked={active}
+              onChange={(event) => setActive(event.target.checked)}
+            />
+            {t("staff.login.active")}
+          </label>
+          <label className="flex min-h-(--touch-target) items-center gap-2 font-medium">
+            <input
+              type="checkbox"
+              checked={resetting}
+              onChange={(event) => setResetting(event.target.checked)}
+            />
+            {t("staff.login.resetPassword")}
+          </label>
+          {resetting ? (
+            <Field
+              id={`${id}-password`}
+              label={t("user.temporaryPassword")}
+              hint={t("user.temporaryPasswordHint")}
+              error={errors.fields.password}
+            >
+              <PasswordInput
+                id={`${id}-password`}
+                autoComplete="new-password"
+                minLength={MIN_PASSWORD_LENGTH}
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+              />
+            </Field>
+          ) : null}
+        </>
+      )}
     </FormDialog>
   );
 }
@@ -562,10 +689,9 @@ function Staff() {
     company.isMaster ? role.kind !== "sr" : role.kind === "sr",
   );
   const hireRoles = company.isMaster ? companyRoles.filter(masterPanelHireRole) : companyRoles;
-  const dsrRoles = new Set(
-    (roles.data ?? []).filter((role) => role.kind === "dsr").map((role) => role.id),
-  );
-  const isDsrHere = (record: StaffRecord) => record.assignments.some((a) => dsrRoles.has(a.roleId));
+  const operatingCompanies = (workspaces.data ?? [])
+    .filter((w) => !w.company.isMaster)
+    .map((w) => ({ id: w.company.id, name: w.company.name }));
   const own = (records.data ?? []).filter((r) =>
     r.assignments.some((a) => a.companyId === company.id),
   );
@@ -612,14 +738,18 @@ function Staff() {
                     <>
                       {" · "}
                       {t("staff.login.linked")}: {record.loginEmail}
+                      {record.loginRoleKind ? ` (${t(`role.kind.${record.loginRoleKind}`)})` : ""}
+                      {record.loginActive === false ? ` · ${t("user.inactive")}` : ""}
                     </>
                   ) : null}
                 </div>
               </div>
               {canManage ? (
                 <div className="flex flex-wrap gap-2">
-                  {isSuperAdmin && record.loginEmail === null && isDsrHere(record) ? (
-                    <Button onClick={() => setLogin(record)}>{t("staff.login.create")}</Button>
+                  {company.isMaster && isSuperAdmin ? (
+                    <Button onClick={() => setLogin(record)}>
+                      {t(record.loginEmail ? "staff.login.manage" : "staff.login.create")}
+                    </Button>
                   ) : null}
                   <Button onClick={() => setAssignment({ person: record })}>
                     {t("staff.assign")}
@@ -720,7 +850,12 @@ function Staff() {
         />
       ) : null}
       {login ? (
-        <LoginDialog companyId={company.id} person={login} onClose={() => setLogin(null)} />
+        <LoginDialog
+          companyId={company.id}
+          person={login}
+          companies={operatingCompanies}
+          onClose={() => setLogin(null)}
+        />
       ) : null}
       {body}
     </>

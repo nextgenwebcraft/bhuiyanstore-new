@@ -28,6 +28,11 @@ export const queryKeys = {
     companyResource(actorId, companyId, resourceIds.staffRecord),
   shops: (actorId: string, companyId: string) =>
     companyResource(actorId, companyId, resourceIds.shop),
+  orderTargets: (actorId: string, companyId: string, dashboardOnly: boolean) =>
+    [
+      ...companyResource(actorId, companyId, resourceIds.orderTarget),
+      dashboardOnly ? "dashboard" : "all",
+    ] as const,
   shopStatement: (actorId: string, companyId: string, shopId: string, from: string, to: string) =>
     [
       ...companyResource(actorId, companyId, resourceIds.ledger),
@@ -65,6 +70,8 @@ export const queryKeys = {
     group: string,
     page: number,
     pageSize: number,
+    date: string | undefined,
+    status: string,
   ) =>
     [
       ...companyResource(actorId, companyId, resourceIds.stockEntry),
@@ -72,6 +79,15 @@ export const queryKeys = {
       group,
       page,
       pageSize,
+      date ?? "",
+      status,
+    ] as const,
+  historyStockDates: (actorId: string, companyId: string, group: string, status: string) =>
+    [
+      ...companyResource(actorId, companyId, resourceIds.stockEntry),
+      "history-dates",
+      group,
+      status,
     ] as const,
   historyMoney: (
     actorId: string,
@@ -79,6 +95,8 @@ export const queryKeys = {
     group: string,
     page: number,
     pageSize: number,
+    date: string | undefined,
+    status: string,
   ) =>
     [
       ...companyResource(actorId, companyId, resourceIds.moneyEntry),
@@ -86,9 +104,25 @@ export const queryKeys = {
       group,
       page,
       pageSize,
+      date ?? "",
+      status,
     ] as const,
-  historyDsr: (actorId: string, companyId: string, page: number, pageSize: number) =>
-    [...companyResource(actorId, companyId, resourceIds.dsrDay), "history", page, pageSize] as const,
+  historyDsr: (
+    actorId: string,
+    companyId: string,
+    page: number,
+    pageSize: number,
+    date: string | undefined,
+    status: string,
+  ) =>
+    [
+      ...companyResource(actorId, companyId, resourceIds.dsrDay),
+      "history",
+      page,
+      pageSize,
+      date ?? "",
+      status,
+    ] as const,
   monthView: (actorId: string, companyId: string, month: string) =>
     [...companyResource(actorId, companyId, resourceIds.ledger), "month", month] as const,
   report: (actorId: string, companyId: string, report: string, from: string, to: string) =>
@@ -178,6 +212,7 @@ export const postingEffects = {
     resourceIds.productHistory,
     resourceIds.ledger,
     resourceIds.dashboardSummary,
+    resourceIds.orderTarget,
   ],
   /** Posting a sheet with field visits also writes shop dues and the exchange case (D40). */
   dsrDay: [

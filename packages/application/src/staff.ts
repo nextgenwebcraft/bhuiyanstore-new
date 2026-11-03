@@ -23,7 +23,13 @@ import { releaseOpeningLines, releaseStaffOpenings } from "./opening-lock";
 
 const withAssignments = {
   assignments: { include: { role: true }, orderBy: { from: "asc" } },
-  user: { select: { email: true } },
+  user: {
+    select: {
+      email: true,
+      active: true,
+      memberships: { include: { roles: { include: { role: true } } } },
+    },
+  },
 } as const;
 
 type AssignmentRow = {
@@ -44,7 +50,11 @@ type StaffRow = {
   status: string;
   companyId: string;
   assignments: AssignmentRow[];
-  user: { email: string } | null;
+  user: {
+    email: string;
+    active: boolean;
+    memberships: { companyId: string; roles: { role: { kind: string | null } }[] }[];
+  } | null;
 };
 
 /** Companies whose staff assignments the actor may see (anti-enumeration, like COMPANY_NOT_FOUND). */
@@ -63,6 +73,16 @@ async function visibleCompanyIds(ctx: AppContext): Promise<Set<string>> {
   return new Set(memberships.map((m) => m.companyId));
 }
 
+function loginRoleKindOf(user: StaffRow["user"]): "manager" | "dsr" | null {
+  if (!user) return null;
+  for (const m of user.memberships) {
+    for (const r of m.roles) {
+      if (r.role.kind === "manager" || r.role.kind === "dsr") return r.role.kind;
+    }
+  }
+  return null;
+}
+
 function toRecord(row: StaffRow, visible: Set<string>): StaffRecord {
   return staffRecordSchema.parse({
     id: row.id,
@@ -71,6 +91,11 @@ function toRecord(row: StaffRow, visible: Set<string>): StaffRecord {
     phone: row.phone ?? "",
     status: row.status,
     loginEmail: row.user?.email ?? null,
+    loginRoleKind: loginRoleKindOf(row.user),
+    loginActive: row.user ? row.user.active : null,
+    loginCompanyIds: row.user
+      ? [...new Set(row.user.memberships.map((m) => m.companyId))].sort()
+      : [],
     companyId: row.companyId,
     assignments: row.assignments
       .filter((a) => visible.has(a.companyId))

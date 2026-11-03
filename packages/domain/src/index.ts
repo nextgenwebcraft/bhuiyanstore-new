@@ -2,6 +2,19 @@ export { Decimal, toDecimal, type DecimalInput } from "./decimal";
 export { COST_SCALE, SETTLEMENT_SCALE, roundCost, roundSettlement } from "./money";
 export { netIssuedQuantity, sumQuantities, toBaseQuantity, toCartonDisplay } from "./quantity";
 export {
+  stockEntryAmount,
+  stockEntryCartonParts,
+  sumCartons,
+  type StockEntryDisplayInput,
+} from "./stock-entry-display";
+export {
+  orderTargetProgress,
+  orderTargetProgressStatuses,
+  type OrderTargetProgressInput,
+  type OrderTargetProgressResult,
+  type OrderTargetProgressStatus,
+} from "./order-target-progress";
+export {
   batchUndelivered,
   cartonFromPiece,
   pieceFromCarton,

@@ -147,6 +147,7 @@ describe("D51 starter dataset", () => {
     // D110: no sample people, so staff stays blank and market due has no DSR bucket (optional).
     expect(opening.sections.map((s) => [s.section, s.state])).toEqual([
       ["stock", "done"],
+      ["damage", "optional"],
       ["marketDue", "optional"],
       ["shopDue", "done"],
       ["staff", "pending"],

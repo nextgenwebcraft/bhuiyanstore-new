@@ -1,0 +1,30 @@
+id: 2026-11-04-order-target-tracking
+reason: >-
+  Owner 2026-11-04. Company order-amount targets (overall and product-wise) with a
+  start/end window; progress from posted order bills (D57). Setup manages all targets
+  and pins at most two to the dashboard strip beside the period filter (D111).
+owners: [domain, contracts, application, database, architecture, i18n, web]
+changes:
+  - >-
+    packages/database: OrderTarget model + migration
+    20261104010000_order_targets
+  - >-
+    packages/domain: orderTargetProgress (ordered/remaining/ratio/days/status)
+  - >-
+    packages/contracts + application: order-target CRUD and progress aggregation
+    from posted stock_entry kind=order
+  - >-
+    packages/architecture: resource id orderTarget
+  - >-
+    apps/web: Setup hub tab masters/targets, full progress cards, pin max 2;
+    dashboard PeriodBar row shows up to two compact widgets (or quiet CTA)
+  - packages/i18n: Bangla keys for targets, validation, dashboard strip
+affectedActionIds: []
+financialImpact: >-
+  Display and planning only. Does not change posted stock, ledger, cash or profit.
+  Progress sums existing posted order bills in the target window.
+backfill: none
+tests: >-
+  packages/domain order-target-progress.test.ts; apps/web navigation.test.ts
+rollout: apply migration 20261104010000_order_targets, then deploy the app
+recovery: revert the commit; unused order_target table can stay

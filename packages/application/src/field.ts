@@ -3,12 +3,13 @@ import {
   documentTransitionRequestSchema,
   fieldDayEndRequestSchema,
   fieldDaySchema,
-  fieldPermissionIds,
   fieldShopCreateRequestSchema,
   fieldVisitDeleteRequestSchema,
   fieldVisitSaveRequestSchema,
   fieldVisitSchema,
   staffLoginCreateRequestSchema,
+  staffLoginPasswordResetRequestSchema,
+  staffLoginUpdateRequestSchema,
   type FieldDay,
   type FieldVisit,
   type StaffRecord,
@@ -36,6 +37,7 @@ import type { AppContext, Tx } from "./context";
 import { businessDate, postingGuard, roleOn, saveDsrDayIn } from "./daily";
 import { fromDbDate, toDbDate } from "./dates";
 import { invalid, parseInput } from "./errors";
+import { ensureFixedLoginRoles } from "./fixed-roles";
 import { isUniqueViolation, runIdempotent } from "./idempotency";
 import { runLedger } from "./ledger";
 import { staffCompanyIds } from "./master";
@@ -52,9 +54,6 @@ import { getStaffRecord } from "./staff";
  */
 
 type Db = AppContext["db"] | Tx;
-
-/** The tenant role every field login gets; created on first use with the field permissions. */
-export const FIELD_ROLE_NAME = "ডিএসআর (মাঠ)";
 
 async function ownStaffId(db: Db, ctx: AppContext): Promise<string> {
   const staff = await db.staff.findFirst({
@@ -853,9 +852,40 @@ export async function createFieldShop(
   }
 }
 
+/** Operating companies only — Manager/DSR never open the master panel (D112, D113). */
+async function assertLoginCompanies(
+  tx: Tx,
+  ctx: AppContext,
+  companyIds: readonly string[],
+): Promise<string[]> {
+  const unique = [...new Set(companyIds)];
+  if (unique.length !== companyIds.length) {
+    throw invalid("companyIds", "validation.membership.duplicateCompany");
+  }
+  const count = await tx.company.count({
+    where: { id: { in: unique }, tenantId: ctx.actor.tenantId, isMaster: false },
+  });
+  if (count !== unique.length) throw invalid("companyIds", "validation.membership.company");
+  return unique;
+}
+
+async function replaceLoginMemberships(
+  tx: Tx,
+  userId: string,
+  roleId: string,
+  companyIds: readonly string[],
+) {
+  await tx.membership.deleteMany({ where: { userId } });
+  for (const cid of companyIds) {
+    await tx.membership.create({
+      data: { userId, companyId: cid, roles: { create: [{ roleId }] } },
+    });
+  }
+}
+
 /**
- * Super-admin: a sign-in for a DSR with the field role in this company, linked to the staff
- * record. The password is one-time; the DSR changes it at first sign-in.
+ * Super-admin: link a Manager or DSR login to a staff person from master আমাদের স্টাফ (D112, D113).
+ * The password is one-time; they change it at first sign-in.
  */
 export async function createStaffLogin(
   ctx: AppContext,
@@ -873,7 +903,7 @@ export async function createStaffLogin(
     await runIdempotent(
       ctx,
       { scope: companyId, action: `staff.login:${staffId}`, requestKey },
-      { staffId, email },
+      { staffId, email, roleKind: data.roleKind, companyIds: data.companyIds },
       async (tx) => {
         const staff = await tx.staff.findFirst({
           where: {
@@ -884,24 +914,12 @@ export async function createStaffLogin(
         });
         if (!staff) throw invalid("id", "validation.staff.unknown");
         if (staff.userId) throw invalid("email", "validation.field.duplicateLogin");
-        if ((await roleOn(tx, companyId, staffId, todayBusinessDate())) !== "dsr") {
-          throw invalid("id", "validation.daily.dsrOnly");
-        }
         if (await tx.user.findUnique({ where: { email } })) {
           throw invalid("email", "validation.user.duplicateEmail");
         }
-        let role = await tx.role.findFirst({
-          where: { tenantId: ctx.actor.tenantId, name: FIELD_ROLE_NAME },
-        });
-        if (!role) {
-          role = await tx.role.create({
-            data: {
-              tenantId: ctx.actor.tenantId,
-              name: FIELD_ROLE_NAME,
-              permissions: { create: fieldPermissionIds.map((permission) => ({ permission })) },
-            },
-          });
-        }
+        const companyIds = await assertLoginCompanies(tx, ctx, data.companyIds);
+        const roles = await ensureFixedLoginRoles(tx, ctx.actor.tenantId);
+        const roleId = roles[data.roleKind];
         const id = crypto.randomUUID();
         await tx.user.create({
           data: {
@@ -911,6 +929,7 @@ export async function createStaffLogin(
             emailVerified: true,
             tenantId: ctx.actor.tenantId,
             mustChangePassword: true,
+            isSuperAdmin: false,
           },
         });
         await tx.account.create({
@@ -922,16 +941,14 @@ export async function createStaffLogin(
             password: passwordHash,
           },
         });
-        await tx.membership.create({
-          data: { userId: id, companyId, roles: { create: [{ roleId: role.id }] } },
-        });
+        await replaceLoginMemberships(tx, id, roleId, companyIds);
         await tx.staff.update({ where: { id: staffId }, data: { userId: id } });
         await recordAudit(tx, ctx, {
           companyId,
           action: "staff.login_create",
           resourceType: "staff",
           resourceId: staffId,
-          after: { userId: id, email, roleId: role.id },
+          after: { userId: id, email, roleId, roleKind: data.roleKind, companyIds },
         });
         return { userId: id };
       },
@@ -940,5 +957,123 @@ export async function createStaffLogin(
     if (isUniqueViolation(error)) throw invalid("email", "validation.user.duplicateEmail");
     throw error;
   }
+  return getStaffRecord(ctx, companyId, staffId);
+}
+
+/** Super-admin: change login role, company access or active flag (D113). */
+export async function updateStaffLogin(
+  ctx: AppContext,
+  companyId: string,
+  staffId: string,
+  input: unknown,
+  requestKey?: string,
+): Promise<StaffRecord> {
+  requireSuperAdmin(ctx);
+  await loadCompanyAccess(ctx, companyId);
+  const data = parseInput(staffLoginUpdateRequestSchema, input);
+  await runIdempotent(
+    ctx,
+    { scope: companyId, action: `staff.login_update:${staffId}`, requestKey },
+    { staffId, ...data },
+    async (tx) => {
+      const staff = await tx.staff.findFirst({
+        where: {
+          id: staffId,
+          tenantId: ctx.actor.tenantId,
+          assignments: { some: { companyId: { in: await staffCompanyIds(tx, companyId) } } },
+        },
+        select: { id: true, userId: true },
+      });
+      if (!staff) throw invalid("id", "validation.staff.unknown");
+      if (!staff.userId) throw invalid("email", "validation.staff.noLogin");
+      const user = await tx.user.findFirst({
+        where: { id: staff.userId, tenantId: ctx.actor.tenantId, isSuperAdmin: false },
+      });
+      if (!user) throw invalid("email", "validation.staff.noLogin");
+      const companyIds = await assertLoginCompanies(tx, ctx, data.companyIds);
+      const roles = await ensureFixedLoginRoles(tx, ctx.actor.tenantId);
+      const roleId = roles[data.roleKind];
+      await tx.user.update({ where: { id: user.id }, data: { active: data.active } });
+      await replaceLoginMemberships(tx, user.id, roleId, companyIds);
+      if (!data.active) await tx.session.deleteMany({ where: { userId: user.id } });
+      await recordAudit(tx, ctx, {
+        companyId,
+        action: "staff.login_update",
+        resourceType: "staff",
+        resourceId: staffId,
+        after: {
+          userId: user.id,
+          roleKind: data.roleKind,
+          companyIds,
+          active: data.active,
+        },
+      });
+      return { userId: user.id };
+    },
+  );
+  return getStaffRecord(ctx, companyId, staffId);
+}
+
+/** Super-admin: one-time password reset for a staff-linked login (D113). */
+export async function resetStaffLoginPassword(
+  ctx: AppContext,
+  companyId: string,
+  staffId: string,
+  input: unknown,
+  requestKey?: string,
+): Promise<StaffRecord> {
+  requireSuperAdmin(ctx);
+  await loadCompanyAccess(ctx, companyId);
+  const data = parseInput(staffLoginPasswordResetRequestSchema, input);
+  if (staffId === ctx.actor.userId) throw invalid("id", "validation.user.resetOwnPassword");
+  const passwordHash = await hashPassword(data.password);
+  await runIdempotent(
+    ctx,
+    { scope: companyId, action: `staff.login_password:${staffId}`, requestKey },
+    { staffId },
+    async (tx) => {
+      const staff = await tx.staff.findFirst({
+        where: {
+          id: staffId,
+          tenantId: ctx.actor.tenantId,
+          assignments: { some: { companyId: { in: await staffCompanyIds(tx, companyId) } } },
+        },
+        select: { id: true, userId: true },
+      });
+      if (!staff?.userId) throw invalid("email", "validation.staff.noLogin");
+      if (staff.userId === ctx.actor.userId) {
+        throw invalid("id", "validation.user.resetOwnPassword");
+      }
+      const user = await tx.user.findFirst({
+        where: { id: staff.userId, tenantId: ctx.actor.tenantId, isSuperAdmin: false },
+      });
+      if (!user) throw invalid("email", "validation.staff.noLogin");
+      const updated = await tx.account.updateMany({
+        where: { userId: user.id, providerId: "credential" },
+        data: { password: passwordHash },
+      });
+      if (updated.count === 0) {
+        await tx.account.create({
+          data: {
+            id: crypto.randomUUID(),
+            accountId: user.id,
+            providerId: "credential",
+            userId: user.id,
+            password: passwordHash,
+          },
+        });
+      }
+      await tx.user.update({ where: { id: user.id }, data: { mustChangePassword: true } });
+      await tx.session.deleteMany({ where: { userId: user.id } });
+      await recordAudit(tx, ctx, {
+        companyId,
+        action: "staff.login_password_reset",
+        resourceType: "staff",
+        resourceId: staffId,
+        after: { userId: user.id, mustChangePassword: true },
+      });
+      return { userId: user.id };
+    },
+  );
   return getStaffRecord(ctx, companyId, staffId);
 }

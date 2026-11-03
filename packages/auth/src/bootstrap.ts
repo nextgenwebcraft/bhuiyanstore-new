@@ -30,6 +30,8 @@ export async function bootstrapSuperAdmin(
   if (existing) {
     if (!existing.tenantId) throw new Error("existing admin has no tenant");
     await ensureDefaultStaffRoles(db, existing.tenantId);
+    // Fixed login roles are seeded by application `ensureFixedLoginRoles` on first listRoles /
+    // createUser (D112); bootstrap only owns staff-role payroll kinds.
     return { tenantId: existing.tenantId, adminId: existing.id, created: false };
   }
 

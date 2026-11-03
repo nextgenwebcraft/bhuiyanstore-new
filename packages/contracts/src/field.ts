@@ -173,11 +173,31 @@ export const fieldShopCreateRequestSchema = z.object({
 
 export type FieldShopCreateRequest = z.input<typeof fieldShopCreateRequestSchema>;
 
-/** Creates a login for a staff member with the field role (D40). */
+/** Creates a login for a staff member from master আমাদের স্টাফ (D112, D113). */
 export const staffLoginCreateRequestSchema = z.object({
   email: z.email().max(200),
-  /** One-time password; the DSR changes it at first sign-in. */
+  /** One-time password; the user changes it at first sign-in. */
   password: z.string().min(MIN_PASSWORD_LENGTH).max(128),
+  /** Fixed login role Manager or DSR. */
+  roleKind: z.enum(["manager", "dsr"]).default("dsr"),
+  /** Operating companies this login may open (never the master panel). */
+  companyIds: z.array(idSchema).min(1),
 });
 
 export type StaffLoginCreateRequest = z.infer<typeof staffLoginCreateRequestSchema>;
+
+/** Updates role, company access and active flag for a staff-linked login (D113). */
+export const staffLoginUpdateRequestSchema = z.object({
+  roleKind: z.enum(["manager", "dsr"]),
+  companyIds: z.array(idSchema).min(1),
+  active: z.boolean(),
+});
+
+export type StaffLoginUpdateRequest = z.infer<typeof staffLoginUpdateRequestSchema>;
+
+/** One-time password reset for a staff-linked login (D113). */
+export const staffLoginPasswordResetRequestSchema = z.object({
+  password: z.string().min(MIN_PASSWORD_LENGTH).max(128),
+});
+
+export type StaffLoginPasswordResetRequest = z.infer<typeof staffLoginPasswordResetRequestSchema>;

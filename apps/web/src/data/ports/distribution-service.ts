@@ -21,7 +21,13 @@ import type {
   Opening,
   OpeningCutoffRequest,
   OpeningSectionSaveRequest,
+  OrderTarget,
+  OrderTargetList,
+  OrderTargetUpdateRequest,
+  OrderTargetUpsertRequest,
   StaffLoginCreateRequest,
+  StaffLoginPasswordResetRequest,
+  StaffLoginUpdateRequest,
   MasterMonth,
   MasterSummary,
   CompanyHishabYear,
@@ -35,6 +41,9 @@ import type {
   HistoryDsrPage,
   HistoryMoneyKindGroup,
   HistoryMoneyPage,
+  HistoryPageQuery,
+  HistoryStatusFilter,
+  HistoryStockDateSummaries,
   HistoryStockKindGroup,
   HistoryStockPage,
   MoneyEntry,
@@ -155,6 +164,18 @@ export interface DistributionService {
   ): Promise<DsrDay>;
   /** Requires `sale.create`; drafts only. */
   discardDsrDay(companyId: string, dayId: string, input: DocumentTransitionRequest): Promise<void>;
+  /** D112: Manager submits day-end cash; requires `sale.handover_submit`. */
+  submitDsrHandover(
+    companyId: string,
+    dayId: string,
+    input: import("@bsd/contracts").DsrHandoverSubmitRequest,
+  ): Promise<DsrDay>;
+  /** D112: Super Admin approves pending handover. */
+  approveDsrHandover(
+    companyId: string,
+    dayId: string,
+    input: import("@bsd/contracts").DsrHandoverApproveRequest,
+  ): Promise<DsrDay>;
   /**
    * D71: decides a DSR's pending field report; approving corrects the sheet (`sale.create`, and
    * `sale.post` + `sale.reverse` for a posted one).
@@ -180,22 +201,46 @@ export interface DistributionService {
   listHistoryStockEntries(
     companyId: string,
     group: HistoryStockKindGroup,
-    query: { page?: number; pageSize?: number },
+    query: HistoryPageQuery,
     options?: RequestOptions,
   ): Promise<HistoryStockPage>;
+  /** History hub: date cards for orders/stock (totals per date). */
+  listHistoryStockDateSummaries(
+    companyId: string,
+    group: HistoryStockKindGroup,
+    query: { status?: HistoryStatusFilter },
+    options?: RequestOptions,
+  ): Promise<HistoryStockDateSummaries>;
   /** History hub: paginated money entries by kind group (latest first). */
   listHistoryMoneyEntries(
     companyId: string,
     group: HistoryMoneyKindGroup,
-    query: { page?: number; pageSize?: number },
+    query: HistoryPageQuery,
     options?: RequestOptions,
   ): Promise<HistoryMoneyPage>;
   /** History hub: paginated DSR sheets (latest first). */
   listHistoryDsrDays(
     companyId: string,
-    query: { page?: number; pageSize?: number },
+    query: HistoryPageQuery,
     options?: RequestOptions,
   ): Promise<HistoryDsrPage>;
+
+  /** D111: order-amount targets with progress. Requires `company.view`. */
+  listOrderTargets(
+    companyId: string,
+    query?: { dashboardOnly?: boolean },
+    options?: RequestOptions,
+  ): Promise<OrderTargetList>;
+  /** Requires `company.manage`. */
+  createOrderTarget(companyId: string, input: OrderTargetUpsertRequest): Promise<OrderTarget>;
+  /** Requires `company.manage`. */
+  updateOrderTarget(
+    companyId: string,
+    targetId: string,
+    input: OrderTargetUpdateRequest,
+  ): Promise<OrderTarget>;
+  /** Soft-archive. Requires `company.manage`. */
+  archiveOrderTarget(companyId: string, targetId: string): Promise<OrderTarget>;
 
   // Month view, reports and closing (PLAN §9 Phase F). The demo mock has none.
 
@@ -433,11 +478,21 @@ export interface DistributionService {
     companyId: string,
     input: FieldShopCreateRequest,
   ): Promise<FieldDay["shops"][number]>;
-  /** Super-admin: a field sign-in linked to the DSR. */
+  /** Super-admin: Manager/DSR login linked to staff (D113). */
   createStaffLogin(
     companyId: string,
     staffId: string,
     input: StaffLoginCreateRequest,
+  ): Promise<StaffRecord>;
+  updateStaffLogin(
+    companyId: string,
+    staffId: string,
+    input: StaffLoginUpdateRequest,
+  ): Promise<StaffRecord>;
+  resetStaffLoginPassword(
+    companyId: string,
+    staffId: string,
+    input: StaffLoginPasswordResetRequest,
   ): Promise<StaffRecord>;
 
   // Opening balance (Phase I go-live). Requires `opening.prepare`.

@@ -298,6 +298,8 @@ describe("computeMonth golden month", () => {
       // workbook-importer path and never enters damaged-goods stock); nothing is at the company.
       damagedStock: "1",
       damageAtCompany: "0",
+      // D109: held damage lot at the sheet's sale price.
+      damageLots: [{ rate: "12.000000", pieces: "1" }],
       orderPrice: "10",
       costPrice: "10", // D57: the newest batch's cost
       salePrice: "12",

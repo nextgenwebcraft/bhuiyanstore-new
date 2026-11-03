@@ -23,6 +23,10 @@ export const permissionIds = [
   "sale.post",
   "sale.reverse",
   "sale.price_override",
+  /** D112: Manager submits দিনশেষে হাতে জমা; locks that date for Manager. */
+  "sale.handover_submit",
+  /** D112: Super Admin approves a pending handover (also available via isSuperAdmin). */
+  "sale.handover_approve",
   "collection.post",
   "inventory.view",
   "inventory.cost_view",

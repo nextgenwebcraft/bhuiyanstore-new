@@ -38,7 +38,6 @@ import { clean, DateBar, useWorkingDate } from "@/features/daily/daily-kit";
 import { dsrsOn } from "@/features/daily/dsr-days-page";
 import { CartonQty, StatusChip } from "@/components/data-table";
 import { NavGate } from "@/features/shell/nav-gate";
-import { FIELD_PATH } from "@/features/shell/navigation";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 
 const noErrors: DescribedError = { fields: {} };
@@ -849,7 +848,7 @@ export function FieldPage() {
   const session = useSession();
   if (isFieldOnly(permissions)) return <FieldDayView />;
   return (
-    <NavGate path={FIELD_PATH}>
+    <NavGate path="sales/daily-summaries">
       <div className="mx-auto max-w-xl">
         {session?.me.isSuperAdmin ? <ActForDsr /> : <FieldDayView />}
       </div>

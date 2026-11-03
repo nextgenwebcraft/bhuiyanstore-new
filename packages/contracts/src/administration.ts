@@ -3,15 +3,21 @@ import { permissionIds } from "./definitions/permissions";
 import { MIN_PASSWORD_LENGTH } from "./organization";
 import { idSchema } from "./primitives";
 
-/** A role is a named set of fixed permission IDs (guide §12.2). */
+export const loginRoleKinds = ["manager", "dsr"] as const;
+export type LoginRoleKind = (typeof loginRoleKinds)[number];
+
+/** A role is a named set of fixed permission IDs (guide §12.2 / D112). */
 export const roleSchema = z.object({
   id: idSchema,
   name: z.string().min(1),
+  /** Fixed login roles have a kind; ad-hoc/test roles may be null. */
+  kind: z.enum(loginRoleKinds).nullable(),
   permissions: z.array(z.enum(permissionIds)),
 });
 
 export type Role = z.infer<typeof roleSchema>;
 
+/** @deprecated D112: roles are fixed; create/update APIs refuse writes. */
 export const roleUpsertRequestSchema = z.object({
   name: z.string().trim().min(1).max(80),
   permissions: z.array(z.enum(permissionIds)),
@@ -19,9 +25,10 @@ export const roleUpsertRequestSchema = z.object({
 
 export type RoleUpsertRequest = z.infer<typeof roleUpsertRequestSchema>;
 
+/** Exactly one fixed login role per company membership (D112). */
 export const membershipSchema = z.object({
   companyId: idSchema,
-  roleIds: z.array(idSchema).min(1),
+  roleIds: z.array(idSchema).length(1),
 });
 
 export type MembershipInput = z.infer<typeof membershipSchema>;

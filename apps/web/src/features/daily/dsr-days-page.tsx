@@ -5,7 +5,6 @@ import type {
   LineAllocation,
   DsrDay,
   DsrDaySaveRequest,
-  FieldDay,
   MoneyEntry,
   StaffRecord,
 } from "@bsd/contracts";
@@ -408,133 +407,8 @@ function salariFirotAmounts(lines: DsrDaySaveRequest["lines"], view: DayView): M
   );
 }
 
-/** The seq of a line's batch, for "the last batch issued" (D68). */
-function seqOf(key: string, options: BatchOption[]): number {
-  return options.find((o) => o.key === key)?.seq ?? Number(/^auto:(\d+)$/.exec(key)?.[1] ?? 0);
-}
-
 const commissionOf = (lines: { commission?: string | undefined }[]) =>
   sumAmounts(["0", ...lines.map((l) => l.commission ?? "0")]);
-
-/**
- * What the DSR recorded on the phone (D40): visits per shop, the samari still in hand and flags
- * where the office sheet disagrees with the field.
- */
-function FieldEntries({
-  field,
-  draft,
-  view,
-  locked,
-  onPrefill,
-}: {
-  field: FieldDay;
-  draft: SheetDraft;
-  view: DayView;
-  locked: boolean;
-  onPrefill: () => void;
-}) {
-  const prices = new Map(view.products.map((p) => [p.productId, p.salePrice]));
-  const priceMismatch = field.visits.some((v) =>
-    v.lines.some((l) => {
-      const today = prices.get(l.productId);
-      return today !== null && today !== undefined && !toDecimal(today).eq(toDecimal(l.unitPrice));
-    }),
-  );
-  const mismatch = (kind: "returned" | "damaged") =>
-    field.products.some((p) => {
-      const lines = (draft.lines[p.productId] ?? []).map((d) => piecesOf(d, p.piecesPerCarton));
-      if (lines.some((l) => l === null)) return true;
-      const pieces = sumQuantities(["0", ...lines.map((l) => l?.[kind] ?? "0")]);
-      const expected = kind === "returned" ? p.remaining : p.exchanged;
-      return !toDecimal(pieces).eq(toDecimal(expected));
-    });
-  const flags = [
-    mismatch("returned") ? t("field.office.firotMismatch") : null,
-    mismatch("damaged") ? t("field.office.damagedMismatch") : null,
-    priceMismatch ? t("field.office.priceMismatch") : null,
-  ].filter((f): f is string => f !== null);
-
-  return (
-    <section className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h3 className="font-semibold">{t("field.office.title")}</h3>
-          <p className="text-xs text-text-muted">{t("field.office.hint")}</p>
-        </div>
-        {!locked ? <Button onClick={onPrefill}>{t("field.office.prefill")}</Button> : null}
-      </div>
-      {flags.length ? (
-        <ul className="flex flex-col gap-1 text-sm text-warning">
-          {flags.map((f) => (
-            <li key={f}>⚠ {f}</li>
-          ))}
-        </ul>
-      ) : null}
-      <TableScroller>
-        <table className={tableClass}>
-          <thead className={theadClass}>
-            <tr>
-              <th scope="col" className={thClass}>
-                {t("field.shop")}
-              </th>
-              <th scope="col" className={thNum}>
-                {t("field.salesValue")}
-              </th>
-              <th scope="col" className={thNum}>
-                {t("field.cashReceived")}
-              </th>
-              <th scope="col" className={thNum}>
-                {t("field.dueCreated")}
-              </th>
-              <th scope="col" className={thNum}>
-                {t("field.dueCollected")}
-              </th>
-              <th scope="col" className={thNum}>
-                {t("field.exchanged")}
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {field.visits.map((v) => (
-              <tr key={v.id} className="border-t border-border">
-                <td className={tdClass}>{v.shopName}</td>
-                <td className={tdNum}>{money(v.salesValue)}</td>
-                <td className={tdNum}>{money(v.cashReceived)}</td>
-                <td className={tdNum}>{money(v.dueCreated)}</td>
-                <td className={tdNum}>{money(v.dueCollected)}</td>
-                <td className={tdNum}>
-                  {quantity(sumQuantities(["0", ...v.lines.map((l) => l.exchanged)]))}
-                </td>
-              </tr>
-            ))}
-            <tr className="border-t-2 border-border font-semibold">
-              <td className={tdClass}>{t("common.total")}</td>
-              <td className={tdNum}>{money(field.totals.sales)}</td>
-              <td className={tdNum}>{money(field.totals.cashReceived)}</td>
-              <td className={tdNum}>{money(field.totals.dueCreated)}</td>
-              <td className={tdNum}>{money(field.totals.dueCollected)}</td>
-              <td className={tdNum}>
-                {quantity(sumQuantities(["0", ...field.products.map((p) => p.exchanged)]))}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </TableScroller>
-      <ul className="grid gap-1 text-sm sm:grid-cols-2">
-        {field.products.map((p) => (
-          <li key={p.productId} className="flex justify-between gap-2">
-            <span className="truncate">{p.productName}</span>
-            <span className="text-text-muted tabular-nums">
-              {t("field.office.expectedFirot")}{" "}
-              <CartonQty pieces={p.remaining} piecesPerCarton={p.piecesPerCarton} />
-            </span>
-          </li>
-        ))}
-      </ul>
-      <p className="text-xs text-text-muted">{t("field.office.duesFromField")}</p>
-    </section>
-  );
-}
 
 /** Day-end cash check (D39, D62): the difference is shown only, never posted. */
 function CashCheck({
@@ -638,7 +512,7 @@ function SheetEditor({
   history: DsrDay[];
   view: DayView;
 }) {
-  const { permissions } = useCurrentWorkspace();
+  const { permissions, loginRoleKind } = useCurrentWorkspace();
   const save = useSaveDsrDay(companyId);
   const command = useDsrDayCommand(companyId);
   const [draft, setDraft] = useState(() => draftOf(sheet));
@@ -649,11 +523,24 @@ function SheetEditor({
   const action = useAsyncAction();
   const shownError = error ?? action.error;
   const posted = sheet?.status === "posted";
+  const handoverLocked =
+    sheet?.handoverStatus === "pending" || sheet?.handoverStatus === "approved";
+  const isDsrLogin = loginRoleKind === "dsr";
+  const isManagerLogin = loginRoleKind === "manager";
   // D56: a posted sheet stays editable; saving it reverses it and posts the edit in its place.
-  const canCorrect = (["sale.create", "sale.post", "sale.reverse"] as const).every((p) =>
-    permissions.includes(p),
-  );
-  const locked = !permissions.includes("sale.create") || (posted && !canCorrect);
+  // D112: Manager/DSR lose that after handover submit; DSR never posts or reverses.
+  const canCorrect =
+    !handoverLocked &&
+    !isDsrLogin &&
+    (["sale.create", "sale.post", "sale.reverse"] as const).every((p) => permissions.includes(p));
+  const locked =
+    handoverLocked ||
+    !permissions.includes("sale.create") ||
+    (posted && !canCorrect) ||
+    (isDsrLogin && posted);
+  const issuedLocked = locked || isDsrLogin;
+  const priceLocked =
+    locked || isManagerLogin || isDsrLogin || !permissions.includes("sale.price_override");
   const base = { date, staffId: staff.id, version: sheet?.version ?? 0 };
   const built = requestOf(draft, view, base);
   const dirty =
@@ -714,47 +601,6 @@ function SheetEditor({
   // হাতে জমা (D106): sales − due given + due collected, before expenses or staff money.
   const cashInHand = cashInHandOf(cash);
 
-  /**
-   * Firot = samari still in hand, damaged = pieces exchanged at shops; both go on the product's
-   * last batch issued (D68), the product's other lines get none.
-   */
-  function prefillFromField() {
-    if (!field) return;
-    setDraft((d) => {
-      const lines = { ...d.lines };
-      for (const p of field.products) {
-        const product = view.products.find((v) => v.productId === p.productId);
-        if (!product) continue;
-        const size = product.piecesPerCarton;
-        const own = linesOf(d, product, view);
-        const options = batchOptions(
-          product,
-          view,
-          own.map((l) => l.batchKey),
-        );
-        if (options.length === 0) continue;
-        const issued = own.filter((l) => {
-          const pieces = piecesOf(l, size);
-          return pieces !== null && pieces.issued !== "0";
-        });
-        const target = (issued.length ? issued : own).reduce((best, l) =>
-          seqOf(l.batchKey, options) > seqOf(best.batchKey, options) ? l : best,
-        );
-        const [returnedCartons, returnedPieces] = split(p.remaining, size);
-        lines[p.productId] = own.map((l) =>
-          l.id === target.id
-            ? {
-                ...l,
-                returnedCartons,
-                returnedPieces,
-                damaged: p.exchanged === "0" ? "" : p.exchanged,
-              }
-            : { ...l, returnedCartons: "", returnedPieces: "", damaged: "" },
-        );
-      }
-      return { ...d, lines };
-    });
-  }
   // D69: the table's amounts as the profit's parts (domain `salesProfit`), pieces underneath.
   const parts = salesProfit(
     entered.map((l) => ({
@@ -1096,7 +942,7 @@ function SheetEditor({
                         line,
                         "issuedCartons",
                         `${name} ${t("dsr.sheet.issued")} ${t("godown.column.cartons")}`,
-                        off,
+                        off || issuedLocked,
                       )}
                     </td>
                     <td className={`${inputCell} ${GROUP.issued.cell}`}>
@@ -1105,7 +951,7 @@ function SheetEditor({
                         line,
                         "issuedPieces",
                         `${name} ${t("dsr.sheet.issued")} ${t("godown.column.pieces")}`,
-                        off,
+                        off || issuedLocked,
                       )}
                     </td>
                     <td className={`${inputCell} border-l ${GROUP.returned.cell}`}>
@@ -1169,7 +1015,7 @@ function SheetEditor({
                           line.salePrice ?? priceText(batch?.salePrice ?? product.salePrice) ?? ""
                         }
                         onChange={(salePrice) => setLine(product.productId, line.id, { salePrice })}
-                        disabled={off || !batch}
+                        disabled={off || !batch || priceLocked}
                         mode="decimal"
                         width="w-24"
                       />
@@ -1182,7 +1028,7 @@ function SheetEditor({
                           onChange={(costPrice) =>
                             setLine(product.productId, line.id, { costPrice })
                           }
-                          disabled={off || !batch || batch.free}
+                          disabled={off || !batch || batch.free || priceLocked}
                           mode="decimal"
                           width="w-24"
                         />
@@ -1246,41 +1092,40 @@ function SheetEditor({
       <p className="text-xs text-text-muted">
         {t("godown.quantityHint")} {t("dsr.sheet.hint")} {t("dsr.sheet.batchHint")}
       </p>
-      {field ? (
-        <FieldEntries
-          field={field}
-          draft={draft}
-          view={view}
-          locked={locked}
-          onPrefill={prefillFromField}
-        />
-      ) : null}
       <ShopDueEntry
         companyId={companyId}
         staffId={staff.id}
         date={date}
-        fieldOwned={field !== null}
+        fieldOwned={false}
         dsrs={dsrChoices}
       />
       <StaffCashEntry companyId={companyId} staffId={staff.id} date={date} dsrs={staffChoices} />
       <SrCashEntry companyId={companyId} staffId={staff.id} date={date} />
       <OperatingCostEntry companyId={companyId} date={date} />
-      <CashCheck
-        {...cash}
-        sales={cashCheckSales(parts.netSales, parts.damageValue)}
-        damage={parts.damageValue}
-        handedOver={draft.handedOver}
-        locked={locked}
-        onHandedOver={(handedOver) => setDraft((d) => ({ ...d, handedOver }))}
-      />
+      {!isDsrLogin ? (
+        <CashCheck
+          {...cash}
+          sales={cashCheckSales(parts.netSales, parts.damageValue)}
+          damage={parts.damageValue}
+          handedOver={draft.handedOver}
+          locked={locked || handoverLocked}
+          onHandedOver={(handedOver) => setDraft((d) => ({ ...d, handedOver }))}
+        />
+      ) : null}
+      {sheet?.handoverStatus === "pending" ? (
+        <StatePanel tone="warning" title={t("dsr.handover.pendingBanner")} />
+      ) : null}
+      {sheet?.handoverStatus === "approved" ? (
+        <StatePanel title={t("dsr.handover.approvedBanner")} />
+      ) : null}
       {shownError ? <StatePanel tone="error" title={shownError} /> : null}
       <div className="flex flex-wrap gap-2">
-        {!posted && permissions.includes("sale.post") ? (
+        {!posted && !isDsrLogin && permissions.includes("sale.post") ? (
           <Button variant="primary" disabled={pending} onClick={() => void run("post")}>
             {command.isPending ? t("common.posting") : t("common.post")}
           </Button>
         ) : null}
-        {sheet?.status === "draft" && permissions.includes("sale.create") ? (
+        {sheet?.status === "draft" && permissions.includes("sale.create") && !handoverLocked ? (
           <Button disabled={pending} onClick={() => void run("discard")}>
             {t("dsr.sheet.discard")}
           </Button>
@@ -1292,6 +1137,40 @@ function SheetEditor({
             onClick={() => void run("correct")}
           >
             {save.isPending ? t("common.posting") : t("dsr.sheet.correct")}
+          </Button>
+        ) : null}
+        {posted &&
+        sheet &&
+        sheet.handoverStatus === "none" &&
+        permissions.includes("sale.handover_submit") ? (
+          <Button
+            variant="primary"
+            disabled={pending || !clean(draft.handedOver)}
+            onClick={() =>
+              void command.mutateAsync({
+                action: "handover-submit",
+                dayId: sheet.id,
+                version: sheet.version,
+                cashHandedOver: clean(draft.handedOver),
+              })
+            }
+          >
+            {t("dsr.handover.submit")}
+          </Button>
+        ) : null}
+        {posted && sheet && sheet.handoverStatus === "pending" && loginRoleKind === null ? (
+          <Button
+            variant="primary"
+            disabled={pending}
+            onClick={() =>
+              void command.mutateAsync({
+                action: "handover-approve",
+                dayId: sheet.id,
+                version: sheet.version,
+              })
+            }
+          >
+            {t("dsr.handover.approve")}
           </Button>
         ) : null}
       </div>

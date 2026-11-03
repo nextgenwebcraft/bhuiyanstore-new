@@ -289,8 +289,13 @@ describe("D62: the DSR cash handover is checked, never posted", () => {
 describe("D72: the cash book report", () => {
   it("is one cash book: opening + movements = closing, by hand", async () => {
     // Day 1 only. Opening 5000 (Cash B) + 20000 (old bank line) = 25000. In: 240 sales cash (D62:
-    // the handover difference is not posted). Out: 40 + 25 + 30 expenses + 1000 deposit = 1095;
-    // the old transfer is left out. Closing 25000 + 240 - 1095 = 24145.
+    // the handover difference is not posted). The D62 reverse above also reverses every expense
+    // for that date (moveDsrDay), so out is only the 1000 deposit; the old transfer is left out.
+    // Closing 25000 + 240 - 1000 = 24240. Re-post the three expenses so the full book is checked.
+    await money("expense", "40", { expenseCategoryId: id.rent });
+    await money("expense", "25", { expenseCategoryId: id.rent });
+    await money("expense", "30", { expenseCategoryId: id.rent });
+
     const report = await getReport(ctx, company, "cash-book", { from: DAY1, to: DAY1 });
     const [summary, statement] = report.tables;
     expect(summary?.rows).toHaveLength(1);

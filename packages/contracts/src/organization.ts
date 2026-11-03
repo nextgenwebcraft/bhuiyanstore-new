@@ -35,6 +35,10 @@ export const companyWorkspaceSchema = z.object({
   permissions: z.array(z.enum(permissionIds)),
   /** A super-admin opens every module, also those the company has not enabled. */
   allModules: z.boolean().default(false),
+  /**
+   * D112: fixed login role for this membership. Null for Super Admin (full access via isSuperAdmin).
+   */
+  loginRoleKind: z.enum(["manager", "dsr"]).nullable().default(null),
 });
 
 export type CompanyWorkspace = z.infer<typeof companyWorkspaceSchema>;

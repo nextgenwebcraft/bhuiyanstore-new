@@ -9,12 +9,17 @@ export async function GET(request: Request, { params }: Params) {
   const query = new URL(request.url).searchParams;
   const group = query.get("group") as HistoryStockKindGroup;
   if (!(group in historyStockKindGroups)) {
-    return Response.json({ error: { code: "VALIDATION_FAILED", message: "group" } }, { status: 400 });
+    return Response.json(
+      { error: { code: "VALIDATION_FAILED", message: "group" } },
+      { status: 400 },
+    );
   }
   return handle(request, (ctx) =>
     listHistoryStockEntries(ctx, companyId, group, {
       page: query.get("page") ?? undefined,
       pageSize: query.get("pageSize") ?? undefined,
+      date: query.get("date") ?? undefined,
+      status: query.get("status") ?? undefined,
     }),
   );
 }

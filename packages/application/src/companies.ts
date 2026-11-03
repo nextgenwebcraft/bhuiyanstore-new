@@ -20,6 +20,7 @@ import type { AppContext, Tx } from "./context";
 import { AppError, invalid, parseInput } from "./errors";
 import { isForeignKeyViolation, isUniqueViolation, runIdempotent } from "./idempotency";
 import { runLedger } from "./ledger";
+import { ensureFixedLoginRoles } from "./fixed-roles";
 import { applyStarterDataset } from "./starter-dataset";
 
 function toCompany(company: CompanyAccess["company"]): Company {
@@ -71,6 +72,7 @@ function toWorkspace(ctx: AppContext, access: CompanyAccess): CompanyWorkspace {
     company: toCompany(access.company),
     permissions: access.permissions,
     allModules: ctx.actor.isSuperAdmin,
+    loginRoleKind: ctx.actor.isSuperAdmin ? null : access.loginRoleKind,
   });
 }
 
@@ -82,6 +84,8 @@ const duplicateName = () =>
  * master company is not listed (D66): it opens through `getMasterWorkspace`.
  */
 export async function listWorkspaces(ctx: AppContext): Promise<CompanyWorkspace[]> {
+  // D112: seed Manager/DSR on first workspace load so assignable roles always exist.
+  await ensureFixedLoginRoles(ctx.db, ctx.actor.tenantId);
   const companies = await ctx.db.company.findMany({
     where: {
       tenantId: ctx.actor.tenantId,
@@ -100,6 +104,7 @@ export async function listWorkspaces(ctx: AppContext): Promise<CompanyWorkspace[
 }
 
 export async function getWorkspace(ctx: AppContext, companyId: string): Promise<CompanyWorkspace> {
+  await ensureFixedLoginRoles(ctx.db, ctx.actor.tenantId);
   return toWorkspace(ctx, await loadCompanyAccess(ctx, companyId));
 }
 

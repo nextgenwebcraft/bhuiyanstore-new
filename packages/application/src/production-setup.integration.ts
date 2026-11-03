@@ -66,7 +66,11 @@ async function closingOn(date: string) {
 }
 
 async function loginFor(staffId: string, email: string): Promise<AppContext> {
-  await createStaffLogin(ctx, company, staffId, { email, password: "one-time-Password-1" });
+  await createStaffLogin(ctx, company, staffId, {
+    email,
+    password: "one-time-Password-1",
+    companyIds: [company],
+  });
   const staff = await db.staff.findUniqueOrThrow({ where: { id: staffId } });
   return contextFor(db, {
     userId: must(staff.userId),
@@ -239,20 +243,24 @@ describe("free-goods incentive (D16)", () => {
   });
 });
 
-describe("DSR field panel (D40)", () => {
+/**
+ * Field visit APIs remain for Super Admin (D59). D112 removed the DSR field panel login path:
+ * fixed DSR role has no field.* permissions.
+ */
+describe("field visits via Super Admin (D40/D59/D71; D112: no DSR field login)", () => {
   const date = "2026-09-02";
   let rohim: AppContext;
-  let kamal: AppContext;
   let visitId = "";
   let sheetVersion = 0;
 
-  it("links a login to the DSR; the field user sees only their own day", async () => {
+  it("links a DSR login but refuses field.entry (D112)", async () => {
     rohim = await loginFor(id.rohim, "rohim@example.test");
-    kamal = await loginFor(id.kamal, "kamal@example.test");
+    await loginFor(id.kamal, "kamal@example.test");
     await expectField(
       createStaffLogin(ctx, company, id.rohim, {
         email: "rohim2@example.test",
         password: "one-time-Password-1",
+        companyIds: [company],
       }),
       "email",
       "validation.field.duplicateLogin",
@@ -265,22 +273,33 @@ describe("DSR field panel (D40)", () => {
         lines: [{ productId: id.alpha, issued: "48", returned: "0", damaged: "0" }],
       })
     ).version;
-    const own = await getFieldDay(rohim, company, date);
-    expect(own.staffId).toBe(id.rohim);
-    expect(own.sheetStatus).toBe("draft");
-    expect(must(own.products[0]).issued).toBe("48");
-    const other = await getFieldDay(kamal, company, date);
-    expect(other.staffId).toBe(id.kamal);
-    expect(other.products).toEqual([]);
-    await expect(getDsrFieldDay(rohim, company, id.kamal, date)).rejects.toSatisfy(
+    await expect(getFieldDay(rohim, company, date)).rejects.toSatisfy(
       (e) => e instanceof AppError && e.code === "FORBIDDEN",
     );
+    expect((await getWorkspace(rohim, company)).allModules).toBe(false);
   });
 
-  it("prices on the server and refuses pieces beyond the samari in hand", async () => {
-    const visit = await saveFieldVisit(rohim, company, undefined, {
+  it("lets a super-admin enter visits for a chosen DSR", async () => {
+    expect((await getWorkspace(ctx, company)).allModules).toBe(true);
+    const base = {
       date,
       shopId: id.shop,
+      version: 0,
+      cashReceived: "0",
+      dueCollected: "10",
+      lines: [] as { productId: string; delivered: string; exchanged: string }[],
+    };
+    await expectField(
+      saveFieldVisit(ctx, company, undefined, base),
+      "staffId",
+      "validation.field.chooseDsr",
+    );
+    await expectField(getFieldDay(ctx, company, date), "staffId", "validation.field.chooseDsr");
+
+    const visit = await saveFieldVisit(ctx, company, undefined, {
+      date,
+      shopId: id.shop,
+      staffId: id.rohim,
       version: 0,
       cashReceived: "100",
       dueCollected: "50",
@@ -292,9 +311,10 @@ describe("DSR field panel (D40)", () => {
     expect(same(must(visit.lines[0]).unitPrice, "12")).toBe(true);
 
     await expectField(
-      saveFieldVisit(rohim, company, undefined, {
+      saveFieldVisit(ctx, company, undefined, {
         date,
         shopId: id.shop,
+        staffId: id.rohim,
         version: 0,
         cashReceived: "0",
         dueCollected: "0",
@@ -303,53 +323,15 @@ describe("DSR field panel (D40)", () => {
       "lines.0",
       "validation.field.exceedsSamari",
     );
-    const day = await getFieldDay(rohim, company, date);
+    const day = await getDsrFieldDay(ctx, company, id.rohim, date);
     expect(must(day.products[0]).remaining).toBe("26");
     expect(same(day.totals.cashInHand, "150")).toBe(true);
 
     await expectField(
-      deleteFieldVisit(kamal, company, visitId, { version: visit.version }),
+      deleteFieldVisit(ctx, company, visitId, { version: visit.version, staffId: id.kamal }),
       "",
       "validation.field.visitNotFound",
     );
-    const shop = await createFieldShop(rohim, company, { name: "New Corner" });
-    expect(shop.addedByDsr).toBe(true);
-  });
-
-  it("lets a super-admin enter for a chosen DSR; a DSR only for themselves (D59)", async () => {
-    expect((await getWorkspace(ctx, company)).allModules).toBe(true);
-    expect((await getWorkspace(rohim, company)).allModules).toBe(false);
-    const base = {
-      date,
-      shopId: id.shop,
-      version: 0,
-      cashReceived: "0",
-      dueCollected: "10",
-      lines: [],
-    };
-    await expectField(
-      saveFieldVisit(ctx, company, undefined, base),
-      "staffId",
-      "validation.field.chooseDsr",
-    );
-    await expectField(getFieldDay(ctx, company, date), "staffId", "validation.field.chooseDsr");
-    await expectField(
-      saveFieldVisit(rohim, company, undefined, { ...base, staffId: id.kamal }),
-      "staffId",
-      "validation.field.ownOnly",
-    );
-    const visit = await saveFieldVisit(ctx, company, undefined, { ...base, staffId: id.rohim });
-    expect(visit.staffId).toBe(id.rohim);
-    expect((await getFieldDay(rohim, company, date)).visits.map((v) => v.id)).toContain(visit.id);
-    await expectField(
-      deleteFieldVisit(ctx, company, visit.id, { version: visit.version, staffId: id.kamal }),
-      "",
-      "validation.field.visitNotFound",
-    );
-    await deleteFieldVisit(ctx, company, visit.id, { version: visit.version, staffId: id.rohim });
-    expect(
-      (await getDsrFieldDay(ctx, company, id.rohim, date)).visits.map((v) => v.id),
-    ).not.toContain(visit.id);
     const shop = await createFieldShop(ctx, company, { name: "Admin Corner", staffId: id.kamal });
     expect(shop.addedByDsr).toBe(true);
     const row = await db.shop.findUniqueOrThrow({ where: { id: shop.id } });
@@ -370,13 +352,14 @@ describe("DSR field panel (D40)", () => {
     expect(amount("marketDueNew").map((a) => toDecimal(a).toString())).toEqual(["140"]);
     expect(amount("marketDueCollected").map((a) => toDecimal(a).toString())).toEqual(["50"]);
 
-    const locked = await getFieldDay(rohim, company, date);
+    const locked = await getDsrFieldDay(ctx, company, id.rohim, date);
     expect(locked.locked).toBe(true);
     expect(must(locked.visits[0]).status).toBe("locked");
     await expectField(
-      saveFieldVisit(rohim, company, undefined, {
+      saveFieldVisit(ctx, company, undefined, {
         date,
         shopId: id.shop,
+        staffId: id.rohim,
         version: 0,
         cashReceived: "0",
         dueCollected: "10",
@@ -389,10 +372,12 @@ describe("DSR field panel (D40)", () => {
     await reverseDsrDay(ctx, company, posted.id, { version: posted.version });
     const after = await listMoneyEntries(ctx, company, { from: date, to: date, shopId: id.shop });
     expect(after.filter((e) => e.status === "posted")).toEqual([]);
-    expect(must((await getFieldDay(rohim, company, date)).visits[0]).status).toBe("open");
+    expect(must((await getDsrFieldDay(ctx, company, id.rohim, date)).visits[0]).status).toBe(
+      "open",
+    );
   });
 
-  it("after posting, the DSR's day end waits as a report the office approves (D71)", async () => {
+  it("after posting, day-end report waits for office approve (D71)", async () => {
     const draft = await saveDsrDay(ctx, company, {
       date,
       staffId: id.rohim,
@@ -401,8 +386,9 @@ describe("DSR field panel (D40)", () => {
     });
     const posted = await postDsrDay(ctx, company, draft.id, { version: draft.version });
     const dayEnd = (returned: string, damaged: string) =>
-      saveFieldDayEnd(rohim, company, {
+      saveFieldDayEnd(ctx, company, {
         date,
+        staffId: id.rohim,
         lines: [{ productId: id.alpha, returned, damaged }],
       });
     const sheetOf = async (sheetId: string) =>
@@ -429,7 +415,7 @@ describe("DSR field panel (D40)", () => {
     expect(must(live.lines[0]).returned).toBe("20");
     expect(must(live.lines[0]).damaged).toBe("3");
     expect(live.fieldReport).toBeNull();
-    expect((await getFieldDay(rohim, company, date)).reportPending).toBe(false);
+    expect((await getDsrFieldDay(ctx, company, id.rohim, date)).reportPending).toBe(false);
 
     await dayEnd("21", "3");
     const second = must((await sheetOf(live.id)).fieldReport);

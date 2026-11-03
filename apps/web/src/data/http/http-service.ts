@@ -11,7 +11,11 @@ import {
   fieldVisitSchema,
   historyDsrPageSchema,
   historyMoneyPageSchema,
+  historyStockDateSummariesSchema,
   historyStockPageSchema,
+  type HistoryPageQuery,
+  orderTargetListSchema,
+  orderTargetSchema,
   meSchema,
   moneyEntrySchema,
   openingSchema,
@@ -95,6 +99,16 @@ class PendingWriteKeys {
 
 function fingerprintOf(url: string, call: Call): string {
   return `${call.method ?? "GET"} ${url} ${JSON.stringify(call.body ?? null)}`;
+}
+
+function historyParams(query: HistoryPageQuery): URLSearchParams {
+  const params = new URLSearchParams();
+  params.set("page", String(query.page ?? 1));
+  params.set("pageSize", String(query.pageSize ?? 25));
+  // Always send status so the UI default (posted) cannot be dropped by a stale client bundle.
+  params.set("status", query.status ?? "posted");
+  if (query.date) params.set("date", query.date);
+  return params;
 }
 
 async function send(url: string, call: Call, pending: PendingWriteKeys): Promise<Response> {
@@ -261,6 +275,18 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
         method: "POST",
         body: input,
       }),
+    submitDsrHandover: (companyId, dayId, input) =>
+      request(
+        dsrDaySchema,
+        `${company(companyId)}/dsr-days/${id(dayId)}/handover-submit`,
+        write("POST", input),
+      ),
+    approveDsrHandover: (companyId, dayId, input) =>
+      request(
+        dsrDaySchema,
+        `${company(companyId)}/dsr-days/${id(dayId)}/handover-approve`,
+        write("POST", input),
+      ),
     decideFieldReport: (companyId, reportId, action, input) =>
       request(
         z.undefined(),
@@ -281,19 +307,26 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
     postMoneyEntry: (companyId, input) =>
       request(moneyEntrySchema, `${company(companyId)}/money-entries`, write("POST", input)),
     listHistoryStockEntries: (companyId, group, query, options) => {
-      const params = new URLSearchParams({ group });
-      if (query.page) params.set("page", String(query.page));
-      if (query.pageSize) params.set("pageSize", String(query.pageSize));
+      const params = historyParams(query);
+      params.set("group", group);
       return request(
         historyStockPageSchema,
         `${company(companyId)}/history/stock-entries?${params.toString()}`,
         options,
       );
     },
-    listHistoryMoneyEntries: (companyId, group, query, options) => {
+    listHistoryStockDateSummaries: (companyId, group, query, options) => {
       const params = new URLSearchParams({ group });
-      if (query.page) params.set("page", String(query.page));
-      if (query.pageSize) params.set("pageSize", String(query.pageSize));
+      params.set("status", query.status ?? "posted");
+      return request(
+        historyStockDateSummariesSchema,
+        `${company(companyId)}/history/stock-dates?${params.toString()}`,
+        options,
+      );
+    },
+    listHistoryMoneyEntries: (companyId, group, query, options) => {
+      const params = historyParams(query);
+      params.set("group", group);
       return request(
         historyMoneyPageSchema,
         `${company(companyId)}/history/money-entries?${params.toString()}`,
@@ -301,9 +334,7 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
       );
     },
     listHistoryDsrDays: (companyId, query, options) => {
-      const params = new URLSearchParams();
-      if (query.page) params.set("page", String(query.page));
-      if (query.pageSize) params.set("pageSize", String(query.pageSize));
+      const params = historyParams(query);
       const q = params.toString();
       return request(
         historyDsrPageSchema,
@@ -311,6 +342,26 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
         options,
       );
     },
+    listOrderTargets: (companyId, query, options) => {
+      const params = new URLSearchParams();
+      if (query?.dashboardOnly) params.set("dashboardOnly", "1");
+      const q = params.toString();
+      return request(
+        orderTargetListSchema,
+        `${company(companyId)}/order-targets${q ? `?${q}` : ""}`,
+        options,
+      );
+    },
+    createOrderTarget: (companyId, input) =>
+      request(orderTargetSchema, `${company(companyId)}/order-targets`, write("POST", input)),
+    updateOrderTarget: (companyId, targetId, input) =>
+      request(
+        orderTargetSchema,
+        `${company(companyId)}/order-targets/${id(targetId)}`,
+        write("PUT", input),
+      ),
+    archiveOrderTarget: (companyId, targetId) =>
+      request(orderTargetSchema, `${company(companyId)}/order-targets/${id(targetId)}`, remove()),
     reverseMoneyEntry: (companyId, entryId) =>
       request(
         moneyEntrySchema,
@@ -411,6 +462,18 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
       request(
         staffRecordSchema,
         `${company(companyId)}/staff/${id(staffId)}/login`,
+        write("POST", input),
+      ),
+    updateStaffLogin: (companyId, staffId, input) =>
+      request(
+        staffRecordSchema,
+        `${company(companyId)}/staff/${id(staffId)}/login`,
+        write("PUT", input),
+      ),
+    resetStaffLoginPassword: (companyId, staffId, input) =>
+      request(
+        staffRecordSchema,
+        `${company(companyId)}/staff/${id(staffId)}/login/password`,
         write("POST", input),
       ),
 

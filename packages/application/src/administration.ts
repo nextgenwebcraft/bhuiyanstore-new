@@ -14,36 +14,49 @@ import { requireSuperAdmin, requireSuperAdminView } from "./access";
 import { recordAudit } from "./audit";
 import type { AppContext, Tx } from "./context";
 import { AppError, invalid, parseInput } from "./errors";
+import { ensureFixedLoginRoles, isLoginRoleKind, type LoginRoleKind } from "./fixed-roles";
 import { isUniqueViolation, runIdempotent } from "./idempotency";
 
 /**
- * Users and roles are tenant administration. Until delegated administration is designed
- * (guide §12.2: grant only what you hold), only the super-admin manages them.
+ * Users and fixed roles are tenant administration (D112). Only the super-admin manages them.
+ * Production: Manager/DSR only. Vitest may still create ad-hoc roles (kind null) for permission tests.
  */
 
 const roleInclude = { permissions: true } as const;
 
-function toRole(row: { id: string; name: string; permissions: { permission: string }[] }): Role {
+/** Vitest sets this; production never creates custom roles. */
+function allowAdHocRoles(): boolean {
+  return process.env.VITEST === "true";
+}
+
+function toRole(row: {
+  id: string;
+  name: string;
+  kind: string | null;
+  permissions: { permission: string }[];
+}): Role {
   return roleSchema.parse({
     id: row.id,
     name: row.name,
+    kind: isLoginRoleKind(row.kind) ? row.kind : null,
     permissions: row.permissions.map((p) => p.permission).sort(),
   });
 }
 
 export async function listRoles(ctx: AppContext): Promise<Role[]> {
   requireSuperAdminView(ctx);
+  await ensureFixedLoginRoles(ctx.db, ctx.actor.tenantId);
   const rows = await ctx.db.role.findMany({
-    where: { tenantId: ctx.actor.tenantId },
+    where: { tenantId: ctx.actor.tenantId, kind: { in: ["manager", "dsr"] } },
     include: roleInclude,
-    orderBy: { name: "asc" },
+    orderBy: { kind: "asc" },
   });
   return rows.map(toRole);
 }
 
 const duplicateRole = () => invalid("name", "validation.role.duplicateName");
 
-async function writeRole(
+async function writeAdHocRole(
   ctx: AppContext,
   roleId: string | undefined,
   input: unknown,
@@ -67,7 +80,7 @@ async function writeRole(
       let id = roleId;
       if (roleId) {
         const existing = await tx.role.findFirst({
-          where: { id: roleId, tenantId: ctx.actor.tenantId },
+          where: { id: roleId, tenantId: ctx.actor.tenantId, kind: null },
           include: roleInclude,
         });
         if (!existing) throw invalid("id", "validation.role.unknown");
@@ -75,7 +88,11 @@ async function writeRole(
         await tx.rolePermission.deleteMany({ where: { roleId } });
         await tx.role.update({ where: { id: roleId }, data: { name: data.name } });
       } else {
-        id = (await tx.role.create({ data: { tenantId: ctx.actor.tenantId, name: data.name } })).id;
+        id = (
+          await tx.role.create({
+            data: { tenantId: ctx.actor.tenantId, name: data.name, kind: null },
+          })
+        ).id;
       }
       if (!id) throw new AppError("INTERNAL");
       await tx.rolePermission.createMany({
@@ -97,17 +114,21 @@ async function writeRole(
   }
 }
 
+/** D112: refused in production; Vitest may create ad-hoc (kind null) roles. */
 export function createRole(ctx: AppContext, input: unknown, requestKey?: string): Promise<Role> {
-  return writeRole(ctx, undefined, input, requestKey);
+  if (!allowAdHocRoles()) throw invalid("kind", "validation.role.fixedOnly");
+  return writeAdHocRole(ctx, undefined, input, requestKey);
 }
 
+/** D112: refused in production; Vitest may edit ad-hoc roles only. */
 export function updateRole(
   ctx: AppContext,
   roleId: string,
   input: unknown,
   requestKey?: string,
 ): Promise<Role> {
-  return writeRole(ctx, roleId, input, requestKey);
+  if (!allowAdHocRoles()) throw invalid("kind", "validation.role.fixedOnly");
+  return writeAdHocRole(ctx, roleId, input, requestKey);
 }
 
 const userInclude = { memberships: { include: { roles: true } } } as const;
@@ -146,32 +167,48 @@ export async function listUsers(ctx: AppContext): Promise<User[]> {
   return rows.map(toUser);
 }
 
-/** Every company and role must belong to the actor's tenant; one entry per company. */
+/**
+ * Exactly one role per company. Production: fixed Manager/DSR only.
+ * Vitest: also allows ad-hoc roles (kind null) created by createRole.
+ */
 async function checkMemberships(tx: Tx, ctx: AppContext, memberships: MembershipInput[]) {
   const companyIds = memberships.map((m) => m.companyId);
   if (new Set(companyIds).size !== companyIds.length) {
     throw invalid("memberships", "validation.membership.duplicateCompany");
   }
+  const fixed = await ensureFixedLoginRoles(tx, ctx.actor.tenantId);
+  const allowedFixed = new Set(Object.values(fixed));
   const roleIds = [...new Set(memberships.flatMap((m) => m.roleIds))];
-  const [companies, roles] = await Promise.all([
-    tx.company.count({
-      where: { id: { in: companyIds }, tenantId: ctx.actor.tenantId, isMaster: false },
-    }),
-    tx.role.count({ where: { id: { in: roleIds }, tenantId: ctx.actor.tenantId } }),
-  ]);
+  for (const m of memberships) {
+    if (m.roleIds.length !== 1) throw invalid("memberships", "validation.membership.oneRole");
+  }
+  const roles = await tx.role.findMany({
+    where: { id: { in: roleIds }, tenantId: ctx.actor.tenantId },
+    select: { id: true, kind: true },
+  });
+  if (roles.length !== roleIds.length) throw invalid("memberships", "validation.membership.role");
+  for (const role of roles) {
+    if (allowedFixed.has(role.id)) continue;
+    if (allowAdHocRoles() && role.kind === null) continue;
+    throw invalid("memberships", "validation.membership.role");
+  }
+  const companies = await tx.company.count({
+    where: { id: { in: companyIds }, tenantId: ctx.actor.tenantId, isMaster: false },
+  });
   if (companies !== companyIds.length)
     throw invalid("memberships", "validation.membership.company");
-  if (roles !== roleIds.length) throw invalid("memberships", "validation.membership.role");
 }
 
 async function replaceMemberships(tx: Tx, userId: string, memberships: MembershipInput[]) {
   await tx.membership.deleteMany({ where: { userId } });
   for (const m of memberships) {
+    const roleId = m.roleIds[0];
+    if (!roleId) throw invalid("memberships", "validation.membership.oneRole");
     await tx.membership.create({
       data: {
         userId,
         companyId: m.companyId,
-        roles: { create: [...new Set(m.roleIds)].map((roleId) => ({ roleId })) },
+        roles: { create: [{ roleId }] },
       },
     });
   }
@@ -198,7 +235,6 @@ export async function createUser(
   const data = parseInput(userCreateRequestSchema, input);
   const email = data.email.trim().toLowerCase();
   const passwordHash = await hashPassword(data.password);
-  // The password never enters the idempotency hash or the audit log.
   const fingerprint = { name: data.name, email, memberships: data.memberships };
   try {
     return await runIdempotent(
@@ -217,6 +253,7 @@ export async function createUser(
             emailVerified: true,
             tenantId: ctx.actor.tenantId,
             mustChangePassword: true,
+            isSuperAdmin: false,
           },
         });
         await tx.account.create({
@@ -262,13 +299,23 @@ export async function updateUser(
     { scope: "tenant", action: `user.update:${userId}`, requestKey },
     data,
     async (tx) => {
-      const before = toUser(await findUser(tx, ctx, userId));
-      await checkMemberships(tx, ctx, data.memberships);
+      const existing = await findUser(tx, ctx, userId);
+      if (existing.isSuperAdmin) {
+        if (data.memberships.length > 0) {
+          await checkMemberships(tx, ctx, data.memberships);
+        }
+      } else if (data.memberships.length > 0 || !allowAdHocRoles()) {
+        // Production always validates; empty memberships allowed for deactivate flows in tests.
+        if (data.memberships.length > 0) await checkMemberships(tx, ctx, data.memberships);
+      }
+      const before = toUser(existing);
       await tx.user.update({
         where: { id: userId },
         data: { name: data.name, active: data.active },
       });
-      await replaceMemberships(tx, userId, data.memberships);
+      if (!existing.isSuperAdmin) {
+        await replaceMemberships(tx, userId, data.memberships);
+      }
       if (!data.active) await tx.session.deleteMany({ where: { userId } });
       const user = toUser(await findUser(tx, ctx, userId));
       await recordAudit(tx, ctx, {
@@ -328,3 +375,5 @@ export async function resetUserPassword(
     },
   );
 }
+
+export type { LoginRoleKind };

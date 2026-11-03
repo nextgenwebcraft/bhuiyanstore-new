@@ -80,6 +80,7 @@ model Company {
   shareholderInvestments ShareholderInvestment[]
   /// D93: people whose salary this company pays, not necessarily where they currently work.
   homeStaff              Staff[]
+  orderTargets           OrderTarget[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -170,12 +171,15 @@ model Role {
   id          String           @id @default(cuid())
   tenantId    String           @map("tenant_id")
   name        String
+  /// D112: fixed login roles only — `manager` | `dsr`. Super Admin is User.isSuperAdmin, not a Role.
+  kind        String?
   createdAt   DateTime         @default(now()) @map("created_at")
   tenant      Tenant           @relation(fields: [tenantId], references: [id])
   permissions RolePermission[]
   memberships MembershipRole[]
 
   @@unique([tenantId, name])
+  @@unique([tenantId, kind])
   @@map("role")
 }
 
@@ -271,10 +275,33 @@ model Product {
   reportLines  FieldDayReportLine[]
   batches      ProductBatch[]
   moneyEntries MoneyEntry[]
+  orderTargets OrderTarget[]
 
   @@unique([companyId, sku])
   @@index([tenantId, companyId])
   @@map("product")
+}
+
+/// D111: company order-amount targets (overall or product-wise) with a date window.
+model OrderTarget {
+  id               String    @id @default(cuid())
+  tenantId         String    @map("tenant_id")
+  companyId        String    @map("company_id")
+  kind             String
+  productId        String?   @map("product_id")
+  amount           Decimal   @db.Decimal(20, 2)
+  startDate        DateTime  @map("start_date") @db.Date
+  endDate          DateTime  @map("end_date") @db.Date
+  showOnDashboard  Boolean   @default(false) @map("show_on_dashboard")
+  status           String    @default("active")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  company          Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product          Product?  @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, status])
+  @@index([companyId, showOnDashboard])
+  @@map("order_target")
 }
 
 /// Carton size history (guide §4.4). effective_from NULL = since creation (one per product).
@@ -601,6 +628,12 @@ model DsrDay {
   marketDueCollected Decimal      @default(0) @map("market_due_collected") @db.Decimal(20, 2)
   /// D39: cash the DSR handed over (compared with the expected cash, never posted).
   cashHandedOver     Decimal?     @map("cash_handed_over") @db.Decimal(20, 2)
+  /// D112: none → pending (Manager submit) → approved (Super Admin).
+  handoverStatus     String       @default("none") @map("handover_status")
+  handoverSubmittedAt DateTime?   @map("handover_submitted_at")
+  handoverSubmittedById String?   @map("handover_submitted_by_id")
+  handoverApprovedAt DateTime?    @map("handover_approved_at")
+  handoverApprovedById String?    @map("handover_approved_by_id")
   note               String       @default("")
   createdById        String       @map("created_by_id")
   createdAt          DateTime     @default(now()) @map("created_at")
@@ -616,6 +649,7 @@ model DsrDay {
   damageCases        DamageCase[]
 
   @@index([companyId, date])
+  @@index([companyId, handoverStatus])
   @@map("dsr_day")
 }
 

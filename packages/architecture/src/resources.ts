@@ -28,6 +28,8 @@ export const resourceIds = {
   ledger: "ledger",
   /** D76: the master monthly account (shareholders and the calculated split). */
   shareMonth: "share-month",
+  /** D111: company order-amount targets. */
+  orderTarget: "order-target",
 } as const;
 
 export type ResourceId = (typeof resourceIds)[keyof typeof resourceIds];
