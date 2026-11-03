@@ -11,7 +11,9 @@ import {
   fieldVisitSchema,
   historyDsrPageSchema,
   historyMoneyPageSchema,
+  historyStockDateSummariesSchema,
   historyStockPageSchema,
+  type HistoryPageQuery,
   meSchema,
   moneyEntrySchema,
   openingSchema,
@@ -95,6 +97,16 @@ class PendingWriteKeys {
 
 function fingerprintOf(url: string, call: Call): string {
   return `${call.method ?? "GET"} ${url} ${JSON.stringify(call.body ?? null)}`;
+}
+
+function historyParams(query: HistoryPageQuery): URLSearchParams {
+  const params = new URLSearchParams();
+  params.set("page", String(query.page ?? 1));
+  params.set("pageSize", String(query.pageSize ?? 25));
+  // Always send status so the UI default (posted) cannot be dropped by a stale client bundle.
+  params.set("status", query.status ?? "posted");
+  if (query.date) params.set("date", query.date);
+  return params;
 }
 
 async function send(url: string, call: Call, pending: PendingWriteKeys): Promise<Response> {
@@ -281,19 +293,26 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
     postMoneyEntry: (companyId, input) =>
       request(moneyEntrySchema, `${company(companyId)}/money-entries`, write("POST", input)),
     listHistoryStockEntries: (companyId, group, query, options) => {
-      const params = new URLSearchParams({ group });
-      if (query.page) params.set("page", String(query.page));
-      if (query.pageSize) params.set("pageSize", String(query.pageSize));
+      const params = historyParams(query);
+      params.set("group", group);
       return request(
         historyStockPageSchema,
         `${company(companyId)}/history/stock-entries?${params.toString()}`,
         options,
       );
     },
-    listHistoryMoneyEntries: (companyId, group, query, options) => {
+    listHistoryStockDateSummaries: (companyId, group, query, options) => {
       const params = new URLSearchParams({ group });
-      if (query.page) params.set("page", String(query.page));
-      if (query.pageSize) params.set("pageSize", String(query.pageSize));
+      params.set("status", query.status ?? "posted");
+      return request(
+        historyStockDateSummariesSchema,
+        `${company(companyId)}/history/stock-dates?${params.toString()}`,
+        options,
+      );
+    },
+    listHistoryMoneyEntries: (companyId, group, query, options) => {
+      const params = historyParams(query);
+      params.set("group", group);
       return request(
         historyMoneyPageSchema,
         `${company(companyId)}/history/money-entries?${params.toString()}`,
@@ -301,9 +320,7 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
       );
     },
     listHistoryDsrDays: (companyId, query, options) => {
-      const params = new URLSearchParams();
-      if (query.page) params.set("page", String(query.page));
-      if (query.pageSize) params.set("pageSize", String(query.pageSize));
+      const params = historyParams(query);
       const q = params.toString();
       return request(
         historyDsrPageSchema,

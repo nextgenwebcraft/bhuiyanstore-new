@@ -35,6 +35,9 @@ import type {
   HistoryDsrPage,
   HistoryMoneyKindGroup,
   HistoryMoneyPage,
+  HistoryPageQuery,
+  HistoryStatusFilter,
+  HistoryStockDateSummaries,
   HistoryStockKindGroup,
   HistoryStockPage,
   MoneyEntry,
@@ -180,20 +183,27 @@ export interface DistributionService {
   listHistoryStockEntries(
     companyId: string,
     group: HistoryStockKindGroup,
-    query: { page?: number; pageSize?: number },
+    query: HistoryPageQuery,
     options?: RequestOptions,
   ): Promise<HistoryStockPage>;
+  /** History hub: date cards for orders/stock (totals per date). */
+  listHistoryStockDateSummaries(
+    companyId: string,
+    group: HistoryStockKindGroup,
+    query: { status?: HistoryStatusFilter },
+    options?: RequestOptions,
+  ): Promise<HistoryStockDateSummaries>;
   /** History hub: paginated money entries by kind group (latest first). */
   listHistoryMoneyEntries(
     companyId: string,
     group: HistoryMoneyKindGroup,
-    query: { page?: number; pageSize?: number },
+    query: HistoryPageQuery,
     options?: RequestOptions,
   ): Promise<HistoryMoneyPage>;
   /** History hub: paginated DSR sheets (latest first). */
   listHistoryDsrDays(
     companyId: string,
-    query: { page?: number; pageSize?: number },
+    query: HistoryPageQuery,
     options?: RequestOptions,
   ): Promise<HistoryDsrPage>;
 

@@ -225,6 +225,7 @@ export function createMockService(
     postMoneyEntry: demoReadOnly,
     reverseMoneyEntry: demoReadOnly,
     listHistoryStockEntries: demoReadOnly,
+    listHistoryStockDateSummaries: demoReadOnly,
     listHistoryMoneyEntries: demoReadOnly,
     listHistoryDsrDays: demoReadOnly,
     getMonthView: demoReadOnly,

@@ -15,6 +15,8 @@ export async function GET(request: Request, { params }: Params) {
     listHistoryStockEntries(ctx, companyId, group, {
       page: query.get("page") ?? undefined,
       pageSize: query.get("pageSize") ?? undefined,
+      date: query.get("date") ?? undefined,
+      status: query.get("status") ?? undefined,
     }),
   );
 }

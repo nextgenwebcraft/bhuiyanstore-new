@@ -57,6 +57,7 @@ export {
 export {
   listHistoryDsrDays,
   listHistoryMoneyEntries,
+  listHistoryStockDateSummaries,
   listHistoryStockEntries,
 } from "./history";
 export { AppError, HTTP_STATUS, parseInput, type FieldError } from "./errors";

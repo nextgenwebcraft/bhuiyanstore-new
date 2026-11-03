@@ -63,6 +63,33 @@ describe("http service idempotency keys", () => {
   });
 });
 
+describe("http history list query", () => {
+  it("always sends status and optional date on history money requests", async () => {
+    const urls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        urls.push(url);
+        return new Response(
+          JSON.stringify({ items: [], total: 0, page: 1, pageSize: 25 }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }),
+    );
+    const service = createHttpService(() => {});
+    await service.listHistoryMoneyEntries("c1", "shopDues", {
+      page: 1,
+      pageSize: 25,
+      status: "posted",
+      date: "2024-11-01",
+    });
+    expect(urls[0]).toContain("status=posted");
+    expect(urls[0]).toContain("date=2024-11-01");
+    await service.listHistoryMoneyEntries("c1", "shopDues", { page: 1, pageSize: 25 });
+    expect(urls[1]).toContain("status=posted");
+  });
+});
+
 describe("http service timeouts", () => {
   it("bounds reads with a timeout signal and leaves writes unbounded", async () => {
     const { calls } = stubFetch(200, 200);

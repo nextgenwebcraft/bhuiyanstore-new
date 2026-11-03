@@ -23,6 +23,13 @@ changes:
   - >-
     History hub (nav + pages + paginated APIs listHistoryStock/Money/Dsr): latest first,
     delete calls existing reverse endpoints
+  - >-
+    History tables: delete confirm FormDialog; single-date filter; status tabs
+    সব / পোস্ট হয়েছে / বাতিল (default posted) via historyPageQuerySchema date+status
+  - >-
+    History orders/stock: date-summary cards (carton/piece/amount) then drill-in table
+    with summary + carton/amount columns; no date picker on those tabs
+    (listHistoryStockDateSummaries, stockEntryAmount in domain)
 affectedActionIds: []
 financialImpact: >-
   Opening damage raises godown damaged stock at go-live. Day reverse now also drops that

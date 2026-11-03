@@ -390,6 +390,9 @@ export const bn = {
   "history.delete": "মুছুন",
   "history.deleteConfirm":
     "এই এন্ট্রি বাতিল (রিভার্স) করবেন? সংশ্লিষ্ট হিসাব ও সামারি থেকে বাদ যাবে, তবে রেকর্ড থাকবে।",
+  "history.filter.all": "সব",
+  "history.filter.date": "তারিখ",
+  "history.backToDates": "তারিখগুলোতে ফিরুন",
   "history.page": "পৃষ্ঠা",
   "history.prev": "আগে",
   "history.next": "পরে",

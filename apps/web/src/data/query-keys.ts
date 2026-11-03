@@ -65,6 +65,8 @@ export const queryKeys = {
     group: string,
     page: number,
     pageSize: number,
+    date: string | undefined,
+    status: string,
   ) =>
     [
       ...companyResource(actorId, companyId, resourceIds.stockEntry),
@@ -72,13 +74,19 @@ export const queryKeys = {
       group,
       page,
       pageSize,
+      date ?? "",
+      status,
     ] as const,
+  historyStockDates: (actorId: string, companyId: string, group: string, status: string) =>
+    [...companyResource(actorId, companyId, resourceIds.stockEntry), "history-dates", group, status] as const,
   historyMoney: (
     actorId: string,
     companyId: string,
     group: string,
     page: number,
     pageSize: number,
+    date: string | undefined,
+    status: string,
   ) =>
     [
       ...companyResource(actorId, companyId, resourceIds.moneyEntry),
@@ -86,9 +94,25 @@ export const queryKeys = {
       group,
       page,
       pageSize,
+      date ?? "",
+      status,
     ] as const,
-  historyDsr: (actorId: string, companyId: string, page: number, pageSize: number) =>
-    [...companyResource(actorId, companyId, resourceIds.dsrDay), "history", page, pageSize] as const,
+  historyDsr: (
+    actorId: string,
+    companyId: string,
+    page: number,
+    pageSize: number,
+    date: string | undefined,
+    status: string,
+  ) =>
+    [
+      ...companyResource(actorId, companyId, resourceIds.dsrDay),
+      "history",
+      page,
+      pageSize,
+      date ?? "",
+      status,
+    ] as const,
   monthView: (actorId: string, companyId: string, month: string) =>
     [...companyResource(actorId, companyId, resourceIds.ledger), "month", month] as const,
   report: (actorId: string, companyId: string, report: string, from: string, to: string) =>

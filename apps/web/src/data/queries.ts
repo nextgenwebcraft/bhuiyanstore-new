@@ -311,14 +311,42 @@ export function useHistoryStockEntries(
   companyId: string,
   group: import("@bsd/contracts").HistoryStockKindGroup,
   page: number,
-  pageSize = 25,
+  pageSize: number,
+  date: string | undefined,
+  status: import("@bsd/contracts").HistoryStatusFilter,
+  /** When true, skip the request until a date is chosen (orders/stock date-card drill-in). */
+  requireDate = false,
 ) {
+  "use no memo";
   const service = useService();
   const actorId = useActorId();
   return useQuery({
-    queryKey: queryKeys.historyStock(actorId, companyId, group, page, pageSize),
+    queryKey: queryKeys.historyStock(actorId, companyId, group, page, pageSize, date, status),
     queryFn: ({ signal }) =>
-      service.listHistoryStockEntries(companyId, group, { page, pageSize }, { signal }),
+      service.listHistoryStockEntries(
+        companyId,
+        group,
+        { page, pageSize, ...(date ? { date } : {}), status },
+        { signal },
+      ),
+    enabled: !requireDate || Boolean(date),
+  });
+}
+
+export function useHistoryStockDateSummaries(
+  companyId: string,
+  group: import("@bsd/contracts").HistoryStockKindGroup,
+  status: import("@bsd/contracts").HistoryStatusFilter,
+  enabled = true,
+) {
+  "use no memo";
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.historyStockDates(actorId, companyId, group, status),
+    queryFn: ({ signal }) =>
+      service.listHistoryStockDateSummaries(companyId, group, { status }, { signal }),
+    enabled,
   });
 }
 
@@ -326,23 +354,43 @@ export function useHistoryMoneyEntries(
   companyId: string,
   group: import("@bsd/contracts").HistoryMoneyKindGroup,
   page: number,
-  pageSize = 25,
+  pageSize: number,
+  date: string | undefined,
+  status: import("@bsd/contracts").HistoryStatusFilter,
 ) {
+  "use no memo";
   const service = useService();
   const actorId = useActorId();
   return useQuery({
-    queryKey: queryKeys.historyMoney(actorId, companyId, group, page, pageSize),
+    queryKey: queryKeys.historyMoney(actorId, companyId, group, page, pageSize, date, status),
     queryFn: ({ signal }) =>
-      service.listHistoryMoneyEntries(companyId, group, { page, pageSize }, { signal }),
+      service.listHistoryMoneyEntries(
+        companyId,
+        group,
+        { page, pageSize, ...(date ? { date } : {}), status },
+        { signal },
+      ),
   });
 }
 
-export function useHistoryDsrDays(companyId: string, page: number, pageSize = 25) {
+export function useHistoryDsrDays(
+  companyId: string,
+  page: number,
+  pageSize: number,
+  date: string | undefined,
+  status: import("@bsd/contracts").HistoryStatusFilter,
+) {
+  "use no memo";
   const service = useService();
   const actorId = useActorId();
   return useQuery({
-    queryKey: queryKeys.historyDsr(actorId, companyId, page, pageSize),
-    queryFn: ({ signal }) => service.listHistoryDsrDays(companyId, { page, pageSize }, { signal }),
+    queryKey: queryKeys.historyDsr(actorId, companyId, page, pageSize, date, status),
+    queryFn: ({ signal }) =>
+      service.listHistoryDsrDays(
+        companyId,
+        { page, pageSize, ...(date ? { date } : {}), status },
+        { signal },
+      ),
   });
 }
 
