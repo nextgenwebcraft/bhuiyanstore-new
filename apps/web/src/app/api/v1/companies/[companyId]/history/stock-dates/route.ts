@@ -9,7 +9,10 @@ export async function GET(request: Request, { params }: Params) {
   const query = new URL(request.url).searchParams;
   const group = query.get("group") as HistoryStockKindGroup;
   if (!(group in historyStockKindGroups)) {
-    return Response.json({ error: { code: "VALIDATION_FAILED", message: "group" } }, { status: 400 });
+    return Response.json(
+      { error: { code: "VALIDATION_FAILED", message: "group" } },
+      { status: 400 },
+    );
   }
   return handle(request, (ctx) =>
     listHistoryStockDateSummaries(ctx, companyId, group, {

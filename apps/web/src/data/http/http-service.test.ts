@@ -70,10 +70,10 @@ describe("http history list query", () => {
       "fetch",
       vi.fn(async (url: string) => {
         urls.push(url);
-        return new Response(
-          JSON.stringify({ items: [], total: 0, page: 1, pageSize: 25 }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ items: [], total: 0, page: 1, pageSize: 25 }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       }),
     );
     const service = createHttpService(() => {});

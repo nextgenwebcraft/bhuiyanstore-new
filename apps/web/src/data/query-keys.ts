@@ -28,6 +28,11 @@ export const queryKeys = {
     companyResource(actorId, companyId, resourceIds.staffRecord),
   shops: (actorId: string, companyId: string) =>
     companyResource(actorId, companyId, resourceIds.shop),
+  orderTargets: (actorId: string, companyId: string, dashboardOnly: boolean) =>
+    [
+      ...companyResource(actorId, companyId, resourceIds.orderTarget),
+      dashboardOnly ? "dashboard" : "all",
+    ] as const,
   shopStatement: (actorId: string, companyId: string, shopId: string, from: string, to: string) =>
     [
       ...companyResource(actorId, companyId, resourceIds.ledger),
@@ -78,7 +83,12 @@ export const queryKeys = {
       status,
     ] as const,
   historyStockDates: (actorId: string, companyId: string, group: string, status: string) =>
-    [...companyResource(actorId, companyId, resourceIds.stockEntry), "history-dates", group, status] as const,
+    [
+      ...companyResource(actorId, companyId, resourceIds.stockEntry),
+      "history-dates",
+      group,
+      status,
+    ] as const,
   historyMoney: (
     actorId: string,
     companyId: string,
@@ -202,6 +212,7 @@ export const postingEffects = {
     resourceIds.productHistory,
     resourceIds.ledger,
     resourceIds.dashboardSummary,
+    resourceIds.orderTarget,
   ],
   /** Posting a sheet with field visits also writes shop dues and the exchange case (D40). */
   dsrDay: [

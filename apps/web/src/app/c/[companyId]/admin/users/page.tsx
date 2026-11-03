@@ -1,5 +1,9 @@
-import { UsersPage } from "@/features/administration/users-page";
+import { redirect } from "next/navigation";
 
-export default function UsersRoute() {
-  return <UsersPage />;
+type Params = { params: Promise<{ companyId: string }> };
+
+/** D113: logins live on master আমাদের স্টাফ; old bookmarks land there. */
+export default async function UsersRedirect({ params }: Params) {
+  const { companyId } = await params;
+  redirect(`/c/${companyId}/masters/staff`);
 }

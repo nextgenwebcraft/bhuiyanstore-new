@@ -8,6 +8,13 @@ export {
   type StockEntryDisplayInput,
 } from "./stock-entry-display";
 export {
+  orderTargetProgress,
+  orderTargetProgressStatuses,
+  type OrderTargetProgressInput,
+  type OrderTargetProgressResult,
+  type OrderTargetProgressStatus,
+} from "./order-target-progress";
+export {
   batchUndelivered,
   cartonFromPiece,
   pieceFromCarton,

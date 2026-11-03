@@ -73,7 +73,10 @@ function SectionBadge({ state }: { state: "done" | "pending" | "optional" }) {
 const cleanQty = (value: string) => normalizeDigits(value).trim();
 
 /** Split stored pieces into carton + loose fields for editing (D89). */
-function splitPieces(total: string | null, piecesPerCarton: string): { cartons: string; pieces: string } {
+function splitPieces(
+  total: string | null,
+  piecesPerCarton: string,
+): { cartons: string; pieces: string } {
   if (total === null || total === "") return { cartons: "", pieces: "" };
   const { cartons, loosePieces } = toCartonDisplay(total, piecesPerCarton);
   return {
@@ -83,11 +86,7 @@ function splitPieces(total: string | null, piecesPerCarton: string): { cartons: 
 }
 
 /** Carton + loose → base pieces; blank both → null (unknown). */
-function joinPieces(
-  cartons: string,
-  pieces: string,
-  piecesPerCarton: string,
-): string | null {
+function joinPieces(cartons: string, pieces: string, piecesPerCarton: string): string | null {
   const c = cleanQty(cartons);
   const p = cleanQty(pieces);
   if (!c && !p) return null;
@@ -392,11 +391,7 @@ function DamageSection({ opening, companyId }: { opening: Opening; companyId: st
           const row = draft[line.productId];
           return {
             productId: line.productId,
-            damagedPieces: joinPieces(
-              row?.cartons ?? "",
-              row?.pieces ?? "",
-              line.piecesPerCarton,
-            ),
+            damagedPieces: joinPieces(row?.cartons ?? "", row?.pieces ?? "", line.piecesPerCarton),
             unitCost: row?.unitCost || null,
           };
         }),

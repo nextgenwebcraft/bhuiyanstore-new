@@ -32,6 +32,8 @@ import type {
   StaffAssignmentRequest,
   StaffCreateRequest,
   StaffLoginCreateRequest,
+  StaffLoginPasswordResetRequest,
+  StaffLoginUpdateRequest,
   StaffUpsertRequest,
   ShopUpsertRequest,
   StockEntryPostRequest,
@@ -241,13 +243,22 @@ export function useDsrDayCommand(companyId: string) {
       action,
       dayId,
       version,
+      cashHandedOver,
     }: {
-      action: "post" | "reverse" | "discard";
+      action: "post" | "reverse" | "discard" | "handover-submit" | "handover-approve";
       dayId: string;
       version: number;
+      cashHandedOver?: string;
     }): Promise<DsrDay | null> => {
       if (action === "post") return service.postDsrDay(companyId, dayId, { version });
       if (action === "reverse") return service.reverseDsrDay(companyId, dayId, { version });
+      if (action === "handover-submit") {
+        if (cashHandedOver === undefined) throw new Error("cashHandedOver required");
+        return service.submitDsrHandover(companyId, dayId, { version, cashHandedOver });
+      }
+      if (action === "handover-approve") {
+        return service.approveDsrHandover(companyId, dayId, { version });
+      }
       await service.discardDsrDay(companyId, dayId, { version });
       return null;
     },
@@ -693,6 +704,39 @@ export function useShops(companyId: string) {
   });
 }
 
+export function useOrderTargets(companyId: string, dashboardOnly = false) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.orderTargets(actorId, companyId, dashboardOnly),
+    queryFn: ({ signal }) => service.listOrderTargets(companyId, { dashboardOnly }, { signal }),
+  });
+}
+
+export function useSaveOrderTarget(companyId: string) {
+  const service = useService();
+  return useMasterMutation(
+    [resourceIds.orderTarget],
+    ({
+      targetId,
+      input,
+    }: {
+      targetId?: string;
+      input: import("@bsd/contracts").OrderTargetUpsertRequest;
+    }) =>
+      targetId
+        ? service.updateOrderTarget(companyId, targetId, input)
+        : service.createOrderTarget(companyId, input),
+  );
+}
+
+export function useArchiveOrderTarget(companyId: string) {
+  const service = useService();
+  return useMasterMutation([resourceIds.orderTarget], (targetId: string) =>
+    service.archiveOrderTarget(companyId, targetId),
+  );
+}
+
 export function useSaveShop(companyId: string) {
   const service = useService();
   return useMasterMutation(
@@ -910,21 +954,46 @@ export function useCreateFieldShop(companyId: string) {
   );
 }
 
-export function useCreateStaffLogin(companyId: string) {
-  const service = useService();
+function useStaffLoginInvalidate(companyId: string) {
   const actorId = useActorId();
   const queryClient = useQueryClient();
   const invalidate = useInvalidate(companyId, "staffLogin");
+  return () =>
+    Promise.all([
+      invalidate(),
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.tenant(actorId, resourceIds.role),
+      }),
+    ]);
+}
+
+export function useCreateStaffLogin(companyId: string) {
+  const service = useService();
+  const onSuccess = useStaffLoginInvalidate(companyId);
   return useMutation({
     mutationFn: ({ staffId, input }: { staffId: string; input: StaffLoginCreateRequest }) =>
       service.createStaffLogin(companyId, staffId, input),
-    onSuccess: () =>
-      Promise.all([
-        invalidate(),
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.tenant(actorId, resourceIds.role),
-        }),
-      ]),
+    onSuccess,
+  });
+}
+
+export function useUpdateStaffLogin(companyId: string) {
+  const service = useService();
+  const onSuccess = useStaffLoginInvalidate(companyId);
+  return useMutation({
+    mutationFn: ({ staffId, input }: { staffId: string; input: StaffLoginUpdateRequest }) =>
+      service.updateStaffLogin(companyId, staffId, input),
+    onSuccess,
+  });
+}
+
+export function useResetStaffLoginPassword(companyId: string) {
+  const service = useService();
+  const onSuccess = useStaffLoginInvalidate(companyId);
+  return useMutation({
+    mutationFn: ({ staffId, input }: { staffId: string; input: StaffLoginPasswordResetRequest }) =>
+      service.resetStaffLoginPassword(companyId, staffId, input),
+    onSuccess,
   });
 }
 

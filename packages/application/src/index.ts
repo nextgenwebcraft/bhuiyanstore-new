@@ -40,6 +40,7 @@ export {
 export { cashAccounts, expenseCategories, staffRoles } from "./configuration";
 export type { AppContext, Tx } from "./context";
 export {
+  approveDsrHandover,
   discardDsrDay,
   getDashboardSummary,
   getDayView,
@@ -53,13 +54,21 @@ export {
   reverseMoneyEntry,
   reverseStockEntry,
   saveDsrDay,
+  submitDsrHandover,
 } from "./daily";
+export { ensureFixedLoginRoles, LOGIN_ROLE_NAMES, type LoginRoleKind } from "./fixed-roles";
 export {
   listHistoryDsrDays,
   listHistoryMoneyEntries,
   listHistoryStockDateSummaries,
   listHistoryStockEntries,
 } from "./history";
+export {
+  archiveOrderTarget,
+  createOrderTarget,
+  listOrderTargets,
+  updateOrderTarget,
+} from "./order-targets";
 export { AppError, HTTP_STATUS, parseInput, type FieldError } from "./errors";
 export { payloadHash, runIdempotent, type IdempotencyKey } from "./idempotency";
 export { changePassword, getMe, markPasswordChanged } from "./me";
@@ -82,7 +91,6 @@ export {
   updateProduct,
 } from "./products";
 export {
-  FIELD_ROLE_NAME,
   approveFieldDayReport,
   createFieldShop,
   createStaffLogin,
@@ -90,8 +98,10 @@ export {
   getDsrFieldDay,
   getFieldDay,
   rejectFieldDayReport,
+  resetStaffLoginPassword,
   saveFieldDayEnd,
   saveFieldVisit,
+  updateStaffLogin,
 } from "./field";
 export { getSetupStatus } from "./setup";
 export { createShop, deleteShop, getShopStatement, listShops, updateShop } from "./shops";

@@ -46,8 +46,18 @@ import {
 import { NavGate } from "@/features/shell/nav-gate";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 
-type StockTab = { kind: "stock"; group: HistoryStockKindGroup; path: string; title: TranslationKey };
-type MoneyTab = { kind: "money"; group: HistoryMoneyKindGroup; path: string; title: TranslationKey };
+type StockTab = {
+  kind: "stock";
+  group: HistoryStockKindGroup;
+  path: string;
+  title: TranslationKey;
+};
+type MoneyTab = {
+  kind: "money";
+  group: HistoryMoneyKindGroup;
+  path: string;
+  title: TranslationKey;
+};
 type DsrTab = { kind: "dsr"; path: string; title: TranslationKey };
 export type HistoryTab = StockTab | MoneyTab | DsrTab;
 
@@ -361,9 +371,7 @@ function StockEntryTable({
         <tbody>
           {items.map((entry) => (
             <tr key={entry.id} className="border-t border-border">
-              {showDateColumn ? (
-                <td className={tdClass}>{formatShortDate(entry.date)}</td>
-              ) : null}
+              {showDateColumn ? <td className={tdClass}>{formatShortDate(entry.date)}</td> : null}
               <td className={tdClass}>{t(`godown.kind.${entry.kind}` as TranslationKey)}</td>
               <td className={tdClass}>
                 {entry.sku} · {entry.productName}
@@ -551,13 +559,7 @@ function StockFlatHistory({
   );
 }
 
-function StockHistory({
-  companyId,
-  group,
-}: {
-  companyId: string;
-  group: HistoryStockKindGroup;
-}) {
+function StockHistory({ companyId, group }: { companyId: string; group: HistoryStockKindGroup }) {
   return usesDateCards(group) ? (
     <StockDateCardHistory companyId={companyId} group={group} />
   ) : (
@@ -565,13 +567,7 @@ function StockHistory({
   );
 }
 
-function MoneyHistory({
-  companyId,
-  group,
-}: {
-  companyId: string;
-  group: HistoryMoneyKindGroup;
-}) {
+function MoneyHistory({ companyId, group }: { companyId: string; group: HistoryMoneyKindGroup }) {
   const { permissions } = useCurrentWorkspace();
   const { page, setPage, pageSize, date, dateValue, changeDate, status, changeStatus } =
     useHistoryFilters();

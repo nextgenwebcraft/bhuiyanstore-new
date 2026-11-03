@@ -55,7 +55,5 @@ export function stockEntryCartonParts(
 
 /** Sum whole-carton or loose-piece counts (each line kept separate — mixed carton sizes). */
 export function sumCartons(values: readonly DecimalInput[]): string {
-  return values
-    .reduce<Decimal>((total, v) => total.add(toDecimal(v)), new Decimal(0))
-    .toString();
+  return values.reduce<Decimal>((total, v) => total.add(toDecimal(v)), new Decimal(0)).toString();
 }

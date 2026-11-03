@@ -14,6 +14,8 @@ import {
   historyStockDateSummariesSchema,
   historyStockPageSchema,
   type HistoryPageQuery,
+  orderTargetListSchema,
+  orderTargetSchema,
   meSchema,
   moneyEntrySchema,
   openingSchema,
@@ -273,6 +275,18 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
         method: "POST",
         body: input,
       }),
+    submitDsrHandover: (companyId, dayId, input) =>
+      request(
+        dsrDaySchema,
+        `${company(companyId)}/dsr-days/${id(dayId)}/handover-submit`,
+        write("POST", input),
+      ),
+    approveDsrHandover: (companyId, dayId, input) =>
+      request(
+        dsrDaySchema,
+        `${company(companyId)}/dsr-days/${id(dayId)}/handover-approve`,
+        write("POST", input),
+      ),
     decideFieldReport: (companyId, reportId, action, input) =>
       request(
         z.undefined(),
@@ -328,6 +342,26 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
         options,
       );
     },
+    listOrderTargets: (companyId, query, options) => {
+      const params = new URLSearchParams();
+      if (query?.dashboardOnly) params.set("dashboardOnly", "1");
+      const q = params.toString();
+      return request(
+        orderTargetListSchema,
+        `${company(companyId)}/order-targets${q ? `?${q}` : ""}`,
+        options,
+      );
+    },
+    createOrderTarget: (companyId, input) =>
+      request(orderTargetSchema, `${company(companyId)}/order-targets`, write("POST", input)),
+    updateOrderTarget: (companyId, targetId, input) =>
+      request(
+        orderTargetSchema,
+        `${company(companyId)}/order-targets/${id(targetId)}`,
+        write("PUT", input),
+      ),
+    archiveOrderTarget: (companyId, targetId) =>
+      request(orderTargetSchema, `${company(companyId)}/order-targets/${id(targetId)}`, remove()),
     reverseMoneyEntry: (companyId, entryId) =>
       request(
         moneyEntrySchema,
@@ -428,6 +462,18 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
       request(
         staffRecordSchema,
         `${company(companyId)}/staff/${id(staffId)}/login`,
+        write("POST", input),
+      ),
+    updateStaffLogin: (companyId, staffId, input) =>
+      request(
+        staffRecordSchema,
+        `${company(companyId)}/staff/${id(staffId)}/login`,
+        write("PUT", input),
+      ),
+    resetStaffLoginPassword: (companyId, staffId, input) =>
+      request(
+        staffRecordSchema,
+        `${company(companyId)}/staff/${id(staffId)}/login/password`,
         write("POST", input),
       ),
 

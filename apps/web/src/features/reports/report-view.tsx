@@ -558,12 +558,32 @@ function ReportNotes({ data, range }: { data: Report; range: ReportRange }) {
 const findTable = (data: Report | undefined, title: string) =>
   data?.tables.find((x) => x.title === tableTitle(title));
 
+function withoutColumns(table: ReportTable, hideColumns: readonly string[]): ReportTable {
+  if (hideColumns.length === 0) return table;
+  const drop = new Set(hideColumns);
+  const columns = table.columns.filter((c) => !drop.has(c.key) && !drop.has(c.label));
+  if (columns.length === table.columns.length) return table;
+  const keys = new Set(columns.map((c) => c.key));
+  return {
+    ...table,
+    columns,
+    rows: table.rows.map((row) => ({
+      ...row,
+      cells: Object.fromEntries(Object.entries(row.cells).filter(([k]) => keys.has(k))),
+    })),
+    totals: table.totals
+      ? Object.fromEntries(Object.entries(table.totals).filter(([k]) => keys.has(k)))
+      : null,
+  };
+}
+
 /** One report over a range: its tables, or why there is none (no opening, before the cutoff). */
 export function ReportBody({
   companyId,
   report,
   range,
   hide = [],
+  hideColumns = [],
   rowActions = {},
 }: {
   companyId: string;
@@ -571,6 +591,8 @@ export function ReportBody({
   range: ReportRange;
   /** Table names (e.g. `companyPayable`) another report on the same screen already shows. */
   hide?: readonly string[];
+  /** Column keys or labels to drop (D112 DSR staff balances). */
+  hideColumns?: readonly string[];
   /** A row menu per table name (e.g. `staffBalances`). */
   rowActions?: Readonly<Record<string, RowAction>>;
 }) {
@@ -600,7 +622,7 @@ export function ReportBody({
         .map((table) => (
           <ReportTableView
             key={table.title}
-            table={table}
+            table={withoutColumns(table, hideColumns)}
             rowAction={rowActions[table.title.replace(/^report\.table\./, "")]}
           />
         ))}

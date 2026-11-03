@@ -19,9 +19,12 @@ export const historyPageQuerySchema = z.object({
   ),
   pageSize: z.preprocess(
     (v) => (v === undefined || v === null || v === "" ? 25 : v),
-    z.coerce.number().int().refine((n) => [25, 50, 100].includes(n), {
-      message: "validation.history.pageSize",
-    }),
+    z.coerce
+      .number()
+      .int()
+      .refine((n) => [25, 50, 100].includes(n), {
+        message: "validation.history.pageSize",
+      }),
   ),
   /** Single business date; omit or blank = every date. */
   date: z.preprocess(
@@ -100,7 +103,10 @@ export const historyStockKindGroups = {
 export type HistoryStockKindGroup = keyof typeof historyStockKindGroups;
 
 /** Groups that open as date cards first (no date picker). */
-export const historyStockDateCardGroups = ["orders", "stock"] as const satisfies readonly HistoryStockKindGroup[];
+export const historyStockDateCardGroups = [
+  "orders",
+  "stock",
+] as const satisfies readonly HistoryStockKindGroup[];
 export type HistoryStockDateCardGroup = (typeof historyStockDateCardGroups)[number];
 
 /** Money kind groups for History tabs. */

@@ -1,6 +1,12 @@
-import { permissionIds, type PermissionId, type WorkspaceModuleId } from "@bsd/contracts";
+import {
+  permissionIds,
+  type LoginRoleKind,
+  type PermissionId,
+  type WorkspaceModuleId,
+} from "@bsd/contracts";
 import type { AppContext } from "./context";
 import { AppError } from "./errors";
+import { isLoginRoleKind } from "./fixed-roles";
 
 const companyInclude = { modules: true } as const;
 
@@ -20,6 +26,8 @@ export type CompanyAccess = {
     modules: { module: string }[];
   };
   permissions: PermissionId[];
+  /** D112: fixed login role; null for Super Admin. */
+  loginRoleKind: LoginRoleKind | null;
 };
 
 const knownPermissions = new Set<string>(permissionIds);
@@ -46,17 +54,25 @@ export async function loadCompanyAccess(
         }),
   ]);
   if (!company) throw new AppError("COMPANY_NOT_FOUND");
-  if (ctx.actor.isSuperAdmin) return { company, permissions: [...permissionIds] };
+  if (ctx.actor.isSuperAdmin) {
+    return { company, permissions: [...permissionIds], loginRoleKind: null };
+  }
   // D66: only a super-admin opens the master company.
   if (company.isMaster) throw new AppError("COMPANY_NOT_FOUND");
   if (!membership) throw new AppError("COMPANY_NOT_FOUND");
   const granted = new Set<PermissionId>();
+  let loginRoleKind: LoginRoleKind | null = null;
   for (const { role } of membership.roles) {
+    if (isLoginRoleKind(role.kind)) loginRoleKind = role.kind;
     for (const { permission } of role.permissions) {
       if (knownPermissions.has(permission)) granted.add(permission as PermissionId);
     }
   }
-  return { company, permissions: permissionIds.filter((p) => granted.has(p)) };
+  return {
+    company,
+    permissions: permissionIds.filter((p) => granted.has(p)),
+    loginRoleKind,
+  };
 }
 
 /** Company access plus one required permission; writes also need a changed password. */

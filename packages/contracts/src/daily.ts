@@ -206,6 +206,21 @@ export const dsrDaySaveRequestSchema = z.object({
 
 export type DsrDaySaveRequest = z.input<typeof dsrDaySaveRequestSchema>;
 
+/** D112: Manager submits posted sheet's day-end cash; locks further Manager edits. */
+export const dsrHandoverSubmitRequestSchema = z.object({
+  version: z.number().int().positive(),
+  cashHandedOver: amountSchema,
+});
+
+export type DsrHandoverSubmitRequest = z.infer<typeof dsrHandoverSubmitRequestSchema>;
+
+/** D112: Super Admin accepts the submitted handover amount. */
+export const dsrHandoverApproveRequestSchema = z.object({
+  version: z.number().int().positive(),
+});
+
+export type DsrHandoverApproveRequest = z.infer<typeof dsrHandoverApproveRequestSchema>;
+
 export const dsrLineSchema = dsrLineRequestSchema.extend({
   sku: z.string(),
   productName: z.string(),
@@ -229,6 +244,8 @@ export const dsrDaySchema = z.object({
   marketDueNew: decimalStringSchema,
   marketDueCollected: decimalStringSchema,
   cashHandedOver: decimalStringSchema.nullable(),
+  /** D112: Manager submit → pending → Super Admin approve. */
+  handoverStatus: z.enum(["none", "pending", "approved"]).default("none"),
   lines: z.array(dsrLineSchema),
   postedAt: z.string().nullable(),
   reversedAt: z.string().nullable(),

@@ -40,6 +40,7 @@ import { companyHref } from "@/features/shell/navigation";
 import { NavGate } from "@/features/shell/nav-gate";
 import { PrintButton, PrintHeader } from "@/features/shell/print";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
+import { DashboardTargetStrip } from "@/features/targets/dashboard-targets";
 import { useToday } from "@/lib/today";
 import { parsePeriod, periodForRange, periodParam, periodRange, type Period } from "./period";
 
@@ -75,7 +76,7 @@ export function PeriodBar({
     <div
       role="group"
       aria-label={t("dashboard.period.label")}
-      className="mb-5 flex flex-wrap items-center gap-2 print:hidden"
+      className="flex flex-wrap items-center gap-2"
     >
       {fixed.map((item) => (
         <button
@@ -152,7 +153,15 @@ export function summaryCards(d: DashboardSummary, singleDay: boolean): Card[] {
 
 const OP_SIGN = { minus: "−", plus: "+", equals: "=" } as const;
 
-export function SummaryCards({ cards, columns = 4 }: { cards: Card[]; columns?: 4 | 5 }) {
+export function SummaryCards({
+  cards,
+  columns = 4,
+  handover,
+}: {
+  cards: Card[];
+  columns?: 4 | 5;
+  handover?: DashboardSummary["cashInHandHandover"];
+}) {
   return (
     <dl
       className={`grid grid-cols-1 gap-3 sm:grid-cols-2 ${columns === 5 ? "lg:grid-cols-5" : "lg:grid-cols-4"}`}
@@ -161,18 +170,34 @@ export function SummaryCards({ cards, columns = 4 }: { cards: Card[]; columns?: 
         card.value === undefined
           ? []
           : [
-              <StatTile
-                key={card.label}
-                label={card.op ? `${OP_SIGN[card.op]} ${t(card.label)}` : t(card.label)}
-                value={money(card.value)}
-                tone={
-                  card.tone === "result"
-                    ? card.value.trim().startsWith("-")
-                      ? "error"
-                      : "success"
-                    : card.tone
-                }
-              />,
+              <div key={card.label} className="flex flex-col gap-1">
+                <StatTile
+                  label={card.op ? `${OP_SIGN[card.op]} ${t(card.label)}` : t(card.label)}
+                  value={money(card.value)}
+                  tone={
+                    card.tone === "result"
+                      ? card.value.trim().startsWith("-")
+                        ? "error"
+                        : "success"
+                      : card.tone
+                  }
+                />
+                {card.label === "dashboard.card.cashInHand" &&
+                handover &&
+                handover.status !== "none" ? (
+                  <span
+                    className={`self-start rounded-md px-2 py-0.5 text-[11px] font-medium ${
+                      handover.status === "pending"
+                        ? "bg-warning/15 text-warning"
+                        : "bg-success/15 text-success"
+                    }`}
+                  >
+                    {handover.status === "pending"
+                      ? t("dsr.handover.pending")
+                      : t("dsr.handover.approved")}
+                  </span>
+                ) : null}
+              </div>,
             ],
       )}
     </dl>
@@ -183,7 +208,7 @@ export function SummaryCards({ cards, columns = 4 }: { cards: Card[]; columns?: 
 export function SummaryGroups({ d, singleDay }: { d: DashboardSummary; singleDay: boolean }) {
   return (
     <>
-      <SummaryCards cards={chainCards(d)} columns={5} />
+      <SummaryCards cards={chainCards(d)} columns={5} handover={d.cashInHandHandover} />
       <SummaryCards cards={summaryCards(d, singleDay)} columns={5} />
     </>
   );
@@ -353,9 +378,16 @@ function ExportButtons({
 }
 
 /** কর্মীর ব্যালান্স, then পণ্য অনুযায়ী বিক্রি ও লাভ (D60); the other report sections are gone. */
-function ReportSections({ range }: { range: ReportRange }) {
+function ReportSections({
+  range,
+  dsrLimited = false,
+}: {
+  range: ReportRange;
+  /** D112: DSR sees staff balances without salary/cashPabe/staffCost and without row actions. */
+  dsrLimited?: boolean;
+}) {
   const { company, permissions } = useCurrentWorkspace();
-  const canExport = permissions.includes("report.export");
+  const canExport = !dsrLimited && permissions.includes("report.export");
   const allowed = (id: ReportId) => canViewReport(id, permissions);
   const staffActions = useStaffRowActions();
   return (
@@ -371,12 +403,13 @@ function ReportSections({ range }: { range: ReportRange }) {
             companyId={company.id}
             report="staff-balances"
             range={range}
-            rowActions={{ staffBalances: staffActions.rowAction }}
+            {...(dsrLimited ? { hideColumns: ["salary", "cashPabe", "staffCost"] as const } : {})}
+            rowActions={dsrLimited ? {} : { staffBalances: staffActions.rowAction }}
           />
-          {staffActions.dialog}
+          {dsrLimited ? null : staffActions.dialog}
         </Section>
       ) : null}
-      {allowed("sales") ? (
+      {!dsrLimited && allowed("sales") ? (
         <Section title={t("report.table.salesProfitByProduct")} collapsible>
           {canExport ? (
             <div className="flex justify-end">
@@ -420,9 +453,10 @@ export function RangeHeading({ range, isToday }: { range: ReportRange; isToday: 
  * nothing when no opening is live or the period lies before its cutoff.
  */
 function DashboardBody({ range }: { range: ReportRange }) {
-  const { company, permissions } = useCurrentWorkspace();
+  const { company, permissions, loginRoleKind } = useCurrentWorkspace();
   const summary = useDashboardSummary(company.id, range);
   const canReport = company.modules.includes("reports") && permissions.includes("report.view");
+  const dsrLimited = loginRoleKind === "dsr";
 
   if (summary.isPending || summary.isPlaceholderData) {
     return (
@@ -459,6 +493,17 @@ function DashboardBody({ range }: { range: ReportRange }) {
   }
   const quiet =
     d.postedSummaryCount === 0 && d.postedReceiptCount === 0 && !nonZero(d.oldDuesCollected);
+
+  if (dsrLimited) {
+    return (
+      <div className="flex flex-col gap-6">
+        <Section title={t("dashboard.section.damageLots")}>
+          <DamageLotsTable rows={d.damageLots} />
+        </Section>
+        {canReport ? <ReportSections range={range} dsrLimited /> : null}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -507,7 +552,10 @@ export function DashboardPage() {
         actions={<PrintButton />}
       />
       <PrintHeader title={t("nav.dashboard")} from={range.from} to={range.to} />
-      <PeriodBar period={period} cutoffDate={cutoff} today={today} onChange={choose} />
+      <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between print:hidden">
+        <PeriodBar period={period} cutoffDate={cutoff} today={today} onChange={choose} />
+        <DashboardTargetStrip />
+      </div>
       <RangeHeading range={range} isToday={period.kind === "today"} />
       <DashboardBody range={range} />
     </NavGate>

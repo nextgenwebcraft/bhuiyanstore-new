@@ -539,8 +539,7 @@ function damageMistakes(
       (i) =>
         i.severity === "error" &&
         i.productId &&
-        (i.code === "opening.issue.damageInvalid" ||
-          i.code === "opening.issue.damageCostMissing"),
+        (i.code === "opening.issue.damageInvalid" || i.code === "opening.issue.damageCostMissing"),
     )
     .map((i) => ({
       path: `stock.${stock.findIndex((l) => l.productId === i.productId)}.${

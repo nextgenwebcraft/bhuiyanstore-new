@@ -65,8 +65,14 @@ export const staffRecordSchema = z.object({
   /** Mobile; empty when none was entered (D80). */
   phone: z.string().default(""),
   status: z.enum(recordStatuses),
-  /** The field-panel sign-in linked to this person (D40); null = none. */
+  /** Login email linked to this person (D112); null = none. */
   loginEmail: z.string().nullable(),
+  /** Fixed login role when a login exists; null = none (D112 / D113). */
+  loginRoleKind: z.enum(["manager", "dsr"]).nullable(),
+  /** User.active for the linked login; null when no login. */
+  loginActive: z.boolean().nullable(),
+  /** Operating companies the login may open; empty when no login (D113). */
+  loginCompanyIds: z.array(idSchema),
   /** D93: the company their salary is paid from/by, not necessarily where they work today. */
   companyId: idSchema,
   assignments: z.array(staffAssignmentSchema),

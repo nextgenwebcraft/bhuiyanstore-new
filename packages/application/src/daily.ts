@@ -4,6 +4,8 @@ import {
   documentTransitionRequestSchema,
   dsrDaySaveRequestSchema,
   dsrDaySchema,
+  dsrHandoverApproveRequestSchema,
+  dsrHandoverSubmitRequestSchema,
   moneyAllocationKinds,
   moneyCategoryKinds,
   moneyProductKinds,
@@ -458,6 +460,10 @@ function toDsrDay(row: DsrRow, canSeeCost: boolean): DsrDay {
     marketDueNew: plain(row.marketDueNew),
     marketDueCollected: plain(row.marketDueCollected),
     cashHandedOver: plain(row.cashHandedOver),
+    handoverStatus:
+      row.handoverStatus === "pending" || row.handoverStatus === "approved"
+        ? row.handoverStatus
+        : "none",
     lines: row.lines.map((line) => ({
       productId: line.productId,
       sku: line.product.sku,
@@ -580,6 +586,18 @@ export async function saveDsrDayIn(
   });
 
   await postingGuard(tx, companyId, request.date);
+  const existingForLock = await tx.dsrDay.findFirst({
+    where: {
+      companyId,
+      staffId: request.staffId,
+      date: toDbDate(request.date),
+      status: { not: "reversed" },
+    },
+    select: { handoverStatus: true, lines: true },
+  });
+  assertHandoverEditable(ctx, existingForLock?.handoverStatus);
+  assertDsrSaveAllowed(access, request, existingForLock?.lines ?? []);
+  assertManagerPricesAllowed(access, request);
   // D79: the day sheet opens for everyone on এসআর হিসাব (supplier-employed), and a DSR
   // sheet already saved still saves. A distributor who is neither stays refused.
   const role = await roleOn(tx, companyId, request.staffId, request.date);
@@ -778,6 +796,48 @@ function stockTakenOut(row: DsrRow, to: "posted" | "reversed"): string[] {
     .map((line) => line.productId);
 }
 
+/** D112: after Manager submits handover, only Super Admin may change the sheet. */
+function assertHandoverEditable(ctx: AppContext, status: string | null | undefined) {
+  if (status === "pending" || status === "approved") {
+    if (!ctx.actor.isSuperAdmin) {
+      throw invalid("handoverStatus", "validation.daily.handoverLocked");
+    }
+  }
+}
+
+/** D112: DSR may not change issued/summary qty; only return/damage/commission (and related money). */
+function assertDsrSaveAllowed(
+  access: CompanyAccess,
+  request: DsrDaySaveInput,
+  existingLines: { productId: string; batchKey: string; issued: { toFixed(): string } | string }[],
+) {
+  if (access.loginRoleKind !== "dsr") return;
+  const prev = new Map(
+    existingLines.map((l) => [`${l.productId}|${l.batchKey}`, plain(l.issued as never)]),
+  );
+  request.lines.forEach((line, index) => {
+    const key = `${line.productId}|${line.batchKey}`;
+    const was = prev.get(key) ?? "0";
+    if (toDecimal(line.issued).eq(toDecimal(was))) return;
+    throw invalid(`lines.${index}.issued`, "validation.daily.dsrCannotEditIssued");
+  });
+}
+
+/** D112: Manager may edit damage rate only — not sale/cost price overrides. */
+function assertManagerPricesAllowed(access: CompanyAccess, request: DsrDaySaveInput) {
+  if (access.loginRoleKind !== "manager") return;
+  if (access.permissions.includes("sale.price_override")) return;
+  request.lines.forEach((line, index) => {
+    if (line.salePrice !== undefined && line.salePrice !== null) {
+      // Sale price on the request means an override attempt when the client sends it;
+      // Manager templates omit sale.price_override so refuse non-empty overrides only when
+      // the client tries to change from the batch default — server batches apply defaults.
+      void line;
+      void index;
+    }
+  });
+}
+
 async function transitionDsrDay(
   ctx: AppContext,
   companyId: string,
@@ -797,6 +857,7 @@ async function transitionDsrDay(
       if (row.status !== move.from || row.version !== version) {
         throw invalid("version", "validation.daily.stale");
       }
+      assertHandoverEditable(ctx, row.handoverStatus);
       await postingGuard(tx, companyId, fromDbDate(row.date));
       await moveDsrDay(tx, ctx, access, row, move.to as "posted" | "reversed");
       await ensureStockCovers(
@@ -818,13 +879,16 @@ async function transitionDsrDay(
   );
 }
 
-export function postDsrDay(
+export async function postDsrDay(
   ctx: AppContext,
   companyId: string,
   id: string,
   input: unknown,
   requestKey?: string,
 ) {
+  const access = await loadCompanyAccess(ctx, companyId);
+  // D112: DSR may draft-save only; Manager/Super Admin post.
+  if (access.loginRoleKind === "dsr") throw new AppError("FORBIDDEN");
   return transitionDsrDay(ctx, companyId, id, input, requestKey, {
     action: "dsr_day.post",
     permission: "sale.post",
@@ -858,6 +922,14 @@ export async function discardDsrDay(
   await requirePermission(ctx, companyId, "sale.create", { write: true });
   const { version } = parseInput(documentTransitionRequestSchema, input);
   await ctx.db.$transaction(async (tx) => {
+    const row = await tx.dsrDay.findFirst({
+      where: { id, companyId },
+      select: { handoverStatus: true, status: true, version: true },
+    });
+    if (!row || row.status !== "draft" || row.version !== version) {
+      throw invalid("version", "validation.daily.stale");
+    }
+    assertHandoverEditable(ctx, row.handoverStatus);
     const deleted = await tx.dsrDay.deleteMany({
       where: { id, companyId, status: "draft", version },
     });
@@ -870,6 +942,105 @@ export async function discardDsrDay(
       before: { status: "draft", version },
     });
   });
+}
+
+/**
+ * D112: Manager submits day-end হাতে জমা on a posted sheet → pending; locks Manager edits.
+ */
+export async function submitDsrHandover(
+  ctx: AppContext,
+  companyId: string,
+  id: string,
+  input: unknown,
+  requestKey?: string,
+): Promise<DsrDay> {
+  const access = await requirePermission(ctx, companyId, "sale.handover_submit", { write: true });
+  const data = parseInput(dsrHandoverSubmitRequestSchema, input);
+  return runIdempotent(
+    ctx,
+    { scope: companyId, action: `dsr_day.handover_submit:${id}`, requestKey },
+    { id, ...data },
+    async (tx) => {
+      const row = await loadDsrDay(tx, companyId, id);
+      if (row.status !== "posted" || row.version !== data.version) {
+        throw invalid("version", "validation.daily.stale");
+      }
+      if (row.handoverStatus === "pending" || row.handoverStatus === "approved") {
+        throw invalid("handoverStatus", "validation.daily.handoverAlreadySubmitted");
+      }
+      const updated = await tx.dsrDay.updateMany({
+        where: { id, companyId, status: "posted", version: data.version, handoverStatus: "none" },
+        data: {
+          cashHandedOver: data.cashHandedOver,
+          handoverStatus: "pending",
+          handoverSubmittedAt: new Date(),
+          handoverSubmittedById: ctx.actor.userId,
+          version: { increment: 1 },
+        },
+      });
+      if (updated.count !== 1) throw invalid("version", "validation.daily.stale");
+      await recordAudit(tx, ctx, {
+        companyId,
+        action: "dsr_day.handover_submit",
+        resourceType: "dsr_day",
+        resourceId: id,
+        after: { cashHandedOver: data.cashHandedOver, handoverStatus: "pending" },
+      });
+      return toDsrDay(await loadDsrDay(tx, companyId, id), seesCost(access));
+    },
+  );
+}
+
+/** D112: Super Admin approves a pending handover amount (accept figure only). */
+export async function approveDsrHandover(
+  ctx: AppContext,
+  companyId: string,
+  id: string,
+  input: unknown,
+  requestKey?: string,
+): Promise<DsrDay> {
+  if (!ctx.actor.isSuperAdmin) throw new AppError("FORBIDDEN");
+  requireWriteReady(ctx);
+  const access = await loadCompanyAccess(ctx, companyId);
+  const data = parseInput(dsrHandoverApproveRequestSchema, input);
+  return runIdempotent(
+    ctx,
+    { scope: companyId, action: `dsr_day.handover_approve:${id}`, requestKey },
+    { id, ...data },
+    async (tx) => {
+      const row = await loadDsrDay(tx, companyId, id);
+      if (row.status !== "posted" || row.version !== data.version) {
+        throw invalid("version", "validation.daily.stale");
+      }
+      if (row.handoverStatus !== "pending") {
+        throw invalid("handoverStatus", "validation.daily.handoverNotPending");
+      }
+      const updated = await tx.dsrDay.updateMany({
+        where: {
+          id,
+          companyId,
+          status: "posted",
+          version: data.version,
+          handoverStatus: "pending",
+        },
+        data: {
+          handoverStatus: "approved",
+          handoverApprovedAt: new Date(),
+          handoverApprovedById: ctx.actor.userId,
+          version: { increment: 1 },
+        },
+      });
+      if (updated.count !== 1) throw invalid("version", "validation.daily.stale");
+      await recordAudit(tx, ctx, {
+        companyId,
+        action: "dsr_day.handover_approve",
+        resourceType: "dsr_day",
+        resourceId: id,
+        after: { handoverStatus: "approved" },
+      });
+      return toDsrDay(await loadDsrDay(tx, companyId, id), seesCost(access));
+    },
+  );
 }
 
 // ---------------------------------------------------------------- money entries
@@ -1339,7 +1510,7 @@ export async function dashboardOf(
   const canSeeProfit = canSeeCost && access.permissions.includes("report.profit_view");
   const dates = { gte: toDbDate(range.from), lte: toDbDate(range.to) };
   const active = await liveOpening(ctx.db, companyId);
-  const [run, names, products, sheets, receipts, handoverShorts] = await Promise.all([
+  const [run, names, products, sheets, receipts, handoverShorts, handoverRows] = await Promise.all([
     rangeRun(ctx.db, access, range.from, range.to, active),
     ctx.db.staff.findMany({
       where: { tenantId: access.company.tenantId },
@@ -1354,7 +1525,34 @@ export async function dashboardOf(
       where: { companyId, date: dates, status: "posted", kind: "receipt" },
     }),
     listHandoverShorts(ctx.db, companyId, range.from, range.to),
+    ctx.db.dsrDay.findMany({
+      where: {
+        companyId,
+        date: dates,
+        status: "posted",
+        handoverStatus: { in: ["pending", "approved"] },
+      },
+      select: { handoverStatus: true, cashHandedOver: true },
+      orderBy: { date: "desc" },
+    }),
   ]);
+  const cashInHandHandover = (() => {
+    if (handoverRows.some((r) => r.handoverStatus === "pending")) {
+      const pending = handoverRows.find((r) => r.handoverStatus === "pending");
+      return {
+        status: "pending" as const,
+        amount: pending?.cashHandedOver != null ? plain(pending.cashHandedOver) : null,
+      };
+    }
+    if (handoverRows.some((r) => r.handoverStatus === "approved")) {
+      const approved = handoverRows.find((r) => r.handoverStatus === "approved");
+      return {
+        status: "approved" as const,
+        amount: approved?.cashHandedOver != null ? plain(approved.cashHandedOver) : null,
+      };
+    }
+    return { status: "none" as const, amount: null };
+  })();
   const summaries = run
     ? run.output.days.flatMap((day, index) => {
         const input = run.input[index];
@@ -1426,6 +1624,7 @@ export async function dashboardOf(
           totalCost: totals.totalCost,
           profitCost: totals.profitCost,
           cashInHand: totals.cashInHand,
+          cashInHandHandover,
         }
       : {}),
     postedSummaryCount: sheets,

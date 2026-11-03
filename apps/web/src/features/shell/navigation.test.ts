@@ -80,7 +80,7 @@ describe("hubs", () => {
 
   it("keeps the tab order the owner decided", () => {
     const paths = (id: string) => hubs.find((h) => h.id === id)?.tabs.map((tab) => tab.path);
-    expect(paths("sales")).toEqual(["sales/daily-summaries", "sales/sr", "sales/field"]);
+    expect(paths("sales")).toEqual(["sales/daily-summaries", "sales/sr"]);
     expect(paths("goods")).toEqual([
       "purchases/orders",
       "purchases/receipts",
@@ -141,7 +141,8 @@ describe("hubs", () => {
   it("finds the hub of a path", () => {
     expect(hubOfPath("")?.id).toBe("dashboard");
     expect(hubOfPath("inventory/undelivered")?.id).toBe("goods");
-    expect(hubOfPath("admin/roles")?.id).toBe("setup");
+    expect(hubOfPath("admin/roles")).toBeUndefined();
+    expect(hubOfPath("admin/users")).toBeUndefined();
     expect(hubOfPath("masters/staff", true)?.id).toBe("staff");
     expect(hubOfPath("unknown/path")).toBeUndefined();
   });
@@ -167,9 +168,9 @@ describe("hubs", () => {
     const operatorPaths = operatorHubs.flatMap((h) => h.tabs.map((tab) => tab.path));
     expect(operatorPaths).toContain("sales/daily-summaries");
     expect(operatorPaths).not.toContain("admin/users");
-    expect(operatorHubs.find((h) => h.id === "setup")?.tabs.map((tab) => tab.path)).not.toContain(
-      "admin/roles",
-    );
+    expect(operatorPaths).not.toContain("admin/roles");
+    expect(all.flatMap((h) => h.tabs.map((tab) => tab.path))).not.toContain("admin/users");
+    expect(all.flatMap((h) => h.tabs.map((tab) => tab.path))).not.toContain("admin/roles");
     for (const hub of operatorHubs) expect(hub.path).toBe(hub.tabs[0]?.path);
   });
 
@@ -188,7 +189,7 @@ describe("hubs", () => {
   it("opens every module for a super-admin, still by permission (D59)", async () => {
     const snacks = { ...(await workspace("user-owner", "demo-snacks")), allModules: true };
     const paths = visibleHubs(snacks).flatMap((h) => h.tabs.map((tab) => tab.path));
-    expect(paths).toEqual(expect.arrayContaining(["purchases/receipts", "sales/field"]));
+    expect(paths).toEqual(expect.arrayContaining(["purchases/receipts", "sales/daily-summaries"]));
     expect(equivalentPath("purchases/orders", snacks)).toBe("purchases/orders");
   });
 
