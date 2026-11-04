@@ -6,6 +6,10 @@ Evidence-based progress. Mark an item done only with evidence.
 
 The canonical plan is now [PLAN.md](PLAN.md). The owner approved backend integration (D30).
 
+**2026-11-05** ([manifest](../changes/2026-11-05-order-target-product-cartons.yaml)): পণ্য অনুযায়ী অর্ডার টার্গেট = কার্টন পরিমাণ; একক বা একাধিক পণ্য এক লক্ষ্যে; সব অর্ডার টাকা অপরিবর্তিত (D115). Migration `20261105010000_order_target_product_cartons` (apply before deploy).
+
+**2026-11-05** ([manifest](../changes/2026-11-05-daily-money-edit.yaml)): দৈনিক বিক্রয় হিসাব money cards (shop due, DSR/SR advance-short, operating cost) — in-row edit via `money.correct`; Super Admin always, Manager until হাতে জমা, DSR never sees Edit (D114).
+
 **2026-11-04** ([manifest](../changes/2026-11-04-dsr-damage-when-no-stock.yaml)): দৈনিক বিক্রয় হিসাব সামারি — no-stock product rows keep issued/return disabled; ড্যামেজ (পিস) and ড্যামেজ দর stay editable.
 
 **2026-11-04** ([manifest](../changes/2026-11-04-staff-login-master.yaml)): Manager/DSR login role + credentials managed only from master আমাদের স্টাফ; Setup admin/users and admin/roles removed (D113).

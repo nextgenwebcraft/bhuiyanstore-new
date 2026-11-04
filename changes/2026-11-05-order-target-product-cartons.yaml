@@ -1,0 +1,30 @@
+id: 2026-11-05-order-target-product-cartons
+reason: >-
+  Owner 2026-11-05. পণ্য অনুযায়ী অর্ডার টার্গেট should be carton quantity (single or
+  multi-product combined), not টাকা; সব অর্ডার amount targets stay (D115, amends D111).
+owners: [database, contracts, domain, application, web, i18n, docs]
+changes:
+  - >-
+    packages/database: OrderTarget.amount nullable; quantityCartons; drop productId;
+    OrderTargetProduct join; migration 20261105010000_order_target_product_cartons
+  - >-
+    packages/contracts: productIds[], quantityCartons; products[] on DTO; amount nullable
+  - >-
+    packages/domain: stockEntryOrderCartons; product progress sums whole cartons
+  - >-
+    packages/application: create/update/list use join + carton/amount metrics
+  - >-
+    apps/web targets UI: product scope single/multi; carton field; format by kind
+  - packages/i18n + docs D115
+affectedActionIds: []
+financialImpact: >-
+  Display/tracking only. Progress does not post ledger rows; overall still uses D57 bills;
+  product-wise uses whole cartons from paid order pieces.
+backfill: >-
+  Migration copies old product amount into quantity_cartons and moves product_id into the
+  join table; owner should re-check carton figures that were entered as taka.
+tests: >-
+  domain unit (stockEntryOrderCartons / existing orderTargetProgress); typecheck/lint on
+  touched packages; apply migration then smoke create overall + single/multi product
+rollout: apply migration 20261105010000_order_target_product_cartons, then deploy
+recovery: revert commit; restore prior product targets from backup if needed

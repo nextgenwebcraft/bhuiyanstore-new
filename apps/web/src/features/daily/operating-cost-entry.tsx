@@ -22,26 +22,52 @@ import { FormSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
 import { TableScroller } from "@/components/table-scroller";
 import { describeError } from "@/data/ports/service-error";
-import { useConfigList, useMoneyEntries, usePostMoneyEntry } from "@/data/queries";
-import { clean } from "@/features/daily/daily-kit";
+import {
+  useConfigList,
+  useCorrectMoneyEntry,
+  useMoneyEntries,
+  usePostMoneyEntry,
+} from "@/data/queries";
+import { canEditDailyMoney, canPostDailyMoney, clean } from "@/features/daily/daily-kit";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 
 /**
  * Operating cost for the day (owner change request, formerly on বেতন ও খরচ): শুধু খরচের খাত ও
  * টাকা, no kind picker (always the plain `expense` kind). Feeds the same operating-cost figure
  * everywhere else already reads it (dashboard, Company Hishab Reports) — no engine change.
- * Per-row reverse lives on the History hub; day reverse cascades expenses with the sheet.
+ * Per-row edit (D114) lives on this card; day reverse still cascades expenses with the sheet.
  */
-export function OperatingCostEntry({ companyId, date }: { companyId: string; date: string }) {
+export function OperatingCostEntry({
+  companyId,
+  date,
+  handoverLocked,
+}: {
+  companyId: string;
+  date: string;
+  /** D114: pass from the day sheet; omitted elsewhere hides Edit. */
+  handoverLocked?: boolean;
+}) {
   const id = useId();
-  const { permissions } = useCurrentWorkspace();
+  const { permissions, loginRoleKind } = useCurrentWorkspace();
   const categories = useConfigList("expenseCategories");
   const post = usePostMoneyEntry(companyId);
+  const correct = useCorrectMoneyEntry(companyId);
   const entries = useMoneyEntries(companyId, { from: date, to: date });
   const [categoryId, setCategoryId] = useState("");
   const [amount, setAmount] = useState("");
   const [error, setError] = useState<string | undefined>();
-  const canPost = permissions.includes("payment.post");
+  const [editing, setEditing] = useState<MoneyEntry | null>(null);
+  const canEdit = canEditDailyMoney(loginRoleKind, handoverLocked);
+  const canCreate =
+    canPostDailyMoney(loginRoleKind, handoverLocked) && permissions.includes("payment.post");
+  const pending = post.isPending || correct.isPending;
+
+  function startEdit(entry: MoneyEntry) {
+    setCategoryId(entry.expenseCategoryId ?? "");
+    setAmount(entry.amount);
+    setError(undefined);
+    setEditing(entry);
+  }
 
   async function submit() {
     setError(undefined);
@@ -54,13 +80,20 @@ export function OperatingCostEntry({ companyId, date }: { companyId: string; dat
       setError(t("validation.daily.categoryRequired"));
       return;
     }
+    const body = {
+      date,
+      kind: "expense" as const,
+      amount: value,
+      expenseCategoryId: categoryId,
+    };
     try {
-      await post.mutateAsync({
-        date,
-        kind: "expense",
-        amount: value,
-        expenseCategoryId: categoryId,
-      });
+      if (editing) {
+        if (!window.confirm(t("money.correctConfirm"))) return;
+        await correct.mutateAsync({ entryId: editing.id, body });
+        setEditing(null);
+      } else {
+        await post.mutateAsync(body);
+      }
       setAmount("");
       setCategoryId("");
     } catch (e) {
@@ -71,7 +104,7 @@ export function OperatingCostEntry({ companyId, date }: { companyId: string; dat
   return (
     <section className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-4">
       <h3 className="font-semibold">{t("dsr.operatingCost.title")}</h3>
-      {canPost ? (
+      {canCreate || editing ? (
         <div className="grid gap-3 sm:grid-cols-3">
           <Field id={`${id}-category`} label={t("money.category")}>
             <select
@@ -105,11 +138,27 @@ export function OperatingCostEntry({ companyId, date }: { companyId: string; dat
         </div>
       ) : null}
       {error ? <StatePanel tone="error" title={error} /> : null}
-      {canPost ? (
-        <div>
-          <Button variant="primary" disabled={post.isPending} onClick={() => void submit()}>
-            {post.isPending ? t("common.posting") : t("common.post")}
+      {canCreate || editing ? (
+        <div className="flex flex-wrap gap-2">
+          <Button variant="primary" disabled={pending} onClick={() => void submit()}>
+            {pending
+              ? t("common.posting")
+              : editing
+                ? t("money.correct")
+                : t("common.post")}
           </Button>
+          {editing ? (
+            <Button
+              disabled={pending}
+              onClick={() => {
+                setEditing(null);
+                setAmount("");
+                setCategoryId("");
+              }}
+            >
+              {t("common.cancel")}
+            </Button>
+          ) : null}
         </div>
       ) : null}
       {entries.isPending ? (
@@ -117,13 +166,25 @@ export function OperatingCostEntry({ companyId, date }: { companyId: string; dat
       ) : entries.isError ? (
         <QueryError error={entries.error} onRetry={() => void entries.refetch()} />
       ) : (
-        <Entries rows={(entries.data ?? []).filter((e) => e.kind === "expense")} />
+        <Entries
+          rows={(entries.data ?? []).filter((e) => e.kind === "expense")}
+          canEdit={canEdit}
+          onEdit={startEdit}
+        />
       )}
     </section>
   );
 }
 
-function Entries({ rows }: { rows: MoneyEntry[] }) {
+function Entries({
+  rows,
+  canEdit,
+  onEdit,
+}: {
+  rows: MoneyEntry[];
+  canEdit: boolean;
+  onEdit: (entry: MoneyEntry) => void;
+}) {
   const total = sumAmounts([
     "0",
     ...rows.filter((e) => e.status === "posted").map((e) => e.amount),
@@ -147,6 +208,11 @@ function Entries({ rows }: { rows: MoneyEntry[] }) {
                 <th scope="col" className={thClass}>
                   {t("common.status")}
                 </th>
+                {canEdit ? (
+                  <th scope="col" className={thClass}>
+                    <span className="sr-only">{t("common.edit")}</span>
+                  </th>
+                ) : null}
               </tr>
             </thead>
             <tbody>
@@ -157,6 +223,13 @@ function Entries({ rows }: { rows: MoneyEntry[] }) {
                   <td className={tdClass}>
                     <StatusChip status={entry.status} />
                   </td>
+                  {canEdit ? (
+                    <td className={`${tdClass} text-right`}>
+                      {entry.status === "posted" && !entry.dsrDayId && !entry.payrollRunId ? (
+                        <Button onClick={() => onEdit(entry)}>{t("common.edit")}</Button>
+                      ) : null}
+                    </td>
+                  ) : null}
                 </tr>
               ))}
             </tbody>

@@ -311,6 +311,16 @@ export function usePostMoneyEntry(companyId: string) {
   );
 }
 
+export function useCorrectMoneyEntry(companyId: string) {
+  const service = useService();
+  return usePostingMutation(
+    companyId,
+    "money",
+    (input: { entryId: string; body: MoneyEntryPostRequest }) =>
+      service.correctMoneyEntry(companyId, input.entryId, input.body),
+  );
+}
+
 export function useReverseMoneyEntry(companyId: string) {
   const service = useService();
   return usePostingMutation(companyId, "money", (entryId: string) =>

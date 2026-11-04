@@ -23,8 +23,8 @@ import { FormSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
 import { TableScroller } from "@/components/table-scroller";
 import { describeError } from "@/data/ports/service-error";
-import { useMoneyEntries, usePostMoneyEntry } from "@/data/queries";
-import { clean } from "@/features/daily/daily-kit";
+import { useCorrectMoneyEntry, useMoneyEntries, usePostMoneyEntry } from "@/data/queries";
+import { canEditDailyMoney, canPostDailyMoney, clean } from "@/features/daily/daily-kit";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 
 /** D62: the kinds of the DSR sheet's staff money card; D67 adds the absent fee. */
@@ -81,18 +81,27 @@ function EntryForm({
   date,
   kinds,
   dsr,
+  editing,
+  onClearEdit,
 }: {
   companyId: string;
   staffId: string;
   date: string;
   kinds: StaffCashKind[];
   dsr?: { id: string; dsrs: readonly DsrChoice[]; onChange: (staffId: string) => void };
+  editing: MoneyEntry | null;
+  onClearEdit: () => void;
 }) {
   const id = useId();
   const post = usePostMoneyEntry(companyId);
-  const [kind, setKind] = useState<StaffCashKind>(kinds[0] ?? "advance");
-  const [amount, setAmount] = useState("");
+  const correct = useCorrectMoneyEntry(companyId);
+  // Remounted via key when `editing` changes, so initial state comes from the row being edited.
+  const [kind, setKind] = useState<StaffCashKind>(
+    (editing && staffCashKindOf(editing)) || kinds[0] || "advance",
+  );
+  const [amount, setAmount] = useState(editing?.amount ?? "");
   const [error, setError] = useState<string | undefined>();
+  const pending = post.isPending || correct.isPending;
 
   async function submit() {
     setError(undefined);
@@ -100,8 +109,15 @@ function EntryForm({
     if (!/^\d+(\.\d{1,2})?$/.test(value) || !/[1-9]/.test(value)) {
       return setError(t("validation.amountPositive"));
     }
+    const body = { date, amount: value, staffId, ...staffCashRequest(kind, value) };
     try {
-      await post.mutateAsync({ date, amount: value, staffId, ...staffCashRequest(kind, value) });
+      if (editing) {
+        if (!window.confirm(t("money.correctConfirm"))) return;
+        await correct.mutateAsync({ entryId: editing.id, body });
+        onClearEdit();
+      } else {
+        await post.mutateAsync(body);
+      }
       setAmount("");
     } catch (e) {
       setError(describeError(e, []).form);
@@ -149,16 +165,33 @@ function EntryForm({
         </Field>
       </div>
       {error ? <StatePanel tone="error" title={error} /> : null}
-      <div>
-        <Button variant="primary" disabled={post.isPending} onClick={() => void submit()}>
-          {post.isPending ? t("common.posting") : t("common.post")}
+      <div className="flex flex-wrap gap-2">
+        <Button variant="primary" disabled={pending} onClick={() => void submit()}>
+          {pending
+            ? t("common.posting")
+            : editing
+              ? t("money.correct")
+              : t("common.post")}
         </Button>
+        {editing ? (
+          <Button disabled={pending} onClick={onClearEdit}>
+            {t("common.cancel")}
+          </Button>
+        ) : null}
       </div>
     </div>
   );
 }
 
-function Entries({ rows }: { rows: MoneyEntry[]; companyId: string }) {
+function Entries({
+  rows,
+  canEdit,
+  onEdit,
+}: {
+  rows: MoneyEntry[];
+  canEdit: boolean;
+  onEdit: (entry: MoneyEntry) => void;
+}) {
   const total = (kind: StaffCashKind) =>
     sumAmounts([
       "0",
@@ -188,6 +221,11 @@ function Entries({ rows }: { rows: MoneyEntry[]; companyId: string }) {
                 <th scope="col" className={thClass}>
                   {t("common.status")}
                 </th>
+                {canEdit ? (
+                  <th scope="col" className={thClass}>
+                    <span className="sr-only">{t("common.edit")}</span>
+                  </th>
+                ) : null}
               </tr>
             </thead>
             <tbody>
@@ -201,6 +239,13 @@ function Entries({ rows }: { rows: MoneyEntry[]; companyId: string }) {
                     <td className={tdClass}>
                       <StatusChip status={entry.status} />
                     </td>
+                    {canEdit ? (
+                      <td className={`${tdClass} text-right`}>
+                        {entry.status === "posted" && !entry.dsrDayId && !entry.payrollRunId ? (
+                          <Button onClick={() => onEdit(entry)}>{t("common.edit")}</Button>
+                        ) : null}
+                      </td>
+                    ) : null}
                   </tr>
                 );
               })}
@@ -229,15 +274,19 @@ export function StaffCashEntry({
   staffId,
   date,
   dsrs,
+  handoverLocked,
 }: {
   companyId: string;
   staffId: string;
   date: string;
   /** DSRs the card can post for. Omitted on a person's own entry dialog. */
   dsrs?: readonly DsrChoice[];
+  /** D114: pass from the day sheet; omitted elsewhere hides Edit. */
+  handoverLocked?: boolean;
 }) {
-  const { permissions } = useCurrentWorkspace();
+  const { permissions, loginRoleKind } = useCurrentWorkspace();
   const [picked, setPicked] = useState(staffId);
+  const [editing, setEditing] = useState<MoneyEntry | null>(null);
   const activeId = dsrs?.some((dsr) => dsr.id === picked)
     ? picked
     : (dsrs?.find((dsr) => dsr.id === staffId)?.id ?? dsrs?.[0]?.id ?? staffId);
@@ -246,16 +295,20 @@ export function StaffCashEntry({
   const kinds = KINDS.filter((k) =>
     permissions.includes(moneyKindPermission[staffCashRequest(k, "0").kind]),
   );
+  const canEdit = canEditDailyMoney(loginRoleKind, handoverLocked);
+  const canCreate = canPostDailyMoney(loginRoleKind, handoverLocked) && kinds.length > 0;
   return (
     <section className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-4">
       <h3 className="font-semibold">{t("staffCash.title")}</h3>
-      {kinds.length > 0 ? (
+      {canCreate || editing ? (
         <EntryForm
-          key={`${activeId}-${date}`}
+          key={`${activeId}-${date}-${editing?.id ?? "new"}`}
           companyId={companyId}
           staffId={activeId}
           date={date}
           kinds={kinds}
+          editing={editing}
+          onClearEdit={() => setEditing(null)}
           {...(dsrs && dsrs.length > 0 ? { dsr: { id: activeId, dsrs, onChange: setPicked } } : {})}
         />
       ) : null}
@@ -265,8 +318,12 @@ export function StaffCashEntry({
         <QueryError error={entries.error} onRetry={() => void entries.refetch()} />
       ) : (
         <Entries
-          companyId={companyId}
           rows={entries.data.filter((e) => staffCashKindOf(e) !== null)}
+          canEdit={canEdit}
+          onEdit={(entry) => {
+            if (entry.staffId) setPicked(entry.staffId);
+            setEditing(entry);
+          }}
         />
       )}
     </section>

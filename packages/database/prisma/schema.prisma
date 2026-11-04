@@ -275,33 +275,47 @@ model Product {
   reportLines  FieldDayReportLine[]
   batches      ProductBatch[]
   moneyEntries MoneyEntry[]
-  orderTargets OrderTarget[]
+  orderTargetProducts OrderTargetProduct[]
 
   @@unique([companyId, sku])
   @@index([tenantId, companyId])
   @@map("product")
 }
 
-/// D111: company order-amount targets (overall or product-wise) with a date window.
+/// D111/D115: overall = taka amount; product = carton quantity (one or many products).
 model OrderTarget {
-  id               String    @id @default(cuid())
-  tenantId         String    @map("tenant_id")
-  companyId        String    @map("company_id")
+  id               String              @id @default(cuid())
+  tenantId         String              @map("tenant_id")
+  companyId        String              @map("company_id")
   kind             String
-  productId        String?   @map("product_id")
-  amount           Decimal   @db.Decimal(20, 2)
-  startDate        DateTime  @map("start_date") @db.Date
-  endDate          DateTime  @map("end_date") @db.Date
-  showOnDashboard  Boolean   @default(false) @map("show_on_dashboard")
-  status           String    @default("active")
-  createdAt        DateTime  @default(now()) @map("created_at")
-  updatedAt        DateTime  @updatedAt @map("updated_at")
-  company          Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  product          Product?  @relation(fields: [productId], references: [id], onDelete: Restrict)
+  /// Overall only (টাকা). Null for product-wise carton targets.
+  amount           Decimal?            @db.Decimal(20, 2)
+  /// Product-wise only (কার্টন). Null for overall amount targets.
+  quantityCartons  Decimal?            @map("quantity_cartons") @db.Decimal(20, 2)
+  startDate        DateTime            @map("start_date") @db.Date
+  endDate          DateTime            @map("end_date") @db.Date
+  showOnDashboard  Boolean             @default(false) @map("show_on_dashboard")
+  status           String              @default("active")
+  createdAt        DateTime            @default(now()) @map("created_at")
+  updatedAt        DateTime            @updatedAt @map("updated_at")
+  company          Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  products         OrderTargetProduct[]
 
   @@index([companyId, status])
   @@index([companyId, showOnDashboard])
   @@map("order_target")
+}
+
+/// Products that feed one product-wise carton target (one row = single; many = combined).
+model OrderTargetProduct {
+  targetId  String      @map("target_id")
+  productId String      @map("product_id")
+  target    OrderTarget @relation(fields: [targetId], references: [id], onDelete: Cascade)
+  product   Product     @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@id([targetId, productId])
+  @@index([productId])
+  @@map("order_target_product")
 }
 
 /// Carton size history (guide §4.4). effective_from NULL = since creation (one per product).

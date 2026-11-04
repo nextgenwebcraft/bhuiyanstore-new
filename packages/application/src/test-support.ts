@@ -45,6 +45,7 @@ const TABLES = [
   "opening_session",
   "price_change",
   "product_pack",
+  "order_target_product",
   "order_target",
   "product",
   "shop",

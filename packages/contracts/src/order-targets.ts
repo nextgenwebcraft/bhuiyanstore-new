@@ -17,12 +17,17 @@ export const orderTargetProgressStatuses = ["on_track", "behind", "met", "overdu
 export type OrderTargetProgressStatus = (typeof orderTargetProgressStatuses)[number];
 
 const targetAmountSchema = positiveAmountStringSchema("validation.target.amount");
+const targetCartonsSchema = positiveAmountStringSchema("validation.target.cartons");
 
 export const orderTargetUpsertRequestSchema = z
   .object({
     kind: z.enum(orderTargetKinds),
-    productId: idSchema.nullable().optional(),
-    amount: targetAmountSchema,
+    /** Product-wise: one id = single product; two or more = combined carton target (D115). */
+    productIds: z.array(idSchema).default([]),
+    /** Overall only (টাকা). */
+    amount: targetAmountSchema.nullable().optional(),
+    /** Product-wise only (কার্টন). */
+    quantityCartons: targetCartonsSchema.nullable().optional(),
     startDate: businessDateSchema,
     endDate: businessDateSchema,
     showOnDashboard: z.boolean().default(false),
@@ -35,19 +40,57 @@ export const orderTargetUpsertRequestSchema = z
         message: "validation.target.dateOrder",
       });
     }
-    if (value.kind === "product" && !value.productId) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["productId"],
-        message: "validation.target.productRequired",
-      });
-    }
-    if (value.kind === "overall" && value.productId) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["productId"],
-        message: "validation.target.overallNoProduct",
-      });
+    if (value.kind === "overall") {
+      if (!value.amount) {
+        ctx.addIssue({ code: "custom", path: ["amount"], message: "validation.target.amount" });
+      }
+      if (value.quantityCartons) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["quantityCartons"],
+          message: "validation.target.overallNoCartons",
+        });
+      }
+      if (value.productIds.length > 0) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["productIds"],
+          message: "validation.target.overallNoProduct",
+        });
+      }
+    } else {
+      if (!value.quantityCartons) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["quantityCartons"],
+          message: "validation.target.cartons",
+        });
+      }
+      if (value.amount) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["amount"],
+          message: "validation.target.productNoAmount",
+        });
+      }
+      if (value.productIds.length === 0) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["productIds"],
+          message: "validation.target.productRequired",
+        });
+      }
+      const seen = new Set<string>();
+      for (const [index, id] of value.productIds.entries()) {
+        if (seen.has(id)) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["productIds", index],
+            message: "validation.target.duplicateProduct",
+          });
+        }
+        seen.add(id);
+      }
     }
   });
 
@@ -68,14 +111,23 @@ export const orderTargetProgressSchema = z.object({
 
 export type OrderTargetProgress = z.infer<typeof orderTargetProgressSchema>;
 
+export const orderTargetProductSchema = z.object({
+  id: idSchema,
+  name: z.string(),
+  sku: z.string(),
+});
+
+export type OrderTargetProduct = z.infer<typeof orderTargetProductSchema>;
+
 export const orderTargetSchema = z.object({
   id: idSchema,
   companyId: idSchema,
   kind: z.enum(orderTargetKinds),
-  productId: idSchema.nullable(),
-  productName: z.string().nullable(),
-  sku: z.string().nullable(),
-  amount: amountSchema,
+  products: z.array(orderTargetProductSchema),
+  /** Overall only; null for product-wise carton targets. */
+  amount: amountSchema.nullable(),
+  /** Product-wise only; null for overall amount targets. */
+  quantityCartons: amountSchema.nullable(),
   startDate: businessDateSchema,
   endDate: businessDateSchema,
   showOnDashboard: z.boolean(),

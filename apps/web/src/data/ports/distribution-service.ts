@@ -194,6 +194,15 @@ export interface DistributionService {
   ): Promise<MoneyEntry[]>;
   /** The permission depends on the entry type (D27). */
   postMoneyEntry(companyId: string, input: MoneyEntryPostRequest): Promise<MoneyEntry>;
+  /**
+   * D114: reverse + re-enter a posted money row. Super Admin always; Manager until হাতে জমা;
+   * DSR never. Needs the kind's post permission (not `payment.reverse`).
+   */
+  correctMoneyEntry(
+    companyId: string,
+    entryId: string,
+    input: MoneyEntryPostRequest,
+  ): Promise<MoneyEntry>;
   /** Requires `payment.reverse`. */
   reverseMoneyEntry(companyId: string, entryId: string): Promise<MoneyEntry>;
 

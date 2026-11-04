@@ -4,6 +4,7 @@ export { netIssuedQuantity, sumQuantities, toBaseQuantity, toCartonDisplay } fro
 export {
   stockEntryAmount,
   stockEntryCartonParts,
+  stockEntryOrderCartons,
   sumCartons,
   type StockEntryDisplayInput,
 } from "./stock-entry-display";

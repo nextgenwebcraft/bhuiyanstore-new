@@ -21,8 +21,8 @@ import { FormSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
 import { TableScroller } from "@/components/table-scroller";
 import { describeError } from "@/data/ports/service-error";
-import { useMoneyEntries, usePostMoneyEntry } from "@/data/queries";
-import { clean } from "@/features/daily/daily-kit";
+import { useCorrectMoneyEntry, useMoneyEntries, usePostMoneyEntry } from "@/data/queries";
+import { canEditDailyMoney, canPostDailyMoney, clean } from "@/features/daily/daily-kit";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 
 /** D79: advance and short for the SR whose sheet is open. No absent fee, no SR picker. */
@@ -59,14 +59,18 @@ export function SrCashEntry({
   companyId,
   staffId,
   date,
+  handoverLocked,
 }: {
   companyId: string;
   staffId: string;
   date: string;
+  /** D114: pass from the day sheet; omitted elsewhere hides Edit. */
+  handoverLocked?: boolean;
 }) {
   const id = useId();
-  const { permissions } = useCurrentWorkspace();
+  const { permissions, loginRoleKind } = useCurrentWorkspace();
   const post = usePostMoneyEntry(companyId);
+  const correct = useCorrectMoneyEntry(companyId);
   const entries = useMoneyEntries(companyId, { from: date, to: date, staffId });
   const canLoan = permissions.includes(moneyKindPermission.srLoan);
   const canRepay = permissions.includes(moneyKindPermission.srRepayment);
@@ -76,6 +80,7 @@ export function SrCashEntry({
   const [kind, setKind] = useState<SrCashKind>(kinds[0] ?? "advance");
   const [amount, setAmount] = useState("");
   const [error, setError] = useState<string | undefined>();
+  const [editing, setEditing] = useState<MoneyEntry | null>(null);
   const rows = (entries.data ?? []).filter((entry) => postedKind(entry) !== null);
   const total = (cardKind: SrCashKind) =>
     sumAmounts([
@@ -84,6 +89,17 @@ export function SrCashEntry({
         .filter((entry) => postedKind(entry) === cardKind && entry.status === "posted")
         .map((entry) => entry.amount),
     ]);
+  const canEdit = canEditDailyMoney(loginRoleKind, handoverLocked);
+  const canCreate = canPostDailyMoney(loginRoleKind, handoverLocked) && kinds.length > 0;
+  const pending = post.isPending || correct.isPending;
+
+  function startEdit(entry: MoneyEntry) {
+    const cardKind = postedKind(entry);
+    if (cardKind && cardKind !== "commission") setKind(cardKind);
+    setAmount(entry.amount);
+    setError(undefined);
+    setEditing(entry);
+  }
 
   async function submit() {
     setError(undefined);
@@ -91,8 +107,15 @@ export function SrCashEntry({
     if (!/^\d+(\.\d{1,2})?$/.test(value) || !/[1-9]/.test(value)) {
       return setError(t("validation.amountPositive"));
     }
+    const body = { date, amount: value, staffId, ...requestOf(kind) };
     try {
-      await post.mutateAsync({ date, amount: value, staffId, ...requestOf(kind) });
+      if (editing) {
+        if (!window.confirm(t("money.correctConfirm"))) return;
+        await correct.mutateAsync({ entryId: editing.id, body });
+        setEditing(null);
+      } else {
+        await post.mutateAsync(body);
+      }
       setAmount("");
     } catch (e) {
       setError(describeError(e, []).form);
@@ -102,7 +125,7 @@ export function SrCashEntry({
   return (
     <section className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-4">
       <h3 className="font-semibold">{t("srCash.title")}</h3>
-      {kinds.length > 0 ? (
+      {canCreate || editing ? (
         <div className="flex flex-col gap-3">
           <div className="grid gap-3 sm:grid-cols-2">
             <Field id={`${id}-kind`} label={t("common.kind")}>
@@ -133,10 +156,25 @@ export function SrCashEntry({
             </Field>
           </div>
           {error ? <StatePanel tone="error" title={error} /> : null}
-          <div>
-            <Button variant="primary" disabled={post.isPending} onClick={() => void submit()}>
-              {post.isPending ? t("common.posting") : t("common.post")}
+          <div className="flex flex-wrap gap-2">
+            <Button variant="primary" disabled={pending} onClick={() => void submit()}>
+              {pending
+                ? t("common.posting")
+                : editing
+                  ? t("money.correct")
+                  : t("common.post")}
             </Button>
+            {editing ? (
+              <Button
+                disabled={pending}
+                onClick={() => {
+                  setEditing(null);
+                  setAmount("");
+                }}
+              >
+                {t("common.cancel")}
+              </Button>
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -163,6 +201,11 @@ export function SrCashEntry({
                     <th scope="col" className={thClass}>
                       {t("common.status")}
                     </th>
+                    {canEdit ? (
+                      <th scope="col" className={thClass}>
+                        <span className="sr-only">{t("common.edit")}</span>
+                      </th>
+                    ) : null}
                   </tr>
                 </thead>
                 <tbody>
@@ -181,6 +224,16 @@ export function SrCashEntry({
                         <td className={tdClass}>
                           <StatusChip status={entry.status} />
                         </td>
+                        {canEdit ? (
+                          <td className={`${tdClass} text-right`}>
+                            {entry.status === "posted" &&
+                            !entry.dsrDayId &&
+                            !entry.payrollRunId &&
+                            cardKind !== "commission" ? (
+                              <Button onClick={() => startEdit(entry)}>{t("common.edit")}</Button>
+                            ) : null}
+                          </td>
+                        ) : null}
                       </tr>
                     );
                   })}

@@ -225,6 +225,7 @@ export function createMockService(
     decideFieldReport: demoReadOnly,
     listMoneyEntries: demoReadOnly,
     postMoneyEntry: demoReadOnly,
+    correctMoneyEntry: demoReadOnly,
     reverseMoneyEntry: demoReadOnly,
     listHistoryStockEntries: demoReadOnly,
     listHistoryStockDateSummaries: demoReadOnly,

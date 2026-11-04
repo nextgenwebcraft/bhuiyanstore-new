@@ -306,6 +306,12 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
     },
     postMoneyEntry: (companyId, input) =>
       request(moneyEntrySchema, `${company(companyId)}/money-entries`, write("POST", input)),
+    correctMoneyEntry: (companyId, entryId, input) =>
+      request(
+        moneyEntrySchema,
+        `${company(companyId)}/money-entries/${id(entryId)}/correct`,
+        write("POST", input),
+      ),
     listHistoryStockEntries: (companyId, group, query, options) => {
       const params = historyParams(query);
       params.set("group", group);

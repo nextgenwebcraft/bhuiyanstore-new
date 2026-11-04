@@ -28,11 +28,15 @@ const PATH = "masters/targets";
 const MAX_DASHBOARD_PINS = 2;
 const noErrors: DescribedError = { fields: {} };
 
+type ProductScope = "single" | "multi";
+
 type Draft = {
   id?: string;
   kind: OrderTargetKind;
-  productId: string;
+  productScope: ProductScope;
+  productIds: string[];
   amount: string;
+  quantityCartons: string;
   startDate: string;
   endDate: string;
   showOnDashboard: boolean;
@@ -41,8 +45,10 @@ type Draft = {
 function emptyDraft(today: string): Draft {
   return {
     kind: "overall",
-    productId: "",
+    productScope: "single",
+    productIds: [],
     amount: "",
+    quantityCartons: "",
     startDate: today,
     endDate: today,
     showOnDashboard: false,
@@ -53,8 +59,10 @@ function draftFrom(target: OrderTarget): Draft {
   return {
     id: target.id,
     kind: target.kind,
-    productId: target.productId ?? "",
-    amount: target.amount,
+    productScope: target.products.length > 1 ? "multi" : "single",
+    productIds: target.products.map((p) => p.id),
+    amount: target.amount ?? "",
+    quantityCartons: target.quantityCartons ?? "",
     startDate: target.startDate,
     endDate: target.endDate,
     showOnDashboard: target.showOnDashboard,
@@ -82,19 +90,37 @@ function TargetDialog({
   const alreadyPinned = Boolean(draft.id && draft.showOnDashboard);
   const pinBlocked = !alreadyPinned && pinnedCount >= MAX_DASHBOARD_PINS;
 
+  function toggleProduct(productId: string, checked: boolean) {
+    const next = checked
+      ? [...values.productIds, productId]
+      : values.productIds.filter((id) => id !== productId);
+    set({ productIds: next });
+  }
+
   async function submit() {
     const amount = clean(values.amount);
+    const cartons = clean(values.quantityCartons);
     const fields: Partial<Record<string, string>> = {};
-    if (!amount || !/^\d+(\.\d{1,2})?$/.test(amount) || Number(amount) <= 0) {
-      fields.amount = t("validation.target.amount");
-    }
     if (!values.startDate) fields.startDate = t("validation.required");
     if (!values.endDate) fields.endDate = t("validation.required");
     if (values.startDate && values.endDate && values.startDate > values.endDate) {
       fields.endDate = t("validation.target.dateOrder");
     }
-    if (values.kind === "product" && !values.productId) {
-      fields.productId = t("validation.target.productRequired");
+    if (values.kind === "overall") {
+      if (!amount || !/^\d+(\.\d{1,2})?$/.test(amount) || Number(amount) <= 0) {
+        fields.amount = t("validation.target.amount");
+      }
+    } else {
+      if (!cartons || !/^\d+(\.\d{1,2})?$/.test(cartons) || Number(cartons) <= 0) {
+        fields.quantityCartons = t("validation.target.cartons");
+      }
+      if (values.productScope === "single") {
+        if (values.productIds.length !== 1) {
+          fields.productIds = t("validation.target.productRequired");
+        }
+      } else if (values.productIds.length < 2) {
+        fields.productIds = t("validation.target.productsRequired");
+      }
     }
     if (values.showOnDashboard && pinBlocked) {
       fields.showOnDashboard = t("validation.target.dashboardFull");
@@ -109,8 +135,9 @@ function TargetDialog({
         ...(values.id ? { targetId: values.id } : {}),
         input: {
           kind: values.kind,
-          productId: values.kind === "product" ? values.productId : null,
-          amount,
+          productIds: values.kind === "product" ? values.productIds : [],
+          amount: values.kind === "overall" ? amount : null,
+          quantityCartons: values.kind === "product" ? cartons : null,
           startDate: values.startDate,
           endDate: values.endDate,
           showOnDashboard: values.showOnDashboard,
@@ -121,8 +148,9 @@ function TargetDialog({
       setErrors(
         describeError(error, [
           "kind",
-          "productId",
+          "productIds",
           "amount",
+          "quantityCartons",
           "startDate",
           "endDate",
           "showOnDashboard",
@@ -151,38 +179,123 @@ function TargetDialog({
               type="radio"
               name={`${id}-kind`}
               checked={values.kind === kind}
-              onChange={() => set({ kind, productId: kind === "overall" ? "" : values.productId })}
+              onChange={() =>
+                set({
+                  kind,
+                  productIds: kind === "overall" ? [] : values.productIds,
+                  amount: kind === "overall" ? values.amount : "",
+                  quantityCartons: kind === "product" ? values.quantityCartons : "",
+                })
+              }
             />
             {kind === "overall" ? t("target.kind.overall") : t("target.kind.product")}
           </label>
         ))}
       </fieldset>
       {values.kind === "product" ? (
-        <Field id={`${id}-product`} label={t("target.product")} error={errors.fields.productId}>
-          <select
-            id={`${id}-product`}
-            value={values.productId}
-            onChange={(event) => set({ productId: event.target.value })}
-            className={inputClass}
-          >
-            <option value="">{t("common.select")}</option>
-            {activeProducts.map((product) => (
-              <option key={product.id} value={product.id}>
-                {product.name} ({product.sku})
-              </option>
+        <>
+          <fieldset className="flex flex-wrap gap-4">
+            <legend className="mb-1 text-sm font-medium">{t("target.productScope")}</legend>
+            {(["single", "multi"] as const).map((scope) => (
+              <label
+                key={scope}
+                className="flex min-h-(--touch-target) items-center gap-2 text-sm"
+              >
+                <input
+                  type="radio"
+                  name={`${id}-scope`}
+                  checked={values.productScope === scope}
+                  onChange={() =>
+                    set({
+                      productScope: scope,
+                      productIds:
+                        scope === "single" ? values.productIds.slice(0, 1) : values.productIds,
+                    })
+                  }
+                />
+                {t(`target.productScope.${scope}`)}
+              </label>
             ))}
-          </select>
+          </fieldset>
+          {values.productScope === "single" ? (
+            <Field
+              id={`${id}-product`}
+              label={t("target.product")}
+              error={errors.fields.productIds}
+            >
+              <select
+                id={`${id}-product`}
+                value={values.productIds[0] ?? ""}
+                onChange={(event) =>
+                  set({ productIds: event.target.value ? [event.target.value] : [] })
+                }
+                className={inputClass}
+              >
+                <option value="">{t("common.select")}</option>
+                {activeProducts.map((product) => (
+                  <option key={product.id} value={product.id}>
+                    {product.name} ({product.sku})
+                  </option>
+                ))}
+              </select>
+            </Field>
+          ) : (
+            <fieldset>
+              <legend className="mb-2 text-sm font-medium">{t("target.products")}</legend>
+              {errors.fields.productIds ? (
+                <p className="mb-2 text-sm text-error" role="alert">
+                  {errors.fields.productIds}
+                </p>
+              ) : null}
+              <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-border p-2">
+                {activeProducts.length === 0 ? (
+                  <p className="text-sm text-text-muted">{t("target.productsEmpty")}</p>
+                ) : (
+                  activeProducts.map((product) => (
+                    <label
+                      key={product.id}
+                      className="flex min-h-(--touch-target) items-center gap-2 rounded-md px-2 text-sm hover:bg-surface-muted"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={values.productIds.includes(product.id)}
+                        onChange={(event) => toggleProduct(product.id, event.target.checked)}
+                      />
+                      <span>
+                        {product.name}{" "}
+                        <span className="text-text-muted">({product.sku})</span>
+                      </span>
+                    </label>
+                  ))
+                )}
+              </div>
+            </fieldset>
+          )}
+          <Field
+            id={`${id}-cartons`}
+            label={t("target.cartons")}
+            error={errors.fields.quantityCartons}
+          >
+            <input
+              id={`${id}-cartons`}
+              inputMode="decimal"
+              value={values.quantityCartons}
+              onChange={(event) => set({ quantityCartons: normalizeDigits(event.target.value) })}
+              className={inputClass}
+            />
+          </Field>
+        </>
+      ) : (
+        <Field id={`${id}-amount`} label={t("target.amount")} error={errors.fields.amount}>
+          <input
+            id={`${id}-amount`}
+            inputMode="decimal"
+            value={values.amount}
+            onChange={(event) => set({ amount: normalizeDigits(event.target.value) })}
+            className={inputClass}
+          />
         </Field>
-      ) : null}
-      <Field id={`${id}-amount`} label={t("target.amount")} error={errors.fields.amount}>
-        <input
-          id={`${id}-amount`}
-          inputMode="decimal"
-          value={values.amount}
-          onChange={(event) => set({ amount: normalizeDigits(event.target.value) })}
-          className={inputClass}
-        />
-      </Field>
+      )}
       <div className="grid gap-4 sm:grid-cols-2">
         <Field id={`${id}-start`} label={t("target.startDate")} error={errors.fields.startDate}>
           <DatePicker
@@ -294,8 +407,9 @@ function TargetCard({
         targetId: target.id,
         input: {
           kind: target.kind,
-          productId: target.kind === "product" ? target.productId : null,
-          amount: target.amount,
+          productIds: target.products.map((p) => p.id),
+          amount: target.kind === "overall" ? target.amount : null,
+          quantityCartons: target.kind === "product" ? target.quantityCartons : null,
           startDate: target.startDate,
           endDate: target.endDate,
           showOnDashboard: checked,
