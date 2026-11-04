@@ -851,9 +851,11 @@ function SheetEditor({
                 lines.map((l) => l.batchKey),
               );
               const canAdd = !locked && options.length > lines.length;
-              // No batch (no stock, none used today): nothing can be issued from this product.
+              // No batch (no stock, none used today): issue/return/commission stay off; damage
+              // (pieces + rate) stays editable so field damage can be recorded without godown stock.
               const noStock = options.length === 0;
               const off = locked || noStock;
+              const damageOff = locked;
               const productNet = lines.reduce(
                 (sum, l) => sum.add(netOf(l, product.piecesPerCarton)),
                 toDecimal("0"),
@@ -972,16 +974,18 @@ function SheetEditor({
                         off,
                       )}
                     </td>
-                    <td className={`${inputCell} border-l ${GROUP.damaged.cell}`}>
+                    <td
+                      className={`${inputCell} border-l ${GROUP.damaged.cell}${noStock ? " text-text" : ""}`}
+                    >
                       {cell(
                         product.productId,
                         line,
                         "damaged",
                         `${name} ${t("dsr.sheet.damaged")}`,
-                        off,
+                        damageOff,
                       )}
                     </td>
-                    <td className={`${inputCell} ${GROUP.damaged.cell}`}>
+                    <td className={`${inputCell} ${GROUP.damaged.cell}${noStock ? " text-text" : ""}`}>
                       <CellInput
                         label={`${name} ${t("dsr.sheet.damageRate")}`}
                         value={
@@ -993,7 +997,7 @@ function SheetEditor({
                         onChange={(damageRate) =>
                           setLine(product.productId, line.id, { damageRate })
                         }
-                        disabled={off}
+                        disabled={damageOff}
                         mode="decimal"
                         width="w-24"
                       />

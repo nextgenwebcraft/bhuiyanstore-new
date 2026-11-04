@@ -6,6 +6,8 @@ Evidence-based progress. Mark an item done only with evidence.
 
 The canonical plan is now [PLAN.md](PLAN.md). The owner approved backend integration (D30).
 
+**2026-11-04** ([manifest](../changes/2026-11-04-dsr-damage-when-no-stock.yaml)): দৈনিক বিক্রয় হিসাব সামারি — no-stock product rows keep issued/return disabled; ড্যামেজ (পিস) and ড্যামেজ দর stay editable.
+
 **2026-11-04** ([manifest](../changes/2026-11-04-staff-login-master.yaml)): Manager/DSR login role + credentials managed only from master আমাদের স্টাফ; Setup admin/users and admin/roles removed (D113).
 
 **2026-11-04** ([manifest](../changes/2026-11-04-fixed-three-roles.yaml)): Fixed login roles Manager/DSR + singleton Super Admin; handover submit→pending→approve; DSR limited sheet/dashboard; remove `sales/field` (D112). Migration `20261104020000_fixed_roles_handover` (apply before deploy).
