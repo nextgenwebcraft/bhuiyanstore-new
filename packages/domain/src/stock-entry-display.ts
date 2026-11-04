@@ -57,3 +57,14 @@ export function stockEntryCartonParts(
 export function sumCartons(values: readonly DecimalInput[]): string {
   return values.reduce<Decimal>((total, v) => total.add(toDecimal(v)), new Decimal(0)).toString();
 }
+
+/**
+ * Whole cartons from a posted order line's paid pieces (D115 product-wise progress).
+ * Loose pieces do not count; unknown carton size → 0.
+ */
+export function stockEntryOrderCartons(
+  pieces: DecimalInput,
+  piecesPerCarton: DecimalInput | null,
+): string {
+  return stockEntryCartonParts(pieces, piecesPerCarton).cartons;
+}

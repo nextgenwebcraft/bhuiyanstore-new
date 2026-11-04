@@ -1,0 +1,25 @@
+id: 2026-11-05-daily-money-edit
+reason: >-
+  Owner 2026-11-05. দৈনিক বিক্রয় হিসাব money cards (shop due, DSR/SR advance-short,
+  operating cost) need in-row edit: Super Admin always; Manager until হাতে জমা; DSR never
+  sees Edit (D114, amends D112 for these cards).
+owners: [application, web, i18n, docs]
+changes:
+  - >-
+    packages/application: correctMoneyEntry (reverse+re-enter, money.correct); date-level
+    handover lock on post/correct/reverse money; DSR forbidden on correct
+  - >-
+    apps/web: Edit on the four daily money cards; form pre-fill + সংশোধন; API
+    POST money-entries/{id}/correct; ports/http/mock/queries
+  - packages/i18n: money.correct, money.correctConfirm, validation.money.correctDateFixed
+  - docs: D114
+affectedActionIds: []
+financialImpact: >-
+  A correction is the same ledger effect as reverse then post in one transaction (no gap
+  where the day lacks the row).
+backfill: none
+tests: >-
+  packages/application fixed-roles.integration.ts (Manager correct before/after handover,
+  DSR forbidden, Super Admin after handover); typecheck/lint on touched packages
+rollout: deploy the app (no migration)
+recovery: revert the commit

@@ -805,6 +805,29 @@ function assertHandoverEditable(ctx: AppContext, status: string | null | undefin
   }
 }
 
+/**
+ * D114: after হাতে জমা on any sheet for the date, only Super Admin may post/correct/reverse
+ * that day's money entries (Manager and DSR are locked for the date).
+ */
+async function assertDateHandoverEditable(
+  tx: Tx,
+  ctx: AppContext,
+  companyId: string,
+  date: string,
+) {
+  if (ctx.actor.isSuperAdmin) return;
+  const locked = await tx.dsrDay.findFirst({
+    where: {
+      companyId,
+      date: toDbDate(date),
+      status: { not: "reversed" },
+      handoverStatus: { in: ["pending", "approved"] },
+    },
+    select: { id: true },
+  });
+  if (locked) throw invalid("handoverStatus", "validation.daily.handoverLocked");
+}
+
 /** D112: DSR may not change issued/summary qty; only return/damage/commission (and related money). */
 function assertDsrSaveAllowed(
   access: CompanyAccess,
@@ -1153,21 +1176,16 @@ export async function listMoneyEntries(
   return rows.map(toMoneyEntry);
 }
 
-export async function postMoneyEntry(
-  ctx: AppContext,
-  companyId: string,
-  input: unknown,
-  requestKey?: string,
-): Promise<MoneyEntry> {
+type MoneyPostParsed = ReturnType<typeof moneyEntryPostRequestSchema.parse>;
+
+/** Shape and cross-field checks shared by post and correct (D12 / D114). */
+function parseMoneyPostRequest(input: unknown): MoneyPostParsed {
   const request = parseInput(moneyEntryPostRequestSchema, input);
   // D69: SR incentive paid in cash is retired; D72: so is a transfer between accounts (all money
   // is cash). Old entries stay in the history.
   if (request.kind === "srIncentive" || request.kind === "cashTransfer") {
     throw invalid("kind", "validation.daily.kindRetired");
   }
-  const access = await requirePermission(ctx, companyId, moneyKindPermission[request.kind], {
-    write: true,
-  });
   const effect = MONEY_KIND_EFFECTS[request.kind];
   const person = MONEY_PERSON[request.kind];
   if (effect.requiresStaff && !request.staffId) {
@@ -1209,6 +1227,128 @@ export async function postMoneyEntry(
       throw invalid("allocation", "validation.money.allocationSum");
     }
   }
+  return request;
+}
+
+async function insertMoneyEntry(
+  tx: Tx,
+  ctx: AppContext,
+  access: CompanyAccess,
+  companyId: string,
+  request: MoneyPostParsed,
+  auditAction: "money.post" | "money.correct",
+): Promise<MoneyEntry> {
+  const person = MONEY_PERSON[request.kind];
+  const market = MARKET_KINDS.has(request.kind);
+  const allocation = request.allocation;
+  if (request.staffId) {
+    const role = await roleOn(tx, companyId, request.staffId, request.date);
+    if (!role) throw invalid("staffId", "validation.daily.staffNotAssigned");
+    const supplier = (await staffEmployer(tx, request.staffId)) === "supplier";
+    if (person === "dsr" && role !== "dsr") throw invalid("staffId", "validation.daily.dsrOnly");
+    // এসআর হিসাব is supplier-employed, even when the role kind is not sr (D79).
+    if (person === "sr" && role !== "sr" && !supplier)
+      throw invalid("staffId", "validation.daily.srOnly");
+    if (person === "distributor" && (role === "sr" || supplier)) {
+      throw invalid("staffId", "validation.daily.notForSr");
+    }
+  }
+  if (request.expenseCategoryId) {
+    const category = await tx.expenseCategory.findFirst({
+      where: {
+        id: request.expenseCategoryId,
+        tenantId: access.company.tenantId,
+        active: true,
+      },
+    });
+    if (!category) throw invalid("expenseCategoryId", "validation.daily.unknownCategory");
+  }
+  if (request.productId) {
+    const product = await tx.product.findFirst({
+      where: { id: request.productId, companyId, status: "active" },
+    });
+    if (!product) throw invalid("productId", "validation.daily.unknownProduct");
+  }
+  let shopId = request.shopId;
+  if (request.newShop) {
+    // D50: the shop typed on the due page. An exact-name match is reused, never duplicated;
+    // creating it needs only the posting permission of the kind, and rolls back with the entry.
+    const { name } = request.newShop;
+    const existing = await tx.shop.findFirst({ where: { companyId, name } });
+    if (existing && existing.status !== "active") {
+      throw invalid("newShop", "validation.shop.inactiveName");
+    }
+    shopId =
+      existing?.id ??
+      (await insertShop(tx, ctx, access.company.tenantId, companyId, { name })).id;
+  } else if (shopId) {
+    const shop = await tx.shop.findFirst({
+      where: { id: shopId, companyId, status: "active" },
+    });
+    if (!shop) throw invalid("shopId", "validation.shop.unknown");
+  }
+  if (
+    market &&
+    request.staffId &&
+    (await hasFieldVisits(tx, companyId, request.staffId, request.date))
+  ) {
+    throw invalid("shopId", "validation.field.manualDueBlocked");
+  }
+  await checkOwedLimits(tx, access, request, allocation);
+  const row = await tx.moneyEntry.create({
+    data: {
+      tenantId: access.company.tenantId,
+      companyId,
+      date: toDbDate(request.date),
+      kind: request.kind,
+      amount: request.amount,
+      staffId: request.staffId,
+      shopId,
+      expenseCategoryId: request.expenseCategoryId,
+      productId: request.productId,
+      allocAdvance: allocation?.advance ?? null,
+      allocLoan: allocation?.loan ?? null,
+      allocShortage: allocation?.shortage ?? null,
+      srLoanType: request.srLoanType,
+      createdById: ctx.actor.userId,
+    },
+    include: moneyInclude,
+  });
+  await recordAudit(tx, ctx, {
+    companyId,
+    action: auditAction,
+    resourceType: "money_entry",
+    resourceId: row.id,
+    after: request,
+  });
+  return toMoneyEntry(row);
+}
+
+function assertMoneyEntryReversible(row: {
+  status: string;
+  payrollRunId: string | null;
+  dsrDayId: string | null;
+  kind: string;
+}) {
+  if (row.status !== "posted") throw invalid("", "validation.daily.alreadyReversed");
+  if (row.payrollRunId) throw invalid("", "validation.money.payrollOwned");
+  if (row.dsrDayId) {
+    // D54: a handover shortage/excess belongs to its day sheet; field entries to the field day.
+    const handover = row.kind === "staffShortage" || row.kind === "staffExcess";
+    throw invalid("", handover ? "validation.money.dsrDayOwned" : "validation.money.fieldOwned");
+  }
+}
+
+export async function postMoneyEntry(
+  ctx: AppContext,
+  companyId: string,
+  input: unknown,
+  requestKey?: string,
+): Promise<MoneyEntry> {
+  const request = parseMoneyPostRequest(input);
+  const access = await requirePermission(ctx, companyId, moneyKindPermission[request.kind], {
+    write: true,
+  });
 
   try {
     return await runIdempotent(
@@ -1217,92 +1357,67 @@ export async function postMoneyEntry(
       request,
       async (tx) => {
         await postingGuard(tx, companyId, request.date);
-        if (request.staffId) {
-          const role = await roleOn(tx, companyId, request.staffId, request.date);
-          if (!role) throw invalid("staffId", "validation.daily.staffNotAssigned");
-          const supplier = (await staffEmployer(tx, request.staffId)) === "supplier";
-          if (person === "dsr" && role !== "dsr")
-            throw invalid("staffId", "validation.daily.dsrOnly");
-          // এসআর হিসাব is supplier-employed, even when the role kind is not sr (D79).
-          if (person === "sr" && role !== "sr" && !supplier)
-            throw invalid("staffId", "validation.daily.srOnly");
-          if (person === "distributor" && (role === "sr" || supplier)) {
-            throw invalid("staffId", "validation.daily.notForSr");
-          }
-        }
-        if (request.expenseCategoryId) {
-          const category = await tx.expenseCategory.findFirst({
-            where: {
-              id: request.expenseCategoryId,
-              tenantId: access.company.tenantId,
-              active: true,
-            },
-          });
-          if (!category) throw invalid("expenseCategoryId", "validation.daily.unknownCategory");
-        }
-        if (request.productId) {
-          const product = await tx.product.findFirst({
-            where: { id: request.productId, companyId, status: "active" },
-          });
-          if (!product) throw invalid("productId", "validation.daily.unknownProduct");
-        }
-        let shopId = request.shopId;
-        if (request.newShop) {
-          // D50: the shop typed on the due page. An exact-name match is reused, never duplicated;
-          // creating it needs only the posting permission of the kind, and rolls back with the entry.
-          const { name } = request.newShop;
-          const existing = await tx.shop.findFirst({ where: { companyId, name } });
-          if (existing && existing.status !== "active") {
-            throw invalid("newShop", "validation.shop.inactiveName");
-          }
-          shopId =
-            existing?.id ??
-            (await insertShop(tx, ctx, access.company.tenantId, companyId, { name })).id;
-        } else if (shopId) {
-          const shop = await tx.shop.findFirst({
-            where: { id: shopId, companyId, status: "active" },
-          });
-          if (!shop) throw invalid("shopId", "validation.shop.unknown");
-        }
-        if (
-          market &&
-          request.staffId &&
-          (await hasFieldVisits(tx, companyId, request.staffId, request.date))
-        ) {
-          throw invalid("shopId", "validation.field.manualDueBlocked");
-        }
-        await checkOwedLimits(tx, access, request, allocation);
-        const row = await tx.moneyEntry.create({
-          data: {
-            tenantId: access.company.tenantId,
-            companyId,
-            date: toDbDate(request.date),
-            kind: request.kind,
-            amount: request.amount,
-            staffId: request.staffId,
-            shopId,
-            expenseCategoryId: request.expenseCategoryId,
-            productId: request.productId,
-            allocAdvance: allocation?.advance ?? null,
-            allocLoan: allocation?.loan ?? null,
-            allocShortage: allocation?.shortage ?? null,
-            srLoanType: request.srLoanType,
-            createdById: ctx.actor.userId,
-          },
-          include: moneyInclude,
-        });
-        await recordAudit(tx, ctx, {
-          companyId,
-          action: "money.post",
-          resourceType: "money_entry",
-          resourceId: row.id,
-          after: request,
-        });
-        return toMoneyEntry(row);
+        await assertDateHandoverEditable(tx, ctx, companyId, request.date);
+        return insertMoneyEntry(tx, ctx, access, companyId, request, "money.post");
       },
     );
   } catch (error) {
     // Two requests creating the same new shop at once: the loser sees the name clash.
+    if (request.newShop && isUniqueViolation(error)) {
+      throw invalid("newShop", "validation.shop.duplicate");
+    }
+    throw error;
+  }
+}
+
+/**
+ * D114: correct a posted daily money row in one transaction (reverse + re-enter). Super Admin
+ * always; Manager until হাতে জমা for that date; DSR never. Needs the kind's post permission, not
+ * `payment.reverse`.
+ */
+export async function correctMoneyEntry(
+  ctx: AppContext,
+  companyId: string,
+  entryId: string,
+  input: unknown,
+  requestKey?: string,
+): Promise<MoneyEntry> {
+  const request = parseMoneyPostRequest(input);
+  const access = await requirePermission(ctx, companyId, moneyKindPermission[request.kind], {
+    write: true,
+  });
+  if (access.loginRoleKind === "dsr") throw new AppError("FORBIDDEN");
+
+  try {
+    return await runIdempotent(
+      ctx,
+      { scope: companyId, action: "money.correct", requestKey },
+      { entryId, ...request },
+      async (tx) => {
+        const row = await tx.moneyEntry.findFirst({ where: { id: entryId, companyId } });
+        if (!row) throw invalid("", "validation.daily.notFound");
+        assertMoneyEntryReversible(row);
+        const date = fromDbDate(row.date);
+        if (request.date !== date) throw invalid("date", "validation.money.correctDateFixed");
+        await postingGuard(tx, companyId, date);
+        await assertDateHandoverEditable(tx, ctx, companyId, date);
+        const reversed = await tx.moneyEntry.updateMany({
+          where: { id: entryId, status: "posted" },
+          data: { status: "reversed", reversedAt: new Date(), reversedById: ctx.actor.userId },
+        });
+        if (reversed.count !== 1) throw invalid("", "validation.daily.alreadyReversed");
+        await recordAudit(tx, ctx, {
+          companyId,
+          action: "money.correct",
+          resourceType: "money_entry",
+          resourceId: entryId,
+          before: { status: "posted", kind: row.kind, amount: plain(row.amount) },
+          after: { status: "reversed" },
+        });
+        return insertMoneyEntry(tx, ctx, access, companyId, request, "money.correct");
+      },
+    );
+  } catch (error) {
     if (request.newShop && isUniqueViolation(error)) {
       throw invalid("newShop", "validation.shop.duplicate");
     }
@@ -1324,17 +1439,10 @@ export async function reverseMoneyEntry(
     async (tx) => {
       const row = await tx.moneyEntry.findFirst({ where: { id: entryId, companyId } });
       if (!row) throw invalid("", "validation.daily.notFound");
-      if (row.status !== "posted") throw invalid("", "validation.daily.alreadyReversed");
-      if (row.payrollRunId) throw invalid("", "validation.money.payrollOwned");
-      if (row.dsrDayId) {
-        // D54: a handover shortage/excess belongs to its day sheet; field entries to the field day.
-        const handover = row.kind === "staffShortage" || row.kind === "staffExcess";
-        throw invalid(
-          "",
-          handover ? "validation.money.dsrDayOwned" : "validation.money.fieldOwned",
-        );
-      }
-      await postingGuard(tx, companyId, fromDbDate(row.date));
+      assertMoneyEntryReversible(row);
+      const date = fromDbDate(row.date);
+      await postingGuard(tx, companyId, date);
+      await assertDateHandoverEditable(tx, ctx, companyId, date);
       const updated = await tx.moneyEntry.updateMany({
         where: { id: entryId, status: "posted" },
         data: { status: "reversed", reversedAt: new Date(), reversedById: ctx.actor.userId },

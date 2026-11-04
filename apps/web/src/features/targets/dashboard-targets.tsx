@@ -8,7 +8,7 @@ import { companyHref } from "@/features/shell/navigation";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 import { TargetProgressCompact } from "./target-progress";
 
-/** Up to two pinned order-target widgets beside the dashboard period filter (D111). */
+/** Up to two pinned order-target widgets beside the dashboard period filter (D111/D115). */
 export function DashboardTargetStrip() {
   const { company, permissions } = useCurrentWorkspace();
   const canView = permissions.includes("company.view");

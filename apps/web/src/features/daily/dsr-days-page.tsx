@@ -1102,10 +1102,22 @@ function SheetEditor({
         date={date}
         fieldOwned={false}
         dsrs={dsrChoices}
+        handoverLocked={handoverLocked}
       />
-      <StaffCashEntry companyId={companyId} staffId={staff.id} date={date} dsrs={staffChoices} />
-      <SrCashEntry companyId={companyId} staffId={staff.id} date={date} />
-      <OperatingCostEntry companyId={companyId} date={date} />
+      <StaffCashEntry
+        companyId={companyId}
+        staffId={staff.id}
+        date={date}
+        dsrs={staffChoices}
+        handoverLocked={handoverLocked}
+      />
+      <SrCashEntry
+        companyId={companyId}
+        staffId={staff.id}
+        date={date}
+        handoverLocked={handoverLocked}
+      />
+      <OperatingCostEntry companyId={companyId} date={date} handoverLocked={handoverLocked} />
       {!isDsrLogin ? (
         <CashCheck
           {...cash}

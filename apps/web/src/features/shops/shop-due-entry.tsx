@@ -25,8 +25,14 @@ import { FormSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
 import { TableScroller } from "@/components/table-scroller";
 import { describeError } from "@/data/ports/service-error";
-import { useDsrFieldDay, useMoneyEntries, usePostMoneyEntry, useShops } from "@/data/queries";
-import { clean } from "@/features/daily/daily-kit";
+import {
+  useCorrectMoneyEntry,
+  useDsrFieldDay,
+  useMoneyEntries,
+  usePostMoneyEntry,
+  useShops,
+} from "@/data/queries";
+import { canEditDailyMoney, canPostDailyMoney, clean } from "@/features/daily/daily-kit";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 import { overLimit } from "./shops-page";
 
@@ -46,6 +52,8 @@ function EntryForm({
   kinds,
   shops,
   dsr,
+  editing,
+  onClearEdit,
 }: {
   companyId: string;
   staffId: string;
@@ -53,13 +61,19 @@ function EntryForm({
   kinds: DueKind[];
   shops: Shop[];
   dsr?: { id: string; dsrs: readonly DsrChoice[]; onChange: (staffId: string) => void };
+  editing: MoneyEntry | null;
+  onClearEdit: () => void;
 }) {
   const id = useId();
   const post = usePostMoneyEntry(companyId);
-  const [kind, setKind] = useState<DueKind>(kinds[0] ?? "marketDueNew");
-  const [shopText, setShopText] = useState("");
-  const [shopId, setShopId] = useState<string | null>(null);
-  const [amount, setAmount] = useState("");
+  const correct = useCorrectMoneyEntry(companyId);
+  // Remounted via key when `editing` changes, so initial state comes from the row being edited.
+  const [kind, setKind] = useState<DueKind>(
+    editing ? (editing.kind as DueKind) : (kinds[0] ?? "marketDueNew"),
+  );
+  const [shopText, setShopText] = useState(editing?.shopName ?? "");
+  const [shopId, setShopId] = useState<string | null>(editing?.shopId ?? null);
+  const [amount, setAmount] = useState(editing?.amount ?? "");
   const [error, setError] = useState<string | undefined>();
 
   const active = shops.filter((s) => s.status === "active");
@@ -85,6 +99,7 @@ function EntryForm({
   const pickedId = shopId ?? exactMatch(options, shopText)?.id ?? null;
   const shop = active.find((s) => s.id === pickedId);
   const newName = shop ? "" : shopText.trim();
+  const pending = post.isPending || correct.isPending;
 
   async function submit() {
     setError(undefined);
@@ -93,14 +108,21 @@ function EntryForm({
     if (!/^\d+(\.\d{1,2})?$/.test(value) || !/[1-9]/.test(value)) {
       return setError(t("validation.amountPositive"));
     }
+    const body = {
+      date,
+      kind,
+      amount: value,
+      staffId,
+      ...(shop ? { shopId: shop.id } : { newShop: { name: newName } }),
+    };
     try {
-      await post.mutateAsync({
-        date,
-        kind,
-        amount: value,
-        staffId,
-        ...(shop ? { shopId: shop.id } : { newShop: { name: newName } }),
-      });
+      if (editing) {
+        if (!window.confirm(t("money.correctConfirm"))) return;
+        await correct.mutateAsync({ entryId: editing.id, body });
+        onClearEdit();
+      } else {
+        await post.mutateAsync(body);
+      }
       setAmount("");
       setShopText("");
       setShopId(null);
@@ -192,10 +214,19 @@ function EntryForm({
         </Field>
       </div>
       {error ? <StatePanel tone="error" title={error} /> : null}
-      <div>
-        <Button variant="primary" disabled={post.isPending} onClick={() => void submit()}>
-          {post.isPending ? t("common.posting") : t("common.post")}
+      <div className="flex flex-wrap gap-2">
+        <Button variant="primary" disabled={pending} onClick={() => void submit()}>
+          {pending
+            ? t("common.posting")
+            : editing
+              ? t("money.correct")
+              : t("common.post")}
         </Button>
+        {editing ? (
+          <Button disabled={pending} onClick={onClearEdit}>
+            {t("common.cancel")}
+          </Button>
+        ) : null}
       </div>
     </div>
   );
@@ -205,10 +236,14 @@ function Entries({
   companyId,
   staffId,
   date,
+  canEdit,
+  onEdit,
 }: {
   companyId: string;
   staffId: string;
   date: string;
+  canEdit: boolean;
+  onEdit: (entry: MoneyEntry) => void;
 }) {
   const entries = useMoneyEntries(companyId, { from: date, to: date, staffId });
 
@@ -245,6 +280,11 @@ function Entries({
                 <th scope="col" className={thClass}>
                   {t("common.status")}
                 </th>
+                {canEdit ? (
+                  <th scope="col" className={thClass}>
+                    <span className="sr-only">{t("common.edit")}</span>
+                  </th>
+                ) : null}
               </tr>
             </thead>
             <tbody>
@@ -256,6 +296,13 @@ function Entries({
                   <td className={tdClass}>
                     <StatusChip status={entry.status} />
                   </td>
+                  {canEdit ? (
+                    <td className={`${tdClass} text-right`}>
+                      {entry.status === "posted" && !entry.dsrDayId && !entry.payrollRunId ? (
+                        <Button onClick={() => onEdit(entry)}>{t("common.edit")}</Button>
+                      ) : null}
+                    </td>
+                  ) : null}
                 </tr>
               ))}
             </tbody>
@@ -284,6 +331,7 @@ export function ShopDueEntry({
   date,
   fieldOwned,
   dsrs,
+  handoverLocked,
 }: {
   companyId: string;
   staffId: string;
@@ -292,10 +340,13 @@ export function ShopDueEntry({
   fieldOwned: boolean;
   /** DSRs the card can post for. The open sheet's DSR starts selected. */
   dsrs?: readonly DsrChoice[];
+  /** D114: pass from the day sheet; omitted elsewhere hides Edit. */
+  handoverLocked?: boolean;
 }) {
-  const { permissions } = useCurrentWorkspace();
+  const { permissions, loginRoleKind } = useCurrentWorkspace();
   const shops = useShops(companyId);
   const [picked, setPicked] = useState(staffId);
+  const [editing, setEditing] = useState<MoneyEntry | null>(null);
   const dsrList = dsrs ?? [];
   const choosing = dsrList.length > 0;
   const activeId = dsrList.some((dsr) => dsr.id === picked)
@@ -304,29 +355,42 @@ export function ShopDueEntry({
   const fieldDay = useDsrFieldDay(companyId, activeId, date, choosing);
   const owned = choosing ? Boolean(fieldDay.data && fieldDay.data.visits.length > 0) : fieldOwned;
   const kinds = KINDS.filter((k) => permissions.includes(moneyKindPermission[k]));
+  const canEdit = canEditDailyMoney(loginRoleKind, handoverLocked);
+  const canCreate = canPostDailyMoney(loginRoleKind, handoverLocked) && kinds.length > 0;
   return (
     <section className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-4">
       <h3 className="font-semibold">{t("shopDue.title")}</h3>
       {owned ? (
         <StatePanel title={t("validation.field.manualDueBlocked")} />
-      ) : kinds.length === 0 ? null : choosing && fieldDay.isPending ? (
+      ) : !canCreate && !editing ? null : choosing && fieldDay.isPending ? (
         <FormSkeleton fields={2} />
       ) : shops.isError ? (
         <QueryError error={shops.error} onRetry={() => void shops.refetch()} />
       ) : shops.isPending ? (
         <FormSkeleton fields={2} />
-      ) : (
+      ) : canCreate || editing ? (
         <EntryForm
-          key={`${activeId}-${date}`}
+          key={`${activeId}-${date}-${editing?.id ?? "new"}`}
           companyId={companyId}
           staffId={activeId}
           date={date}
           kinds={kinds}
           shops={shops.data}
+          editing={editing}
+          onClearEdit={() => setEditing(null)}
           {...(choosing ? { dsr: { id: activeId, dsrs: dsrList, onChange: setPicked } } : {})}
         />
-      )}
-      <Entries companyId={companyId} staffId={activeId} date={date} />
+      ) : null}
+      <Entries
+        companyId={companyId}
+        staffId={activeId}
+        date={date}
+        canEdit={canEdit && !owned}
+        onEdit={(entry) => {
+          if (entry.staffId) setPicked(entry.staffId);
+          setEditing(entry);
+        }}
+      />
     </section>
   );
 }

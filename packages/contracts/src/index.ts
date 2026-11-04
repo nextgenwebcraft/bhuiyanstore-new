@@ -347,6 +347,7 @@ export {
   type OrderTarget,
   type OrderTargetKind,
   type OrderTargetList,
+  type OrderTargetProduct,
   type OrderTargetProgress,
   type OrderTargetProgressStatus,
   type OrderTargetStatus,

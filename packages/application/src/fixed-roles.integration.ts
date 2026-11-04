@@ -5,7 +5,14 @@ import { listRoles } from "./administration";
 import { cashAccounts, staffRoles } from "./configuration";
 import { createCompany, listWorkspaces } from "./companies";
 import type { AppContext } from "./context";
-import { approveDsrHandover, postDsrDay, saveDsrDay, submitDsrHandover } from "./daily";
+import {
+  approveDsrHandover,
+  correctMoneyEntry,
+  postDsrDay,
+  postMoneyEntry,
+  saveDsrDay,
+  submitDsrHandover,
+} from "./daily";
 import { AppError } from "./errors";
 import { createStaffLogin, resetStaffLoginPassword, updateStaffLogin } from "./field";
 import { LOGIN_ROLE_NAMES } from "./fixed-roles";
@@ -331,5 +338,95 @@ describe("D112: DSR cannot post; Manager handover submit then Super Admin approv
       version: pending.version,
     });
     expect(approved.handoverStatus).toBe("approved");
+  });
+});
+
+describe("D114: daily money correct by role and handover", () => {
+  it("lets Manager correct before handover, locks after; DSR forbidden; Super Admin after", async () => {
+    const moneyDay = "2026-11-02";
+    const mamunUser = must(await db.user.findFirst({ where: { email: "mamun@example.test" } }));
+    const jamalUser = must(await db.user.findFirst({ where: { email: "jamal@example.test" } }));
+    const dsrCtx = contextFor(db, {
+      userId: mamunUser.id,
+      tenantId: admin.tenantId,
+      isSuperAdmin: false,
+      mustChangePassword: false,
+    });
+    const managerCtx = contextFor(db, {
+      userId: jamalUser.id,
+      tenantId: admin.tenantId,
+      isSuperAdmin: false,
+      mustChangePassword: false,
+    });
+
+    const draft = await saveDsrDay(ctx, company, {
+      date: moneyDay,
+      staffId: id.mamun,
+      version: 0,
+      marketDueNew: "0",
+      marketDueCollected: "0",
+      cashHandedOver: null,
+      lines: [{ productId: id.alpha, issued: "24", returned: "0", damaged: "0" }],
+    });
+    const posted = await postDsrDay(ctx, company, draft.id, { version: draft.version });
+
+    const entry = await postMoneyEntry(managerCtx, company, {
+      date: moneyDay,
+      kind: "staffAdvance",
+      amount: "50",
+      staffId: id.mamun,
+    });
+    const corrected = await correctMoneyEntry(managerCtx, company, entry.id, {
+      date: moneyDay,
+      kind: "staffAdvance",
+      amount: "75",
+      staffId: id.mamun,
+    });
+    expect(corrected.amount).toBe("75");
+    expect(corrected.id).not.toBe(entry.id);
+
+    await expectCode(
+      correctMoneyEntry(dsrCtx, company, corrected.id, {
+        date: moneyDay,
+        kind: "staffAdvance",
+        amount: "80",
+        staffId: id.mamun,
+      }),
+      "FORBIDDEN",
+    );
+
+    await submitDsrHandover(managerCtx, company, posted.id, {
+      version: posted.version,
+      cashHandedOver: "100",
+    });
+
+    await expectField(
+      correctMoneyEntry(managerCtx, company, corrected.id, {
+        date: moneyDay,
+        kind: "staffAdvance",
+        amount: "90",
+        staffId: id.mamun,
+      }),
+      "handoverStatus",
+      "validation.daily.handoverLocked",
+    );
+    await expectField(
+      postMoneyEntry(managerCtx, company, {
+        date: moneyDay,
+        kind: "staffAdvance",
+        amount: "10",
+        staffId: id.mamun,
+      }),
+      "handoverStatus",
+      "validation.daily.handoverLocked",
+    );
+
+    const adminCorrected = await correctMoneyEntry(ctx, company, corrected.id, {
+      date: moneyDay,
+      kind: "staffAdvance",
+      amount: "90",
+      staffId: id.mamun,
+    });
+    expect(adminCorrected.amount).toBe("90");
   });
 });

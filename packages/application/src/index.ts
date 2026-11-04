@@ -41,6 +41,7 @@ export { cashAccounts, expenseCategories, staffRoles } from "./configuration";
 export type { AppContext, Tx } from "./context";
 export {
   approveDsrHandover,
+  correctMoneyEntry,
   discardDsrDay,
   getDashboardSummary,
   getDayView,

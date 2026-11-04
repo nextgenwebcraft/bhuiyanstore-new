@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { stockEntryAmount, stockEntryCartonParts, sumCartons } from "./stock-entry-display";
+import {
+  stockEntryAmount,
+  stockEntryCartonParts,
+  stockEntryOrderCartons,
+  sumCartons,
+} from "./stock-entry-display";
 
 describe("stockEntryAmount", () => {
   it("bills an order as pieces × carton rate ÷ carton size", () => {
@@ -50,5 +55,16 @@ describe("stockEntryCartonParts", () => {
 
   it("treats all quantity as loose when carton size is unknown", () => {
     expect(stockEntryCartonParts("50", null)).toEqual({ cartons: "0", loosePieces: "50" });
+  });
+});
+
+describe("stockEntryOrderCartons", () => {
+  it("counts whole cartons toward a product-wise target (D115)", () => {
+    expect(stockEntryOrderCartons("50", "24")).toBe("2");
+    expect(stockEntryOrderCartons("24", "24")).toBe("1");
+    expect(stockEntryOrderCartons("10", null)).toBe("0");
+    expect(sumCartons([stockEntryOrderCartons("48", "24"), stockEntryOrderCartons("24", "12")])).toBe(
+      "4",
+    );
   });
 });

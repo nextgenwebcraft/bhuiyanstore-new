@@ -273,3 +273,32 @@ export function PriceCells({
 export function SectionTitle({ children }: { children: React.ReactNode }) {
   return <h2 className="mt-8 mb-3 text-sm font-semibold">{children}</h2>;
 }
+
+// ---------------------------------------------------------------- daily money edit (D114)
+
+/**
+ * Who may see the Edit control on দৈনিক বিক্রয় হিসাব money rows (D114): Super Admin always;
+ * Manager until হাতে জমা; DSR never. Pass `handoverLocked` only from the day sheet — when
+ * omitted (other surfaces), Edit stays hidden.
+ */
+export function canEditDailyMoney(
+  loginRoleKind: "manager" | "dsr" | null,
+  handoverLocked: boolean | undefined,
+): boolean {
+  if (handoverLocked === undefined) return false;
+  if (loginRoleKind === "dsr") return false;
+  if (handoverLocked && loginRoleKind === "manager") return false;
+  return loginRoleKind === null || loginRoleKind === "manager";
+}
+
+/**
+ * Who may post a new money row on that date after হাতে জমা (Super Admin only when locked).
+ * When `handoverLocked` is omitted, posting is unchanged for other surfaces.
+ */
+export function canPostDailyMoney(
+  loginRoleKind: "manager" | "dsr" | null,
+  handoverLocked: boolean | undefined,
+): boolean {
+  if (handoverLocked === undefined) return true;
+  return !(handoverLocked && loginRoleKind !== null);
+}
