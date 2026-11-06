@@ -318,6 +318,7 @@ export function createMockService(
     listAllStaff: demoReadOnly,
     createStaff: demoReadOnly,
     updateStaff: demoReadOnly,
+    getStaffDeleteImpact: demoReadOnly,
     deleteStaff: demoReadOnly,
     addStaffAssignment: demoReadOnly,
     updateStaffAssignment: demoReadOnly,

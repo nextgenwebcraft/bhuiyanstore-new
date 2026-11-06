@@ -3,9 +3,11 @@ import {
   staffAssignmentRequestSchema,
   masterPanelHireRole,
   staffCreateRequestSchema,
+  staffDeleteImpactSchema,
   staffMemberSchema,
   staffRecordSchema,
   staffUpsertRequestSchema,
+  type StaffDeleteImpact,
   type StaffEmployer,
   type StaffMember,
   type StaffRecord,
@@ -19,7 +21,6 @@ import { invalid, parseInput } from "./errors";
 import { isForeignKeyViolation, runIdempotent } from "./idempotency";
 import { masterCompanyId, staffCompanyIds } from "./master";
 import { plain } from "./numeric";
-import { releaseOpeningLines, releaseStaffOpenings } from "./opening-lock";
 
 const withAssignments = {
   assignments: { include: { role: true }, orderBy: { from: "asc" } },
@@ -307,7 +308,9 @@ export async function createStaff(
       if (company?.isMaster && !masterPanelHireRole(role)) {
         throw invalid("assignment.roleId", "validation.staff.masterRoles");
       }
-      if (employerMismatch(role.kind, data.employer)) {
+      // D80: master-panel hires are always distributor-employed.
+      const employer = company?.isMaster ? "distributor" : data.employer;
+      if (employerMismatch(role.kind, employer)) {
         throw invalid("employer", "validation.staff.employerRole");
       }
       if (role.kind === "sr" && assignment.monthlySalary !== null) {
@@ -322,7 +325,7 @@ export async function createStaff(
         data: {
           tenantId: ctx.actor.tenantId,
           name: data.name,
-          employer: data.employer,
+          employer,
           phone: data.phone?.trim() || null,
           status: data.status,
           companyId: data.companyId,
@@ -351,6 +354,16 @@ export async function createStaff(
   );
 }
 
+/**
+ * An SR is deleted/edited from their own company, never from the master panel (D80, D110).
+ * Role kind is the gate: employer alone is not enough — a mis-tagged আমাদের স্টাফ
+ * hire (supplier + manager/DSR) must still be removable here; real SRs always have
+ * an `sr` assignment (D02).
+ */
+function isSr(staff: { assignments: readonly { role: { kind: string } }[] }) {
+  return staff.assignments.some((a) => a.role.kind === "sr");
+}
+
 /** Full replace of the person's own fields; assignments change through their own commands. */
 export async function updateStaff(
   ctx: AppContext,
@@ -367,8 +380,18 @@ export async function updateStaff(
     { scope: companyId, action: `staff.update:${staffId}`, requestKey },
     data,
     async (tx) => {
-      const before = await loadCompanyStaff(tx, ctx, companyId, staffId);
-      if (before.assignments.some((a) => employerMismatch(a.role.kind, data.employer))) {
+      const acting = await tx.company.findUnique({
+        where: { id: companyId },
+        select: { isMaster: true },
+      });
+      // D110: the master panel may edit any non-SR person of the tenant.
+      const before = acting?.isMaster
+        ? await loadStaff(tx, ctx, staffId)
+        : await loadCompanyStaff(tx, ctx, companyId, staffId);
+      if (acting?.isMaster && isSr(before)) throw invalid("id", "validation.staff.unknown");
+      // D80: master-panel people stay distributor-employed.
+      const employer = acting?.isMaster ? "distributor" : data.employer;
+      if (before.assignments.some((a) => employerMismatch(a.role.kind, employer))) {
         throw invalid("employer", "validation.staff.employerRole");
       }
       if (data.companyId !== before.companyId) {
@@ -382,7 +405,7 @@ export async function updateStaff(
         where: { id: staffId },
         data: {
           name: data.name,
-          employer: data.employer,
+          employer,
           status: data.status,
           companyId: data.companyId,
           ...(data.phone === undefined ? {} : { phone: data.phone.trim() || null }),
@@ -471,17 +494,101 @@ async function writeAssignment(
   });
 }
 
-/** An SR is deleted from their own company, never from the master panel (D80, D110). */
-function isSr(staff: { employer: string; assignments: readonly { role: { kind: string } }[] }) {
-  return staff.employer === "supplier" || staff.assignments.some((a) => a.role.kind === "sr");
+/** Counts every hishab row that will go with the person (D116). */
+async function countStaffImpact(tx: Tx, staffId: string) {
+  const days = await tx.dsrDay.findMany({ where: { staffId }, select: { id: true } });
+  const dayIds = days.map((d) => d.id);
+  const damageWhere =
+    dayIds.length > 0
+      ? { OR: [{ staffId }, { dsrDayId: { in: dayIds } }] }
+      : { staffId };
+  const moneyWhere =
+    dayIds.length > 0
+      ? { OR: [{ staffId }, { dsrDayId: { in: dayIds } }] }
+      : { staffId };
+  const [moneyEntries, openingBalances, payrollLines, fieldVisits, fieldReports, damageCases, shopsAdded, staff] =
+    await Promise.all([
+      tx.moneyEntry.count({ where: moneyWhere }),
+      tx.openingBalanceLine.count({ where: { staffId } }),
+      tx.payrollLine.count({ where: { staffId } }),
+      tx.fieldVisit.count({ where: { staffId } }),
+      tx.fieldDayReport.count({ where: { staffId } }),
+      tx.damageCase.count({ where: damageWhere }),
+      tx.shop.count({ where: { addedByStaffId: staffId } }),
+      tx.staff.findUnique({ where: { id: staffId }, select: { userId: true } }),
+    ]);
+  return {
+    moneyEntries,
+    openingBalances,
+    payrollLines,
+    dsrDays: days.length,
+    fieldVisits,
+    fieldReports,
+    damageCases,
+    shopsAdded,
+    hasLogin: staff?.userId != null,
+  };
 }
 
 /**
- * Hard delete of a person nothing refers to (D51): no DSR sheet, field visit or field report,
- * money entry, payroll line, damage case or shop added by them, and no login. From a company,
- * an assignment or opening line in another company also blocks it (D59). From the master panel,
- * assignments in the operating companies are the person's own work and go with them; opening
- * lines are released in every company whose opening is still unlocked (D110).
+ * D116: wipe every posted fact tied to this person so the month engine recalculates without
+ * them (money, opening, payroll lines, day sheets, field visits/reports, damage cases). Shop
+ * "added by" is cleared; a linked login is unlinked (the User row stays).
+ */
+async function wipeStaffHistory(tx: Tx, staffId: string) {
+  const days = await tx.dsrDay.findMany({ where: { staffId }, select: { id: true } });
+  const dayIds = days.map((d) => d.id);
+  const caseWhere =
+    dayIds.length > 0
+      ? { OR: [{ staffId }, { dsrDayId: { in: dayIds } }] }
+      : { staffId };
+  const cases = await tx.damageCase.findMany({ where: caseWhere, select: { id: true } });
+  const caseIds = cases.map((c) => c.id);
+  if (caseIds.length > 0) {
+    await tx.damageEvent.deleteMany({ where: { caseId: { in: caseIds } } });
+    await tx.damageCase.deleteMany({ where: { id: { in: caseIds } } });
+  }
+  const moneyWhere =
+    dayIds.length > 0
+      ? { OR: [{ staffId }, { dsrDayId: { in: dayIds } }] }
+      : { staffId };
+  await tx.moneyEntry.deleteMany({ where: moneyWhere });
+  await tx.fieldVisit.deleteMany({ where: { staffId } });
+  await tx.fieldDayReport.deleteMany({ where: { staffId } });
+  await tx.dsrDay.deleteMany({ where: { staffId } });
+  await tx.payrollLine.deleteMany({ where: { staffId } });
+  await tx.openingBalanceLine.deleteMany({ where: { staffId } });
+  await tx.shop.updateMany({ where: { addedByStaffId: staffId }, data: { addedByStaffId: null } });
+  await tx.staff.update({ where: { id: staffId }, data: { userId: null } });
+}
+
+/** Preview for the delete confirm dialog (D116). */
+export async function getStaffDeleteImpact(
+  ctx: AppContext,
+  companyId: string,
+  staffId: string,
+): Promise<StaffDeleteImpact> {
+  await requirePermission(ctx, companyId, "staff.manage");
+  const acting = await ctx.db.company.findUnique({
+    where: { id: companyId },
+    select: { isMaster: true },
+  });
+  const before = acting?.isMaster
+    ? await loadStaff(ctx.db, ctx, staffId)
+    : await loadCompanyStaff(ctx.db, ctx, companyId, staffId);
+  if (acting?.isMaster && isSr(before)) throw invalid("id", "validation.staff.unknown");
+  const counts = await countStaffImpact(ctx.db, staffId);
+  return staffDeleteImpactSchema.parse({
+    staffId,
+    staffName: before.name,
+    ...counts,
+  });
+}
+
+/**
+ * Hard delete of a person (D116, amends D51/D110): related hishab and day sheets are wiped in
+ * the same transaction so balances and stock recalculate without them. An SR is still deleted
+ * only from their company, never from the master panel (D80).
  */
 export async function deleteStaff(
   ctx: AppContext,
@@ -500,33 +607,15 @@ export async function deleteStaff(
         ? await loadStaff(tx, ctx, staffId)
         : await loadCompanyStaff(tx, ctx, companyId, staffId);
       if (acting?.isMaster && isSr(before)) throw invalid("id", "validation.staff.unknown");
-      const refs = await Promise.all([
-        tx.dsrDay.count({ where: { staffId } }),
-        tx.fieldVisit.count({ where: { staffId } }),
-        tx.fieldDayReport.count({ where: { staffId } }),
-        tx.moneyEntry.count({ where: { staffId } }),
-        tx.payrollLine.count({ where: { staffId } }),
-        tx.damageCase.count({ where: { staffId } }),
-        tx.shop.count({ where: { addedByStaffId: staffId } }),
-      ]);
-      if (refs.some((n) => n > 0) || before.user !== null) {
-        throw invalid("id", "validation.staff.inUse");
-      }
-      const elsewhere =
-        !acting?.isMaster && before.assignments.some((a) => a.companyId !== companyId);
-      const opening = elsewhere
-        ? false
-        : acting?.isMaster
-          ? await releaseStaffOpenings(tx, staffId)
-          : await releaseOpeningLines(tx, companyId, { staffId });
-      if (!opening) throw invalid("id", "validation.staff.inUse");
+      const impact = await countStaffImpact(tx, staffId);
+      await wipeStaffHistory(tx, staffId);
       await tx.staff.delete({ where: { id: staffId } });
       await recordAudit(tx, ctx, {
         companyId,
         action: "staff.delete",
         resourceType: "staff",
         resourceId: staffId,
-        before: { ...toRecord(before, visible), openingLinesRemoved: opening },
+        before: { ...toRecord(before, visible), impact },
       });
     });
   } catch (error) {

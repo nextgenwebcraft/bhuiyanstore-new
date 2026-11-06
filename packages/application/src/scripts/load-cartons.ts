@@ -46,7 +46,6 @@ try {
       userId: admin.id,
       tenantId: company.tenantId,
       isSuperAdmin: true,
-      mustChangePassword: false,
     },
     requestId: `load-cartons-${randomUUID()}`,
   };

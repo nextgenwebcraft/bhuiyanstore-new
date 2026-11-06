@@ -13,7 +13,6 @@ import { ServiceProvider } from "../service-context";
 import { createHttpService, type HttpDistributionService } from "./http-service";
 
 export const SIGN_IN_PATH = "/login";
-const CHANGE_PASSWORD_PATH = "/change-password";
 
 type Session = { me: Me; service: HttpDistributionService };
 
@@ -28,7 +27,7 @@ function FullPage({ children }: { children: React.ReactNode }) {
 
 /**
  * Real-backend composition: HTTP adapter plus the session gate. Signed-out visitors go to the
- * sign-in page and a pending one-time password must be changed before anything else.
+ * sign-in page (D117: no forced password-change redirect).
  */
 export function HttpProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -46,12 +45,10 @@ export function HttpProvider({ children }: { children: React.ReactNode }) {
     staleTime: Infinity,
   });
   const signedOut = !onSignIn && me.isError && errorCodeOf(me.error) === "UNAUTHENTICATED";
-  const mustChange = me.data?.mustChangePassword === true && pathname !== CHANGE_PASSWORD_PATH;
 
   useEffect(() => {
     if (signedOut) router.replace(SIGN_IN_PATH);
-    else if (mustChange) router.replace(CHANGE_PASSWORD_PATH);
-  }, [signedOut, mustChange, router]);
+  }, [signedOut, router]);
 
   const session = useMemo(() => (me.data ? { me: me.data, service } : null), [me.data, service]);
   const serviceValue = useMemo(
@@ -72,7 +69,7 @@ export function HttpProvider({ children }: { children: React.ReactNode }) {
         />
       </FullPage>
     );
-  } else if (!session || !serviceValue || signedOut || mustChange) {
+  } else if (!session || !serviceValue || signedOut) {
     body = (
       <FullPage>
         <ListSkeleton rows={3} />

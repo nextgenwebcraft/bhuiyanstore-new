@@ -18,6 +18,7 @@ import {
 import { formatAmount, matchesSearch, t } from "@bsd/i18n";
 import { useId, useState } from "react";
 import { Button } from "@/components/button";
+import { useConfirm } from "@/components/confirm-dialog";
 import { Field, inputClass } from "@/components/field";
 import { FormDialog } from "@/components/form-dialog";
 import { ListSkeleton } from "@/components/skeleton";
@@ -665,6 +666,7 @@ function DayEnd({
 }
 
 function FieldDayView({ staffId }: { staffId?: string }) {
+  const confirm = useConfirm();
   const { company } = useCurrentWorkspace();
   const [date, setDate] = useWorkingDate();
   const ownDay = useFieldDay(company.id, date, staffId === undefined);
@@ -702,7 +704,12 @@ function FieldDayView({ staffId }: { staffId?: string }) {
 
   const canEnter = !data.locked && data.sheetStatus !== "none";
   async function onDelete(visit: FieldVisit) {
-    if (!window.confirm(t("field.deleteConfirm"))) return;
+    const ok = await confirm({
+      title: t("common.confirmTitle"),
+      message: t("field.deleteConfirm"),
+      confirmLabel: t("common.delete"),
+    });
+    if (!ok) return;
     setDeleteError(undefined);
     try {
       await remove.mutateAsync({

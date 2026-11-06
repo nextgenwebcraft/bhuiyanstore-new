@@ -42,12 +42,7 @@ import {
   damageRateKey,
   type MonthOutput,
 } from "@bsd/domain";
-import {
-  loadCompanyAccess,
-  requirePermission,
-  requireWriteReady,
-  type CompanyAccess,
-} from "./access";
+import { loadCompanyAccess, requirePermission, type CompanyAccess } from "./access";
 import { recordAudit } from "./audit";
 import type { AppContext, Tx } from "./context";
 import { fromDbDate, toDbDate } from "./dates";
@@ -266,7 +261,6 @@ export async function postStockEntries(
     ...new Set(request.lines.map((l) => STOCK_PERMISSION[l.kind] as PermissionId)),
     ...(request.prices.length ? (["product.edit"] as const) : []),
   ]);
-  requireWriteReady(ctx);
 
   const priceKeys = new Set<string>();
   request.prices.forEach((price, index) => {
@@ -1023,7 +1017,6 @@ export async function approveDsrHandover(
   requestKey?: string,
 ): Promise<DsrDay> {
   if (!ctx.actor.isSuperAdmin) throw new AppError("FORBIDDEN");
-  requireWriteReady(ctx);
   const access = await loadCompanyAccess(ctx, companyId);
   const data = parseInput(dsrHandoverApproveRequestSchema, input);
   return runIdempotent(

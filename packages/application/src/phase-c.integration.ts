@@ -73,12 +73,10 @@ beforeAll(async () => {
     adminName: "Admin",
     adminPassword: "one-time-Password-123",
   });
-  await db.user.update({ where: { id: boot.adminId }, data: { mustChangePassword: false } });
   admin = {
     userId: boot.adminId,
     tenantId: boot.tenantId,
     isSuperAdmin: true,
-    mustChangePassword: false,
   };
   const ctx = contextFor(db, admin);
   const theme = { primary: "#0F766E", primaryForeground: "#FFFFFF" };
@@ -335,7 +333,6 @@ describe("staff, roles and assignments", () => {
       userId: viewer.id,
       tenantId: admin.tenantId,
       isSuperAdmin: false,
-      mustChangePassword: false,
     });
     const raju = (await listStaffRecords(viewerCtx, drinko)).find((s) => s.id === person.id);
     expect(raju?.assignments.map((a) => a.companyId)).toEqual([drinko]);
@@ -399,7 +396,6 @@ describe("users and roles", () => {
     );
     expect(clerk).toMatchObject({
       email: "clerk@example.test",
-      mustChangePassword: true,
       active: true,
     });
     await expectField(
@@ -415,7 +411,6 @@ describe("users and roles", () => {
       userId: clerk.id,
       tenantId: admin.tenantId,
       isSuperAdmin: false,
-      mustChangePassword: true,
     };
     expect((await loadCompanyAccess(contextFor(db, clerkActor), snacks)).permissions).toEqual([
       "company.view",

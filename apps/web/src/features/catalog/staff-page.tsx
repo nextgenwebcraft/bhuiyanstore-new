@@ -15,7 +15,7 @@ import { formatAmount, normalizeDigits, t, toBengaliDigits } from "@bsd/i18n";
 import { useId, useState } from "react";
 import { Button } from "@/components/button";
 import { DatePicker } from "@/components/date-picker";
-import { DeleteButton } from "@/components/delete-button";
+import { StaffDeleteButton } from "@/features/catalog/staff-delete-button";
 import { Field, inputClass } from "@/components/field";
 import { FormDialog } from "@/components/form-dialog";
 import { PageHeader } from "@/components/page-header";
@@ -30,7 +30,6 @@ import {
   useConfigList,
   useCreateStaff,
   useCreateStaffLogin,
-  useDeleteStaff,
   useResetStaffLoginPassword,
   useSaveStaffAssignment,
   useStaffRecords,
@@ -236,7 +235,8 @@ export function PersonDialog({
     const person = {
       name: values.name.trim(),
       phone: values.phone.trim(),
-      employer: values.employer,
+      // D80: master-panel আমাদের স্টাফ stay distributor-employed.
+      employer: isMaster ? ("distributor" as const) : values.employer,
       status: values.status,
       companyId: values.companyId,
     };
@@ -309,7 +309,13 @@ export function PersonDialog({
           </select>
         </Field>
       ) : null}
-      {simpleHire && creating ? null : (
+      {simpleHire && creating ? null : isMaster ? (
+        <StatusField
+          id={`${id}-status`}
+          value={values.status}
+          onChange={(status) => setValues({ ...values, status })}
+        />
+      ) : (
         <>
           <Field id={`${id}-employer`} label={t("staff.employer")} error={errors.fields.employer}>
             <select
@@ -677,7 +683,6 @@ function Staff() {
   const companyName = (id: string) =>
     workspaces.data?.find((w) => w.company.id === id)?.company.name ?? "";
   const canManage = permissions.includes("staff.manage");
-  const deleteStaff = useDeleteStaff(company.id);
   const [person, setPerson] = useState<PersonDraft | null>(null);
   const [assignment, setAssignment] = useState<AssignmentDraft | null>(null);
   const [login, setLogin] = useState<StaffRecord | null>(null);
@@ -768,10 +773,10 @@ function Staff() {
                   >
                     {t("common.edit")}
                   </Button>
-                  <DeleteButton
+                  <StaffDeleteButton
+                    companyId={company.id}
+                    staffId={record.id}
                     name={record.name}
-                    message={t("staff.delete.confirm")}
-                    onDelete={() => deleteStaff.mutateAsync(record.id)}
                   />
                 </div>
               ) : null}

@@ -2,6 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
+import { ConfirmProvider } from "@/components/confirm-dialog";
 import { HttpProvider } from "@/data/http/http-provider";
 import { ServiceError } from "@/data/ports/service-error";
 import { DemoProvider } from "@/demo/demo-provider";
@@ -28,7 +29,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
   const DataProvider = dataSource === "http" ? HttpProvider : DemoProvider;
   return (
     <QueryClientProvider client={queryClient}>
-      <DataProvider>{children}</DataProvider>
+      <ConfirmProvider>
+        <DataProvider>{children}</DataProvider>
+      </ConfirmProvider>
     </QueryClientProvider>
   );
 }

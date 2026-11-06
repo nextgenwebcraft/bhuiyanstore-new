@@ -81,7 +81,7 @@ async function seed(db: ReturnType<typeof createDatabase>, plan: SeedPlan): Prom
   const runId = randomUUID();
   const ctx: AppContext = {
     db,
-    actor: { userId: admin.id, tenantId, isSuperAdmin: true, mustChangePassword: false },
+    actor: { userId: admin.id, tenantId, isSuperAdmin: true },
     requestId: `seed-demo-${runId}`,
   };
   // One counter per step name gives every write the key "seed-demo-<run>-<step>-<n>". A run is

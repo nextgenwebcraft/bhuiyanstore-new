@@ -99,12 +99,10 @@ beforeAll(async () => {
     adminName: "Admin",
     adminPassword: "one-time-Password-123",
   });
-  await db.user.update({ where: { id: boot.adminId }, data: { mustChangePassword: false } });
   admin = {
     userId: boot.adminId,
     tenantId: boot.tenantId,
     isSuperAdmin: true,
-    mustChangePassword: false,
   };
   const ctx = contextFor(db, admin);
   const theme = { primary: "#0F766E", primaryForeground: "#FFFFFF" };
@@ -318,7 +316,6 @@ describe("Phase D: opening balances (save = live, D43)", () => {
       userId: viewer.id,
       tenantId: admin.tenantId,
       isSuperAdmin: false,
-      mustChangePassword: false,
     });
     const view = await getOpening(ctx, drinko);
     await expect(

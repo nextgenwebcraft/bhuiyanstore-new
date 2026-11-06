@@ -48,7 +48,6 @@ beforeAll(async () => {
     userId: boot.adminId,
     tenantId: boot.tenantId,
     isSuperAdmin: true,
-    mustChangePassword: true,
   };
 });
 
@@ -94,11 +93,7 @@ describe("super-admin bootstrap and sign-in", () => {
     await db.user.update({ where: { id: admin.userId }, data: { active: true } });
   });
 
-  it("blocks writes until the one-time password is changed", async () => {
-    await expectCode(
-      createCompany(contextFor(db, admin), companyInput("Blocked")),
-      "PASSWORD_CHANGE_REQUIRED",
-    );
+  it("changes the password voluntarily and revokes the old one", async () => {
     const auth = createAuth(db);
     const signedIn = await auth.api.signInEmail({
       body: { email: "admin@example.test", password: PASSWORD },
@@ -125,10 +120,6 @@ describe("super-admin bootstrap and sign-in", () => {
       newPassword: NEW_PASSWORD,
     });
 
-    expect(
-      (await db.user.findUniqueOrThrow({ where: { id: admin.userId } })).mustChangePassword,
-    ).toBe(false);
-    admin = { ...admin, mustChangePassword: false };
     expect(await db.auditEvent.count({ where: { action: "user.password_changed" } })).toBe(1);
     await expect(
       auth.api.signInEmail({ body: { email: "admin@example.test", password: PASSWORD } }),
@@ -231,7 +222,6 @@ describe("companies and products through the real database", () => {
       userId: viewer.id,
       tenantId: admin.tenantId,
       isSuperAdmin: false,
-      mustChangePassword: false,
     });
     expect((await listWorkspaces(viewerCtx)).map((w) => w.company.id)).toEqual([companyB]);
     expect((await getWorkspace(viewerCtx, companyB)).permissions).toEqual([
@@ -249,7 +239,6 @@ describe("companies and products through the real database", () => {
       userId: "outsider",
       tenantId: otherTenant.id,
       isSuperAdmin: true,
-      mustChangePassword: false,
     });
     expect(await listWorkspaces(outsider)).toEqual([]);
     await expectCode(listProducts(outsider, companyA), "COMPANY_NOT_FOUND");

@@ -75,7 +75,7 @@ export async function loadCompanyAccess(
   };
 }
 
-/** Company access plus one required permission; writes also need a changed password. */
+/** Company access plus one required permission. */
 export async function requirePermission(
   ctx: AppContext,
   companyId: string,
@@ -91,18 +91,12 @@ export async function requirePermission(
     throw new AppError("MODULE_UNAVAILABLE");
   }
   if (!access.permissions.includes(permission)) throw new AppError("FORBIDDEN");
-  if (options.write) requireWriteReady(ctx);
   return access;
 }
 
-export function requireWriteReady(ctx: AppContext): void {
-  if (ctx.actor.mustChangePassword) throw new AppError("PASSWORD_CHANGE_REQUIRED");
-}
-
-/** Super-admin writes; they also need the one-time password changed. */
+/** Super-admin writes. */
 export function requireSuperAdmin(ctx: AppContext): void {
   requireSuperAdminView(ctx);
-  requireWriteReady(ctx);
 }
 
 export function requireSuperAdminView(ctx: AppContext): void {
