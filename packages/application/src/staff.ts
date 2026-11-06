@@ -394,6 +394,11 @@ export async function updateStaff(
       if (before.assignments.some((a) => employerMismatch(a.role.kind, employer))) {
         throw invalid("employer", "validation.staff.employerRole");
       }
+      // D65/D79: supplier-employed people are company SRs — refuse a supplier tag while a
+      // non-SR (master manager/DSR) assignment still exists.
+      if (employer === "supplier" && before.assignments.some((a) => a.role.kind !== "sr")) {
+        throw invalid("employer", "validation.staff.employerRole");
+      }
       if (data.companyId !== before.companyId) {
         // D93: the home company must be a real (non-master) company of this tenant.
         const home = await tx.company.findFirst({
@@ -462,6 +467,10 @@ async function writeAssignment(
       staff.assignments.some((a) => a.id === assignmentId && a.roleId === role.id);
     if (company?.isMaster && !keepingRole && !masterPanelHireRole(role)) {
       throw invalid("roleId", "validation.staff.masterRoles");
+    }
+    // D65/D80: supplier-employed people belong on এসআর হিসাব, never on the master panel.
+    if (company?.isMaster && staff.employer === "supplier") {
+      throw invalid("roleId", "validation.staff.masterNoSr");
     }
     if (employerMismatch(role.kind, staff.employer as StaffEmployer)) {
       throw invalid("roleId", "validation.staff.employerRole");

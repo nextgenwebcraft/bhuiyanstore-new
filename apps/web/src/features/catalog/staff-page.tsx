@@ -702,8 +702,10 @@ function Staff() {
   );
 
   // D80: আমাদের স্টাফ does not list SRs. They stay on এসআর হিসাব.
+  // D79: supplier-employed counts as SR even if the assignment role was mis-tagged.
   const kindOf = new Map((roles.data ?? []).map((role) => [role.id, role.kind]));
   const isSr = (record: StaffRecord) =>
+    record.employer === "supplier" ||
     record.assignments.some((a) => kindOf.get(a.roleId) === "sr");
   const tabOf = (record: StaffRecord): StaffTab =>
     record.assignments.some((a) => kindOf.get(a.roleId) === "dsr") ? "dsr" : "other";
