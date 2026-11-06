@@ -6,6 +6,7 @@ import { t, type TranslationKey } from "@bsd/i18n";
 import { useId, useState } from "react";
 import { DsrSelect, type DsrChoice } from "@/features/daily/dsr-select";
 import { Button } from "@/components/button";
+import { useConfirm } from "@/components/confirm-dialog";
 import {
   money,
   StatusChip,
@@ -93,6 +94,7 @@ function EntryForm({
   onClearEdit: () => void;
 }) {
   const id = useId();
+  const confirm = useConfirm();
   const post = usePostMoneyEntry(companyId);
   const correct = useCorrectMoneyEntry(companyId);
   // Remounted via key when `editing` changes, so initial state comes from the row being edited.
@@ -112,7 +114,12 @@ function EntryForm({
     const body = { date, amount: value, staffId, ...staffCashRequest(kind, value) };
     try {
       if (editing) {
-        if (!window.confirm(t("money.correctConfirm"))) return;
+        const ok = await confirm({
+          title: t("common.confirmTitle"),
+          message: t("money.correctConfirm"),
+          confirmLabel: t("common.confirm"),
+        });
+        if (!ok) return;
         await correct.mutateAsync({ entryId: editing.id, body });
         onClearEdit();
       } else {

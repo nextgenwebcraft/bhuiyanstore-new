@@ -1,0 +1,23 @@
+id: 2026-11-07-custom-confirm-dialog
+reason: >-
+  Owner: replace every browser window.confirm with the in-app FormDialog-based
+  confirm modal; also set the live Super Admin password by operator request
+  (one-time DB update, not shipped as a script).
+owners: [web, i18n]
+changes:
+  - apps/web confirm-dialog.tsx ConfirmProvider + useConfirm
+  - apps/web providers.tsx mounts ConfirmProvider
+  - apps/web async-action.ts uses useConfirm instead of window.confirm
+  - >-
+    Direct call sites switched: operating-cost-entry, sr-cash-entry,
+    staff-cash-entry, shop-due-entry, field-page, demo-bar
+  - packages/i18n bn.ts: common.confirm, common.confirmTitle
+affectedActionIds: []
+financialImpact: none
+backfill: >-
+  Live Super Admin credential hash updated once in the production database to
+  the owner-supplied password; must_change_password cleared. Not reproducible
+  from git.
+tests: pnpm --filter @bsd/web exec tsc --noEmit
+rollout: deploy the app
+recovery: revert the UI commit; password must be reset manually if needed

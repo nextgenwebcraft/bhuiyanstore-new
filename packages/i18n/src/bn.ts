@@ -98,6 +98,8 @@ export const bn = {
   "common.details": "বিস্তারিত",
   "common.actions": "অ্যাকশন",
   "common.cancel": "বাতিল",
+  "common.confirm": "নিশ্চিত করুন",
+  "common.confirmTitle": "নিশ্চিতকরণ",
   "common.post": "পোস্ট করুন",
   "common.posting": "পোস্ট হচ্ছে…",
   "common.posted": "পোস্ট হয়েছে",

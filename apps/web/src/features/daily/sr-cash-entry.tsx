@@ -5,6 +5,7 @@ import { sumAmounts } from "@bsd/domain";
 import { t, type TranslationKey } from "@bsd/i18n";
 import { useId, useState } from "react";
 import { Button } from "@/components/button";
+import { useConfirm } from "@/components/confirm-dialog";
 import {
   money,
   StatusChip,
@@ -68,6 +69,7 @@ export function SrCashEntry({
   handoverLocked?: boolean;
 }) {
   const id = useId();
+  const confirm = useConfirm();
   const { permissions, loginRoleKind } = useCurrentWorkspace();
   const post = usePostMoneyEntry(companyId);
   const correct = useCorrectMoneyEntry(companyId);
@@ -110,7 +112,12 @@ export function SrCashEntry({
     const body = { date, amount: value, staffId, ...requestOf(kind) };
     try {
       if (editing) {
-        if (!window.confirm(t("money.correctConfirm"))) return;
+        const ok = await confirm({
+          title: t("common.confirmTitle"),
+          message: t("money.correctConfirm"),
+          confirmLabel: t("common.confirm"),
+        });
+        if (!ok) return;
         await correct.mutateAsync({ entryId: editing.id, body });
         setEditing(null);
       } else {

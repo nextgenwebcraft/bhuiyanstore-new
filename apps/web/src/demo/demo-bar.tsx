@@ -3,11 +3,13 @@
 import { t } from "@bsd/i18n";
 import { useRouter } from "next/navigation";
 import { useId } from "react";
+import { useConfirm } from "@/components/confirm-dialog";
 import { useDemoControls } from "./demo-provider";
 
 /** Persistent demo indicator with user switching and reset (guide section 6.1). */
 export function DemoBar() {
   const { users, actorId, setActor, reset } = useDemoControls();
+  const confirm = useConfirm();
   const router = useRouter();
   const selectId = useId();
 
@@ -39,7 +41,13 @@ export function DemoBar() {
       <button
         type="button"
         onClick={() => {
-          if (window.confirm(t("demo.resetConfirm"))) reset();
+          void confirm({
+            title: t("common.confirmTitle"),
+            message: t("demo.resetConfirm"),
+            confirmLabel: t("common.confirm"),
+          }).then((ok) => {
+            if (ok) reset();
+          });
         }}
         className="min-h-9 rounded-lg px-2.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
       >

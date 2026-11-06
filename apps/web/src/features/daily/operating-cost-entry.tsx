@@ -5,6 +5,7 @@ import { sumAmounts } from "@bsd/domain";
 import { t } from "@bsd/i18n";
 import { useId, useState } from "react";
 import { Button } from "@/components/button";
+import { useConfirm } from "@/components/confirm-dialog";
 import {
   money,
   StatusChip,
@@ -48,6 +49,7 @@ export function OperatingCostEntry({
   handoverLocked?: boolean;
 }) {
   const id = useId();
+  const confirm = useConfirm();
   const { permissions, loginRoleKind } = useCurrentWorkspace();
   const categories = useConfigList("expenseCategories");
   const post = usePostMoneyEntry(companyId);
@@ -88,7 +90,12 @@ export function OperatingCostEntry({
     };
     try {
       if (editing) {
-        if (!window.confirm(t("money.correctConfirm"))) return;
+        const ok = await confirm({
+          title: t("common.confirmTitle"),
+          message: t("money.correctConfirm"),
+          confirmLabel: t("common.confirm"),
+        });
+        if (!ok) return;
         await correct.mutateAsync({ entryId: editing.id, body });
         setEditing(null);
       } else {
