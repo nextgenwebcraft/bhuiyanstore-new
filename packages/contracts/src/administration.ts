@@ -39,7 +39,6 @@ export const userSchema = z.object({
   email: z.string(),
   active: z.boolean(),
   isSuperAdmin: z.boolean(),
-  mustChangePassword: z.boolean(),
   memberships: z.array(membershipSchema),
 });
 
@@ -47,7 +46,7 @@ export type User = z.infer<typeof userSchema>;
 
 const temporaryPassword = z.string().min(MIN_PASSWORD_LENGTH).max(128);
 
-/** The administrator sets a one-time password; the user must change it at first sign-in. */
+/** The administrator sets the sign-in password (D117: no forced change on first sign-in). */
 export const userCreateRequestSchema = z.object({
   name: z.string().trim().min(1).max(120),
   email: z.email().max(200),
@@ -65,7 +64,7 @@ export const userUpdateRequestSchema = z.object({
 
 export type UserUpdateRequest = z.infer<typeof userUpdateRequestSchema>;
 
-/** Sets a new one-time password, signs the user out everywhere and requires a change. */
+/** Sets a new password and signs the user out everywhere (D117: no forced change gate). */
 export const userPasswordResetRequestSchema = z.object({ password: temporaryPassword });
 
 export type UserPasswordResetRequest = z.infer<typeof userPasswordResetRequestSchema>;

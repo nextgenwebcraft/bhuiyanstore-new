@@ -25,7 +25,7 @@ try {
   });
   process.stdout.write(
     result.created
-      ? "Super-admin created. Sign in and change the one-time password.\n"
+      ? "Super-admin created. Sign in with the bootstrap password.\n"
       : "Super-admin already exists; account unchanged. Default staff roles are in place.\n",
   );
 } finally {

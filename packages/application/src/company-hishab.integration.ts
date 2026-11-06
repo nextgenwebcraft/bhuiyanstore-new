@@ -22,7 +22,6 @@ let admin = contextFor(db, {
   userId: "pending",
   tenantId: "pending",
   isSuperAdmin: true,
-  mustChangePassword: false,
 });
 let masterId = "";
 let drinkoId = "";
@@ -43,12 +42,10 @@ beforeAll(async () => {
     adminName: "Admin",
     adminPassword: "one-time-Password-123",
   });
-  await db.user.update({ where: { id: boot.adminId }, data: { mustChangePassword: false } });
   admin = contextFor(db, {
     userId: boot.adminId,
     tenantId: boot.tenantId,
     isSuperAdmin: true,
-    mustChangePassword: false,
   });
   const theme = { primary: "#0F766E", primaryForeground: "#FFFFFF" };
   drinkoId = (

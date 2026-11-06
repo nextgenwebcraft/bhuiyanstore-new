@@ -76,7 +76,6 @@ async function loginFor(staffId: string, email: string): Promise<AppContext> {
     userId: must(staff.userId),
     tenantId: admin.tenantId,
     isSuperAdmin: false,
-    mustChangePassword: false,
   });
 }
 
@@ -90,12 +89,10 @@ beforeAll(async () => {
     adminName: "Admin",
     adminPassword: "one-time-Password-123",
   });
-  await db.user.update({ where: { id: boot.adminId }, data: { mustChangePassword: false } });
   admin = {
     userId: boot.adminId,
     tenantId: boot.tenantId,
     isSuperAdmin: true,
-    mustChangePassword: false,
   };
   ctx = contextFor(db, admin);
   const theme = { primary: "#0F766E", primaryForeground: "#FFFFFF" };

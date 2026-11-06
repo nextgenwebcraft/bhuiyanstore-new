@@ -928,7 +928,6 @@ export async function createStaffLogin(
             email,
             emailVerified: true,
             tenantId: ctx.actor.tenantId,
-            mustChangePassword: true,
             isSuperAdmin: false,
           },
         });
@@ -1063,14 +1062,13 @@ export async function resetStaffLoginPassword(
           },
         });
       }
-      await tx.user.update({ where: { id: user.id }, data: { mustChangePassword: true } });
       await tx.session.deleteMany({ where: { userId: user.id } });
       await recordAudit(tx, ctx, {
         companyId,
         action: "staff.login_password_reset",
         resourceType: "staff",
         resourceId: staffId,
-        after: { userId: user.id, mustChangePassword: true },
+        after: { userId: user.id, passwordReset: true },
       });
       return { userId: user.id };
     },

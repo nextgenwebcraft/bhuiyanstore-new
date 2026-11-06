@@ -60,9 +60,6 @@ export function ChangePasswordPage() {
       <header>
         <p className="text-sm text-text-muted">{t("app.name")}</p>
         <h1 className="text-2xl font-semibold">{t("auth.changePasswordTitle")}</h1>
-        {session?.me.mustChangePassword ? (
-          <p className="mt-1 text-text-muted">{t("auth.changePasswordHint")}</p>
-        ) : null}
       </header>
       {session ? (
         <form onSubmit={submit} className="flex flex-col gap-4" noValidate>

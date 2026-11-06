@@ -4,7 +4,6 @@
  */
 export const errorCodes = [
   "UNAUTHENTICATED",
-  "PASSWORD_CHANGE_REQUIRED",
   "COMPANY_NOT_FOUND",
   "FORBIDDEN",
   "MODULE_UNAVAILABLE",

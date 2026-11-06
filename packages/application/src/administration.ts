@@ -139,7 +139,6 @@ type UserRow = {
   email: string;
   active: boolean;
   isSuperAdmin: boolean;
-  mustChangePassword: boolean;
   memberships: { companyId: string; roles: { roleId: string }[] }[];
 };
 
@@ -150,7 +149,6 @@ function toUser(row: UserRow): User {
     email: row.email,
     active: row.active,
     isSuperAdmin: row.isSuperAdmin,
-    mustChangePassword: row.mustChangePassword,
     memberships: row.memberships
       .filter((m) => m.roles.length > 0)
       .map((m) => ({ companyId: m.companyId, roleIds: m.roles.map((r) => r.roleId).sort() })),
@@ -252,7 +250,6 @@ export async function createUser(
             email,
             emailVerified: true,
             tenantId: ctx.actor.tenantId,
-            mustChangePassword: true,
             isSuperAdmin: false,
           },
         });
@@ -362,14 +359,13 @@ export async function resetUserPassword(
           },
         });
       }
-      await tx.user.update({ where: { id: userId }, data: { mustChangePassword: true } });
       await tx.session.deleteMany({ where: { userId } });
       const user = toUser(await findUser(tx, ctx, userId));
       await recordAudit(tx, ctx, {
         action: "user.password_reset",
         resourceType: "user",
         resourceId: userId,
-        after: { mustChangePassword: true },
+        after: { passwordReset: true },
       });
       return user;
     },

@@ -65,12 +65,10 @@ beforeAll(async () => {
     adminName: "Admin",
     adminPassword: "one-time-Password-123",
   });
-  await db.user.update({ where: { id: boot.adminId }, data: { mustChangePassword: false } });
   admin = {
     userId: boot.adminId,
     tenantId: boot.tenantId,
     isSuperAdmin: true,
-    mustChangePassword: false,
   };
   ctx = contextFor(db, admin);
   company = (
@@ -189,7 +187,6 @@ describe("D113: staff login credentials and company access", () => {
       userId: mamunUser.id,
       tenantId: admin.tenantId,
       isSuperAdmin: false,
-      mustChangePassword: false,
     });
     const spaces = await listWorkspaces(mamunCtx);
     expect(spaces.map((w) => w.company.id).sort()).toEqual([company, other].sort());
@@ -218,8 +215,8 @@ describe("D113: staff login credentials and company access", () => {
     await resetStaffLoginPassword(ctx, company, id.jamal, {
       password: "one-time-Password-9",
     });
-    const user = must(await db.user.findFirst({ where: { email: "jamal@example.test" } }));
-    expect(user.mustChangePassword).toBe(true);
+    const jamalAfterReset = must(await db.user.findFirst({ where: { email: "jamal@example.test" } }));
+    expect(await db.session.count({ where: { userId: jamalAfterReset.id } })).toBe(0);
 
     const deactivated = await updateStaffLogin(ctx, company, id.jamal, {
       roleKind: "manager",
@@ -266,7 +263,6 @@ describe("D112: DSR cannot post; Manager handover submit then Super Admin approv
       userId: mamunUser.id,
       tenantId: admin.tenantId,
       isSuperAdmin: false,
-      mustChangePassword: false,
     });
     // Super Admin drafts and posts; DSR may not set issued and may not post.
     await expectField(
@@ -307,7 +303,6 @@ describe("D112: DSR cannot post; Manager handover submit then Super Admin approv
       userId: jamalUser.id,
       tenantId: admin.tenantId,
       isSuperAdmin: false,
-      mustChangePassword: false,
     });
     const pending = await submitDsrHandover(managerCtx, company, posted.id, {
       version: posted.version,
@@ -350,13 +345,11 @@ describe("D114: daily money correct by role and handover", () => {
       userId: mamunUser.id,
       tenantId: admin.tenantId,
       isSuperAdmin: false,
-      mustChangePassword: false,
     });
     const managerCtx = contextFor(db, {
       userId: jamalUser.id,
       tenantId: admin.tenantId,
       isSuperAdmin: false,
-      mustChangePassword: false,
     });
 
     const draft = await saveDsrDay(ctx, company, {

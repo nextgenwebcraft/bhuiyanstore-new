@@ -458,7 +458,7 @@ export interface DistributionService {
   listUsers(options?: RequestOptions): Promise<User[]>;
   createUser(input: UserCreateRequest): Promise<User>;
   updateUser(userId: string, input: UserUpdateRequest): Promise<User>;
-  /** Sets a one-time password and signs the user out everywhere. */
+  /** Sets a new password and signs the user out everywhere. */
   resetUserPassword(userId: string, input: UserPasswordResetRequest): Promise<User>;
 
   // DSR field panel (D40). The demo mock has none.

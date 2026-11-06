@@ -39,7 +39,6 @@ export function parseInput<T extends z.ZodType>(schema: T, input: unknown): z.in
 
 export const HTTP_STATUS: Readonly<Record<ErrorCode, number>> = {
   UNAUTHENTICATED: 401,
-  PASSWORD_CHANGE_REQUIRED: 403,
   COMPANY_NOT_FOUND: 404,
   FORBIDDEN: 403,
   MODULE_UNAVAILABLE: 403,

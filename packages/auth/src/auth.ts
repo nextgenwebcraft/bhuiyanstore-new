@@ -22,12 +22,6 @@ export function createAuth(db: Database) {
       additionalFields: {
         tenantId: { type: "string", required: false, input: false },
         isSuperAdmin: { type: "boolean", required: false, input: false, defaultValue: false },
-        mustChangePassword: {
-          type: "boolean",
-          required: false,
-          input: false,
-          defaultValue: false,
-        },
         active: { type: "boolean", required: false, input: false, defaultValue: true },
       },
     },

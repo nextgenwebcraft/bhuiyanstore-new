@@ -72,7 +72,7 @@ export {
 } from "./order-targets";
 export { AppError, HTTP_STATUS, parseInput, type FieldError } from "./errors";
 export { payloadHash, runIdempotent, type IdempotencyKey } from "./idempotency";
-export { changePassword, getMe, markPasswordChanged } from "./me";
+export { changePassword, getMe } from "./me";
 export {
   closeMonth,
   exportReport,

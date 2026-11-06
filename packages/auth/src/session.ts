@@ -6,7 +6,6 @@ export type Actor = {
   userId: string;
   tenantId: string;
   isSuperAdmin: boolean;
-  mustChangePassword: boolean;
 };
 
 /** Resolves the actor from the session cookie; null when signed out, inactive or tenant-less. */
@@ -23,7 +22,6 @@ export async function actorFromHeaders(
       id: true,
       tenantId: true,
       isSuperAdmin: true,
-      mustChangePassword: true,
       active: true,
     },
   });
@@ -32,6 +30,5 @@ export async function actorFromHeaders(
     userId: user.id,
     tenantId: user.tenantId,
     isSuperAdmin: user.isSuperAdmin,
-    mustChangePassword: user.mustChangePassword,
   };
 }

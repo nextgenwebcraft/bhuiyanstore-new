@@ -14,7 +14,7 @@ export type BootstrapResult = { tenantId: string; adminId: string; created: bool
 /**
  * One-time super-admin bootstrap (guide §12.1). Idempotent: when the admin already exists the
  * account is left unchanged (never a password reset, never re-enabled) and only missing default
- * staff roles are added. The new admin must change the one-time password before any write.
+ * staff roles are added.
  */
 export async function bootstrapSuperAdmin(
   db: Database,
@@ -52,7 +52,6 @@ export async function bootstrapSuperAdmin(
         emailVerified: true,
         tenantId: tenant.id,
         isSuperAdmin: true,
-        mustChangePassword: true,
       },
     });
     await tx.account.create({

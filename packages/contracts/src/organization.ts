@@ -69,7 +69,6 @@ export const meSchema = z.object({
   name: z.string(),
   email: z.string(),
   isSuperAdmin: z.boolean(),
-  mustChangePassword: z.boolean(),
 });
 
 export type Me = z.infer<typeof meSchema>;
