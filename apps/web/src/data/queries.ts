@@ -805,10 +805,34 @@ export function useUpdateStaff(companyId: string) {
   );
 }
 
+export function useStaffDeleteImpact(companyId: string, staffId: string | null) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: [...queryKeys.staffRecords(actorId, companyId), "delete-impact", staffId],
+    queryFn: ({ signal }) => {
+      if (!staffId) throw new Error("staffId required");
+      return service.getStaffDeleteImpact(companyId, staffId);
+    },
+    enabled: staffId !== null,
+  });
+}
+
 export function useDeleteStaff(companyId: string) {
   const service = useService();
-  return useMasterMutation(staffResources, (staffId: string) =>
-    service.deleteStaff(companyId, staffId),
+  return useMasterMutation(
+    [
+      ...staffResources,
+      resourceIds.moneyEntry,
+      resourceIds.dsrDay,
+      resourceIds.ledger,
+      resourceIds.opening,
+      resourceIds.payrollRun,
+      resourceIds.damageCase,
+      resourceIds.dashboardSummary,
+      resourceIds.fieldDay,
+    ],
+    (staffId: string) => service.deleteStaff(companyId, staffId),
   );
 }
 

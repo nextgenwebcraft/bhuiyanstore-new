@@ -112,3 +112,23 @@ export const staffAssignmentRequestSchema = z.object({
 });
 
 export type StaffAssignmentRequest = z.infer<typeof staffAssignmentRequestSchema>;
+
+/**
+ * What deleting a person will wipe (D116): shown in the confirm alert so the operator sees
+ * which hishab/calculations will go with them.
+ */
+export const staffDeleteImpactSchema = z.object({
+  staffId: idSchema,
+  staffName: z.string(),
+  moneyEntries: z.number().int().nonnegative(),
+  openingBalances: z.number().int().nonnegative(),
+  payrollLines: z.number().int().nonnegative(),
+  dsrDays: z.number().int().nonnegative(),
+  fieldVisits: z.number().int().nonnegative(),
+  fieldReports: z.number().int().nonnegative(),
+  damageCases: z.number().int().nonnegative(),
+  shopsAdded: z.number().int().nonnegative(),
+  hasLogin: z.boolean(),
+});
+
+export type StaffDeleteImpact = z.infer<typeof staffDeleteImpactSchema>;

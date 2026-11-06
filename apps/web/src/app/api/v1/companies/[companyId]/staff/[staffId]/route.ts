@@ -10,7 +10,7 @@ export async function PUT(request: Request, { params }: Params) {
   );
 }
 
-/** Hard delete of a record nothing refers to (D51); a used one is refused. */
+/** Hard delete with related hishab wipe so balances recalculate (D116). */
 export async function DELETE(request: Request, { params }: Params) {
   const { companyId, staffId } = await params;
   return handle(request, async (ctx) => deleteStaff(ctx, companyId, staffId));

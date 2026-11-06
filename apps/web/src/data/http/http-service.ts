@@ -35,6 +35,7 @@ import {
   reportSchema,
   roleSchema,
   staffAccountsSchema,
+  staffDeleteImpactSchema,
   staffMemberSchema,
   shopSchema,
   shopStatementSchema,
@@ -388,6 +389,11 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
       request(staffRecordSchema, `${company(companyId)}/staff`, write("POST", input)),
     updateStaff: (companyId, staffId, input) =>
       request(staffRecordSchema, `${company(companyId)}/staff/${id(staffId)}`, write("PUT", input)),
+    getStaffDeleteImpact: (companyId, staffId) =>
+      request(
+        staffDeleteImpactSchema,
+        `${company(companyId)}/staff/${id(staffId)}/delete-impact`,
+      ),
     deleteStaff: (companyId, staffId) =>
       request(z.undefined(), `${company(companyId)}/staff/${id(staffId)}`, remove()),
     addStaffAssignment: (companyId, staffId, input) =>

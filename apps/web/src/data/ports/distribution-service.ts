@@ -73,6 +73,7 @@ import type {
   StaffAccounts,
   StaffAssignmentRequest,
   StaffCreateRequest,
+  StaffDeleteImpact,
   StaffMember,
   StaffRecord,
   StaffRole,
@@ -406,7 +407,9 @@ export interface DistributionService {
   /** Requires `staff.manage`. SRs must be supplier-employed, DSRs distributor-employed. */
   createStaff(companyId: string, input: StaffCreateRequest): Promise<StaffRecord>;
   updateStaff(companyId: string, staffId: string, input: StaffUpsertRequest): Promise<StaffRecord>;
-  /** Requires `staff.manage`; hard delete, refused when the person was ever used. */
+  /** Requires `staff.manage`; preview of hishab wiped with the person (D116). */
+  getStaffDeleteImpact(companyId: string, staffId: string): Promise<StaffDeleteImpact>;
+  /** Requires `staff.manage`; hard delete with related hishab wipe (D116). */
   deleteStaff(companyId: string, staffId: string): Promise<void>;
   /** Requires `staff.manage`; periods of one person in one company never overlap. */
   addStaffAssignment(

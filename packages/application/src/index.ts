@@ -116,6 +116,7 @@ export {
   addStaffAssignment,
   createStaff,
   deleteStaff,
+  getStaffDeleteImpact,
   getStaffRecord,
   listAllStaff,
   listStaffMembers,

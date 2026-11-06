@@ -484,9 +484,65 @@ describe("D51 delete only what was never used", () => {
     expect(await db.openingBalanceLine.count({ where: { staffId: manager.id } })).toBe(0);
     await expectField(deleteStaff(ctx, masterId, sr.id), "id", "validation.staff.unknown");
     expect(await db.staff.count({ where: { id: sr.id } })).toBe(1);
-    // The DSR has money entries from the D50 tests.
-    await expectField(deleteStaff(ctx, masterId, dsrId), "id", "validation.staff.inUse");
-    expect(await db.staff.count({ where: { id: dsrId } })).toBe(1);
+    // A mis-tagged hire (supplier employer, non-SR role) is still removable from the master panel.
+    const mistagged = await db.staff.create({
+      data: {
+        tenantId: admin.tenantId,
+        name: "ভুল ট্যাগ ম্যানেজার",
+        employer: "supplier",
+        companyId: starter,
+        assignments: {
+          create: {
+            companyId: masterId,
+            roleId: role.id,
+            from: toDbDate(POST_DAY),
+            to: null,
+            monthlySalary: "20000",
+          },
+        },
+      },
+    });
+    await deleteStaff(ctx, masterId, mistagged.id);
+    expect(await db.staff.count({ where: { id: mistagged.id } })).toBe(0);
+    // D116: a person with money entries is wiped with their hishab, then deleted.
+    const dsrRole = must(
+      await db.staffRole.findFirst({
+        where: { tenantId: admin.tenantId, kind: "dsr", active: true },
+      }),
+    );
+    const withMoney = await db.staff.create({
+      data: {
+        tenantId: admin.tenantId,
+        name: "মুছতে হবে ডিএসআর",
+        employer: "distributor",
+        companyId: starter,
+        assignments: {
+          create: {
+            companyId: masterId,
+            roleId: dsrRole.id,
+            from: toDbDate(POST_DAY),
+            to: null,
+            monthlySalary: "15000",
+          },
+        },
+      },
+    });
+    await db.moneyEntry.create({
+      data: {
+        tenantId: admin.tenantId,
+        companyId: starter,
+        date: toDbDate(POST_DAY),
+        kind: "staffAdvance",
+        amount: "50",
+        staffId: withMoney.id,
+        status: "posted",
+        createdById: admin.userId,
+      },
+    });
+    expect(await db.moneyEntry.count({ where: { staffId: withMoney.id } })).toBe(1);
+    await deleteStaff(ctx, masterId, withMoney.id);
+    expect(await db.staff.count({ where: { id: withMoney.id } })).toBe(0);
+    expect(await db.moneyEntry.count({ where: { staffId: withMoney.id } })).toBe(0);
   });
 
   it("needs the manage permissions", async () => {

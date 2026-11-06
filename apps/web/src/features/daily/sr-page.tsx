@@ -19,6 +19,7 @@ import { TableSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
 import { TableScroller } from "@/components/table-scroller";
 import { useConfigList, useStaffAccounts, useStaffRecords } from "@/data/queries";
+import { StaffDeleteButton } from "@/features/catalog/staff-delete-button";
 import { PersonDialog, type PersonDraft } from "@/features/catalog/staff-page";
 import { DateBar, useWorkingDate } from "@/features/daily/daily-kit";
 import { NavGate } from "@/features/shell/nav-gate";
@@ -70,7 +71,7 @@ function SrAccounts() {
                 {t("sr.entry.due")}
               </th>
               <th scope="col" className={thClass}>
-                <span className="sr-only">{t("common.edit")}</span>
+                <span className="sr-only">{t("common.actions")}</span>
               </th>
             </tr>
           </thead>
@@ -83,20 +84,28 @@ function SrAccounts() {
                   <td className={`${tdNum} font-semibold`}>{money(row.balances.srLoan)}</td>
                   <td className={`${tdClass} text-right`}>
                     {canManage && record ? (
-                      <Button
-                        onClick={() =>
-                          setPerson({
-                            id: record.id,
-                            name: record.name,
-                            phone: record.phone,
-                            employer: record.employer,
-                            status: record.status,
-                            companyId: record.companyId,
-                          })
-                        }
-                      >
-                        {t("common.edit")}
-                      </Button>
+                      <div className="flex flex-wrap justify-end gap-2">
+                        <Button
+                          onClick={() =>
+                            setPerson({
+                              id: record.id,
+                              name: record.name,
+                              phone: record.phone,
+                              employer: record.employer,
+                              status: record.status,
+                              companyId: record.companyId,
+                            })
+                          }
+                        >
+                          {t("common.edit")}
+                        </Button>
+                        <StaffDeleteButton
+                          companyId={company.id}
+                          staffId={record.id}
+                          name={record.name}
+                          variant="sr"
+                        />
+                      </div>
                     ) : null}
                   </td>
                 </tr>

@@ -180,7 +180,7 @@ export const bn = {
   "validation.product.inUse":
     "এই পণ্যের মজুদ, বিক্রি বা অন্য হিসাব আছে, তাই মোছা যাবে না। বরং আর্কাইভ করুন।",
   "validation.staff.inUse":
-    "এই কর্মীর লেনদেন, হিসাব বা অন্য কোম্পানিতে নিয়োগ আছে, তাই মোছা যাবে না। বরং বন্ধ করে রাখুন।",
+    "এই কর্মীকে এখন মোছা যায়নি (ডাটাবেস বাধা)। আবার চেষ্টা করুন, না হলে বন্ধ করে রাখুন।",
   "common.delete": "মুছুন",
   "common.deleting": "মুছছে…",
   "shop.label": "দোকান",
@@ -766,7 +766,22 @@ export const bn = {
   "staff.tab.other": "অন্যান্য",
   "staff.tab.empty": "এই ভাগে কোনো কর্মী নেই",
   "staff.new": "নতুন কর্মী",
-  "staff.delete.confirm": "এই কর্মীকে মুছে ফেলবেন? তার কোনো হিসাব নেই বলেই মোছা যাচ্ছে।",
+  "staff.delete.confirm":
+    "এই কর্মীকে মুছে ফেলবেন? সম্পর্কিত হিসাব মুছে গেলে ব্যালান্স ও হিসাব আবার গণনা হবে।",
+  "staff.delete.impact.loading": "সম্পর্কিত হিসাব খুঁজে দেখা হচ্ছে…",
+  "staff.delete.impact.intro": "নিচের জায়গায় এই সমন্বয় হবে:",
+  "staff.delete.impact.none": "কোনো সম্পর্কিত হিসাব নেই — শুধু কর্মীর রেকর্ড মুছে যাবে।",
+  "staff.delete.impact.moneyEntries": "টাকার এন্ট্রি: {n}টি",
+  "staff.delete.impact.openingBalances": "প্রারম্ভিক ব্যালান্স লাইন: {n}টি",
+  "staff.delete.impact.payrollLines": "বেতন শিটের লাইন: {n}টি",
+  "staff.delete.impact.dsrDays": "দৈনিক বিক্রয় শিট: {n}টি",
+  "staff.delete.impact.fieldVisits": "মাঠ ভিজিট: {n}টি",
+  "staff.delete.impact.fieldReports": "মাঠ রিপোর্ট: {n}টি",
+  "staff.delete.impact.damageCases": "ড্যামেজ কেস: {n}টি",
+  "staff.delete.impact.shopsAdded": "যোগ করা দোকানের লিংক: {n}টি (দোকান থাকবে)",
+  "staff.delete.impact.login": "লগইন সংযোগ কাটা যাবে (ইউজার অ্যাকাউন্ট থাকবে)",
+  "sr.delete.confirm":
+    "এই এসআরকে মুছলে তার সব হিসাব (অগ্রিম, ফেরত, দৈনিক শিট ও অন্যান্য এন্ট্রি) মুছে যাবে এবং হিসাব ঠিক হয়ে যাবে।",
   "staff.form.createTitle": "নতুন কর্মী যোগ করুন",
   "staff.form.editTitle": "কর্মীর তথ্য এডিট করুন",
   "staff.phone": "মোবাইল",
