@@ -257,14 +257,26 @@ describe("D113: staff login credentials and company access", () => {
 });
 
 describe("D112: DSR cannot post; Manager handover submit then Super Admin approve", () => {
-  it("blocks DSR post and runs Manager submit → pending → approve lock", async () => {
+  it("lets Manager enter সামারি and post, refuses edit after post, allows হাতে জমা → pending", async () => {
     const mamunUser = must(await db.user.findFirst({ where: { email: "mamun@example.test" } }));
+    const jamalUser = must(await db.user.findFirst({ where: { email: "jamal@example.test" } }));
     const dsrCtx = contextFor(db, {
       userId: mamunUser.id,
       tenantId: admin.tenantId,
       isSuperAdmin: false,
     });
-    // Super Admin drafts and posts; DSR may not set issued and may not post.
+    await updateStaffLogin(ctx, company, id.jamal, {
+      roleKind: "manager",
+      companyIds: [company],
+      active: true,
+    });
+    const managerCtx = contextFor(db, {
+      userId: jamalUser.id,
+      tenantId: admin.tenantId,
+      isSuperAdmin: false,
+    });
+
+    // DSR may not set issued (সামারি).
     await expectField(
       saveDsrDay(dsrCtx, company, {
         date: DAY,
@@ -278,7 +290,9 @@ describe("D112: DSR cannot post; Manager handover submit then Super Admin approv
       "lines.0.issued",
       "validation.daily.dsrCannotEditIssued",
     );
-    const draft = await saveDsrDay(ctx, company, {
+
+    // Manager drafts সামারি (and may post); after post must not edit the sheet.
+    const draft = await saveDsrDay(managerCtx, company, {
       date: DAY,
       staffId: id.mamun,
       version: 0,
@@ -288,22 +302,23 @@ describe("D112: DSR cannot post; Manager handover submit then Super Admin approv
       lines: [{ productId: id.alpha, issued: "24", returned: "0", damaged: "0" }],
     });
     await expectCode(postDsrDay(dsrCtx, company, draft.id, { version: draft.version }), "FORBIDDEN");
-
-    const posted = await postDsrDay(ctx, company, draft.id, { version: draft.version });
+    const posted = await postDsrDay(managerCtx, company, draft.id, { version: draft.version });
     expect(posted.status).toBe("posted");
     expect(posted.handoverStatus).toBe("none");
 
-    await updateStaffLogin(ctx, company, id.jamal, {
-      roleKind: "manager",
-      companyIds: [company],
-      active: true,
-    });
-    const jamalUser = must(await db.user.findFirst({ where: { email: "jamal@example.test" } }));
-    const managerCtx = contextFor(db, {
-      userId: jamalUser.id,
-      tenantId: admin.tenantId,
-      isSuperAdmin: false,
-    });
+    await expectCode(
+      saveDsrDay(managerCtx, company, {
+        date: DAY,
+        staffId: id.mamun,
+        version: posted.version,
+        marketDueNew: "0",
+        marketDueCollected: "0",
+        cashHandedOver: null,
+        lines: [{ productId: id.alpha, issued: "48", returned: "0", damaged: "0" }],
+      }),
+      "FORBIDDEN",
+    );
+
     const pending = await submitDsrHandover(managerCtx, company, posted.id, {
       version: posted.version,
       cashHandedOver: "200",

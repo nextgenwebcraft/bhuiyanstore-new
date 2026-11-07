@@ -1,0 +1,22 @@
+id: 2026-11-07-manager-samari-entry
+reason: >-
+  Owner 2026-11-07. Manager on দৈনিক বিক্রয় হিসাব may enter every field including সামারি,
+  post the sheet, and submit হাতে জমা (shows Pending). After post, Manager must not edit
+  the sheet; Super Admin keeps D56 correct/reverse. Aligns UI lock and save gate with that.
+owners: [application, web]
+changes:
+  - >-
+    packages/application daily.saveDsrDayIn: Manager FORBIDDEN on posted-sheet correction;
+    draft সামারি + post + handover submit unchanged
+  - >-
+    apps/web dsr-days-page: canCorrect excludes Manager so সামারি locks after post; হাতে জমা
+    amount stays editable after post until submit (Pending)
+  - packages/application fixed-roles.integration.ts covers Manager draft/post/no-edit/handover
+affectedActionIds: []
+financialImpact: Access only; no formula change.
+backfill: none
+tests: >-
+  packages/application fixed-roles.integration.ts (Manager সামারি draft/post, refuse edit,
+  হাতে জমা → pending); pnpm check when time allows
+rollout: deploy
+recovery: revert commit

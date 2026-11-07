@@ -619,9 +619,16 @@ export async function saveDsrDayIn(
   }
   // D56: saving a posted sheet corrects it; the posted one is reversed with all it owns and
   // the edited sheet is posted in its place, in this transaction.
+  // Owner 2026-11-07: Manager may draft/post every দৈনিক বিক্রয় হিসাব field (incl. সামারি)
+  // and submit হাতে জমা → pending, but must not edit a posted sheet (sale.reverse stays
+  // Super Admin). Handover lock is already asserted above.
   const corrected = live?.status === "posted" ? await loadDsrDay(tx, companyId, live.id) : null;
   if (corrected) {
-    if (!access.permissions.includes("sale.post") || !access.permissions.includes("sale.reverse")) {
+    if (
+      access.loginRoleKind === "manager" ||
+      !access.permissions.includes("sale.post") ||
+      !access.permissions.includes("sale.reverse")
+    ) {
       throw new AppError("FORBIDDEN");
     }
     await moveDsrDay(tx, ctx, access, corrected, "reversed");
