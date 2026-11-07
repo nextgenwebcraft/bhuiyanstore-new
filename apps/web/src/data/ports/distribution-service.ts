@@ -179,7 +179,7 @@ export interface DistributionService {
   ): Promise<DsrDay>;
   /**
    * D71: decides a DSR's pending field report; approving corrects the sheet (`sale.create`, and
-   * `sale.post` + `sale.reverse` for a posted one).
+   * `sale.post` + `sale.reverse` for a posted one; Manager cannot correct after post).
    */
   decideFieldReport(
     companyId: string,

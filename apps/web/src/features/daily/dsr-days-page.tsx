@@ -527,11 +527,13 @@ function SheetEditor({
     sheet?.handoverStatus === "pending" || sheet?.handoverStatus === "approved";
   const isDsrLogin = loginRoleKind === "dsr";
   const isManagerLogin = loginRoleKind === "manager";
-  // D56: a posted sheet stays editable; saving it reverses it and posts the edit in its place.
-  // D112: Manager/DSR lose that after handover submit; DSR never posts or reverses.
+  // D56: Super Admin may correct a posted sheet (reverse + re-post). Owner 2026-11-07: Manager
+  // enters every field (incl. সামারি) on the draft, posts, then cannot edit; may still submit
+  // হাতে জমা → pending. DSR never posts or corrects; issued (সামারি) stays Manager/Admin only.
   const canCorrect =
     !handoverLocked &&
     !isDsrLogin &&
+    !isManagerLogin &&
     (["sale.create", "sale.post", "sale.reverse"] as const).every((p) => permissions.includes(p));
   const locked =
     handoverLocked ||
@@ -541,6 +543,13 @@ function SheetEditor({
   const issuedLocked = locked || isDsrLogin;
   const priceLocked =
     locked || isManagerLogin || isDsrLogin || !permissions.includes("sale.price_override");
+  // হাতে জমা is entered on a posted sheet; keep that field open until submit even when
+  // the সামারি table is locked for Manager.
+  const canTypeHandover =
+    posted &&
+    sheet?.handoverStatus === "none" &&
+    permissions.includes("sale.handover_submit");
+  const handoverAmountLocked = canTypeHandover ? false : locked || handoverLocked;
   const base = { date, staffId: staff.id, version: sheet?.version ?? 0 };
   const built = requestOf(draft, view, base);
   const dirty =
@@ -1124,7 +1133,7 @@ function SheetEditor({
           sales={cashCheckSales(parts.netSales, parts.damageValue)}
           damage={parts.damageValue}
           handedOver={draft.handedOver}
-          locked={locked || handoverLocked}
+          locked={handoverAmountLocked}
           onHandedOver={(handedOver) => setDraft((d) => ({ ...d, handedOver }))}
         />
       ) : null}
