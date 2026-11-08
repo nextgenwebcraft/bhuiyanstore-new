@@ -42,6 +42,7 @@ function SrAccounts() {
   const [person, setPerson] = useState<PersonDraft | null>(null);
   const canManage = permissions.includes("staff.manage");
   const srRoles = (roles.data ?? []).filter((role) => role.kind === "sr");
+  const srRoleId = srRoles.find((role) => role.active)?.id ?? srRoles[0]?.id;
   const rows = accounts.data?.rows ?? [];
 
   let body: React.ReactNode;
@@ -149,6 +150,8 @@ function SrAccounts() {
           companyId={company.id}
           draft={person}
           roles={srRoles}
+          simpleHire
+          fixedRoleId={srRoleId}
           onClose={() => setPerson(null)}
         />
       ) : null}

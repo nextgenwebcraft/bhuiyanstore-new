@@ -36,6 +36,7 @@ import {
   summarizeDay,
   dashboardTotals,
   srCost as srCostOf,
+  orderBatchCostPrice,
   pieceFromCarton,
   toDecimal,
   todayBusinessDate,
@@ -299,7 +300,15 @@ export async function postStockEntries(
       // D68: a receipt brings no more into a batch than is still due on it.
       const receipts = request.lines.flatMap((line, index) =>
         line.kind === "receipt" && line.batchId
-          ? [{ batchId: line.batchId, productId: line.productId, pieces: line.pieces, index }]
+          ? [
+              {
+                batchId: line.batchId,
+                productId: line.productId,
+                pieces: line.pieces,
+                freePieces: line.freePieces ?? "0",
+                index,
+              },
+            ]
           : [],
       );
       await ensureBatchDue(tx, companyId, request.date, receipts);
@@ -322,7 +331,16 @@ export async function postStockEntries(
             `lines.${index}.batchId`,
           );
           const prices = await useBatchPrices(tx, batch, line);
-          await tx.stockEntry.create({ data: { ...base, batchId: batch.id, ...prices } });
+          const free =
+            line.freePieces !== undefined && line.freePieces !== "0" ? line.freePieces : null;
+          await tx.stockEntry.create({
+            data: {
+              ...base,
+              batchId: batch.id,
+              ...(free !== null ? { freePieces: free } : {}),
+              ...prices,
+            },
+          });
           continue;
         }
         if (line.kind !== "order") {
@@ -336,13 +354,22 @@ export async function postStockEntries(
         }
         const piecesPerCarton = packOf(line.productId);
         const salePrice = line.salePrice ?? "0";
-        const costPrice =
+        // Order-price feed stays the carton rate (D57/D104); batch cost uses effective cost when
+        // free pieces are present so a different free mix opens a new batch (D68, 2026-11-08).
+        const nominal =
           line.cartonRate === undefined
             ? null
             : pieceFromCarton(line.cartonRate, String(piecesPerCarton));
-        if (line.pieces !== "0" && costPrice !== null) orderPrices.set(line.productId, costPrice);
-        // D68: unchanged prices keep the product's latest batch, changed ones start a new one;
-        // the free pieces go into the same batch at its prices.
+        const costPrice =
+          line.cartonRate === undefined
+            ? null
+            : orderBatchCostPrice({
+                paid: line.pieces,
+                free: line.freePieces ?? "0",
+                cartonRate: line.cartonRate,
+                piecesPerCarton,
+              });
+        if (line.pieces !== "0" && nominal !== null) orderPrices.set(line.productId, nominal);
         const batch = await orderBatch(tx, owner, line.productId, { costPrice, salePrice });
         await tx.stockEntry.create({
           data: {

@@ -299,14 +299,17 @@ async function rangeInput(
       continue;
     }
     if (entry.kind === "receipt" && entry.batchId && entry.batch) {
-      // D68: received into the named batch at the receipt's own prices.
+      // D68 / D118: received into the named batch (paid + free pieces) at the receipt's prices.
       const product = dayProduct(fromDbDate(entry.date), entry.productId);
       product.batchReceipts = [
         ...(product.batchReceipts ?? []),
         {
           key: entry.batchId,
           seq: entry.batch.seq,
-          quantity: plain(entry.pieces),
+          quantity: sumQuantities([
+            plain(entry.pieces),
+            entry.freePieces === null ? "0" : plain(entry.freePieces),
+          ]),
           costPrice: plain(entry.costPrice) ?? "0",
           salePrice: plain(entry.salePrice) ?? "0",
         },

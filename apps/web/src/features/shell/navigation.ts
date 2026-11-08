@@ -275,9 +275,18 @@ export function hubOfPath(path: string, master = false): Hub | undefined {
   return hubsFor(master).find((hub) => hub.tabs.some((tab) => tab.path === path));
 }
 
+/** Hubs a Manager must not see (owner 2026-11-08; amends D112 UI). */
+const MANAGER_HIDDEN_HUBS: ReadonlySet<HubId> = new Set([
+  "money",
+  "ledgers",
+  "history",
+  "setup",
+]);
+
 /** The hubs with at least one screen this person may open in this company, tabs cut down too. */
 export function visibleHubs(workspace: CompanyWorkspace): VisibleHub[] {
   return hubsFor(workspace.company.isMaster).flatMap((hub): VisibleHub[] => {
+    if (workspace.loginRoleKind === "manager" && MANAGER_HIDDEN_HUBS.has(hub.id)) return [];
     const tabs = hub.tabs.flatMap((tab): VisibleTab[] => {
       const found = findNavEntry(tab.path);
       if (!found || navAccess(workspace, found.section, found.item) !== "ok") return [];
@@ -318,7 +327,11 @@ export function navAccess(
   section: NavSection,
   navItem: NavItem,
 ): NavAccess {
-  if (!hubOfPath(navItem.path, workspace.company.isMaster)) return "forbidden";
+  const hub = hubOfPath(navItem.path, workspace.company.isMaster);
+  if (!hub) return "forbidden";
+  if (workspace.loginRoleKind === "manager" && MANAGER_HIDDEN_HUBS.has(hub.id)) {
+    return "forbidden";
+  }
   if (
     section.module &&
     !workspace.allModules &&

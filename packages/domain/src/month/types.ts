@@ -389,6 +389,8 @@ export type PersonDayResult = {
   returned: string;
   net: string;
   damaged: string;
+  /** D119: claim rate for damaged pieces; null when none / legacy. */
+  damageRate: string | null;
   /** Excel's person amount: net × sale price (+ split adjustment − commission); damaged included. */
   amount: string;
   /** issued − returned − damaged. */

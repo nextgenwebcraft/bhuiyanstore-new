@@ -81,9 +81,10 @@ export type StockEntry = z.infer<typeof stockEntrySchema>;
  * One godown line. An `order` (D57, D68) carries paid pieces, optional free pieces, the purchase
  * taka per carton (required with paid pieces; without it a free-only order takes the latest
  * batch's purchase price) and the sale price per piece; paid pieces may be 0 only with free
- * pieces, which go into the same batch. A `receipt` (D68) names the batch it receives into and may change the
- * batch's per-piece prices. A damage deposit (D63) carries whole pieces > 0 and the taka per
- * piece. Other kinds carry whole pieces > 0 and nothing else.
+ * pieces, which go into the same batch. A `receipt` (D68, D118) names the batch it receives into,
+ * may take paid and/or free pieces separately (freePieces), and may change the batch's per-piece
+ * prices. A damage deposit (D63) carries whole pieces > 0 and the taka per piece. Other kinds
+ * carry whole pieces > 0 and nothing else.
  */
 export const stockEntryLineRequestSchema = z
   .object({
@@ -101,6 +102,7 @@ export const stockEntryLineRequestSchema = z
     const issue = (path: string, message: string) =>
       ctx.addIssue({ code: "custom", path: [path], message });
     const paid = line.pieces !== "0";
+    const free = line.freePieces !== undefined && line.freePieces !== "0";
     if (line.kind === "damageDeposit") {
       if (line.unitPrice === undefined) issue("unitPrice", "validation.daily.rateRequired");
     } else if (line.unitPrice !== undefined) {
@@ -108,20 +110,19 @@ export const stockEntryLineRequestSchema = z
     }
     if (line.kind === "receipt") {
       if (line.batchId === undefined) issue("batchId", "validation.daily.batchRequired");
-    } else {
-      if (line.batchId !== undefined) issue("batchId", "validation.daily.orderOnly");
-      if (line.costPrice !== undefined) issue("costPrice", "validation.daily.orderOnly");
+      if (!paid && !free) issue("pieces", "validation.quantityPositive");
+      if (line.cartonRate !== undefined) issue("cartonRate", "validation.daily.orderOnly");
+      return;
     }
+    if (line.batchId !== undefined) issue("batchId", "validation.daily.orderOnly");
+    if (line.costPrice !== undefined) issue("costPrice", "validation.daily.orderOnly");
     if (line.kind !== "order") {
       if (!paid) issue("pieces", "validation.quantityPositive");
       if (line.freePieces !== undefined) issue("freePieces", "validation.daily.orderOnly");
       if (line.cartonRate !== undefined) issue("cartonRate", "validation.daily.orderOnly");
-      if (line.kind !== "receipt" && line.salePrice !== undefined) {
-        issue("salePrice", "validation.daily.orderOnly");
-      }
+      if (line.salePrice !== undefined) issue("salePrice", "validation.daily.orderOnly");
       return;
     }
-    const free = line.freePieces !== undefined && line.freePieces !== "0";
     if (!paid && !free) issue("pieces", "validation.quantityPositive");
     if (paid && line.cartonRate === undefined) issue("cartonRate", "validation.daily.rateRequired");
     if (line.salePrice === undefined) issue("salePrice", "validation.daily.salePriceRequired");
@@ -502,8 +503,9 @@ export const lineAllocationSchema = z.object({
 export type LineAllocation = z.infer<typeof lineAllocationSchema>;
 
 /**
- * D68: one stored batch (order lot) of a product with its current per-piece prices and the pieces
- * still due from the company on the date. `costPrice` is null without cost view.
+ * D68 / D118: one stored batch (order lot) of a product with its current per-piece prices and the
+ * pieces still due from the company on the date (`undelivered` = paid + free). `costPrice` is null
+ * without cost view.
  */
 export const productLotSchema = z.object({
   id: idSchema,
@@ -512,6 +514,10 @@ export const productLotSchema = z.object({
   costPrice: costMoney,
   salePrice: money,
   undelivered: money,
+  /** Paid pieces still due on this batch (D118). */
+  undeliveredPaid: money,
+  /** Free pieces still due on this batch (D118). */
+  undeliveredFree: money,
 });
 
 export type ProductLot = z.infer<typeof productLotSchema>;
@@ -584,6 +590,8 @@ export const dayPersonRowSchema = z.object({
   returned: money,
   net: money,
   damaged: money,
+  /** D119: claim rate for damaged pieces when present. */
+  damageRate: decimalStringSchema.nullable().optional(),
   commission: money,
   amount: money,
   /** FIFO allocation of the net pieces over the product's batches (D49). */

@@ -203,6 +203,8 @@ export function PersonDialog({
   onClose,
   simpleHire = false,
   isMaster = false,
+  /** এসআর হিসাব: create with this SR role only (name + phone); no employer/role/dates/salary. */
+  fixedRoleId,
 }: {
   companyId: string;
   draft: PersonDraft;
@@ -212,6 +214,7 @@ export function PersonDialog({
   simpleHire?: boolean;
   /** D93: the master panel shows and requires the home company; elsewhere it stays hidden. */
   isMaster?: boolean;
+  fixedRoleId?: string | undefined;
 }) {
   const id = useId();
   const createStaff = useCreateStaff(companyId);
@@ -221,12 +224,16 @@ export function PersonDialog({
   const [period, setPeriod] = useState(newPeriod);
   const [errors, setErrors] = useState(noErrors);
   const creating = !values.id;
+  const srHire = Boolean(fixedRoleId);
+  const hideHireExtras = (simpleHire || srHire) && creating;
 
   async function submit() {
     const fields: Partial<Record<string, string>> = {};
     if (!values.name.trim()) fields.name = t("validation.required");
     if (isMaster && !values.companyId) fields.companyId = t("validation.required");
-    const periodErrors = creating ? checkPeriod(period, "assignment.") : null;
+    if (creating && srHire && !fixedRoleId) fields["assignment.roleId"] = t("staff.noRoles");
+    const periodErrors =
+      creating && !srHire ? checkPeriod(period, "assignment.") : null;
     if (Object.keys(fields).length > 0 || periodErrors) {
       setErrors({ fields: { ...fields, ...periodErrors?.fields } });
       return;
@@ -235,14 +242,27 @@ export function PersonDialog({
     const person = {
       name: values.name.trim(),
       phone: values.phone.trim(),
-      // D80: master-panel আমাদের স্টাফ stay distributor-employed.
-      employer: isMaster ? ("distributor" as const) : values.employer,
-      status: values.status,
+      // D80: master-panel আমাদের স্টাফ stay distributor-employed; SRs are always supplier (D65).
+      employer: isMaster ? ("distributor" as const) : srHire ? ("supplier" as const) : values.employer,
+      status: hideHireExtras ? ("active" as const) : values.status,
       companyId: values.companyId,
     };
     try {
       if (values.id) await updateStaff.mutateAsync({ staffId: values.id, input: person });
-      else await createStaff.mutateAsync({ ...person, assignment: periodInput(period, roles) });
+      else {
+        const assignment = srHire
+          ? periodInput(
+              {
+                roleId: fixedRoleId ?? "",
+                from: todayBusinessDate(),
+                to: "",
+                monthlySalary: "",
+              },
+              roles,
+            )
+          : periodInput(period, roles);
+        await createStaff.mutateAsync({ ...person, assignment });
+      }
       onClose();
     } catch (error) {
       setErrors(
@@ -263,7 +283,13 @@ export function PersonDialog({
   return (
     <FormDialog
       open
-      title={t(creating ? "staff.form.createTitle" : "staff.form.editTitle")}
+      title={t(
+        creating
+          ? srHire
+            ? "sr.form.createTitle"
+            : "staff.form.createTitle"
+          : "staff.form.editTitle",
+      )}
       error={errors.form}
       pending={createStaff.isPending || updateStaff.isPending}
       onSubmit={() => void submit()}
@@ -309,7 +335,7 @@ export function PersonDialog({
           </select>
         </Field>
       ) : null}
-      {simpleHire && creating ? null : isMaster ? (
+      {hideHireExtras ? null : srHire || isMaster ? (
         <StatusField
           id={`${id}-status`}
           value={values.status}
@@ -341,7 +367,7 @@ export function PersonDialog({
           />
         </>
       )}
-      {creating ? (
+      {creating && !srHire ? (
         <PeriodFields
           id={`${id}-period`}
           period={period}
@@ -353,6 +379,9 @@ export function PersonDialog({
           salaryHint={!simpleHire}
           onChange={setPeriod}
         />
+      ) : null}
+      {creating && srHire && !fixedRoleId ? (
+        <p className="text-sm text-error">{t("staff.noRoles")}</p>
       ) : null}
     </FormDialog>
   );

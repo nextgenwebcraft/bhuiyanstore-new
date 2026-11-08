@@ -2,9 +2,10 @@
 
 import type { DayView, OrderFund, StockEntryPostRequest } from "@bsd/contracts";
 import {
+  orderBatchCostPrice,
   orderFundingPreview,
+  orderJoinsLatestBatch,
   pieceFromCarton,
-  samePiecePrice,
   sumQuantities,
   toBaseQuantity,
   toDecimal,
@@ -44,8 +45,8 @@ import {
 /**
  * The company order (D57, D68): per product the paid cartons + pieces, the purchase and sale
  * price (per carton or per piece, each filling the other) and the free goods the company gives
- * with it. The prices start at the product's latest batch; changed prices make a new batch. The
- * free goods go into the same batch at its prices.
+ * with it. The prices start at the product's latest batch; changed purchase/sale or a free mix
+ * that changes effective piece cost makes a new batch. Free goods stay on that order's batch.
  */
 type Row = {
   cartons: string;
@@ -142,19 +143,24 @@ export function OrderForm({
     }
     const bill =
       paid === "0" ? toDecimal("0") : toDecimal(paid).mul(rate).div(product.piecesPerCarton);
-    const totalPieces = toDecimal(paid).add(toDecimal(free));
-    // Effective cost = bill ÷ total pieces received (paid + free), matching D57.
-    const effectivePieceCost =
-      totalPieces.gt(0) && bill.gt(0)
-        ? bill.div(totalPieces)
-        : toDecimal(pieceFromCarton(rate, product.piecesPerCarton));
     const hasFree = toDecimal(free).gt(0);
+    // D68: batch cost = bill ÷ (paid + free) when free > 0, else carton rate ÷ ppc.
+    const batchCost =
+      orderBatchCostPrice({
+        paid,
+        free,
+        cartonRate: rate,
+        piecesPerCarton: product.piecesPerCarton,
+      }) ?? pieceFromCarton(rate, product.piecesPerCarton);
+    const effectivePieceCost = toDecimal(batchCost);
     const lot = latestLot(product);
-    const same =
-      lot !== undefined &&
-      lot.costPrice !== null &&
-      samePiecePrice(lot.costPrice, effectivePieceCost) &&
-      samePiecePrice(lot.salePrice, salePrice);
+    const same = orderJoinsLatestBatch(lot, {
+      paid,
+      free,
+      cartonRate: rate,
+      piecesPerCarton: product.piecesPerCarton,
+      salePrice,
+    });
     return {
       paid,
       free,
@@ -163,7 +169,7 @@ export function OrderForm({
       bill,
       effectivePieceCost,
       hasFree,
-      batchSeq: same ? lot.seq : null,
+      batchSeq: same && lot ? lot.seq : null,
     };
   }
 

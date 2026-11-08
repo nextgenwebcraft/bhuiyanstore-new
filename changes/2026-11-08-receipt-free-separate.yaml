@@ -1,0 +1,27 @@
+id: 2026-11-08-receipt-free-separate
+reason: >-
+  Owner 2026-11-08 (D118): on মাল গ্রহণ show free pieces still due per batch and allow
+  receiving paid vs free separately (including free-only). Amends D57 receipt free-form removal
+  and D68 receipt UX; keeps one named batch (no separate free batch).
+owners: [domain, contracts, database, application, web, i18n]
+changes:
+  - packages/domain - batchDueParts (paid/free + legacy combined paid-first); batch-lots.test.ts
+  - packages/contracts - productLot undeliveredPaid/Free; receipt lines may carry freePieces (pieces may be 0)
+  - packages/database - migration 20261108010000_receipt_free_pieces (checks allow receipt free / free-only)
+  - packages/application batches - batchDueDetail / ensureBatchDue (explicit free vs combined); productLots split
+  - packages/application daily - persist receipt freePieces only when > 0; ledger quantity = paid+free
+  - packages/application phase-l.integration.ts - D118 separate receive case
+  - apps/web receipt-form - paid/free columns, due hints; batch dropdown shows ক্রয় (not বিক্রয়)
+  - apps/web godown PostedEntries free on receipts; history orders/stock ফ্রি মাল column
+  - packages/i18n - godown.receipt.freeDue / paidGroup / freeHint; batchHint
+  - docs/decisions.md - D118
+affectedActionIds: [purchase.create]
+financialImpact: >-
+  Stock into a named batch now includes receipt freePieces. Due tracking splits paid vs free so
+  free-only receives clear ফ্রি বাকি without consuming অর্ডার বাকি. Legacy combined receipts still
+  allocate paid-first. Order bill and company balance unchanged.
+backfill: none
+tests: >-
+  packages/domain batch-lots.test.ts; packages/application phase-l.integration.ts
+rollout: pnpm db:migrate, deploy
+recovery: revert commit and migration

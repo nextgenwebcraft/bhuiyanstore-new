@@ -15,6 +15,7 @@ import {
   setProductPrice,
   updateProduct,
 } from "./products";
+import { ensureMasterCompany } from "./master";
 import {
   addStaffAssignment,
   createStaff,
@@ -347,6 +348,41 @@ describe("staff, roles and assignments", () => {
       }),
       "FORBIDDEN",
     );
+  });
+
+  it("shows master DSR assignments to a company Manager (D65 shop-due picker)", async () => {
+    const ctx = contextFor(db, admin);
+    const master = await ensureMasterCompany(db, admin.tenantId);
+    const dsr = must((await staffRoles.list(ctx)).find((r) => r.kind === "dsr"));
+    const globalDsr = await createStaff(ctx, master, {
+      name: "Global DSR",
+      employer: "distributor",
+      status: "active",
+      companyId: drinko,
+      assignment: { roleId: dsr.id, from: "2026-01-01", to: null, monthlySalary: null },
+    });
+
+    const role = await createRole(ctx, {
+      name: "Drinko manager view",
+      permissions: ["company.view"],
+    });
+    const manager = await createUser(ctx, {
+      name: "Manager Viewer",
+      email: "manager.dsr.view@example.test",
+      password: "temporary-Password-1",
+      memberships: [{ companyId: drinko, roleIds: [role.id] }],
+    });
+    const managerCtx = contextFor(db, {
+      userId: manager.id,
+      tenantId: admin.tenantId,
+      isSuperAdmin: false,
+    });
+
+    const listed = (await listStaffRecords(managerCtx, drinko)).find((s) => s.id === globalDsr.id);
+    expect(listed?.assignments.some((a) => a.roleKind === "dsr" && a.companyId === master)).toBe(
+      true,
+    );
+    expect(listed?.assignments.map((a) => a.companyId)).not.toContain(snacks);
   });
 });
 
