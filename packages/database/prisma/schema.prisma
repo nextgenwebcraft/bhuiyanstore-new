@@ -441,6 +441,8 @@ model Staff {
   assignments     StaffAssignment[]
   openingBalances OpeningBalanceLine[]
   dsrDays         DsrDay[]
+  /// D122: day-sheet lines where this person is the selling DSR (under an SR day).
+  dsrLinesAsDsr   DsrLine[]            @relation("DsrLineDsr")
   moneyEntries    MoneyEntry[]
   payrollLines    PayrollLine[]
   damageCases     DamageCase[]
@@ -666,10 +668,12 @@ model DsrDay {
   @@map("dsr_day")
 }
 
-/// Per product: Samari (issued), Firot (returned) and damaged pieces, with the carton-size snapshot.
+/// Per DSR + product: Samari (issued), Firot (returned) and damaged pieces (D122 under an SR day).
 model DsrLine {
   id              String          @id @default(cuid())
   dsrDayId        String          @map("dsr_day_id")
+  /// D122: the selling DSR; the parent day stays the SR sheet owner.
+  dsrStaffId      String          @map("dsr_staff_id")
   productId       String          @map("product_id")
   piecesPerCarton Int             @map("pieces_per_carton")
   issued          Decimal         @default(0) @db.Decimal(20, 6)
@@ -686,10 +690,12 @@ model DsrLine {
   /// D109: taka per damaged piece. Null when the line has no damage. Does not reprice the batch.
   damageRate      Decimal?        @map("damage_rate") @db.Decimal(20, 6)
   dsrDay          DsrDay          @relation(fields: [dsrDayId], references: [id], onDelete: Cascade)
+  dsrStaff        Staff           @relation("DsrLineDsr", fields: [dsrStaffId], references: [id])
   product         Product         @relation(fields: [productId], references: [id])
   splits          DsrPriceSplit[]
 
-  @@unique([dsrDayId, productId, batchKey])
+  @@unique([dsrDayId, dsrStaffId, productId, batchKey])
+  @@index([dsrStaffId])
   @@map("dsr_line")
 }
 

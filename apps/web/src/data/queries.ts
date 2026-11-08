@@ -186,12 +186,13 @@ function usePostingMutation<TInput, TResult>(
 
 // ------------------------------------------------------------- daily entry (Phase E)
 
-export function useDayView(companyId: string, date: string) {
+export function useDayView(companyId: string, date: string, enabled = true) {
   const service = useService();
   const actorId = useActorId();
   return useQuery({
     queryKey: queryKeys.dayView(actorId, companyId, date),
     queryFn: ({ signal }) => service.getDayView(companyId, date, { signal }),
+    enabled,
   });
 }
 
@@ -714,12 +715,13 @@ export function useShops(companyId: string) {
   });
 }
 
-export function useOrderTargets(companyId: string, dashboardOnly = false) {
+export function useOrderTargets(companyId: string, dashboardOnly = false, enabled = true) {
   const service = useService();
   const actorId = useActorId();
   return useQuery({
     queryKey: queryKeys.orderTargets(actorId, companyId, dashboardOnly),
     queryFn: ({ signal }) => service.listOrderTargets(companyId, { dashboardOnly }, { signal }),
+    enabled,
   });
 }
 

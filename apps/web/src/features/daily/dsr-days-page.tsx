@@ -2,7 +2,6 @@
 
 import type {
   DayView,
-  LineAllocation,
   DsrDay,
   DsrDaySaveRequest,
   MoneyEntry,
@@ -20,7 +19,7 @@ import {
   toDecimal,
 } from "@bsd/domain";
 import { useAsyncAction } from "@/lib/async-action";
-import { formatCount, formatDateTime, formatRate, t } from "@bsd/i18n";
+import { formatDateTime, t } from "@bsd/i18n";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/button";
@@ -48,7 +47,6 @@ import { NavGate } from "@/features/shell/nav-gate";
 import { PrintButton, PrintHeader } from "@/features/shell/print";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 import {
-  batchName,
   CellInput,
   DateBar,
   DayGate,
@@ -58,69 +56,11 @@ import {
   useWorkingDate,
 } from "./daily-kit";
 import { inputClass } from "@/components/field";
-import {
-  CartonQty,
-  cartonText,
-  StatusChip,
-  money,
-  quantity,
-  stickyCell,
-  stickyHead,
-  tableClass,
-  tdClass,
-  tdNum,
-  thClass,
-  thNum,
-  theadClass,
-} from "@/components/data-table";
-import { TableScroller } from "@/components/table-scroller";
+import { StatusChip, money, quantity } from "@/components/data-table";
+import { DsrSheetEntry, lineKeyOf, type LineDraft, type SheetDraft } from "./dsr-sheet-entry";
 
 const PATH = "sales/daily-summaries";
 
-/** Each column group of the sheet gets its own tint, carried from the header into every row. */
-const GROUP = {
-  issued: { head: "bg-info/10 text-info", sub: "bg-info/5", cell: "bg-info/[0.03]" },
-  returned: { head: "bg-success/10 text-success", sub: "bg-success/5", cell: "bg-success/[0.03]" },
-  damaged: { head: "bg-error/10 text-error", sub: "bg-error/5", cell: "bg-error/[0.03]" },
-  commission: {
-    head: "bg-warning/10 text-warning",
-    sub: "bg-warning/5",
-    cell: "bg-warning/[0.03]",
-  },
-} as const;
-const groupHead =
-  "border-b border-l border-border px-3 py-2 text-center text-xs font-semibold tracking-wide";
-const loneHead = "border-l border-border px-3 py-2 text-center text-xs font-semibold align-middle";
-const subHead = "border-border px-2 py-1.5 text-center text-[11px] font-medium text-text-muted";
-const inputCell = "border-border px-2 py-2 text-center [&_input]:mx-auto";
-
-/** One sheet line: a product taken from one batch (D68); prices left unset are the batch's. */
-type LineDraft = {
-  id: string;
-  batchKey: string;
-  issuedCartons: string;
-  issuedPieces: string;
-  returnedCartons: string;
-  returnedPieces: string;
-  damaged: string;
-  damageRate?: string | undefined;
-  commission: string;
-  salePrice?: string | undefined;
-  costPrice?: string | undefined;
-};
-/** The lines of each product, in order; a product without lines shows one blank line. */
-type SheetDraft = { lines: Record<string, LineDraft[]>; handedOver: string };
-
-const blankLine = (id: string, batchKey: string): LineDraft => ({
-  id,
-  batchKey,
-  issuedCartons: "",
-  issuedPieces: "",
-  returnedCartons: "",
-  returnedPieces: "",
-  damaged: "",
-  commission: "",
-});
 const isAmount = (value: string) => /^\d+(\.\d{1,2})?$/.test(value);
 const isUnitPrice = (value: string) => /^\d+(\.\d{1,6})?$/.test(value);
 
@@ -166,12 +106,6 @@ function batchOptions(product: Product, view: DayView, named: readonly string[])
   return [...out.values()].sort((a, b) => a.seq - b.seq);
 }
 
-/** The batch a new line starts from: the oldest in stock not yet on the product's lines. */
-function nextBatch(options: BatchOption[], taken: readonly string[]): string {
-  const open = options.filter((o) => !taken.includes(o.key));
-  return (open.find((o) => toDecimal(o.quantity).gt(0)) ?? open[0])?.key ?? "";
-}
-
 /** Every DSR, always (D65: DSRs are global staff of the master company; any DSR assignment counts). */
 export function dsrsOn(records: StaffRecord[]) {
   return records.filter((s) => s.assignments.some((a) => a.roleKind === "dsr"));
@@ -188,18 +122,6 @@ export function ourStaffOn(records: StaffRecord[]) {
  */
 export function srsOn(records: StaffRecord[]) {
   return records.filter((s) => s.employer === "supplier");
-}
-/** One line's batch allocation as small muted text: "ব্যাচ ১: ৪০ পিস @ ৳২০"; a net return reads "ফেরত ব্যাচ ১: ৫ পিস" (D49). */
-function allocationText(allocations: LineAllocation[]): string {
-  return allocations
-    .filter((a) => !toDecimal(a.quantity).isZero())
-    .map((a) => {
-      const returned = toDecimal(a.quantity).isNegative();
-      const pieces = `${formatCount(returned ? a.quantity.replace("-", "") : a.quantity)} ${t("common.pieces")}`;
-      const head = `${returned ? `${t("batch.returned")} ` : ""}${batchName(a)}: ${pieces}`;
-      return returned ? head : `${head} @ ${t("batch.currency")}${formatRate(a.salePrice)}`;
-    })
-    .join(", ");
 }
 
 /**
@@ -226,12 +148,14 @@ const priceText = (value: string | null) =>
   value === null ? undefined : toDecimal(value).toFixed();
 
 function draftOf(sheet: DsrDay | undefined): SheetDraft {
-  const lines: Record<string, LineDraft[]> = {};
-  for (const line of sheet?.lines ?? []) {
+  const lines: LineDraft[] = (sheet?.lines ?? []).map((line) => {
     const [issuedCartons, issuedPieces] = split(line.issued, line.piecesPerCarton);
     const [returnedCartons, returnedPieces] = split(line.returned, line.piecesPerCarton);
-    (lines[line.productId] ??= []).push({
-      id: `${line.productId}|${line.batchKey}`,
+    return {
+      id: lineKeyOf(line),
+      dsrStaffId: line.dsrStaffId,
+      dsrStaffName: line.dsrStaffName,
+      productId: line.productId,
       batchKey: line.batchKey,
       issuedCartons,
       issuedPieces,
@@ -242,31 +166,13 @@ function draftOf(sheet: DsrDay | undefined): SheetDraft {
       commission: toDecimal(line.commission).isZero() ? "" : line.commission,
       salePrice: priceText(line.salePrice),
       costPrice: priceText(line.costPrice),
-    });
-  }
+    };
+  });
   return { lines, handedOver: sheet?.cashHandedOver ?? "" };
 }
 
 const whole = (value: string) => clean(value) || "0";
 const isWhole = (value: string) => /^\d+$/.test(value);
-
-/**
- * The product's lines in the draft, or its one blank line. A line always names a batch: one
- * without (blank, or saved before) takes the first batch in stock not on another line.
- */
-function linesOf(draft: SheetDraft, product: Product, view: DayView): LineDraft[] {
-  const own = draft.lines[product.productId] ?? [];
-  const taken = own.map((l) => l.batchKey).filter((key) => key !== "");
-  const options = batchOptions(product, view, taken);
-  if (own.length === 0) return [blankLine(product.productId, nextBatch(options, []))];
-  if (own.every((l) => l.batchKey !== "")) return own;
-  return own.map((l) => {
-    if (l.batchKey !== "") return l;
-    const batchKey = nextBatch(options, taken);
-    taken.push(batchKey);
-    return { ...l, batchKey };
-  });
-}
 
 /**
  * A line's issued/returned totals (D89: cartons × size + loose pieces, each entered on its own)
@@ -303,49 +209,49 @@ function requestOf(
   const handed = clean(draft.handedOver);
   if (handed && !isAmount(handed)) return t("validation.opening.amount");
   const lines: DsrDaySaveRequest["lines"] = [];
-  for (const product of view.products) {
-    const seen = new Set<string>();
-    for (const d of linesOf(draft, product, view)) {
-      const pieces = piecesOf(d, product.piecesPerCarton);
-      if (!pieces) return t("validation.wholeNumber");
-      const commission = clean(d.commission) || "0";
-      if (!isAmount(commission)) return t("validation.opening.amount");
-      const noCommission = toDecimal(commission).isZero();
-      const { issued, returned, damaged } = pieces;
-      if (issued === "0" && returned === "0" && damaged === "0" && noCommission) continue;
-      if (seen.has(d.batchKey)) {
-        return `${product.productName}: ${t("validation.daily.duplicateProduct")}`;
-      }
-      seen.add(d.batchKey);
-      const salePrice = d.salePrice === undefined ? undefined : clean(d.salePrice);
-      const costPrice =
-        d.costPrice === undefined || !view.canSeeCost ? undefined : clean(d.costPrice);
-      if ([salePrice, costPrice].some((p) => p !== undefined && !isUnitPrice(p))) {
-        return `${product.productName}: ${t("validation.unitPrice.invalid")}`;
-      }
-      const damageRate =
-        damaged === "0"
-          ? undefined
-          : clean(d.damageRate ?? "") ||
-            saleOf(
-              { productId: product.productId, batchKey: d.batchKey, salePrice: d.salePrice },
-              view,
-            );
-      if (damageRate !== undefined && !isUnitPrice(damageRate)) {
-        return `${product.productName}: ${t("validation.unitPrice.invalid")}`;
-      }
-      lines.push({
-        productId: product.productId,
-        batchKey: d.batchKey,
-        issued,
-        returned,
-        damaged,
-        commission: noCommission ? "0" : commission,
-        ...(salePrice === undefined ? {} : { salePrice }),
-        ...(costPrice === undefined ? {} : { costPrice }),
-        ...(damageRate === undefined ? {} : { damageRate }),
-      });
+  const seen = new Set<string>();
+  for (const d of draft.lines) {
+    const product = view.products.find((p) => p.productId === d.productId);
+    if (!product) return t("validation.daily.unknownProduct");
+    const pieces = piecesOf(d, product.piecesPerCarton);
+    if (!pieces) return t("validation.wholeNumber");
+    const commission = clean(d.commission) || "0";
+    if (!isAmount(commission)) return t("validation.opening.amount");
+    const noCommission = toDecimal(commission).isZero();
+    const { issued, returned, damaged } = pieces;
+    if (issued === "0" && returned === "0" && damaged === "0" && noCommission) continue;
+    if (!d.dsrStaffId) return t("validation.daily.lineDsrOnly");
+    const key = lineKeyOf(d);
+    if (seen.has(key)) {
+      return `${d.dsrStaffName} · ${product.productName}: ${t("validation.daily.duplicateProduct")}`;
     }
+    seen.add(key);
+    const salePrice = d.salePrice === undefined ? undefined : clean(d.salePrice);
+    const costPrice =
+      d.costPrice === undefined || !view.canSeeCost ? undefined : clean(d.costPrice);
+    if ([salePrice, costPrice].some((p) => p !== undefined && !isUnitPrice(p))) {
+      return `${product.productName}: ${t("validation.unitPrice.invalid")}`;
+    }
+    const damageRate =
+      damaged === "0"
+        ? undefined
+        : clean(d.damageRate ?? "") ||
+          saleOf({ productId: d.productId, batchKey: d.batchKey, salePrice: d.salePrice }, view);
+    if (damageRate !== undefined && !isUnitPrice(damageRate)) {
+      return `${product.productName}: ${t("validation.unitPrice.invalid")}`;
+    }
+    lines.push({
+      productId: d.productId,
+      dsrStaffId: d.dsrStaffId,
+      batchKey: d.batchKey,
+      issued,
+      returned,
+      damaged,
+      commission: noCommission ? "0" : commission,
+      ...(salePrice === undefined ? {} : { salePrice }),
+      ...(costPrice === undefined ? {} : { costPrice }),
+      ...(damageRate === undefined ? {} : { damageRate }),
+    });
   }
   return { ...base, cashHandedOver: handed || null, lines };
 }
@@ -557,16 +463,16 @@ function SheetEditor({
     typeof built === "string" ||
     JSON.stringify(built) !== JSON.stringify(requestOf(draftOf(sheet), view, base));
   const pending = save.isPending || command.isPending;
-  const amounts = new Map(
-    view.persons.filter((p) => p.staffId === staff.id).map((p) => [p.productId, p.amount]),
+  // D122: engine persons are line DSRs, not the SR sheet owner.
+  const sheetDsrIds = new Set(
+    (typeof built === "string" ? draft.lines.map((l) => l.dsrStaffId) : built.lines.map((l) => l.dsrStaffId)),
   );
-  const allocations = new Map(
-    view.persons.filter((p) => p.staffId === staff.id).map((p) => [p.productId, p.allocations]),
+  const amounts = new Map(
+    view.persons
+      .filter((p) => sheetDsrIds.has(p.staffId))
+      .map((p) => [p.productId, p.amount]),
   );
   const entered = typeof built === "string" ? [] : built.lines;
-  // বিক্রি (টাকা): samari − firot only (D92), always from the sheet's own lines.
-  const salariFirot = salariFirotAmounts(entered, view);
-  const salariFirotAmount = (productId: string) => salariFirot.get(productId) ?? "0";
   const fieldDay = useDsrFieldDay(
     companyId,
     staff.id,
@@ -661,28 +567,6 @@ function SheetEditor({
       : []),
   ];
 
-  const setLines = (productId: string, change: (lines: LineDraft[]) => LineDraft[]) =>
-    setDraft((d) => {
-      const own = view.products.find((p) => p.productId === productId);
-      if (!own) return d;
-      return { ...d, lines: { ...d.lines, [productId]: change(linesOf(d, own, view)) } };
-    });
-  const setLine = (productId: string, id: string, patch: Partial<LineDraft>) =>
-    setLines(productId, (lines) => lines.map((l) => (l.id === id ? { ...l, ...patch } : l)));
-  const addLine = (productId: string, options: BatchOption[]) =>
-    setLines(productId, (lines) => [
-      ...lines,
-      blankLine(
-        crypto.randomUUID(),
-        nextBatch(
-          options,
-          lines.map((l) => l.batchKey),
-        ),
-      ),
-    ]);
-  const removeLine = (productId: string, id: string) =>
-    setLines(productId, (lines) => lines.filter((l) => l.id !== id));
-
   async function run(kind: "save" | "post" | "discard" | "reverse" | "correct") {
     setError(undefined);
     if (kind === "correct") {
@@ -743,31 +627,6 @@ function SheetEditor({
     }
   }
 
-  type QuantityField = Exclude<
-    keyof LineDraft,
-    "id" | "batchKey" | "salePrice" | "costPrice" | "damageRate"
-  >;
-  // D89: cartons and loose pieces are entered independently; neither fills the other.
-  const change = (productId: string, line: LineDraft, field: QuantityField, value: string) =>
-    setLine(productId, line.id, { [field]: value });
-  const cell = (
-    productId: string,
-    line: LineDraft,
-    field: QuantityField,
-    label: string,
-    off: boolean,
-    mode: "numeric" | "decimal" = "numeric",
-  ) => (
-    <CellInput
-      label={label}
-      value={line[field]}
-      onChange={(value) => change(productId, line, field, value)}
-      disabled={off}
-      mode={mode}
-      width={mode === "decimal" ? "w-20" : "w-14"}
-    />
-  );
-
   return (
     <div className="flex flex-col gap-4">
       {sheet?.fieldReport ? (
@@ -791,294 +650,16 @@ function SheetEditor({
         />
       </dl>
       <TableSummary label={t("table.summary")} items={sheetSummary} />
-      <TableScroller>
-        <table className={tableClass}>
-          <thead className={theadClass}>
-            <tr>
-              <th scope="col" rowSpan={2} className={`${thClass} ${stickyHead} align-bottom`}>
-                {t("godown.column.product")}
-              </th>
-              <th scope="col" rowSpan={2} className={`${thClass} align-bottom`}>
-                {t("dsr.sheet.batch")}
-              </th>
-              <th scope="colgroup" colSpan={2} className={`${groupHead} ${GROUP.issued.head}`}>
-                {t("dsr.sheet.issued")}
-              </th>
-              <th scope="colgroup" colSpan={2} className={`${groupHead} ${GROUP.returned.head}`}>
-                {t("dsr.sheet.returned")}
-              </th>
-              <th scope="col" rowSpan={2} className={`${loneHead} ${GROUP.damaged.head}`}>
-                {t("dsr.sheet.damaged")}
-              </th>
-              <th scope="col" rowSpan={2} className={`${loneHead} ${GROUP.damaged.head}`}>
-                {t("dsr.sheet.damageRate")}
-              </th>
-              <th scope="col" rowSpan={2} className={`${loneHead} ${GROUP.commission.head}`}>
-                {t("dsr.sheet.commission")}
-              </th>
-              <th
-                scope="col"
-                rowSpan={2}
-                className={`${thNum} border-l border-border align-bottom`}
-              >
-                {t("dsr.sheet.batchSalePrice")}
-              </th>
-              {view.canSeeCost ? (
-                <th scope="col" rowSpan={2} className={`${thNum} align-bottom`}>
-                  {t("dsr.sheet.costPrice")}
-                </th>
-              ) : null}
-              <th scope="col" rowSpan={2} className={`${thNum} align-bottom`}>
-                {t("dsr.sheet.engineAmount")}
-              </th>
-              <th
-                scope="col"
-                rowSpan={2}
-                className={`${thNum} border-l border-border align-bottom`}
-              >
-                {t("godown.column.stock")}
-                <span className="block text-[10.5px] font-normal text-text-subtle">
-                  {t("godown.column.pieces")}
-                </span>
-              </th>
-            </tr>
-            <tr>
-              <th scope="col" className={`${subHead} border-l ${GROUP.issued.sub}`}>
-                {t("godown.column.cartons")}
-              </th>
-              <th scope="col" className={`${subHead} ${GROUP.issued.sub}`}>
-                {t("godown.column.pieces")}
-              </th>
-              <th scope="col" className={`${subHead} border-l ${GROUP.returned.sub}`}>
-                {t("godown.column.cartons")}
-              </th>
-              <th scope="col" className={`${subHead} ${GROUP.returned.sub}`}>
-                {t("godown.column.pieces")}
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {view.products.flatMap((product) => {
-              const lines = linesOf(draft, product, view);
-              const options = batchOptions(
-                product,
-                view,
-                lines.map((l) => l.batchKey),
-              );
-              const canAdd = !locked && options.length > lines.length;
-              // No batch (no stock, none used today): issue/return/commission stay off; damage
-              // (pieces + rate) stays editable so field damage can be recorded without godown stock.
-              const noStock = options.length === 0;
-              const off = locked || noStock;
-              const damageOff = locked;
-              const productNet = lines.reduce(
-                (sum, l) => sum.add(netOf(l, product.piecesPerCarton)),
-                toDecimal("0"),
-              );
-              const productRemaining = toDecimal(product.stock).sub(productNet);
-              return lines.map((line, index) => {
-                const first = index === 0;
-                const batch = options.find((o) => o.key === line.batchKey);
-                const batchRemaining = batch
-                  ? toDecimal(batch.quantity).sub(netOf(line, product.piecesPerCarton))
-                  : null;
-                const name = `${product.productName}${batch ? ` ${batchName(batch)}` : ""}`;
-                return (
-                  <tr
-                    key={`${product.productId}-${line.id}`}
-                    title={noStock ? t("dsr.sheet.noStock") : undefined}
-                    className={`${first ? "border-t border-border" : "border-t border-border/40"}${noStock ? "text-text-muted" : ""}`}
-                  >
-                    <th scope="row" className={`${tdClass} ${stickyCell} text-left font-medium`}>
-                      {first ? (
-                        <>
-                          <div>{product.productName}</div>
-                          <div className="text-xs font-normal text-text-muted">
-                            {product.sku} · {t("godown.column.stock")}{" "}
-                            <CartonQty
-                              pieces={product.stock}
-                              piecesPerCarton={product.piecesPerCarton}
-                            />
-                          </div>
-                          {posted && allocationText(allocations.get(product.productId) ?? []) ? (
-                            <div className="max-w-56 text-xs font-normal whitespace-normal text-text-muted">
-                              <span className="sr-only">{t("dsr.allocation.title")}: </span>
-                              {allocationText(allocations.get(product.productId) ?? [])}
-                            </div>
-                          ) : null}
-                          {canAdd ? (
-                            <Button
-                              className="mt-1 px-2 py-0.5 text-xs font-normal"
-                              onClick={() => addLine(product.productId, options)}
-                            >
-                              {t("dsr.sheet.addBatch")}
-                            </Button>
-                          ) : null}
-                        </>
-                      ) : null}
-                    </th>
-                    <td className={tdClass}>
-                      <div className="flex items-center gap-1">
-                        <select
-                          aria-label={`${product.productName} ${t("dsr.sheet.batch")}`}
-                          value={line.batchKey}
-                          disabled={off}
-                          onChange={(event) =>
-                            setLine(product.productId, line.id, {
-                              batchKey: event.target.value,
-                              salePrice: undefined,
-                              costPrice: undefined,
-                            })
-                          }
-                          className={`${inputClass} min-w-44`}
-                        >
-                          {noStock ? <option value="">{t("dsr.sheet.noStock")}</option> : null}
-                          {options.map((o) => (
-                            <option key={o.key} value={o.key}>
-                              {batchName(o)}
-                              {o.free ? ` (${t("batch.free")})` : ""} · {t("batch.available")}{" "}
-                              {cartonText(o.quantity, product.piecesPerCarton)}
-                            </option>
-                          ))}
-                        </select>
-                        {!first && !locked ? (
-                          <Button
-                            aria-label={t("dsr.sheet.removeBatch")}
-                            title={t("dsr.sheet.removeBatch")}
-                            className="px-2 py-1 text-xs"
-                            onClick={() => removeLine(product.productId, line.id)}
-                          >
-                            ×
-                          </Button>
-                        ) : null}
-                      </div>
-                    </td>
-                    <td className={`${inputCell} border-l ${GROUP.issued.cell}`}>
-                      {cell(
-                        product.productId,
-                        line,
-                        "issuedCartons",
-                        `${name} ${t("dsr.sheet.issued")} ${t("godown.column.cartons")}`,
-                        off || issuedLocked,
-                      )}
-                    </td>
-                    <td className={`${inputCell} ${GROUP.issued.cell}`}>
-                      {cell(
-                        product.productId,
-                        line,
-                        "issuedPieces",
-                        `${name} ${t("dsr.sheet.issued")} ${t("godown.column.pieces")}`,
-                        off || issuedLocked,
-                      )}
-                    </td>
-                    <td className={`${inputCell} border-l ${GROUP.returned.cell}`}>
-                      {cell(
-                        product.productId,
-                        line,
-                        "returnedCartons",
-                        `${name} ${t("dsr.sheet.returned")} ${t("godown.column.cartons")}`,
-                        off,
-                      )}
-                    </td>
-                    <td className={`${inputCell} ${GROUP.returned.cell}`}>
-                      {cell(
-                        product.productId,
-                        line,
-                        "returnedPieces",
-                        `${name} ${t("dsr.sheet.returned")} ${t("godown.column.pieces")}`,
-                        off,
-                      )}
-                    </td>
-                    <td
-                      className={`${inputCell} border-l ${GROUP.damaged.cell}${noStock ? " text-text" : ""}`}
-                    >
-                      {cell(
-                        product.productId,
-                        line,
-                        "damaged",
-                        `${name} ${t("dsr.sheet.damaged")}`,
-                        damageOff,
-                      )}
-                    </td>
-                    <td className={`${inputCell} ${GROUP.damaged.cell}${noStock ? " text-text" : ""}`}>
-                      <CellInput
-                        label={`${name} ${t("dsr.sheet.damageRate")}`}
-                        value={
-                          line.damageRate ??
-                          line.salePrice ??
-                          priceText(batch?.salePrice ?? product.salePrice) ??
-                          ""
-                        }
-                        onChange={(damageRate) =>
-                          setLine(product.productId, line.id, { damageRate })
-                        }
-                        disabled={damageOff}
-                        mode="decimal"
-                        width="w-24"
-                      />
-                    </td>
-                    <td className={`${inputCell} border-l ${GROUP.commission.cell}`}>
-                      {cell(
-                        product.productId,
-                        line,
-                        "commission",
-                        `${name} ${t("dsr.sheet.commission")}`,
-                        off,
-                        "decimal",
-                      )}
-                    </td>
-                    <td className={`${inputCell} border-l border-border`}>
-                      <CellInput
-                        label={`${name} ${t("dsr.sheet.batchSalePrice")}`}
-                        value={
-                          line.salePrice ?? priceText(batch?.salePrice ?? product.salePrice) ?? ""
-                        }
-                        onChange={(salePrice) => setLine(product.productId, line.id, { salePrice })}
-                        disabled={off || !batch || priceLocked}
-                        mode="decimal"
-                        width="w-24"
-                      />
-                    </td>
-                    {view.canSeeCost ? (
-                      <td className={inputCell}>
-                        <CellInput
-                          label={`${name} ${t("dsr.sheet.costPrice")}`}
-                          value={line.costPrice ?? priceText(batch?.costPrice ?? null) ?? ""}
-                          onChange={(costPrice) =>
-                            setLine(product.productId, line.id, { costPrice })
-                          }
-                          disabled={off || !batch || batch.free || priceLocked}
-                          mode="decimal"
-                          width="w-24"
-                        />
-                      </td>
-                    ) : null}
-                    <td className={tdNum}>
-                      {first ? money(salariFirotAmount(product.productId)) : null}
-                    </td>
-                    <td className={`${tdNum} border-l border-border`}>
-                      {first ? (
-                        <div className="flex flex-col items-end gap-0.5">
-                          <span>{quantity(productRemaining.toFixed())}</span>
-                          {batchRemaining !== null ? (
-                            <span className="text-[10.5px] text-text-muted tabular-nums">
-                              {quantity(batchRemaining.toFixed())}
-                            </span>
-                          ) : null}
-                        </div>
-                      ) : batchRemaining !== null ? (
-                        <span className="text-[10.5px] text-text-muted tabular-nums">
-                          {quantity(batchRemaining.toFixed())}
-                        </span>
-                      ) : null}
-                    </td>
-                  </tr>
-                );
-              });
-            })}
-          </tbody>
-        </table>
-      </TableScroller>
+      <DsrSheetEntry
+        draft={draft}
+        view={view}
+        dsrs={dsrChoices}
+        sheetStaffId={staff.id}
+        locked={locked}
+        canEditPrices={!priceLocked}
+        issuedLocked={issuedLocked}
+        onChange={setDraft}
+      />
       <div className="flex flex-wrap items-center gap-2">
         {!posted && permissions.includes("sale.create") ? (
           <Button disabled={pending || (!dirty && Boolean(sheet))} onClick={() => void run("save")}>

@@ -464,8 +464,11 @@ export async function reverseStockEntry(
 const dsrInclude = {
   staff: { select: { name: true } },
   lines: {
-    include: { product: { select: { sku: true, name: true } } },
-    orderBy: [{ product: { sku: "asc" } }, { batchSeq: "asc" }],
+    include: {
+      product: { select: { sku: true, name: true } },
+      dsrStaff: { select: { name: true } },
+    },
+    orderBy: [{ dsrStaff: { name: "asc" } }, { product: { sku: "asc" } }, { batchSeq: "asc" }],
   },
 } satisfies Prisma.DsrDayInclude;
 type DsrRow = Prisma.DsrDayGetPayload<{ include: typeof dsrInclude }>;
@@ -487,6 +490,8 @@ function toDsrDay(row: DsrRow, canSeeCost: boolean): DsrDay {
         : "none",
     lines: row.lines.map((line) => ({
       productId: line.productId,
+      dsrStaffId: line.dsrStaffId,
+      dsrStaffName: line.dsrStaff.name,
       sku: line.product.sku,
       productName: line.product.name,
       piecesPerCarton: String(line.piecesPerCarton),
@@ -596,8 +601,8 @@ export async function saveDsrDayIn(
   );
   lines.forEach((line) => {
     const index = request.lines.indexOf(line);
-    // D68: one line per product and batch.
-    const key = `${line.productId}|${line.batchKey}`;
+    // D122: one line per DSR, product and batch.
+    const key = `${line.dsrStaffId}|${line.productId}|${line.batchKey}`;
     if (seen.has(key)) throw invalid(`lines.${index}`, "validation.daily.duplicateProduct");
     seen.add(key);
     const sold = toDecimal(line.issued).sub(line.returned).sub(line.damaged);
@@ -625,6 +630,17 @@ export async function saveDsrDayIn(
   const employer = await staffEmployer(tx, request.staffId);
   if (role !== "sr" && role !== "dsr" && !(employer === "supplier" && role !== null)) {
     throw invalid("staffId", "validation.daily.dsrOnly");
+  }
+  // D122: every line names a selling DSR. Migration backfilled dsr_staff_id from the SR day
+  // owner — keep those lines saveable so open sheets are not bricked; the UI only offers real
+  // DSRs for new entry.
+  for (const line of lines) {
+    const index = request.lines.indexOf(line);
+    if (line.dsrStaffId === request.staffId) continue;
+    const lineRole = await roleOn(tx, companyId, line.dsrStaffId, request.date);
+    if (lineRole !== "dsr") {
+      throw invalid(`lines.${index}.dsrStaffId`, "validation.daily.lineDsrOnly");
+    }
   }
   const productIds = [...new Set(lines.map((l) => l.productId))];
   const products = await tx.product.findMany({
@@ -710,6 +726,7 @@ export async function saveDsrDayIn(
     await tx.dsrLine.create({
       data: {
         dsrDayId: id,
+        dsrStaffId: line.dsrStaffId,
         productId: line.productId,
         piecesPerCarton: packs.get(line.productId) ?? 1,
         issued: line.issued,
@@ -860,14 +877,22 @@ async function assertDateHandoverEditable(
 function assertDsrSaveAllowed(
   access: CompanyAccess,
   request: DsrDaySaveInput,
-  existingLines: { productId: string; batchKey: string; issued: { toFixed(): string } | string }[],
+  existingLines: {
+    dsrStaffId: string;
+    productId: string;
+    batchKey: string;
+    issued: { toFixed(): string } | string;
+  }[],
 ) {
   if (access.loginRoleKind !== "dsr") return;
   const prev = new Map(
-    existingLines.map((l) => [`${l.productId}|${l.batchKey}`, plain(l.issued as never)]),
+    existingLines.map((l) => [
+      `${l.dsrStaffId}|${l.productId}|${l.batchKey}`,
+      plain(l.issued as never),
+    ]),
   );
   request.lines.forEach((line, index) => {
-    const key = `${line.productId}|${line.batchKey}`;
+    const key = `${line.dsrStaffId}|${line.productId}|${line.batchKey}`;
     const was = prev.get(key) ?? "0";
     if (toDecimal(line.issued).eq(toDecimal(was))) return;
     throw invalid(`lines.${index}.issued`, "validation.daily.dsrCannotEditIssued");

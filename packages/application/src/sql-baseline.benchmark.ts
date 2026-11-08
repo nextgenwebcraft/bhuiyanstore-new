@@ -291,6 +291,7 @@ beforeAll(async () => {
         lines.push({
           id: lineId,
           dsrDayId: dayId,
+          dsrStaffId: staffId,
           productId,
           piecesPerCarton: 24,
           issued: String(issued),

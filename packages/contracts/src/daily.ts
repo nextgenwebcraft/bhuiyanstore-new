@@ -164,6 +164,11 @@ export type DsrDayStatus = (typeof dsrDayStatuses)[number];
 
 export const dsrLineRequestSchema = z.object({
   productId: idSchema,
+  /**
+   * D122: the selling DSR for this line. The parent day stays the SR sheet; engine attribution
+   * and dashboard byDsr use this id.
+   */
+  dsrStaffId: idSchema,
   /** Samari: pieces issued (cartons × carton size + loose pieces). */
   issued: wholePiecesSchema,
   /** Firot: unsold pieces returned. */
@@ -173,8 +178,8 @@ export const dsrLineRequestSchema = z.object({
   commission: amountSchema.default("0"),
   /**
    * D68: the batch the pieces come from (a batch id, `auto:<n>`, or '' for oldest first). One
-   * line per product and batch. The prices default to the batch's; a changed price becomes the
-   * batch's from then on. The purchase price needs cost view.
+   * line per DSR, product and batch. The prices default to the batch's; a changed price becomes
+   * the batch's from then on. The purchase price needs cost view.
    */
   batchKey: z.string().max(64).default(""),
   costPrice: unitPriceSchema.optional(),
@@ -223,6 +228,7 @@ export const dsrHandoverApproveRequestSchema = z.object({
 export type DsrHandoverApproveRequest = z.infer<typeof dsrHandoverApproveRequestSchema>;
 
 export const dsrLineSchema = dsrLineRequestSchema.extend({
+  dsrStaffName: z.string(),
   sku: z.string(),
   productName: z.string(),
   piecesPerCarton: z.string(),

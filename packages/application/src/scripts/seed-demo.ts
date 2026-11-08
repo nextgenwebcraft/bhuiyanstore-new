@@ -395,8 +395,10 @@ async function seed(db: ReturnType<typeof createDatabase>, plan: SeedPlan): Prom
           cashHandedOver: null,
           lines: sheet.lines.map((l) => {
             const id = need(productId, l.productKey, "product") ?? "";
+            const dsr = need(staffId, sheet.dsrKey, "DSR") ?? "";
             return {
               productId: id,
+              dsrStaffId: dsr,
               issued: l.issued,
               returned: l.returned,
               damaged: l.damaged,

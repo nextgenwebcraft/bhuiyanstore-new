@@ -148,7 +148,7 @@ beforeAll(async () => {
     version: 0,
     marketDueNew: "0",
     marketDueCollected: "0",
-    lines: [{ productId: alpha, issued: "120", returned: "0", damaged: "0" }],
+    lines: [{ productId: alpha, dsrStaffId: mamun, issued: "120", returned: "0", damaged: "0" }],
   });
   await postDsrDay(ctx, company, draft.id, { version: draft.version });
 });

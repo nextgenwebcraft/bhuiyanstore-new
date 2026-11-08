@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { sumAmounts } from "../sales";
+import { summarizeDay } from "./day-summary";
 import { computeMonth } from "./compute-month";
 import type { MonthInput } from "./types";
 
@@ -660,5 +662,74 @@ describe("computeMonth goods due floors at 0 (D46)", () => {
   it("treats a negative opening due as 0", () => {
     const out = run("-5", [{ date: "2026-11-01", products: { A: { ordered: "6" } } }]);
     expect(out.closing.products.A?.dueFromCompany).toBe("6");
+  });
+});
+
+describe("D122: line staffId is the selling DSR", () => {
+  it("two DSRs on one day become two byDsr rows; same DSR lines sum", () => {
+    const out = computeMonth({
+      products: [{ id: "A", piecesPerCarton: "24" }],
+      opening: {
+        products: {
+          A: { stock: "200", dueFromCompany: "0", costPrice: "10", salePrice: "20" },
+        },
+      },
+      days: [
+        {
+          date: "2026-11-01",
+          dsrLines: [
+            { staffId: "dsr1", productId: "A", issued: "24", returned: "0", damaged: "0" },
+            { staffId: "dsr2", productId: "A", issued: "12", returned: "0", damaged: "0" },
+            { staffId: "dsr1", productId: "A", issued: "12", returned: "0", damaged: "0" },
+          ],
+        },
+      ],
+    });
+    const day = out.days[0]!;
+    expect([...new Set(day.persons.map((p) => p.staffId))].sort()).toEqual(["dsr1", "dsr2"]);
+    expect(
+      day.persons
+        .filter((p) => p.staffId === "dsr1")
+        .map((p) => p.issued)
+        .sort(),
+    ).toEqual(["12", "24"]);
+    expect(day.persons.find((p) => p.staffId === "dsr2")?.issued).toBe("12");
+    const summary = summarizeDay(day, { date: "2026-11-01" });
+    expect(summary.byDsr.map((r) => r.staffId).sort()).toEqual(["dsr1", "dsr2"]);
+    // 36 × 20 and 12 × 20 at sale price.
+    expect(summary.byDsr.find((r) => r.staffId === "dsr1")?.issuedValue).toBe("720.00");
+    expect(summary.byDsr.find((r) => r.staffId === "dsr2")?.issuedValue).toBe("240.00");
+  });
+
+  it("same DSR on two days (two SR sheets) sums when aggregating byDsr", () => {
+    const out = computeMonth({
+      products: [{ id: "A", piecesPerCarton: "24" }],
+      opening: {
+        products: {
+          A: { stock: "200", dueFromCompany: "0", costPrice: "10", salePrice: "20" },
+        },
+      },
+      days: [
+        {
+          date: "2026-11-01",
+          dsrLines: [
+            { staffId: "dsr1", productId: "A", issued: "24", returned: "0", damaged: "0" },
+          ],
+        },
+        {
+          date: "2026-11-02",
+          dsrLines: [
+            { staffId: "dsr1", productId: "A", issued: "12", returned: "0", damaged: "0" },
+          ],
+        },
+      ],
+    });
+    const summaries = out.days.map((day, i) =>
+      summarizeDay(day, { date: i === 0 ? "2026-11-01" : "2026-11-02" }),
+    );
+    const rows = summaries.flatMap((s) => s.byDsr.filter((r) => r.staffId === "dsr1"));
+    expect(rows).toHaveLength(2);
+    // Dashboard getDashboardSummary folds by staffId the same way (24+12)×20.
+    expect(sumAmounts(rows.map((r) => r.issuedValue))).toBe("720.00");
   });
 });
