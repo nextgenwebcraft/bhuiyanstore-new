@@ -19,6 +19,7 @@ import {
   thNum,
   theadClass,
 } from "@/components/data-table";
+import { DeleteButton } from "@/components/delete-button";
 import { EmptyListNote } from "@/components/empty-list-note";
 import { Field, inputClass } from "@/components/field";
 import { QueryError } from "@/components/query-error";
@@ -28,6 +29,7 @@ import { TableScroller } from "@/components/table-scroller";
 import { describeError } from "@/data/ports/service-error";
 import {
   useCorrectMoneyEntry,
+  useDeleteMoneyEntry,
   useDsrFieldDay,
   useMoneyEntries,
   usePostMoneyEntry,
@@ -259,6 +261,7 @@ function Entries({
     to: date,
     ...(staffId ? { staffId } : {}),
   });
+  const remove = useDeleteMoneyEntry(companyId);
 
   if (entries.isPending) return <FormSkeleton fields={1} />;
   if (entries.isError)
@@ -271,6 +274,8 @@ function Entries({
       "0",
       ...rows.filter((e) => e.kind === kind && e.status === "posted").map((e) => e.amount),
     ]);
+  const handEntered = (entry: MoneyEntry) =>
+    !entry.dsrDayId && !entry.payrollRunId;
   return (
     <div className="flex flex-col gap-2">
       <h4 className="text-sm font-semibold">{t("money.posted")}</h4>
@@ -311,8 +316,17 @@ function Entries({
                   </td>
                   {canEdit ? (
                     <td className={`${tdClass} text-right`}>
-                      {entry.status === "posted" && !entry.dsrDayId && !entry.payrollRunId ? (
-                        <Button onClick={() => onEdit(entry)}>{t("common.edit")}</Button>
+                      {handEntered(entry) ? (
+                        <div className="flex flex-wrap justify-end gap-2">
+                          {entry.status === "posted" ? (
+                            <Button onClick={() => onEdit(entry)}>{t("common.edit")}</Button>
+                          ) : null}
+                          <DeleteButton
+                            name={entry.shopName ?? t(`money.kind.${entry.kind as DueKind}`)}
+                            message={t("money.deleteConfirm")}
+                            onDelete={() => remove.mutateAsync(entry.id)}
+                          />
+                        </div>
                       ) : null}
                     </td>
                   ) : null}

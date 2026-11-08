@@ -206,6 +206,8 @@ export interface DistributionService {
   ): Promise<MoneyEntry>;
   /** Requires `payment.reverse`. */
   reverseMoneyEntry(companyId: string, entryId: string): Promise<MoneyEntry>;
+  /** D123: permanent delete of দোকানের বাকি / আদায়. */
+  deleteMoneyEntry(companyId: string, entryId: string): Promise<void>;
 
   /** History hub: paginated stock entries by kind group (latest first). */
   listHistoryStockEntries(

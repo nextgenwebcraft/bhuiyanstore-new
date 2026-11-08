@@ -180,6 +180,38 @@ export function upsertEntry(
   return { ...draft, lines };
 }
 
+type EntryRowDraft = {
+  key: string;
+  dsrId: string;
+  productId: string | null;
+  productText: string;
+  batchKey: string;
+  cartons: string;
+  pieces: string;
+  damaged: string;
+  damageRate: string;
+  commission: string;
+  salePrice: string;
+  costPrice: string;
+};
+
+const emptyEntryRow = (dsrId = ""): EntryRowDraft => ({
+  key: crypto.randomUUID(),
+  dsrId,
+  productId: null,
+  productText: "",
+  batchKey: "",
+  cartons: "",
+  pieces: "",
+  damaged: "",
+  damageRate: "",
+  commission: "",
+  salePrice: "",
+  costPrice: "",
+});
+
+type EntryPatch = Parameters<typeof upsertEntry>[2];
+
 function EntryFormPanel({
   kind,
   view,
@@ -193,20 +225,11 @@ function EntryFormPanel({
   dsrs: readonly DsrChoice[];
   canEditPrices: boolean;
   onClose: () => void;
-  onSubmit: (draftPatch: Parameters<typeof upsertEntry>[2]) => string | undefined;
+  /** Applies every filled row in one go (so later rows see earlier upserts). */
+  onSubmit: (patches: EntryPatch[]) => string | undefined;
 }) {
   const id = useId();
-  const [dsrId, setDsrId] = useState("");
-  const [productId, setProductId] = useState<string | null>(null);
-  const [productText, setProductText] = useState("");
-  const [batchKey, setBatchKey] = useState("");
-  const [cartons, setCartons] = useState("");
-  const [pieces, setPieces] = useState("");
-  const [damaged, setDamaged] = useState("");
-  const [damageRate, setDamageRate] = useState("");
-  const [commission, setCommission] = useState("");
-  const [salePrice, setSalePrice] = useState("");
-  const [costPrice, setCostPrice] = useState("");
+  const [rows, setRows] = useState<EntryRowDraft[]>(() => [emptyEntryRow()]);
   const [error, setError] = useState<string | undefined>();
 
   const productOptions = useMemo<ComboboxOption[]>(
@@ -219,31 +242,56 @@ function EntryFormPanel({
       })),
     [view.products],
   );
-  const product = view.products.find((p) => p.productId === productId);
-  const batches = product ? productBatches(product, view, batchKey ? [batchKey] : []) : [];
-  const batch = batches.find((b) => b.key === batchKey) ?? batches[0];
-  const dsr = dsrs.find((d) => d.id === dsrId);
+
+  function patchRow(key: string, patch: Partial<EntryRowDraft>) {
+    setRows((cur) => cur.map((row) => (row.key === key ? { ...row, ...patch } : row)));
+  }
+
+  function addRow() {
+    const lastDsr = [...rows].reverse().find((r) => r.dsrId)?.dsrId ?? rows[0]?.dsrId ?? "";
+    setRows((cur) => [...cur, emptyEntryRow(lastDsr)]);
+  }
+
+  function removeRow(key: string) {
+    setRows((cur) => (cur.length <= 1 ? cur : cur.filter((row) => row.key !== key)));
+  }
 
   function submit() {
     setError(undefined);
-    if (!dsr) return setError(t("validation.daily.lineDsrOnly"));
-    if (!product) return setError(t("validation.daily.unknownProduct"));
-    const key = batch?.key ?? "";
-    if (!key && kind !== "damage") return setError(t("dsr.sheet.noStock"));
-    const sale = canEditPrices ? clean(salePrice) : "";
-    const cost = canEditPrices ? clean(costPrice) : "";
-    const msg = onSubmit({
-      dsr,
-      productId: product.productId,
-      batchKey: key,
-      cartons: clean(cartons),
-      pieces: clean(pieces),
-      damaged: clean(damaged),
-      damageRate: clean(damageRate) || batch?.salePrice || product.salePrice || "",
-      commission: clean(commission),
-      ...(sale ? { salePrice: sale } : {}),
-      ...(cost ? { costPrice: cost } : {}),
-    });
+    const patches: EntryPatch[] = [];
+    for (const row of rows) {
+      const dsr = dsrs.find((d) => d.id === row.dsrId);
+      const product = view.products.find((p) => p.productId === row.productId);
+      const blank =
+        !row.productId &&
+        !clean(row.cartons) &&
+        !clean(row.pieces) &&
+        !clean(row.damaged) &&
+        !clean(row.commission);
+      if (blank) continue;
+      if (!dsr) return setError(t("validation.daily.lineDsrOnly"));
+      if (!product) return setError(t("validation.daily.unknownProduct"));
+      const batches = productBatches(product, view, row.batchKey ? [row.batchKey] : []);
+      const batch = batches.find((b) => b.key === row.batchKey) ?? batches[0];
+      const key = batch?.key ?? "";
+      if (!key && kind !== "damage") return setError(t("dsr.sheet.noStock"));
+      const sale = canEditPrices ? clean(row.salePrice) : "";
+      const cost = canEditPrices ? clean(row.costPrice) : "";
+      patches.push({
+        dsr,
+        productId: product.productId,
+        batchKey: key,
+        cartons: clean(row.cartons),
+        pieces: clean(row.pieces),
+        damaged: clean(row.damaged),
+        damageRate: clean(row.damageRate) || batch?.salePrice || product.salePrice || "",
+        commission: clean(row.commission),
+        ...(sale ? { salePrice: sale } : {}),
+        ...(cost ? { costPrice: cost } : {}),
+      });
+    }
+    if (patches.length === 0) return setError(t("validation.daily.unknownProduct"));
+    const msg = onSubmit(patches);
     if (msg) return setError(msg);
     onClose();
   }
@@ -259,145 +307,188 @@ function EntryFormPanel({
     >
       <h3 className="font-semibold tracking-tight">{t(`dsr.entry.${kind}`)}</h3>
       {error ? <StatePanel tone="error" title={error} /> : null}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <DsrSelect
-          id={`${id}-dsr`}
-          value={dsrId}
-          dsrs={dsrs}
-          onChange={setDsrId}
-          label="staffCash.dsr"
-          emptyLabel="staffCash.dsrEmpty"
-        />
-        <Field id={`${id}-item`} label={t("dsr.entry.item")}>
-          <Combobox
-            id={`${id}-item`}
-            text={productText}
-            onTextChange={(text) => {
-              setProductText(text);
-              setProductId(null);
-              setBatchKey("");
-            }}
-            options={productOptions}
-            selectedId={productId}
-            onChoose={(choice) => {
-              if (choice.kind !== "option") return;
-              setProductText(choice.option.label);
-              setProductId(choice.option.id);
-              setBatchKey("");
-            }}
-            placeholder={t("dsr.entry.item")}
-            emptyLabel={t("dsr.entry.itemEmpty")}
-            listLabel={t("dsr.entry.item")}
-            clearLabel={t("shop.clear")}
-            onBlur={() => {
-              const selected = productOptions.find((o) => o.id === productId);
-              setProductText(selected?.label ?? "");
-            }}
-          />
-        </Field>
-        {product ? (
-          <Field id={`${id}-batch`} label={t("dsr.sheet.batch")}>
-            <select
-              id={`${id}-batch`}
-              value={batch?.key ?? ""}
-              onChange={(event) => setBatchKey(event.target.value)}
-              className={inputClass}
-            >
-              {batches.length === 0 ? <option value="">{t("dsr.sheet.noStock")}</option> : null}
-              {batches.map((o) => (
-                <option key={o.key} value={o.key}>
-                  {batchName(o)} · {t("batch.available")}{" "}
-                  {stockCartonPiece(o.quantity, product.piecesPerCarton)}
-                </option>
-              ))}
-            </select>
-          </Field>
-        ) : null}
-        {kind === "samari" || kind === "firot" ? (
-          <>
-            <Field id={`${id}-cartons`} label={t("godown.column.cartons")}>
-              <input
-                id={`${id}-cartons`}
-                inputMode="numeric"
-                value={cartons}
-                onChange={(e) => setCartons(e.target.value)}
-                className={inputClass}
-              />
-            </Field>
-            <Field id={`${id}-pieces`} label={t("godown.column.pieces")}>
-              <input
-                id={`${id}-pieces`}
-                inputMode="numeric"
-                value={pieces}
-                onChange={(e) => setPieces(e.target.value)}
-                className={inputClass}
-              />
-            </Field>
-          </>
-        ) : null}
-        {kind === "samari" && canEditPrices ? (
-          <>
-            <Field id={`${id}-sale`} label={t("dsr.sheet.batchSalePrice")}>
-              <input
-                id={`${id}-sale`}
-                inputMode="decimal"
-                value={salePrice || batch?.salePrice || product?.salePrice || ""}
-                onChange={(e) => setSalePrice(e.target.value)}
-                className={inputClass}
-              />
-            </Field>
-            <Field id={`${id}-cost`} label={t("dsr.sheet.costPrice")}>
-              <input
-                id={`${id}-cost`}
-                inputMode="decimal"
-                value={costPrice || batch?.costPrice || ""}
-                onChange={(e) => setCostPrice(e.target.value)}
-                className={inputClass}
-              />
-            </Field>
-          </>
-        ) : null}
-        {kind === "damage" ? (
-          <>
-            <Field id={`${id}-damaged`} label={t("dsr.sheet.damaged")}>
-              <input
-                id={`${id}-damaged`}
-                inputMode="numeric"
-                value={damaged}
-                onChange={(e) => setDamaged(e.target.value)}
-                className={inputClass}
-              />
-            </Field>
-            <Field id={`${id}-rate`} label={t("dsr.sheet.damageRate")}>
-              <input
-                id={`${id}-rate`}
-                inputMode="decimal"
-                value={damageRate || batch?.salePrice || product?.salePrice || ""}
-                onChange={(e) => setDamageRate(e.target.value)}
-                className={inputClass}
-              />
-            </Field>
-          </>
-        ) : null}
-        {kind === "commission" ? (
-          <Field id={`${id}-commission`} label={t("dsr.sheet.commission")}>
-            <input
-              id={`${id}-commission`}
-              inputMode="decimal"
-              value={commission}
-              onChange={(e) => setCommission(e.target.value)}
-              className={inputClass}
+      {rows.map((row, index) => {
+        const product = view.products.find((p) => p.productId === row.productId);
+        const batches = product
+          ? productBatches(product, view, row.batchKey ? [row.batchKey] : [])
+          : [];
+        const batch = batches.find((b) => b.key === row.batchKey) ?? batches[0];
+        const rid = `${id}-${row.key}`;
+        const even = index % 2 === 1;
+        return (
+          <div
+            key={row.key}
+            className={`relative grid grid-cols-1 gap-3 rounded-xl p-3 pt-4 sm:grid-cols-2 lg:grid-cols-3 ${
+              even ? "bg-surface-muted" : "bg-info/10"
+            }`}
+          >
+            {rows.length > 1 ? (
+              <button
+                type="button"
+                className="absolute top-2 right-2 inline-flex size-8 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+                aria-label={t("common.removeLine")}
+                onClick={() => removeRow(row.key)}
+              >
+                <svg
+                  viewBox="0 0 20 20"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  className="size-4"
+                  aria-hidden
+                >
+                  <path d="M5 5l10 10M15 5L5 15" />
+                </svg>
+              </button>
+            ) : null}
+            <DsrSelect
+              id={`${rid}-dsr`}
+              value={row.dsrId}
+              dsrs={dsrs}
+              onChange={(dsrId) => patchRow(row.key, { dsrId })}
+              label="staffCash.dsr"
+              emptyLabel="staffCash.dsrEmpty"
             />
-          </Field>
-        ) : null}
-      </div>
-      <div className="flex flex-wrap justify-end gap-2">
-        <Button type="button" variant="secondary" onClick={onClose}>
-          {t("common.cancel")}
+            <Field id={`${rid}-item`} label={t("dsr.entry.item")}>
+              <Combobox
+                id={`${rid}-item`}
+                text={row.productText}
+                onTextChange={(text) =>
+                  patchRow(row.key, { productText: text, productId: null, batchKey: "" })
+                }
+                options={productOptions}
+                selectedId={row.productId}
+                onChoose={(choice) => {
+                  if (choice.kind !== "option") return;
+                  patchRow(row.key, {
+                    productText: choice.option.label,
+                    productId: choice.option.id,
+                    batchKey: "",
+                  });
+                }}
+                placeholder={t("dsr.entry.item")}
+                emptyLabel={t("dsr.entry.itemEmpty")}
+                listLabel={t("dsr.entry.item")}
+                clearLabel={t("shop.clear")}
+                onBlur={() => {
+                  const selected = productOptions.find((o) => o.id === row.productId);
+                  patchRow(row.key, { productText: selected?.label ?? "" });
+                }}
+              />
+            </Field>
+            {product ? (
+              <Field id={`${rid}-batch`} label={t("dsr.sheet.batch")}>
+                <select
+                  id={`${rid}-batch`}
+                  value={batch?.key ?? ""}
+                  onChange={(event) => patchRow(row.key, { batchKey: event.target.value })}
+                  className={inputClass}
+                >
+                  {batches.length === 0 ? (
+                    <option value="">{t("dsr.sheet.noStock")}</option>
+                  ) : null}
+                  {batches.map((o) => (
+                    <option key={o.key} value={o.key}>
+                      {batchName(o)} · {t("batch.available")}{" "}
+                      {stockCartonPiece(o.quantity, product.piecesPerCarton)}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            ) : null}
+            {kind === "samari" || kind === "firot" ? (
+              <>
+                <Field id={`${rid}-cartons`} label={t("godown.column.cartons")}>
+                  <input
+                    id={`${rid}-cartons`}
+                    inputMode="numeric"
+                    value={row.cartons}
+                    onChange={(e) => patchRow(row.key, { cartons: e.target.value })}
+                    className={inputClass}
+                  />
+                </Field>
+                <Field id={`${rid}-pieces`} label={t("godown.column.pieces")}>
+                  <input
+                    id={`${rid}-pieces`}
+                    inputMode="numeric"
+                    value={row.pieces}
+                    onChange={(e) => patchRow(row.key, { pieces: e.target.value })}
+                    className={inputClass}
+                  />
+                </Field>
+              </>
+            ) : null}
+            {kind === "samari" && canEditPrices ? (
+              <>
+                <Field id={`${rid}-sale`} label={t("dsr.sheet.batchSalePrice")}>
+                  <input
+                    id={`${rid}-sale`}
+                    inputMode="decimal"
+                    value={row.salePrice || batch?.salePrice || product?.salePrice || ""}
+                    onChange={(e) => patchRow(row.key, { salePrice: e.target.value })}
+                    className={inputClass}
+                  />
+                </Field>
+                <Field id={`${rid}-cost`} label={t("dsr.sheet.costPrice")}>
+                  <input
+                    id={`${rid}-cost`}
+                    inputMode="decimal"
+                    value={row.costPrice || batch?.costPrice || ""}
+                    onChange={(e) => patchRow(row.key, { costPrice: e.target.value })}
+                    className={inputClass}
+                  />
+                </Field>
+              </>
+            ) : null}
+            {kind === "damage" ? (
+              <>
+                <Field id={`${rid}-damaged`} label={t("dsr.sheet.damaged")}>
+                  <input
+                    id={`${rid}-damaged`}
+                    inputMode="numeric"
+                    value={row.damaged}
+                    onChange={(e) => patchRow(row.key, { damaged: e.target.value })}
+                    className={inputClass}
+                  />
+                </Field>
+                <Field id={`${rid}-rate`} label={t("dsr.sheet.damageRate")}>
+                  <input
+                    id={`${rid}-rate`}
+                    inputMode="decimal"
+                    value={row.damageRate || batch?.salePrice || product?.salePrice || ""}
+                    onChange={(e) => patchRow(row.key, { damageRate: e.target.value })}
+                    className={inputClass}
+                  />
+                </Field>
+              </>
+            ) : null}
+            {kind === "commission" ? (
+              <Field id={`${rid}-commission`} label={t("dsr.sheet.commission")}>
+                <input
+                  id={`${rid}-commission`}
+                  inputMode="decimal"
+                  value={row.commission}
+                  onChange={(e) => patchRow(row.key, { commission: e.target.value })}
+                  className={inputClass}
+                />
+              </Field>
+            ) : null}
+          </div>
+        );
+      })}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Button type="button" variant="secondary" onClick={addRow}>
+          {t("dsr.entry.addMore")}
         </Button>
-        <Button type="submit" variant="primary">
-          {t("dsr.entry.add")}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="secondary" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+          <Button type="submit" variant="primary">
+            {t("dsr.entry.add")}
+          </Button>
+        </div>
       </div>
     </form>
   );
@@ -595,30 +686,35 @@ export function DsrSheetEntry({
           dsrs={dsrs}
           canEditPrices={canEditPrices}
           onClose={() => setEntry(null)}
-          onSubmit={(input) => {
-            const cartons = input.cartons ?? "";
-            const pieces = input.pieces ?? "";
-            if (entry === "samari" || entry === "firot") {
-              if ((cartons && !/^\d+$/.test(cartons)) || (pieces && !/^\d+$/.test(pieces))) {
-                return t("validation.wholeNumber");
+          onSubmit={(patches) => {
+            for (const [index, input] of patches.entries()) {
+              const cartons = input.cartons ?? "";
+              const pieces = input.pieces ?? "";
+              const label = patches.length > 1 ? `${index + 1}. ` : "";
+              if (entry === "samari" || entry === "firot") {
+                if ((cartons && !/^\d+$/.test(cartons)) || (pieces && !/^\d+$/.test(pieces))) {
+                  return `${label}${t("validation.wholeNumber")}`;
+                }
+                if (!cartons && !pieces) return `${label}${t("validation.quantityPositive")}`;
               }
-              if (!cartons && !pieces) return t("validation.quantityPositive");
-            }
-            if (entry === "damage") {
-              if (!input.damaged || !/^\d+$/.test(input.damaged) || input.damaged === "0") {
-                return t("validation.quantityPositive");
+              if (entry === "damage") {
+                if (!input.damaged || !/^\d+$/.test(input.damaged) || input.damaged === "0") {
+                  return `${label}${t("validation.quantityPositive")}`;
+                }
+              }
+              if (entry === "commission") {
+                if (
+                  !input.commission ||
+                  !/^\d+(\.\d{1,2})?$/.test(input.commission) ||
+                  !/[1-9]/.test(input.commission)
+                ) {
+                  return `${label}${t("validation.amountPositive")}`;
+                }
               }
             }
-            if (entry === "commission") {
-              if (
-                !input.commission ||
-                !/^\d+(\.\d{1,2})?$/.test(input.commission) ||
-                !/[1-9]/.test(input.commission)
-              ) {
-                return t("validation.amountPositive");
-              }
-            }
-            onChange(upsertEntry(draft, entry, input));
+            let next = draft;
+            for (const input of patches) next = upsertEntry(next, entry, input);
+            onChange(next);
             return undefined;
           }}
         />

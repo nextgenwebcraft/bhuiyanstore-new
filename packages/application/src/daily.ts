@@ -1515,6 +1515,67 @@ export async function reverseMoneyEntry(
   );
 }
 
+/**
+ * D123: permanently delete a দোকানের বাকি / আদায় row. Posted rows drop out of the ledger (same
+ * hishab effect as reverse). Super Admin always; Manager until হাতে জমা; DSR never. Needs the
+ * kind's post permission, not `payment.reverse`.
+ */
+export async function deleteMoneyEntry(
+  ctx: AppContext,
+  companyId: string,
+  entryId: string,
+  requestKey?: string,
+): Promise<void> {
+  const existing = await ctx.db.moneyEntry.findFirst({
+    where: { id: entryId, companyId },
+    select: { kind: true },
+  });
+  if (!existing) throw invalid("", "validation.daily.notFound");
+  if (!MARKET_KINDS.has(existing.kind as MoneyEntryKind)) {
+    throw invalid("kind", "validation.money.shopDueDeleteOnly");
+  }
+  const access = await requirePermission(
+    ctx,
+    companyId,
+    moneyKindPermission[existing.kind as MoneyEntryKind],
+    { write: true },
+  );
+  if (access.loginRoleKind === "dsr") throw new AppError("FORBIDDEN");
+
+  await runIdempotent(
+    ctx,
+    { scope: companyId, action: `money.delete:${entryId}`, requestKey },
+    { entryId },
+    async (tx) => {
+      const row = await tx.moneyEntry.findFirst({ where: { id: entryId, companyId } });
+      if (!row) throw invalid("", "validation.daily.notFound");
+      if (!MARKET_KINDS.has(row.kind as MoneyEntryKind)) {
+        throw invalid("kind", "validation.money.shopDueDeleteOnly");
+      }
+      if (row.payrollRunId) throw invalid("", "validation.money.payrollOwned");
+      if (row.dsrDayId) throw invalid("", "validation.money.fieldOwned");
+      const date = fromDbDate(row.date);
+      await postingGuard(tx, companyId, date);
+      await assertDateHandoverEditable(tx, ctx, companyId, date);
+      await recordAudit(tx, ctx, {
+        companyId,
+        action: "money.delete",
+        resourceType: "money_entry",
+        resourceId: entryId,
+        before: {
+          status: row.status,
+          kind: row.kind,
+          amount: plain(row.amount),
+          date,
+          staffId: row.staffId,
+          shopId: row.shopId,
+        },
+      });
+      await tx.moneyEntry.delete({ where: { id: entryId } });
+    },
+  );
+}
+
 // ---------------------------------------------------------------- views
 
 const ZERO_MONEY = {

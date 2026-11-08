@@ -329,6 +329,13 @@ export function useReverseMoneyEntry(companyId: string) {
   );
 }
 
+export function useDeleteMoneyEntry(companyId: string) {
+  const service = useService();
+  return usePostingMutation(companyId, "money", (entryId: string) =>
+    service.deleteMoneyEntry(companyId, entryId),
+  );
+}
+
 export function useHistoryStockEntries(
   companyId: string,
   group: import("@bsd/contracts").HistoryStockKindGroup,

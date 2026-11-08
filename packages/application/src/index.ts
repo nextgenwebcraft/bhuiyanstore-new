@@ -42,6 +42,7 @@ export type { AppContext, Tx } from "./context";
 export {
   approveDsrHandover,
   correctMoneyEntry,
+  deleteMoneyEntry,
   discardDsrDay,
   getDashboardSummary,
   getDayView,
