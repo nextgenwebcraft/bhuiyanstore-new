@@ -1,0 +1,17 @@
+id: 2026-11-09-shop-due-delete
+reason: >-
+  Owner 2026-11-09 (D123): দোকানের বাকি ও আদায় must be deletable by Super Admin and Manager;
+  after হাতে জমা Manager is locked; delete permanently removes the row (ledger drops posted amount).
+owners: [application, web, i18n, docs]
+changes:
+  - packages/application - deleteMoneyEntry for marketDueNew/Collected; handover lock like D114
+  - apps/web - API DELETE money-entries/[id]; ShopDueEntry DeleteButton; http/queries/ports
+  - packages/i18n - money.deleteConfirm, validation.money.shopDueDeleteOnly
+  - docs/decisions.md - D123
+affectedActionIds: [money.delete]
+financialImpact: >-
+  Deleting a posted shop-due row removes its amount from market due / collection in the ledger.
+backfill: none
+tests: pnpm --filter @bsd/application exec tsc --noEmit; pnpm --filter @bsd/web exec tsc --noEmit
+rollout: deploy app (no migration)
+recovery: revert app

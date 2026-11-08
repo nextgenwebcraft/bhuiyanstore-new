@@ -1186,6 +1186,7 @@ export const bn = {
   "dsr.entry.damage": "ড্যামেজ এন্ট্রি",
   "dsr.entry.commission": "কমিশন এন্ট্রি",
   "dsr.entry.add": "যোগ করুন",
+  "dsr.entry.addMore": "আরো যোগ করুন",
   "dsr.entry.item": "পণ্য",
   "dsr.entry.itemEmpty": "এই নামে পণ্য নেই",
   "dsr.entry.srTotal": "এসআর মোট",
@@ -1286,6 +1287,9 @@ export const bn = {
   "money.empty": "আজ এখনো কোনো এন্ট্রি নেই",
   "money.reverseConfirm": "এন্ট্রিটি বাতিল করবেন? হিসাব থেকে বাদ যাবে, তবে রেকর্ড থাকবে।",
   "money.correct": "সংশোধন করুন",
+  "money.deleteConfirm":
+    "এই দোকানের বাকি/আদায় মুছে ফেলা হবে এবং হিসাব থেকে বাদ যাবে। এটি ফেরানো যাবে না।",
+  "validation.money.shopDueDeleteOnly": "শুধু দোকানের বাকি ও আদায় এখান থেকে মুছে ফেলা যায়",
   "money.correctConfirm":
     "এন্ট্রিটি সংশোধন করবেন? আগের এন্ট্রি বাতিল হয়ে নতুন এন্ট্রি পোস্ট হবে।",
   "validation.money.correctDateFixed": "সংশোধনের তারিখ আগের এন্ট্রির তারিখই থাকতে হবে",

@@ -227,6 +227,7 @@ export function createMockService(
     postMoneyEntry: demoReadOnly,
     correctMoneyEntry: demoReadOnly,
     reverseMoneyEntry: demoReadOnly,
+    deleteMoneyEntry: demoReadOnly,
     listHistoryStockEntries: demoReadOnly,
     listHistoryStockDateSummaries: demoReadOnly,
     listHistoryMoneyEntries: demoReadOnly,

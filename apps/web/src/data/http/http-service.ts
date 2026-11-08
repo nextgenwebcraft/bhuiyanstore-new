@@ -375,6 +375,8 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
         `${company(companyId)}/money-entries/${id(entryId)}/reverse`,
         write("POST", {}),
       ),
+    deleteMoneyEntry: (companyId, entryId) =>
+      request(z.undefined(), `${company(companyId)}/money-entries/${id(entryId)}`, remove()),
 
     getProductHistory: (companyId, productId, options) =>
       request(productHistorySchema, `${product(companyId, productId)}/history`, options),
