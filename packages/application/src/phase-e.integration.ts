@@ -343,6 +343,7 @@ async function enterDay(day: DayFacts): Promise<void> {
       marketDueCollected: sheet.dueCollected,
       lines: sheet.lines.map((l) => ({
         productId: l.product,
+        dsrStaffId: sheet.staff,
         issued: l.issued,
         returned: l.returned,
         damaged: l.damaged,
@@ -701,13 +702,16 @@ describe("Phase E: daily entry", () => {
     const posted = must(sheet);
     expect(posted.status).toBe("posted");
     // D56: saving a posted sheet corrects it: the old one is reversed, the edit posted in its place.
-    const sameLines = posted.lines.map(({ productId, issued, returned, damaged, commission }) => ({
-      productId,
-      issued,
-      returned,
-      damaged,
-      commission,
-    }));
+    const sameLines = posted.lines.map(
+      ({ productId, dsrStaffId, issued, returned, damaged, commission }) => ({
+        productId,
+        dsrStaffId,
+        issued,
+        returned,
+        damaged,
+        commission,
+      }),
+    );
     const edited = await saveDsrDay(ctx, company, {
       date: "2026-09-02",
       staffId: id.mamun,
@@ -742,7 +746,9 @@ describe("Phase E: daily entry", () => {
       version: 0,
       marketDueNew: "0",
       marketDueCollected: "0",
-      lines: [{ productId: id.alpha, issued: "48", returned: "6", damaged: "0" }],
+      lines: [
+        { productId: id.alpha, dsrStaffId: id.mamun, issued: "48", returned: "6", damaged: "0" },
+      ],
     });
     await postDsrDay(ctx, company, redo.id, { version: redo.version });
     expect((await getDayView(ctx, company, "2026-09-02")).money).toEqual(before.money);
@@ -825,7 +831,16 @@ describe("Phase E: daily entry", () => {
       date,
       staffId: id.mamun,
       version: 0,
-      lines: [{ productId: id.alpha, issued, returned: "0", damaged: "0", commission }],
+      lines: [
+        {
+          productId: id.alpha,
+          dsrStaffId: id.mamun,
+          issued,
+          returned: "0",
+          damaged: "0",
+          commission,
+        },
+      ],
     });
     await expectField(
       saveDsrDay(ctx, company, sheet("5", "0")),

@@ -337,7 +337,8 @@ async function rangeInput(
     const day = dayOf(fromDbDate(sheet.date));
     for (const line of sheet.lines) {
       (day.dsrLines as DsrLineInput[]).push({
-        staffId: sheet.staffId,
+        // D122: attribute sales/stock to the line's DSR (sheet owner stays the SR).
+        staffId: line.dsrStaffId,
         productId: line.productId,
         issued: plain(line.issued),
         returned: plain(line.returned),

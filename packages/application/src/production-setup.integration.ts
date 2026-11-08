@@ -267,7 +267,9 @@ describe("field visits via Super Admin (D40/D59/D71; D112: no DSR field login)",
         date,
         staffId: id.rohim,
         version: 0,
-        lines: [{ productId: id.alpha, issued: "48", returned: "0", damaged: "0" }],
+        lines: [
+          { productId: id.alpha, dsrStaffId: id.rohim, issued: "48", returned: "0", damaged: "0" },
+        ],
       })
     ).version;
     await expect(getFieldDay(rohim, company, date)).rejects.toSatisfy(
@@ -340,7 +342,9 @@ describe("field visits via Super Admin (D40/D59/D71; D112: no DSR field login)",
       date,
       staffId: id.rohim,
       version: sheetVersion,
-      lines: [{ productId: id.alpha, issued: "48", returned: "26", damaged: "2" }],
+      lines: [
+        { productId: id.alpha, dsrStaffId: id.rohim, issued: "48", returned: "26", damaged: "2" },
+      ],
     });
     const posted = await postDsrDay(ctx, company, draft.id, { version: draft.version });
     const entries = await listMoneyEntries(ctx, company, { from: date, to: date, shopId: id.shop });
@@ -379,7 +383,9 @@ describe("field visits via Super Admin (D40/D59/D71; D112: no DSR field login)",
       date,
       staffId: id.rohim,
       version: 0,
-      lines: [{ productId: id.alpha, issued: "48", returned: "26", damaged: "2" }],
+      lines: [
+        { productId: id.alpha, dsrStaffId: id.rohim, issued: "48", returned: "26", damaged: "2" },
+      ],
     });
     const posted = await postDsrDay(ctx, company, draft.id, { version: draft.version });
     const dayEnd = (returned: string, damaged: string) =>

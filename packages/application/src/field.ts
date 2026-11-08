@@ -568,6 +568,7 @@ export async function saveFieldDayEnd(
           await tx.dsrLine.create({
             data: {
               dsrDayId: sheetId,
+              dsrStaffId: staffId,
               productId: line.productId,
               piecesPerCarton:
                 packOn(productOf.get(line.productId)?.packs ?? [], request.date)?.piecesPerCarton ??
@@ -697,6 +698,7 @@ export async function approveFieldDayReport(
       if (!sheet) throw invalid("", "validation.field.reportNoSheet");
       const lines = sheet.lines.map((l) => ({
         productId: l.productId,
+        dsrStaffId: l.dsrStaffId,
         batchKey: l.batchKey,
         issued: plain(l.issued),
         returned: plain(l.returned),
@@ -712,6 +714,7 @@ export async function approveFieldDayReport(
         if (!target) {
           lines.push({
             productId: r.productId,
+            dsrStaffId: report.staffId,
             batchKey: "",
             issued: "0",
             commission: "0",

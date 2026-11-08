@@ -285,7 +285,9 @@ describe("D112: DSR cannot post; Manager handover submit then Super Admin approv
         marketDueNew: "0",
         marketDueCollected: "0",
         cashHandedOver: null,
-        lines: [{ productId: id.alpha, issued: "24", returned: "0", damaged: "0" }],
+        lines: [
+          { productId: id.alpha, dsrStaffId: id.mamun, issued: "24", returned: "0", damaged: "0" },
+        ],
       }),
       "lines.0.issued",
       "validation.daily.dsrCannotEditIssued",
@@ -299,7 +301,9 @@ describe("D112: DSR cannot post; Manager handover submit then Super Admin approv
       marketDueNew: "0",
       marketDueCollected: "0",
       cashHandedOver: null,
-      lines: [{ productId: id.alpha, issued: "24", returned: "0", damaged: "0" }],
+      lines: [
+        { productId: id.alpha, dsrStaffId: id.mamun, issued: "24", returned: "0", damaged: "0" },
+      ],
     });
     await expectCode(postDsrDay(dsrCtx, company, draft.id, { version: draft.version }), "FORBIDDEN");
     const posted = await postDsrDay(managerCtx, company, draft.id, { version: draft.version });
@@ -314,7 +318,9 @@ describe("D112: DSR cannot post; Manager handover submit then Super Admin approv
         marketDueNew: "0",
         marketDueCollected: "0",
         cashHandedOver: null,
-        lines: [{ productId: id.alpha, issued: "48", returned: "0", damaged: "0" }],
+        lines: [
+          { productId: id.alpha, dsrStaffId: id.mamun, issued: "48", returned: "0", damaged: "0" },
+        ],
       }),
       "FORBIDDEN",
     );
@@ -334,7 +340,9 @@ describe("D112: DSR cannot post; Manager handover submit then Super Admin approv
         marketDueNew: "0",
         marketDueCollected: "0",
         cashHandedOver: "200",
-        lines: [{ productId: id.alpha, issued: "24", returned: "0", damaged: "0" }],
+        lines: [
+          { productId: id.alpha, dsrStaffId: id.mamun, issued: "24", returned: "0", damaged: "0" },
+        ],
       }),
       "handoverStatus",
       "validation.daily.handoverLocked",
@@ -374,7 +382,9 @@ describe("D114: daily money correct by role and handover", () => {
       marketDueNew: "0",
       marketDueCollected: "0",
       cashHandedOver: null,
-      lines: [{ productId: id.alpha, issued: "24", returned: "0", damaged: "0" }],
+      lines: [
+        { productId: id.alpha, dsrStaffId: id.mamun, issued: "24", returned: "0", damaged: "0" },
+      ],
     });
     const posted = await postDsrDay(ctx, company, draft.id, { version: draft.version });
 

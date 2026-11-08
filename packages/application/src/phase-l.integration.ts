@@ -219,6 +219,7 @@ describe("D68: product batches from orders", () => {
       lines: [
         {
           productId: alpha,
+          dsrStaffId: mamun,
           batchKey: batch.opening,
           issued: "24",
           returned: "0",
@@ -226,6 +227,7 @@ describe("D68: product batches from orders", () => {
         },
         {
           productId: alpha,
+          dsrStaffId: mamun,
           batchKey: batch.paid,
           issued: "14",
           returned: "0",

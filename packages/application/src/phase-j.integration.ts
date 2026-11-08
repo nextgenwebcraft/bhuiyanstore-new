@@ -77,7 +77,7 @@ async function sheet(date: string, handedOver: string | null, issued = "24", ret
     marketDueNew: "0",
     marketDueCollected: "0",
     cashHandedOver: handedOver,
-    lines: [{ productId: id.alpha, issued, returned, damaged: "0" }],
+    lines: [{ productId: id.alpha, dsrStaffId: id.mamun, issued, returned, damaged: "0" }],
   });
   return draft;
 }
