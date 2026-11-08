@@ -690,13 +690,15 @@ export function computeMonth(input: MonthInput): MonthOutput {
       agg.issuedValue = agg.issuedValue.add(issued.mul(listSale));
       agg.returnValue = agg.returnValue.add(returned.mul(listSale));
       lineAggregates.set(line.productId, agg);
-      // D109: the stored rate is the claim price. Absent means the sale price. Sales stay at sale price.
+      // D109/D119: the stored rate is the claim price (and damage money cards). Absent = sale price.
+      let damageRateOut: string | null = null;
       if (damaged.gt(0)) {
         const rate = line.damageRate === undefined ? listSale : toDecimal(line.damageRate);
         if (rate.isNegative()) {
           throw new RangeError(`invalid damage rate: ${line.staffId}/${line.productId}`);
         }
         addDamageLot(lineState.damageLots, rate, damaged);
+        damageRateOut = str(rate);
       }
 
       const dsr = dsrOf(line.staffId);
@@ -708,6 +710,7 @@ export function computeMonth(input: MonthInput): MonthOutput {
         returned: str(returned),
         net: str(net),
         damaged: str(damaged),
+        damageRate: damageRateOut,
         amount: str(amount),
         sold: str(lineSold),
         commission: str(commission),

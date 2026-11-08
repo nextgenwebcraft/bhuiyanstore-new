@@ -202,13 +202,14 @@ function allocationText(allocations: LineAllocation[]): string {
     .join(", ");
 }
 
-/** Net pieces issued for a line (issued − returned − damaged); used for remaining stock display. */
+/**
+ * Net pieces that leave saleable stock for a line (D47): issued − returned. Firot returns to
+ * মজুদ; damaged pieces stay inside delivered and do not reduce stock by themselves.
+ */
 function netOf(line: LineDraft, size: string): ReturnType<typeof toDecimal> {
   const issued = toBaseQuantity(whole(line.issuedCartons), whole(line.issuedPieces), size);
   const returned = toBaseQuantity(whole(line.returnedCartons), whole(line.returnedPieces), size);
-  return toDecimal(issued)
-    .sub(toDecimal(returned))
-    .sub(toDecimal(whole(line.damaged)));
+  return toDecimal(issued).sub(toDecimal(returned));
 }
 
 /**
@@ -612,14 +613,19 @@ function SheetEditor({
 
   // D69: the table's amounts as the profit's parts (domain `salesProfit`), pieces underneath.
   const parts = salesProfit(
-    entered.map((l) => ({
-      issued: l.issued,
-      returned: l.returned,
-      damaged: l.damaged,
-      commission: l.commission ?? "0",
-      salePrice: saleOf(l, view),
-      costPrice: costOf(l, view),
-    })),
+    entered.map((l) => {
+      const salePrice = saleOf(l, view);
+      const damageRate = clean(l.damageRate ?? "");
+      return {
+        issued: l.issued,
+        returned: l.returned,
+        damaged: l.damaged,
+        commission: l.commission ?? "0",
+        salePrice,
+        costPrice: costOf(l, view),
+        ...(damageRate && isUnitPrice(damageRate) ? { damageRate } : {}),
+      };
+    }),
   );
   const pieces = (value: string) => `${quantity(value)} ${t("common.pieces")}`;
   const sheetSummary: SummaryItem[] = [

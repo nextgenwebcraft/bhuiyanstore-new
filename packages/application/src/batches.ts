@@ -1,10 +1,11 @@
 import type { ProductLot } from "@bsd/contracts";
 import {
-  batchUndelivered,
+  batchDueParts,
   samePiecePrice,
   sumQuantities,
   toDecimal,
-  type BatchMove,
+  type BatchDueMove,
+  type BatchDueParts,
 } from "@bsd/domain";
 import type { AppContext, Tx } from "./context";
 import { toDbDate } from "./dates";
@@ -220,13 +221,13 @@ export async function dsrLineBatch(
   return { batchKey: batch.id, batchSeq: batch.seq, ...prices };
 }
 
-/** Pieces still due from the company per batch, from posted orders and receipts up to `to`. */
-export async function batchDue(
+/** Paid / free / total pieces still due from the company per batch (D118). */
+export async function batchDueDetail(
   db: Db,
   companyId: string,
   to: string,
   productIds?: readonly string[],
-): Promise<Map<string, string>> {
+): Promise<Map<string, BatchDueParts>> {
   const product = productIds ? { productId: { in: [...productIds] } } : {};
   const [entries, opening] = await Promise.all([
     db.stockEntry.findMany({
@@ -244,51 +245,104 @@ export async function batchDue(
       select: { id: true, productId: true },
     }),
   ]);
-  const moves: BatchMove[] = [];
+  const moves: BatchDueMove[] = [];
   if (opening.length) {
     const lines = await db.openingStockLine.findMany({
       where: { session: { companyId }, productId: { in: opening.map((b) => b.productId) } },
       select: { productId: true, dueFromCompany: true },
     });
     const due = new Map(lines.map((l) => [l.productId, plain(l.dueFromCompany) ?? "0"]));
-    for (const b of opening) moves.push({ batchId: b.id, ordered: due.get(b.productId) ?? "0" });
+    for (const b of opening) {
+      moves.push({ batchId: b.id, orderedPaid: due.get(b.productId) ?? "0" });
+    }
   }
   for (const e of entries) {
     if (!e.batchId) continue;
     if (e.kind === "receipt") {
-      moves.push({ batchId: e.batchId, received: plain(e.pieces) });
+      const free = plain(e.freePieces) ?? "0";
+      // D118: explicit free on the receipt; legacy rows (free 0) keep a combined total.
+      if (toDecimal(free).gt(0)) {
+        moves.push({
+          batchId: e.batchId,
+          receivedPaid: plain(e.pieces),
+          receivedFree: free,
+        });
+      } else {
+        moves.push({ batchId: e.batchId, receivedCombined: plain(e.pieces) });
+      }
     } else {
-      const ordered = sumQuantities([plain(e.pieces), plain(e.freePieces) ?? "0"]);
-      moves.push({ batchId: e.batchId, ordered });
+      moves.push({
+        batchId: e.batchId,
+        orderedPaid: plain(e.pieces),
+        orderedFree: plain(e.freePieces) ?? "0",
+      });
     }
   }
-  return batchUndelivered(moves);
+  return batchDueParts(moves);
 }
 
-/** A receipt may not bring more pieces into a batch than are still due on it. */
+/** Pieces still due from the company per batch (paid + free). */
+export async function batchDue(
+  db: Db,
+  companyId: string,
+  to: string,
+  productIds?: readonly string[],
+): Promise<Map<string, string>> {
+  const detail = await batchDueDetail(db, companyId, to, productIds);
+  return new Map([...detail].map(([id, parts]) => [id, parts.undelivered]));
+}
+
+/** A receipt may not bring more paid or free pieces into a batch than are still due on it. */
 export async function ensureBatchDue(
   tx: Tx,
   companyId: string,
   date: string,
-  lines: readonly { batchId: string; productId: string; pieces: string; index: number }[],
+  lines: readonly {
+    batchId: string;
+    productId: string;
+    pieces: string;
+    freePieces: string;
+    index: number;
+  }[],
 ): Promise<void> {
   if (lines.length === 0) return;
-  const due = await batchDue(
+  const due = await batchDueDetail(
     tx,
     companyId,
     date,
     lines.map((l) => l.productId),
   );
-  const taken = new Map<string, ReturnType<typeof toDecimal>>();
+  const takenPaid = new Map<string, ReturnType<typeof toDecimal>>();
+  const takenFree = new Map<string, ReturnType<typeof toDecimal>>();
+  const takenCombined = new Map<string, ReturnType<typeof toDecimal>>();
   for (const line of lines) {
-    const total = (taken.get(line.batchId) ?? toDecimal("0")).add(line.pieces);
-    taken.set(line.batchId, total);
-    if (total.gt(toDecimal(due.get(line.batchId) ?? "0"))) {
-      throw invalid(`lines.${line.index}.pieces`, "validation.daily.batchOverDue");
+    const parts = due.get(line.batchId) ?? {
+      undelivered: "0",
+      undeliveredPaid: "0",
+      undeliveredFree: "0",
+    };
+    // Explicit free on the line → paid and free caps separately; otherwise one combined take
+    // may cover paid + free (legacy / “receive all remaining” posts).
+    if (toDecimal(line.freePieces).gt(0)) {
+      const paid = (takenPaid.get(line.batchId) ?? toDecimal("0")).add(line.pieces);
+      const free = (takenFree.get(line.batchId) ?? toDecimal("0")).add(line.freePieces);
+      takenPaid.set(line.batchId, paid);
+      takenFree.set(line.batchId, free);
+      if (paid.gt(toDecimal(parts.undeliveredPaid))) {
+        throw invalid(`lines.${line.index}.pieces`, "validation.daily.batchOverDue");
+      }
+      if (free.gt(toDecimal(parts.undeliveredFree))) {
+        throw invalid(`lines.${line.index}.freePieces`, "validation.daily.batchOverDue");
+      }
+    } else {
+      const total = (takenCombined.get(line.batchId) ?? toDecimal("0")).add(line.pieces);
+      takenCombined.set(line.batchId, total);
+      if (total.gt(toDecimal(parts.undelivered))) {
+        throw invalid(`lines.${line.index}.pieces`, "validation.daily.batchOverDue");
+      }
     }
   }
 }
-
 /**
  * An order may be reversed only while none of its pieces were received: reversing it must not
  * leave a batch with more received than ordered.
@@ -382,16 +436,22 @@ export async function productLots(
       select: batchSelect,
       orderBy: [{ productId: "asc" }, { seq: "asc" }],
     }),
-    batchDue(db, companyId, date),
+    batchDueDetail(db, companyId, date),
   ]);
   const latest = new Map<string, number>();
   for (const b of batches) latest.set(b.productId, b.seq);
   const out = new Map<string, ProductLot[]>();
   for (const raw of batches) {
     const b = toRow(raw);
-    const undelivered = due.get(b.id) ?? "0";
+    const parts = due.get(b.id) ?? {
+      undelivered: "0",
+      undeliveredPaid: "0",
+      undeliveredFree: "0",
+    };
     const keep =
-      toDecimal(undelivered).gt(0) || inStock.has(b.id) || latest.get(b.productId) === b.seq;
+      toDecimal(parts.undelivered).gt(0) ||
+      inStock.has(b.id) ||
+      latest.get(b.productId) === b.seq;
     if (!keep) continue;
     const list = out.get(b.productId) ?? [];
     list.push({
@@ -400,7 +460,9 @@ export async function productLots(
       source: b.source === "opening" ? "opening" : "order",
       costPrice: canSeeCost ? b.costPrice : null,
       salePrice: b.salePrice,
-      undelivered,
+      undelivered: parts.undelivered,
+      undeliveredPaid: parts.undeliveredPaid,
+      undeliveredFree: parts.undeliveredFree,
     });
     out.set(b.productId, list);
   }

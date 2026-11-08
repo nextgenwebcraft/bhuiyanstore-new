@@ -593,7 +593,7 @@ model StockEntry {
   kind            String
   productId       String        @map("product_id")
   pieces          Decimal       @db.Decimal(20, 6)
-  /// D57 (kind order only): free pieces, taka per carton and the carton size at posting.
+  /// D57/D118: free pieces on order or receipt; carton rate and carton size on order only.
   freePieces      Decimal?      @map("free_pieces") @db.Decimal(20, 6)
   cartonRate      Decimal?      @map("carton_rate") @db.Decimal(20, 2)
   piecesPerCarton Int?          @map("pieces_per_carton")

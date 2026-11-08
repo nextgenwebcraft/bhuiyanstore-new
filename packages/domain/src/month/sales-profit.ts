@@ -10,6 +10,10 @@ export type ProfitLine = {
   commission: DecimalInput;
   salePrice: DecimalInput;
   costPrice: DecimalInput;
+  /**
+   * D119: taka per damaged piece for মোট বিক্রি / damage cards. Absent = sale price (D109 default).
+   */
+  damageRate?: DecimalInput;
 };
 
 /** The parts of the profit, each a positive amount, and the pieces behind them. */
@@ -34,9 +38,9 @@ export type ProfitParts = {
 const ZERO = new Decimal(0);
 
 /**
- * D69, amended by D74 (owner 2026-10-22): profit of DSR lines =
+ * D69, amended by D74 / D119: profit of DSR lines =
  * samari × sale − firot × sale − commission − delivered × purchase − damage × (sale − purchase),
- * where delivered = samari − firot; the damage at the sale price is not taken off the profit.
+ * where delivered = samari − firot. Damage money cards / মোট বিক্রি use ড্যামেজ দর (else sale).
  */
 export function salesProfit(lines: readonly ProfitLine[]): ProfitParts {
   const t = {
@@ -56,12 +60,14 @@ export function salesProfit(lines: readonly ProfitLine[]): ProfitParts {
     const damaged = toDecimal(l.damaged);
     const sale = toDecimal(l.salePrice);
     const cost = toDecimal(l.costPrice);
+    const damageRate =
+      l.damageRate === undefined || l.damageRate === "" ? sale : toDecimal(l.damageRate);
     t.issued = t.issued.add(issued);
     t.returned = t.returned.add(returned);
     t.damaged = t.damaged.add(damaged);
     t.issuedValue = t.issuedValue.add(issued.mul(sale));
     t.returnValue = t.returnValue.add(returned.mul(sale));
-    t.damageValue = t.damageValue.add(damaged.mul(sale));
+    t.damageValue = t.damageValue.add(damaged.mul(damageRate));
     t.commission = t.commission.add(toDecimal(l.commission));
     t.deliveredCost = t.deliveredCost.add(issued.sub(returned).mul(cost));
     t.damageMargin = t.damageMargin.add(damaged.mul(sale.sub(cost)));
@@ -96,6 +102,9 @@ export function profitLinesOf(day: DayResult): ProfitLine[] {
       commission: p.commission,
       salePrice: batch?.salePrice ?? product?.salePrice ?? "0",
       costPrice: batch?.costPrice ?? product?.costPrice ?? "0",
+      ...(p.damageRate === null || p.damageRate === undefined
+        ? {}
+        : { damageRate: p.damageRate }),
     };
   });
 }

@@ -16,11 +16,17 @@ export {
   type OrderTargetProgressStatus,
 } from "./order-target-progress";
 export {
+  batchDueParts,
   batchUndelivered,
   cartonFromPiece,
+  orderBatchCostPrice,
+  orderJoinsLatestBatch,
   pieceFromCarton,
   samePiecePrice,
+  type BatchDueMove,
+  type BatchDueParts,
   type BatchMove,
+  type OrderBatchCostInput,
 } from "./batch-lots";
 export {
   allocateByPriority,

@@ -43,6 +43,26 @@ describe("staff cost (D67)", () => {
     });
   });
 
+  it("values damage money at ড্যামেজ দর when set (D119)", () => {
+    const parts = salesProfit([
+      {
+        issued: "24",
+        returned: "0",
+        damaged: "1",
+        commission: "0",
+        salePrice: "20",
+        costPrice: "17.5",
+        damageRate: "10",
+      },
+    ]);
+    expect(parts.damageValue).toBe("10.00");
+    expect(parts.netSales).toBe("470.00");
+    // Profit: 480 − 24×17.5 − 1×(20−17.5) = 57.5 (damage money card uses rate 10, not profit).
+    expect(parts.damageMargin).toBe("2.50");
+    expect(parts.deliveredCost).toBe("420.00");
+    expect(parts.profit).toBe("57.50");
+  });
+
   it("totals the dashboard costs and the cash chain (D69, D106, D107)", () => {
     expect(
       dashboardTotals({

@@ -15,6 +15,7 @@ import { formatShortDate, t, toBengaliDigits, type TranslationKey } from "@bsd/i
 import { useState } from "react";
 import { Button } from "@/components/button";
 import {
+  cartonText,
   money,
   StatusChip,
   tableClass,
@@ -327,11 +328,14 @@ function DateSummaryCards({
 function StockEntryTable({
   items,
   showDateColumn,
+  showFree,
   canDelete,
   onDelete,
 }: {
   items: HistoryStockLine[];
   showDateColumn: boolean;
+  /** Orders and stock (receipt) history: free pieces as their own column (D118). */
+  showFree: boolean;
   canDelete: boolean;
   onDelete: (id: string) => Promise<unknown>;
 }) {
@@ -357,6 +361,14 @@ function StockEntryTable({
             <th scope="col" className={thNum}>
               {t("common.pieces")}
             </th>
+            {showFree ? (
+              <th scope="col" className={`${thNum} whitespace-nowrap`}>
+                {t("godown.posted.free")}
+                <span className="block text-[10.5px] font-normal text-text-subtle">
+                  {t("common.cartonPiece")}
+                </span>
+              </th>
+            ) : null}
             <th scope="col" className={thNum}>
               {t("common.amount")}
             </th>
@@ -378,6 +390,14 @@ function StockEntryTable({
               </td>
               <td className={tdNum}>{toBengaliDigits(entry.cartons)}</td>
               <td className={tdNum}>{toBengaliDigits(entry.loosePieces)}</td>
+              {showFree ? (
+                <td className={tdNum}>
+                  {cartonText(
+                    entry.freePieces ?? "0",
+                    entry.piecesPerCarton === null ? "1" : String(entry.piecesPerCarton),
+                  )}
+                </td>
+              ) : null}
               <td className={tdNum}>{money(entry.amount)}</td>
               <td className={tdClass}>
                 <StatusChip status={entry.status} />
@@ -504,6 +524,7 @@ function StockDateCardHistory({
             <StockEntryTable
               items={list.data.items}
               showDateColumn={false}
+              showFree
               canDelete={canDelete}
               onDelete={(id) => reverse.mutateAsync(id)}
             />
@@ -548,6 +569,7 @@ function StockFlatHistory({
         <StockEntryTable
           items={list.data.items}
           showDateColumn
+          showFree={false}
           canDelete={canDelete}
           onDelete={(id) => reverse.mutateAsync(id)}
         />

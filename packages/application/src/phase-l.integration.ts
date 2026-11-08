@@ -16,10 +16,10 @@ process.env.BETTER_AUTH_URL ??= "http://localhost:3000";
 /**
  * D57 carton rate on the order, D68 batches. Hand-worked numbers: opening 24 pieces at cost 10 /
  * sale 12 (batch 1, the opening). 2026-08-02 the owner example: 10 cartons of 24 ordered at 480 a
- * carton (20 a piece) to sell at 30, plus 1 free carton: bill 240 × 480 / 24 = 4800; batch 2 = the
- * 240 paid and 24 free pieces at 20 / 30. 2026-08-03 they arrive. 2026-08-04 one DSR sheet takes 24
- * from batch 1 (cost 240, sales 288) and 14 from batch 2 at an edited sale price of 25 (cost 280,
- * sales 350).
+ * carton to sell at 30, plus 1 free carton: bill 240 × 480 / 24 = 4800; batch 2 purchase =
+ * 4800 / 264 ≈ 18.181818 (effective cost with free), sale 30. 2026-08-03 they arrive. 2026-08-04
+ * one DSR sheet takes 24 from batch 1 (cost 240, sales 288) and 14 from batch 2 at an edited sale
+ * price of 25 (cost 14 × 18.181818, sales 350).
  */
 
 const { db, schema } = testDatabase();
@@ -166,9 +166,10 @@ describe("D68: product batches from orders", () => {
         })
       )[0],
     );
-    expect([entry.batchSeq, entry.costPrice, entry.salePrice]).toEqual([2, "20", "30"]);
+    // Effective cost 4800 / 264 ≈ 18.181818; free pieces share that batch (no separate free batch).
+    expect([entry.batchSeq, entry.costPrice, entry.salePrice]).toEqual([2, "18.181818", "30"]);
     batch.paid = must(entry.batchId);
-    expect(await prices(batch.paid)).toEqual(["20", "30"]);
+    expect(await prices(batch.paid)).toEqual(["18.181818", "30"]);
     const day = await row("2026-08-02");
     expect([day.ordered, day.orderValue, day.dueFromCompany]).toEqual(["240", "4800", "264"]);
     expect(day.lots.map((l) => [l.seq, l.undelivered])).toEqual([
@@ -202,10 +203,10 @@ describe("D68: product batches from orders", () => {
     ]);
     expect(day.batches.map((b) => [b.seq, b.costPrice, b.salePrice, b.quantity])).toEqual([
       [1, "10", "12", "24"],
-      [2, "20", "30", "264"],
+      [2, "18.181818", "30", "264"],
     ]);
-    // The free pieces count at the batch's purchase price: 24 × 10 + 264 × 20.
-    expect(day.stockValue).toBe("5520");
+    // Opening 24 × 10 + 264 × 18.181818 (6dp; 4800/264 truncated → 4799.999952).
+    expect(day.stockValue).toBe("5039.999952");
   });
 
   it("a DSR sheet takes each line from its batch; an edited price stays on the batch", async () => {
@@ -237,29 +238,72 @@ describe("D68: product batches from orders", () => {
       [1, "12"],
       [2, "25"],
     ]);
-    expect(await prices(batch.paid)).toEqual(["20", "25"]);
+    expect(await prices(batch.paid)).toEqual(["18.181818", "25"]);
     await postDsrDay(ctx, company, draft.id, { version: draft.version });
     const day = await row("2026-08-04");
-    // Sales 24 × 12 + 14 × 25; cost 24 × 10 + 14 × 20.
-    expect([day.issued, day.sales, day.cost]).toEqual(["38", "638", "520"]);
+    // Sales 24 × 12 + 14 × 25; cost 24 × 10 + 14 × 18.181818.
+    expect([day.issued, day.sales, day.cost]).toEqual(["38", "638", "494.545452"]);
     // The emptied opening batch drops out of the stock (D49).
     expect(day.batches.map((b) => [b.seq, b.salePrice, b.quantity])).toEqual([[2, "25", "250"]]);
-    expect(day.stockValue).toBe("5000");
+    expect(day.stockValue).toBe("4545.4545");
   });
 
-  it("the same prices reuse the latest batch, changed prices start a new one", async () => {
-    const order = (salePrice: string) =>
-      postStockEntries(ctx, company, {
-        date: "2026-08-05",
-        lines: [{ kind: "order", productId: alpha, pieces: "24", cartonRate: "480", salePrice }],
-        prices: [],
-      });
-    // The day's entries come back oldest first; the last is the one just posted.
-    const same = must((await order("25")).at(-1));
-    expect([same.batchId, same.batchSeq]).toEqual([batch.paid, 2]);
-    const changed = must((await order("32")).at(-1));
-    expect(changed.batchSeq).toBe(3);
+  it("the same prices reuse the latest batch, changed prices or free mix start a new one", async () => {
+    // Latest batch is still 18.181818 / 25; a paid-only order at carton 480 costs 20 → new batch.
+    const paidOnly = must(
+      (
+        await postStockEntries(ctx, company, {
+          date: "2026-08-05",
+          lines: [{ kind: "order", productId: alpha, pieces: "24", cartonRate: "480", salePrice: "25" }],
+          prices: [],
+        })
+      ).at(-1),
+    );
+    expect(paidOnly.batchSeq).toBe(3);
+    expect(await prices(must(paidOnly.batchId))).toEqual(["20", "25"]);
+    // Same paid-only prices reuse batch 3.
+    const same = must(
+      (
+        await postStockEntries(ctx, company, {
+          date: "2026-08-05",
+          lines: [{ kind: "order", productId: alpha, pieces: "24", cartonRate: "480", salePrice: "25" }],
+          prices: [],
+        })
+      ).at(-1),
+    );
+    expect([same.batchId, same.batchSeq]).toEqual([paidOnly.batchId, 3]);
+    const changed = must(
+      (
+        await postStockEntries(ctx, company, {
+          date: "2026-08-05",
+          lines: [{ kind: "order", productId: alpha, pieces: "24", cartonRate: "480", salePrice: "32" }],
+          prices: [],
+        })
+      ).at(-1),
+    );
+    expect(changed.batchSeq).toBe(4);
     expect(await prices(must(changed.batchId))).toEqual(["20", "32"]);
+    // Free goods on the same carton/sale open another batch (effective cost differs).
+    const withFree = must(
+      (
+        await postStockEntries(ctx, company, {
+          date: "2026-08-05",
+          lines: [
+            {
+              kind: "order",
+              productId: alpha,
+              pieces: "24",
+              freePieces: "12",
+              cartonRate: "480",
+              salePrice: "32",
+            },
+          ],
+          prices: [],
+        })
+      ).at(-1),
+    );
+    expect(withFree.batchSeq).toBe(5);
+    expect(withFree.costPrice).toBe("13.333333");
     // A free-only order without a rate joins the latest batch at its purchase price.
     const freeOnly = must(
       (
@@ -272,9 +316,10 @@ describe("D68: product batches from orders", () => {
         })
       ).at(-1),
     );
-    expect([freeOnly.batchId, freeOnly.costPrice]).toEqual([changed.batchId, "20"]);
-    const lot = must((await row("2026-08-05")).lots.find((l) => l.id === changed.batchId));
-    expect(lot.undelivered).toBe("36");
+    expect([freeOnly.batchId, freeOnly.costPrice]).toEqual([withFree.batchId, "13.333333"]);
+    const lot = must((await row("2026-08-05")).lots.find((l) => l.id === withFree.batchId));
+    // withFree due 36 + free-only 12 = 48.
+    expect(lot.undelivered).toBe("48");
   });
 
   it("an order is reversible until goods arrive in its batch", async () => {
@@ -298,19 +343,33 @@ describe("D68: product batches from orders", () => {
     await reverseStockEntry(ctx, company, open.id);
     expect((await balance("2026-08-06")).toString()).toBe(before.toString());
 
+    // Same paid + free + rates as the reversed order → its batch is reused.
     const again = await postStockEntries(ctx, company, {
       date: "2026-08-06",
       lines: [
-        { kind: "order", productId: alpha, pieces: "24", cartonRate: "600", salePrice: "40" },
+        {
+          kind: "order",
+          productId: alpha,
+          pieces: "24",
+          freePieces: "24",
+          cartonRate: "600",
+          salePrice: "40",
+        },
       ],
       prices: [],
     });
     const received = must(again.at(-1));
-    // The same prices as the reversed order: its batch is reused.
     expect(received.batchId).toBe(open.batchId);
     await postStockEntries(ctx, company, {
       date: "2026-08-06",
-      lines: [{ kind: "receipt", productId: alpha, pieces: "24", batchId: must(received.batchId) }],
+      lines: [
+        {
+          kind: "receipt",
+          productId: alpha,
+          pieces: "48",
+          batchId: must(received.batchId),
+        },
+      ],
       prices: [],
     });
     await expectField(
@@ -318,5 +377,47 @@ describe("D68: product batches from orders", () => {
       "",
       "validation.daily.batchReceived",
     );
+  });
+
+  it("receives paid and free pieces separately against the batch due (D118)", async () => {
+    const ordered = must(
+      (
+        await postStockEntries(ctx, company, {
+          date: "2026-08-07",
+          lines: [
+            {
+              kind: "order",
+              productId: alpha,
+              pieces: "48",
+              freePieces: "24",
+              cartonRate: "480",
+              salePrice: "30",
+            },
+          ],
+          prices: [],
+        })
+      )[0],
+    );
+    const lotId = must(ordered.batchId);
+    const before = must((await row("2026-08-07")).lots.find((l) => l.id === lotId));
+    expect([before.undeliveredPaid, before.undeliveredFree]).toEqual(["48", "24"]);
+
+    await postStockEntries(ctx, company, {
+      date: "2026-08-07",
+      lines: [{ kind: "receipt", productId: alpha, pieces: "48", batchId: lotId }],
+      prices: [],
+    });
+    const mid = must((await row("2026-08-07")).lots.find((l) => l.id === lotId));
+    expect([mid.undeliveredPaid, mid.undeliveredFree]).toEqual(["0", "24"]);
+
+    await postStockEntries(ctx, company, {
+      date: "2026-08-07",
+      lines: [
+        { kind: "receipt", productId: alpha, pieces: "0", freePieces: "24", batchId: lotId },
+      ],
+      prices: [],
+    });
+    const after = (await row("2026-08-07")).lots.find((l) => l.id === lotId);
+    expect(after ? after.undelivered : "0").toBe("0");
   });
 });

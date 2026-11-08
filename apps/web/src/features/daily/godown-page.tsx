@@ -10,7 +10,7 @@ import type {
 import { EmptyListNote } from "@/components/empty-list-note";
 import { ReverseCell } from "@/components/reverse-cell";
 import { useAsyncAction } from "@/lib/async-action";
-import { sumQuantities, toBaseQuantity, toDecimal } from "@bsd/domain";
+import { orderBatchCostPrice, sumQuantities, toBaseQuantity, toDecimal } from "@bsd/domain";
 import { formatRate, t, type TranslationKey } from "@bsd/i18n";
 import { Fragment, useState } from "react";
 import { Button } from "@/components/button";
@@ -310,6 +310,7 @@ function PostedEntries({
                   ) : null}
                   {kind === "receipt" ? (
                     <>
+                      <ColumnHead label={t("godown.posted.free")} quantity />
                       {view.canSeeCost ? <ColumnHead label={t("batch.costShort")} /> : null}
                       <ColumnHead label={t("batch.saleShort")} />
                     </>
@@ -317,8 +318,9 @@ function PostedEntries({
                   {kind === "order" ? (
                     <>
                       <ColumnHead label={t("godown.posted.free")} quantity />
-                      <ColumnHead label={t("godown.posted.rate")} quantity />
-                      <ColumnHead label={t("godown.posted.bill")} quantity />
+                      <ColumnHead label={t("godown.posted.rate")} />
+                      <ColumnHead label={t("godown.posted.pieceRate")} />
+                      <ColumnHead label={t("godown.posted.bill")} />
                     </>
                   ) : null}
                   <th scope="col" className={thClass}>
@@ -344,6 +346,12 @@ function PostedEntries({
                     ) : null}
                     {kind === "receipt" ? (
                       <>
+                        <td className={tdNum}>
+                          <CartonQty
+                            pieces={entry.freePieces ?? "0"}
+                            piecesPerCarton={sizes.get(entry.productId) ?? "1"}
+                          />
+                        </td>
                         {view.canSeeCost ? (
                           <td className={tdNum}>
                             {entry.costPrice === null ? "" : formatRate(entry.costPrice)}
@@ -364,6 +372,18 @@ function PostedEntries({
                         </td>
                         <td className={tdNum}>
                           {entry.cartonRate === null ? "" : money(entry.cartonRate)}
+                        </td>
+                        <td className={tdNum}>
+                          {entry.cartonRate === null
+                            ? ""
+                            : formatRate(
+                                orderBatchCostPrice({
+                                  paid: entry.pieces,
+                                  free: entry.freePieces ?? "0",
+                                  cartonRate: entry.cartonRate,
+                                  piecesPerCarton: sizes.get(entry.productId) ?? "1",
+                                }) ?? entry.costPrice ?? "0",
+                              )}
                         </td>
                         <td className={tdNum}>{money(orderBill(entry))}</td>
                       </>

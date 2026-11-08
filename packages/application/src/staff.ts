@@ -74,6 +74,17 @@ async function visibleCompanyIds(ctx: AppContext): Promise<Set<string>> {
   return new Set(memberships.map((m) => m.companyId));
 }
 
+/**
+ * Membership companies plus the staff scope of the company being listed (D65): an operating
+ * company's Managers must see master assignments so global DSRs keep `roleKind: "dsr"` in the
+ * record (shop-due DSR pick, field day, etc.). Other companies stay hidden.
+ */
+function assignmentCompanyIds(visible: Set<string>, staffScope: readonly string[]): Set<string> {
+  const scope = new Set(visible);
+  for (const id of staffScope) scope.add(id);
+  return scope;
+}
+
 function loginRoleKindOf(user: StaffRow["user"]): "manager" | "dsr" | null {
   if (!user) return null;
   for (const m of user.memberships) {
@@ -211,7 +222,8 @@ export async function listStaffRecords(ctx: AppContext, companyId: string): Prom
     }),
     visibleCompanyIds(ctx),
   ]);
-  return rows.map((row) => toRecord(row, visible));
+  const scope = assignmentCompanyIds(visible, companyIds);
+  return rows.map((row) => toRecord(row, scope));
 }
 
 export async function getStaffRecord(
@@ -220,11 +232,12 @@ export async function getStaffRecord(
   staffId: string,
 ): Promise<StaffRecord> {
   await requirePermission(ctx, companyId, "company.view");
+  const companyIds = await staffCompanyIds(ctx.db, companyId);
   const [row, visible] = await Promise.all([
     loadCompanyStaff(ctx.db, ctx, companyId, staffId),
     visibleCompanyIds(ctx),
   ]);
-  return toRecord(row, visible);
+  return toRecord(row, assignmentCompanyIds(visible, companyIds));
 }
 
 /** Every person of the tenant, so a DSR can be assigned to a second brand (D09). Super-admin only. */

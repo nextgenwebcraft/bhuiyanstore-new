@@ -28,15 +28,16 @@ import { visibleBatches } from "./day-report-page";
 import { batchName, CellInput, clean, pairOf, PriceCells, type PricePair } from "./daily-kit";
 
 /**
- * Receiving ordered goods (D68): each line names the batch (order lot) it fills, at most the
- * pieces still due on it. The batch's prices are filled in; a changed price becomes the batch's
- * from then on.
+ * Receiving ordered goods (D68, D118): each line names the batch it fills. Paid and free pieces
+ * due on the batch are shown and entered separately; neither may exceed its due.
  */
 type Product = DayView["products"][number];
 type Edit = {
   batchId?: string | undefined;
   cartons?: string;
   pieces?: string;
+  freeCartons?: string;
+  freePieces?: string;
   buy?: PricePair | undefined;
   sale?: PricePair | undefined;
 };
@@ -49,25 +50,38 @@ type Line = {
   first: boolean;
   cartons: string;
   pieces: string;
+  freeCartons: string;
+  freePieces: string;
   buy: PricePair;
   sale: PricePair;
 };
 type PostLine = NonNullable<StockEntryPostRequest["lines"]>[number];
-type Draft = { error: string } | { pieces: string; line: PostLine };
+type Draft =
+  | { error: string }
+  | { pieces: string; free: string; line: PostLine };
 
 const whole = /^\d+$/;
 const unitPrice = /^\d+(\.\d{1,6})?$/;
 const thCenter = `${thClass} text-center`;
+const freeTint = "bg-surface-muted/50";
 
 const dueLots = (product: Product) =>
   product.lots.filter((lot) => toDecimal(lot.undelivered).gt(0));
 
-function lotLabel(lot: ProductLot, piecesPerCarton: string): string {
-  return [
+function lotLabel(lot: ProductLot, piecesPerCarton: string, showCost: boolean): string {
+  const parts = [
     batchName(lot),
-    `${t("godown.receipt.due")} ${cartonText(lot.undelivered, piecesPerCarton)}`,
-    `${t("batch.saleShort")} ${t("batch.currency")}${formatRate(lot.salePrice)}`,
-  ].join(" · ");
+    `${t("godown.receipt.due")} ${cartonText(lot.undeliveredPaid, piecesPerCarton)}`,
+  ];
+  if (toDecimal(lot.undeliveredFree).gt(0)) {
+    parts.push(
+      `${t("godown.receipt.freeDue")} ${cartonText(lot.undeliveredFree, piecesPerCarton)}`,
+    );
+  }
+  if (showCost && lot.costPrice !== null) {
+    parts.push(`${t("batch.costShort")} ${t("batch.currency")}${formatRate(lot.costPrice)}`);
+  }
+  return parts.join(" · ");
 }
 
 /** The product's batches in stock, one line each, collapsed under the product name (D49). */
@@ -136,31 +150,45 @@ export function ReceiptForm({
         first: index === 0,
         cartons: own.cartons ?? "",
         pieces: own.pieces ?? "",
+        freeCartons: own.freeCartons ?? "",
+        freePieces: own.freePieces ?? "",
         buy: own.buy ?? pairOf(lot.costPrice, product.piecesPerCarton),
         sale: own.sale ?? pairOf(lot.salePrice, product.piecesPerCarton),
       };
     });
   });
 
-  /** Each line's request, or a message; null when the line is empty. Checks the due per batch. */
+  /** Each line's request, or a message; null when the line is empty. Checks paid/free due. */
   function draftsOf(): Map<string, Draft | null> {
-    const taken = new Map<string, ReturnType<typeof toDecimal>>();
+    const takenPaid = new Map<string, ReturnType<typeof toDecimal>>();
+    const takenFree = new Map<string, ReturnType<typeof toDecimal>>();
     const out = new Map<string, Draft | null>();
     for (const line of lines) {
-      const cartons = clean(line.cartons) || "0";
-      const pieces = clean(line.pieces) || "0";
-      if (!whole.test(cartons) || !whole.test(pieces)) {
+      const [cartons, pieces, freeCartons, freePieces] = [
+        line.cartons,
+        line.pieces,
+        line.freeCartons,
+        line.freePieces,
+      ].map((v) => clean(v) || "0") as [string, string, string, string];
+      if (![cartons, pieces, freeCartons, freePieces].every((v) => whole.test(v))) {
         out.set(line.key, { error: t("validation.wholeNumber") });
         continue;
       }
-      const total = toBaseQuantity(cartons, pieces, line.product.piecesPerCarton);
-      if (total === "0") {
+      const paid = toBaseQuantity(cartons, pieces, line.product.piecesPerCarton);
+      const free = toBaseQuantity(freeCartons, freePieces, line.product.piecesPerCarton);
+      if (paid === "0" && free === "0") {
         out.set(line.key, null);
         continue;
       }
-      const sum = (taken.get(line.lot.id) ?? toDecimal("0")).add(total);
-      taken.set(line.lot.id, sum);
-      if (sum.gt(toDecimal(line.lot.undelivered))) {
+      const paidSum = (takenPaid.get(line.lot.id) ?? toDecimal("0")).add(paid);
+      const freeSum = (takenFree.get(line.lot.id) ?? toDecimal("0")).add(free);
+      takenPaid.set(line.lot.id, paidSum);
+      takenFree.set(line.lot.id, freeSum);
+      if (paidSum.gt(toDecimal(line.lot.undeliveredPaid))) {
+        out.set(line.key, { error: t("godown.receipt.overDue") });
+        continue;
+      }
+      if (freeSum.gt(toDecimal(line.lot.undeliveredFree))) {
         out.set(line.key, { error: t("godown.receipt.overDue") });
         continue;
       }
@@ -171,11 +199,13 @@ export function ReceiptForm({
         continue;
       }
       out.set(line.key, {
-        pieces: total,
+        pieces: paid,
+        free,
         line: {
           kind: "receipt",
           productId: line.product.productId,
-          pieces: total,
+          pieces: paid,
+          ...(free !== "0" ? { freePieces: free } : {}),
           batchId: line.lot.id,
           salePrice,
           ...(showCost ? { costPrice } : {}),
@@ -223,7 +253,9 @@ export function ReceiptForm({
     { label: t("godown.summary.entering"), value: quantity(String(entering.length)) },
     {
       label: `${t("godown.summary.enteringPieces")} (${t("godown.column.pieces")})`,
-      value: quantity(sumQuantities(entering.map((d) => d.pieces))),
+      value: quantity(
+        sumQuantities(entering.flatMap((d) => [d.pieces, d.free === "0" ? [] : [d.free]].flat())),
+      ),
     },
     {
       label: `${t("day.column.received")} (${t("godown.column.pieces")})`,
@@ -248,11 +280,19 @@ export function ReceiptForm({
               <th scope="col" rowSpan={2} className={thClass}>
                 {t("godown.receipt.batch")}
               </th>
-              <th scope="col" rowSpan={2} className={thCenter}>
-                {t("godown.column.cartons")}
+              <th
+                scope="col"
+                colSpan={2}
+                className={`${thCenter} border-b border-l border-border`}
+              >
+                {t("godown.receipt.paidGroup")}
               </th>
-              <th scope="col" rowSpan={2} className={thCenter}>
-                {t("godown.column.pieces")}
+              <th
+                scope="col"
+                colSpan={2}
+                className={`${thCenter} border-b border-l border-border ${freeTint}`}
+              >
+                {t("godown.order.freeGroup")}
               </th>
               {showCost ? (
                 <th
@@ -277,6 +317,18 @@ export function ReceiptForm({
               </th>
             </tr>
             <tr>
+              <th scope="col" className={`${thCenter} border-l border-border`}>
+                {t("godown.column.cartons")}
+              </th>
+              <th scope="col" className={thCenter}>
+                {t("godown.column.pieces")}
+              </th>
+              <th scope="col" className={`${thCenter} border-l border-border ${freeTint}`}>
+                {t("godown.column.cartons")}
+              </th>
+              <th scope="col" className={`${thCenter} ${freeTint}`}>
+                {t("godown.column.pieces")}
+              </th>
               {(showCost ? ["buy", "sale"] : ["sale"]).map((group) => (
                 <PriceHeads key={group} />
               ))}
@@ -290,6 +342,7 @@ export function ReceiptForm({
               const wrong = draft !== null && draft !== undefined && "error" in draft;
               const rows = lines.filter((l) => l.product.productId === product.productId);
               const canAdd = line.first && rows.length < line.lots.length;
+              const freeOff = toDecimal(lot.undeliveredFree).lte(0);
               return (
                 <tr
                   key={line.key}
@@ -322,14 +375,24 @@ export function ReceiptForm({
                     >
                       {line.lots.map((l) => (
                         <option key={l.id} value={l.id}>
-                          {lotLabel(l, product.piecesPerCarton)}
+                          {lotLabel(l, product.piecesPerCarton, showCost)}
                         </option>
                       ))}
                     </select>
+                    <div className="mt-1 text-[10.5px] text-text-muted">
+                      {t("godown.receipt.due")} {cartonText(lot.undeliveredPaid, product.piecesPerCarton)}
+                      {toDecimal(lot.undeliveredFree).gt(0) ? (
+                        <>
+                          {" · "}
+                          {t("godown.receipt.freeDue")}{" "}
+                          {cartonText(lot.undeliveredFree, product.piecesPerCarton)}
+                        </>
+                      ) : null}
+                    </div>
                   </td>
-                  <td className={`${tdClass} text-center`}>
+                  <td className={`${tdClass} border-l border-border text-center`}>
                     <CellInput
-                      label={`${label} ${t("godown.column.cartons")}`}
+                      label={`${label} ${t("godown.receipt.paidGroup")} ${t("godown.column.cartons")}`}
                       value={line.cartons}
                       onChange={(cartons) => edit(line.key, { cartons })}
                       invalid={wrong}
@@ -338,10 +401,30 @@ export function ReceiptForm({
                   </td>
                   <td className={`${tdClass} text-center`}>
                     <CellInput
-                      label={`${label} ${t("godown.column.pieces")}`}
+                      label={`${label} ${t("godown.receipt.paidGroup")} ${t("godown.column.pieces")}`}
                       value={line.pieces}
                       onChange={(pieces) => edit(line.key, { pieces })}
                       invalid={wrong}
+                      width="w-16"
+                    />
+                  </td>
+                  <td className={`${tdClass} border-l border-border text-center ${freeTint}`}>
+                    <CellInput
+                      label={`${label} ${t("godown.order.free")} ${t("godown.column.cartons")}`}
+                      value={line.freeCartons}
+                      onChange={(freeCartons) => edit(line.key, { freeCartons })}
+                      invalid={wrong}
+                      disabled={freeOff}
+                      width="w-16"
+                    />
+                  </td>
+                  <td className={`${tdClass} text-center ${freeTint}`}>
+                    <CellInput
+                      label={`${label} ${t("godown.order.free")} ${t("godown.column.pieces")}`}
+                      value={line.freePieces}
+                      onChange={(freePieces) => edit(line.key, { freePieces })}
+                      invalid={wrong}
+                      disabled={freeOff}
                       width="w-16"
                     />
                   </td>
@@ -407,7 +490,9 @@ export function ReceiptForm({
           </tbody>
         </table>
       </TableScroller>
-      <p className="text-xs text-text-muted">{t("godown.quantityHint")}</p>
+      <p className="text-xs text-text-muted">
+        {t("godown.quantityHint")} {t("godown.receipt.freeHint")}
+      </p>
       {error ? <StatePanel tone="error" title={error} /> : null}
       {done ? <StatePanel title={t("common.posted")} /> : null}
       <div>

@@ -90,6 +90,9 @@ function profitLinesByDsr(day: DayResult): Map<StaffId, ProfitLine[]> {
       commission: p.commission,
       salePrice: batch?.salePrice ?? product?.salePrice ?? "0",
       costPrice: batch?.costPrice ?? product?.costPrice ?? "0",
+      ...(p.damageRate === null || p.damageRate === undefined
+        ? {}
+        : { damageRate: p.damageRate }),
     });
     byStaff.set(p.staffId, lines);
   }
@@ -139,18 +142,16 @@ export function summarizeDay(day: DayResult, input: DayInput): DaySummary {
     issuedValue: roundSettlement(sum(day.products.map((p) => p.issuedValue))),
     returnValue: roundSettlement(sum(day.products.map((p) => p.returnValue))),
     damageValue: roundSettlement(sum(day.products.map((p) => p.damageValue))),
-    damageSaleValue: roundSettlement(
-      day.products.reduce(
-        (total, p) => total.add(toDecimal(p.damaged).mul(toDecimal(p.salePrice ?? "0"))),
-        new Decimal(0),
-      ),
-    ),
+    // D119: damage money at ড্যামেজ দর (else sale), same as the sheet cards.
+    ...(() => {
+      const parts = salesProfit(profitLinesOf(day));
+      return { damageSaleValue: parts.damageValue, salesProfit: parts.profit };
+    })(),
     costOfSold: roundSettlement(sum(day.products.map((p) => p.cost))),
     commission: roundSettlement(toDecimal(day.money.commission)),
     expenses: roundSettlement(toDecimal(day.money.expenses)),
     staffShortage: roundSettlement(ofKind("staffShortage")),
     staffCost: roundSettlement(toDecimal(staffCost(input.money ?? []))),
-    salesProfit: salesProfit(profitLinesOf(day)).profit,
     byDsr: (() => {
       const dsrLines = profitLinesByDsr(day);
       return [...dsr].map(([staffId, v]) => {
