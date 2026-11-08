@@ -367,7 +367,7 @@ export async function postStockEntries(
                 paid: line.pieces,
                 free: line.freePieces ?? "0",
                 cartonRate: line.cartonRate,
-                piecesPerCarton,
+                piecesPerCarton: String(piecesPerCarton),
               });
         if (line.pieces !== "0" && nominal !== null) orderPrices.set(line.productId, nominal);
         const batch = await orderBatch(tx, owner, line.productId, { costPrice, salePrice });
