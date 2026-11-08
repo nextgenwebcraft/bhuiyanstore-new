@@ -106,6 +106,7 @@ function EntryForm({
   async function submit() {
     setError(undefined);
     const value = clean(amount);
+    if (dsr && !staffId) return setError(t("validation.dsr.required"));
     if (!shop && !newName) return setError(t("validation.shop.required"));
     if (!/^\d+(\.\d{1,2})?$/.test(value) || !/[1-9]/.test(value)) {
       return setError(t("validation.amountPositive"));
@@ -252,7 +253,12 @@ function Entries({
   canEdit: boolean;
   onEdit: (entry: MoneyEntry) => void;
 }) {
-  const entries = useMoneyEntries(companyId, { from: date, to: date, staffId });
+  // No DSR picked yet: list every shop-due row for the day (picker starts empty, D120).
+  const entries = useMoneyEntries(companyId, {
+    from: date,
+    to: date,
+    ...(staffId ? { staffId } : {}),
+  });
 
   if (entries.isPending) return <FormSkeleton fields={1} />;
   if (entries.isError)
@@ -345,22 +351,26 @@ export function ShopDueEntry({
   date: string;
   /** The sheet DSR has field visits that day, used when no DSR list is passed. */
   fieldOwned: boolean;
-  /** DSRs the card can post for. The open sheet's DSR starts selected. */
+  /** DSRs the card can post for. Starts with none selected (D120). */
   dsrs?: readonly DsrChoice[];
   /** D114: pass from the day sheet; omitted elsewhere hides Edit. */
   handoverLocked?: boolean;
 }) {
   const { permissions, loginRoleKind } = useCurrentWorkspace();
   const shops = useShops(companyId);
-  const [picked, setPicked] = useState(staffId);
+  const [picked, setPicked] = useState("");
   const [editing, setEditing] = useState<MoneyEntry | null>(null);
   const dsrList = dsrs ?? [];
   const choosing = dsrList.length > 0;
-  const activeId = dsrList.some((dsr) => dsr.id === picked)
-    ? picked
-    : (dsrList.find((dsr) => dsr.id === staffId)?.id ?? dsrList[0]?.id ?? staffId);
-  const fieldDay = useDsrFieldDay(companyId, activeId, date, choosing);
-  const owned = choosing ? Boolean(fieldDay.data && fieldDay.data.visits.length > 0) : fieldOwned;
+  const activeId = choosing
+    ? dsrList.some((dsr) => dsr.id === picked)
+      ? picked
+      : ""
+    : staffId;
+  const fieldDay = useDsrFieldDay(companyId, activeId, date, choosing && activeId !== "");
+  const owned = choosing
+    ? Boolean(activeId && fieldDay.data && fieldDay.data.visits.length > 0)
+    : fieldOwned;
   const kinds = KINDS.filter((k) => permissions.includes(moneyKindPermission[k]));
   const canEdit = canEditDailyMoney(loginRoleKind, handoverLocked);
   const canCreate = canPostDailyMoney(loginRoleKind, handoverLocked) && kinds.length > 0;
@@ -369,7 +379,7 @@ export function ShopDueEntry({
       <h3 className="font-semibold">{t("shopDue.title")}</h3>
       {owned ? (
         <StatePanel title={t("validation.field.manualDueBlocked")} />
-      ) : !canCreate && !editing ? null : choosing && fieldDay.isPending ? (
+      ) : !canCreate && !editing ? null : choosing && activeId !== "" && fieldDay.isPending ? (
         <FormSkeleton fields={2} />
       ) : shops.isError ? (
         <QueryError error={shops.error} onRetry={() => void shops.refetch()} />
@@ -377,7 +387,7 @@ export function ShopDueEntry({
         <FormSkeleton fields={2} />
       ) : canCreate || editing ? (
         <EntryForm
-          key={`${activeId}-${date}-${editing?.id ?? "new"}`}
+          key={`${activeId || "none"}-${date}-${editing?.id ?? "new"}`}
           companyId={companyId}
           staffId={activeId}
           date={date}

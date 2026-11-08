@@ -1,0 +1,15 @@
+id: 2026-11-08-day-sheet-picker-no-default
+reason: >-
+  Owner 2026-11-08 (D120): দোকানের বাকি ও আদায় and ডিএসআরের অগ্রিম ও শর্ট must not
+  pre-select a DSR/কর্মী; the user picks explicitly before post.
+owners: [web, i18n, docs]
+changes:
+  - apps/web shop-due-entry.tsx / staff-cash-entry.tsx - empty initial pick; require pick on submit
+  - packages/i18n - validation.dsr.required, validation.staff.required
+  - docs/decisions.md - D120; D79 amended
+affectedActionIds: []
+financialImpact: none (UI pick only; same money kinds)
+backfill: none
+tests: pnpm build
+rollout: deploy
+recovery: revert commit

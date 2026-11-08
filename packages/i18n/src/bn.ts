@@ -170,6 +170,8 @@ export const bn = {
   "validation.staffRole.unknown": "ভূমিকাটি পাওয়া যায়নি অথবা বন্ধ আছে",
   "validation.staff.unknown": "কর্মী পাওয়া যায়নি",
   "validation.staff.noLogin": "এই কর্মীর কোনো লগইন নেই",
+  "validation.staff.required": "একজন কর্মী বেছে নিন",
+  "validation.dsr.required": "একজন ডিএসআর বেছে নিন",
   "validation.shop.required": "তালিকা থেকে একটি দোকান বেছে নিন",
   "validation.shop.notForKind": "এই ধরনের লেনদেনে দোকান লাগে না",
   "validation.shop.unknown": "দোকান পাওয়া যায়নি বা বন্ধ আছে",
