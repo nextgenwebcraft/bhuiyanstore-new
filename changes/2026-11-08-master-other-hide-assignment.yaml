@@ -1,0 +1,14 @@
+id: 2026-11-08-master-other-hide-assignment
+reason: >-
+  Owner 2026-11-08 screenshot on মাস্টার প্যানেল → আমাদের স্টাফ → অন্যান্য: remove the
+  per-card assignment chip (role · dates · monthly salary + Edit). DSR tab and company
+  SR lists unchanged; দায়িত্ব যোগ করুন stays for new periods.
+owners: [web]
+changes:
+  - apps/web staff-page.tsx - skip AssignmentList when company.isMaster && tab === "other"
+affectedActionIds: []
+financialImpact: none (display only; assignments remain in DB)
+backfill: none
+tests: none (UI-only)
+rollout: deploy
+recovery: revert commit

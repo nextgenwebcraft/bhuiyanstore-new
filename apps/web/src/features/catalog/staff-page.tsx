@@ -812,12 +812,15 @@ function Staff() {
                 </div>
               ) : null}
             </div>
-            <AssignmentList
-              record={record}
-              companyId={company.id}
-              canManage={canManage}
-              onEdit={(a) => setAssignment({ person: record, assignment: a })}
-            />
+            {/* Master অন্যান্য: role/dates/salary chip removed (owner 2026-11-08); DSR tab keeps it. */}
+            {company.isMaster && tab === "other" ? null : (
+              <AssignmentList
+                record={record}
+                companyId={company.id}
+                canManage={canManage}
+                onEdit={(a) => setAssignment({ person: record, assignment: a })}
+              />
+            )}
           </li>
         ))}
       </ul>
