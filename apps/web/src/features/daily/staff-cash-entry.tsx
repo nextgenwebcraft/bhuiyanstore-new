@@ -108,6 +108,7 @@ function EntryForm({
   async function submit() {
     setError(undefined);
     const value = clean(amount);
+    if (dsr && !staffId) return setError(t("validation.staff.required"));
     if (!/^\d+(\.\d{1,2})?$/.test(value) || !/[1-9]/.test(value)) {
       return setError(t("validation.amountPositive"));
     }
@@ -286,18 +287,22 @@ export function StaffCashEntry({
   companyId: string;
   staffId: string;
   date: string;
-  /** DSRs the card can post for. Omitted on a person's own entry dialog. */
+  /** People the card can post for. Starts with none selected when a list is passed (D120). */
   dsrs?: readonly DsrChoice[];
   /** D114: pass from the day sheet; omitted elsewhere hides Edit. */
   handoverLocked?: boolean;
 }) {
   const { permissions, loginRoleKind } = useCurrentWorkspace();
-  const [picked, setPicked] = useState(staffId);
+  const people = dsrs ?? [];
+  const choosing = people.length > 0;
+  const [picked, setPicked] = useState("");
   const [editing, setEditing] = useState<MoneyEntry | null>(null);
-  const activeId = dsrs?.some((dsr) => dsr.id === picked)
-    ? picked
-    : (dsrs?.find((dsr) => dsr.id === staffId)?.id ?? dsrs?.[0]?.id ?? staffId);
-  // Today's entries list every DSR, not only the one picked above (the form posts for that one).
+  const activeId = choosing
+    ? people.some((person) => person.id === picked)
+      ? picked
+      : ""
+    : staffId;
+  // Today's entries list every person, not only the one picked above (the form posts for that one).
   const entries = useMoneyEntries(companyId, { from: date, to: date });
   const kinds = KINDS.filter((k) =>
     permissions.includes(moneyKindPermission[staffCashRequest(k, "0").kind]),
@@ -309,14 +314,14 @@ export function StaffCashEntry({
       <h3 className="font-semibold">{t("staffCash.title")}</h3>
       {canCreate || editing ? (
         <EntryForm
-          key={`${activeId}-${date}-${editing?.id ?? "new"}`}
+          key={`${activeId || "none"}-${date}-${editing?.id ?? "new"}`}
           companyId={companyId}
           staffId={activeId}
           date={date}
           kinds={kinds}
           editing={editing}
           onClearEdit={() => setEditing(null)}
-          {...(dsrs && dsrs.length > 0 ? { dsr: { id: activeId, dsrs, onChange: setPicked } } : {})}
+          {...(choosing ? { dsr: { id: activeId, dsrs: people, onChange: setPicked } } : {})}
         />
       ) : null}
       {entries.isPending ? (
