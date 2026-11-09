@@ -6,6 +6,8 @@ Evidence-based progress. Mark an item done only with evidence.
 
 The canonical plan is now [PLAN.md](PLAN.md). The owner approved backend integration (D30).
 
+**2026-11-10** ([manifest](../changes/2026-11-10-dsr-pos-entry-flow.yaml)): দৈনিক বিক্রয় হিসাব POS-style entry — DSR once, Add Item into list, Save All + search; fields unchanged (D122).
+
 **2026-11-07** ([manifest](../changes/2026-11-07-manager-samari-entry.yaml)): Manager may enter every দৈনিক বিক্রয় হিসাব field incl. সামারি, post, then cannot edit; may submit হাতে জমা → Pending (D112).
 
 **2026-11-05** ([manifest](../changes/2026-11-05-order-target-product-cartons.yaml)): পণ্য অনুযায়ী অর্ডার টার্গেট = কার্টন পরিমাণ; একক বা একাধিক পণ্য এক লক্ষ্যে; সব অর্ডার টাকা অপরিবর্তিত (D115). Migration `20261105010000_order_target_product_cartons` (apply before deploy).

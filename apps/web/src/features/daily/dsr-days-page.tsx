@@ -57,7 +57,13 @@ import {
 } from "./daily-kit";
 import { inputClass } from "@/components/field";
 import { StatusChip, money, quantity } from "@/components/data-table";
-import { DsrSheetEntry, lineKeyOf, type LineDraft, type SheetDraft } from "./dsr-sheet-entry";
+import {
+  DsrSheetEntry,
+  lineKeyOf,
+  markLinesActive,
+  type LineDraft,
+  type SheetDraft,
+} from "./dsr-sheet-entry";
 
 const PATH = "sales/daily-summaries";
 
@@ -166,6 +172,7 @@ function draftOf(sheet: DsrDay | undefined): SheetDraft {
       commission: toDecimal(line.commission).isZero() ? "" : line.commission,
       salePrice: priceText(line.salePrice),
       costPrice: priceText(line.costPrice),
+      entryStatus: "active" as const,
     };
   });
   return { lines, handedOver: sheet?.cashHandedOver ?? "" };
@@ -574,7 +581,10 @@ function SheetEditor({
         setError(built);
         return;
       }
-      await action.run(() => save.mutateAsync(built), { confirm: "dsr.sheet.correctConfirm" });
+      await action.run(async () => {
+        await save.mutateAsync(built);
+        setDraft((d) => markLinesActive(d));
+      }, { confirm: "dsr.sheet.correctConfirm" });
       return;
     }
     if (kind === "save" || kind === "post") {
@@ -584,6 +594,7 @@ function SheetEditor({
       }
       await action.run(async () => {
         const current = dirty || !sheet ? await save.mutateAsync(built) : sheet;
+        setDraft((d) => markLinesActive(d));
         if (kind === "post") {
           await command.mutateAsync({
             action: "post",
@@ -659,6 +670,13 @@ function SheetEditor({
         canEditPrices={!priceLocked}
         issuedLocked={issuedLocked}
         onChange={setDraft}
+        {...(!posted && permissions.includes("sale.create")
+          ? {
+              onSaveAll: () => void run("save"),
+              saveDisabled: pending || (!dirty && Boolean(sheet)),
+              savePending: save.isPending,
+            }
+          : {})}
       />
       <div className="flex flex-wrap items-center gap-2">
         {!posted && permissions.includes("sale.create") ? (
