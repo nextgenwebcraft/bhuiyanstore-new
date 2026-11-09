@@ -468,6 +468,69 @@ function EntryFormPanel({
   );
 }
 
+/** Resolve batch seq for display (never hardcode 0). */
+function batchSeqOf(view: DayView, productId: string, batchKey: string): number {
+  const product = view.products.find((p) => p.productId === productId);
+  const fromProduct = product?.batches.find((b) => b.key === batchKey);
+  if (fromProduct) return fromProduct.seq;
+  for (const person of view.persons) {
+    if (person.productId !== productId) continue;
+    const alloc = person.allocations.find((a) => a.key === batchKey);
+    if (alloc) return alloc.seq;
+  }
+  return 0;
+}
+
+/** Line override, else batch, else product — same rule as sheet save. */
+function displaySaleOf(line: LineDraft, view: DayView): string | null {
+  if (line.salePrice) return line.salePrice;
+  const product = view.products.find((p) => p.productId === line.productId);
+  if (!product) return null;
+  const batch = productBatches(product, view, [line.batchKey]).find((b) => b.key === line.batchKey);
+  return batch?.salePrice || product.salePrice || null;
+}
+
+function displayCostOf(line: LineDraft, view: DayView): string | null {
+  if (line.costPrice) return line.costPrice;
+  const product = view.products.find((p) => p.productId === line.productId);
+  if (!product) return null;
+  const batch = productBatches(product, view, [line.batchKey]).find((b) => b.key === line.batchKey);
+  return batch?.costPrice || product.costPrice || null;
+}
+
+/**
+ * One row per product+batch in a table: sum qty/money across DSRs (এসআর মোট).
+ * Draft lines stay separate by DSR in storage; this is display-only.
+ */
+function mergeLinesByProductBatch(lines: readonly LineDraft[]): LineDraft[] {
+  const map = new Map<string, LineDraft>();
+  for (const line of lines) {
+    const key = `${line.productId}|${line.batchKey}`;
+    const existing = map.get(key);
+    if (!existing) {
+      map.set(key, { ...line });
+      continue;
+    }
+    map.set(key, {
+      ...existing,
+      issuedCartons: addWhole(existing.issuedCartons, line.issuedCartons),
+      issuedPieces: addWhole(existing.issuedPieces, line.issuedPieces),
+      returnedCartons: addWhole(existing.returnedCartons, line.returnedCartons),
+      returnedPieces: addWhole(existing.returnedPieces, line.returnedPieces),
+      damaged: addWhole(existing.damaged, line.damaged),
+      commission: addMoney(existing.commission, line.commission),
+      damageRate: existing.damageRate || line.damageRate,
+      salePrice: existing.salePrice || line.salePrice,
+      costPrice: existing.costPrice || line.costPrice,
+      entryStatus:
+        existing.entryStatus === "pending" || line.entryStatus === "pending"
+          ? "pending"
+          : "active",
+    });
+  }
+  return [...map.values()];
+}
+
 function ReadOnlyLinesTable({
   title,
   lines,
@@ -544,13 +607,16 @@ function ReadOnlyLinesTable({
                 size,
               );
               const pending = line.entryStatus === "pending";
+              const seq = batchSeqOf(view, line.productId, line.batchKey);
+              const sale = displaySaleOf(line, view);
+              const cost = displayCostOf(line, view);
               return (
                 <tr key={line.id} className="border-t border-border">
                   <th scope="row" className={`${tdClass} ${stickyCell} text-left font-medium`}>
                     <div>{product?.productName ?? line.productId}</div>
                     <div className="text-xs font-normal text-text-muted">{product?.sku}</div>
                   </th>
-                  <td className={tdClass}>{batchName({ key: line.batchKey, seq: 0 })}</td>
+                  <td className={tdClass}>{batchName({ key: line.batchKey, seq })}</td>
                   <td className={tdNum}>
                     <CartonQty pieces={issued} piecesPerCarton={size} />
                   </td>
@@ -562,13 +628,9 @@ function ReadOnlyLinesTable({
                     {line.damageRate ? formatRate(line.damageRate) : "—"}
                   </td>
                   <td className={tdNum}>{money(clean(line.commission) || "0")}</td>
-                  <td className={tdNum}>
-                    {line.salePrice ? formatRate(line.salePrice) : "—"}
-                  </td>
+                  <td className={tdNum}>{sale ? formatRate(sale) : "—"}</td>
                   {view.canSeeCost ? (
-                    <td className={tdNum}>
-                      {line.costPrice ? formatRate(line.costPrice) : "—"}
-                    </td>
+                    <td className={tdNum}>{cost ? formatRate(cost) : "—"}</td>
                   ) : null}
                   <td className={tdClass}>
                     <span
@@ -692,7 +754,10 @@ export function DsrSheetEntry({
   }, [draft.lines, dsrs, sheetStaffId, view, searchQ]);
 
   const filteredAll = useMemo(
-    () => draft.lines.filter((l) => lineMatchesSearch(l, view, searchQ)),
+    () =>
+      mergeLinesByProductBatch(
+        draft.lines.filter((l) => lineMatchesSearch(l, view, searchQ)),
+      ),
     [draft.lines, view, searchQ],
   );
 
@@ -775,14 +840,7 @@ export function DsrSheetEntry({
           />
         </div>
       ) : null}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        {entry && onSaveAll && !locked ? (
-          <Button variant="primary" disabled={saveDisabled} onClick={onSaveAll}>
-            {savePending ? t("common.saving") : t("dsr.entry.saveAll")}
-          </Button>
-        ) : (
-          <span />
-        )}
+      <div className="flex flex-wrap items-center justify-end gap-2">
         <input
           id={searchId}
           value={search}
@@ -796,7 +854,7 @@ export function DsrSheetEntry({
         <ReadOnlyLinesTable
           key={dsrKey}
           title={group.name}
-          lines={group.lines}
+          lines={mergeLinesByProductBatch(group.lines)}
           view={view}
           locked={locked}
           onRemove={removeLine}
@@ -815,6 +873,13 @@ export function DsrSheetEntry({
           {draft.lines.length > 0 ? t("dsr.entry.searchEmpty") : t("dsr.entry.empty")}
         </p>
       )}
+      {entry && onSaveAll && !locked ? (
+        <div>
+          <Button variant="primary" disabled={saveDisabled} onClick={onSaveAll}>
+            {savePending ? t("common.saving") : t("dsr.entry.saveAll")}
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }
