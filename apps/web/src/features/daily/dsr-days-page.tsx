@@ -574,6 +574,30 @@ function SheetEditor({
       : []),
   ];
 
+  /** Drop a line; pending = local only; active = confirm then save (D56 reverse+repost if posted). */
+  async function deleteLine(id: string) {
+    setError(undefined);
+    const line = draft.lines.find((l) => l.id === id);
+    if (!line) return;
+    const next: SheetDraft = { ...draft, lines: draft.lines.filter((l) => l.id !== id) };
+    if (line.entryStatus !== "active") {
+      setDraft(next);
+      return;
+    }
+    const req = requestOf(next, view, base);
+    if (typeof req === "string") {
+      setError(req);
+      return;
+    }
+    await action.run(
+      async () => {
+        await save.mutateAsync(req);
+        setDraft(markLinesActive(next));
+      },
+      { confirm: "dsr.entry.deleteActiveConfirm" },
+    );
+  }
+
   async function run(kind: "save" | "post" | "discard" | "reverse" | "correct") {
     setError(undefined);
     if (kind === "correct") {
@@ -670,6 +694,7 @@ function SheetEditor({
         canEditPrices={!priceLocked}
         issuedLocked={issuedLocked}
         onChange={setDraft}
+        onDeleteLine={(id) => void deleteLine(id)}
         {...(!posted && permissions.includes("sale.create")
           ? {
               onSaveAll: () => void run("save"),
@@ -679,11 +704,6 @@ function SheetEditor({
           : {})}
       />
       <div className="flex flex-wrap items-center gap-2">
-        {!posted && permissions.includes("sale.create") ? (
-          <Button disabled={pending || (!dirty && Boolean(sheet))} onClick={() => void run("save")}>
-            {save.isPending ? t("common.saving") : t("dsr.sheet.saveDraft")}
-          </Button>
-        ) : null}
         {posted && permissions.includes("sale.reverse") ? (
           <Button disabled={pending || reversePending} onClick={() => void run("reverse")}>
             {t("dsr.sheet.reverse")}

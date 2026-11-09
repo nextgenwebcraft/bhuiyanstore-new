@@ -1196,6 +1196,8 @@ export const bn = {
   "dsr.entry.searchEmpty": "খোঁজে কোনো পণ্য মেলেনি",
   "dsr.entry.status.pending": "পেন্ডিং",
   "dsr.entry.status.active": "সক্রিয়",
+  "dsr.entry.deleteActiveConfirm":
+    "এই সক্রিয় এন্ট্রি স্থায়ীভাবে মুছে যাবে এবং হিসাব সংশোধন হবে। চালিয়ে যাবেন?",
   "dsr.entry.srTotal": "এসআর মোট",
   "dsr.entry.empty": "এখনো কোনো পণ্য যোগ করা হয়নি",
   "dsr.sheet.issued": "সামারি",

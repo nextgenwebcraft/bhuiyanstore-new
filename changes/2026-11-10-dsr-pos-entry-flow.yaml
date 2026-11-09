@@ -4,11 +4,14 @@ reason: >-
   pick DSR once, add products one-by-one into the list, then Save All. Keep existing
   field set; carton+piece on top row, batch below; red X delete; Pending until Save All.
   Same DSR+product+batch re-add accumulates qty (does not replace).
+  Active-line X confirms then saves (D56 reverse+repost if posted); one Save All only.
 owners: [web, i18n, docs]
 changes:
   - apps/web - dsr-sheet-entry POS flow (shared DSR, Add Item, search, Save All,
     field order, status badge, X delete); dsr-days-page wires Save All + mark active
-  - packages/i18n - dsr.entry.itemDetails, dsrOnceHint, saveAll, search, status.*
+    + active delete persist; drop duplicate খসড়া সংরক্ষণ
+  - packages/i18n - dsr.entry.itemDetails, dsrOnceHint, saveAll, search, status.*,
+    deleteActiveConfirm
 affectedActionIds: []
 financialImpact: none — UI entry flow only; upsert/save/post rules unchanged (D122).
 backfill: none

@@ -143,15 +143,15 @@ export function markLinesActive(draft: SheetDraft): SheetDraft {
 
 /** Whole qty/carton fields: blank + blank → blank; otherwise sum as integers. */
 function addWhole(a: string | undefined, b: string | undefined): string {
-  const left = clean(a) || "0";
-  const right = clean(b) || "0";
+  const left = clean(a ?? "") || "0";
+  const right = clean(b ?? "") || "0";
   const sum = toDecimal(left).plus(toDecimal(right));
   return sum.isZero() ? "" : sum.toFixed(0);
 }
 
 /** Money fields (commission): sum to 2 places; blank when zero. */
 function addMoney(a: string | undefined, b: string | undefined): string {
-  const sum = toDecimal(clean(a) || "0").plus(toDecimal(clean(b) || "0"));
+  const sum = toDecimal(clean(a ?? "") || "0").plus(toDecimal(clean(b ?? "") || "0"));
   return sum.isZero() ? "" : sum.toFixed(2);
 }
 
@@ -240,6 +240,9 @@ const emptyEntryRow = (): EntryRowDraft => ({
 
 type EntryPatch = Parameters<typeof upsertEntry>[2];
 
+/** Equal-width fields on the single entry row. */
+const entryFieldClass = "min-w-[8rem] flex-1 basis-0";
+
 /** One product row under a sheet-level DSR; Add Item appends, fields clear, DSR stays. */
 function EntryFormPanel({
   kind,
@@ -321,8 +324,8 @@ function EntryFormPanel({
     >
       <h3 className="font-semibold tracking-tight">{t(`dsr.entry.${kind}`)}</h3>
       {error ? <StatePanel tone="error" title={error} /> : null}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <Field id={`${id}-item`} label={t("dsr.entry.item")}>
+      <div className="flex flex-nowrap items-end gap-2 overflow-x-auto pb-1">
+        <Field id={`${id}-item`} label={t("dsr.entry.item")} className={entryFieldClass}>
           <Combobox
             id={`${id}-item`}
             text={row.productText}
@@ -349,7 +352,7 @@ function EntryFormPanel({
         </Field>
         {kind === "samari" || kind === "firot" ? (
           <>
-            <Field id={`${id}-cartons`} label={t("godown.column.cartons")}>
+            <Field id={`${id}-cartons`} label={t("godown.column.cartons")} className={entryFieldClass}>
               <input
                 id={`${id}-cartons`}
                 inputMode="numeric"
@@ -358,7 +361,7 @@ function EntryFormPanel({
                 className={inputClass}
               />
             </Field>
-            <Field id={`${id}-pieces`} label={t("godown.column.pieces")}>
+            <Field id={`${id}-pieces`} label={t("godown.column.pieces")} className={entryFieldClass}>
               <input
                 id={`${id}-pieces`}
                 inputMode="numeric"
@@ -371,7 +374,7 @@ function EntryFormPanel({
         ) : null}
         {kind === "damage" ? (
           <>
-            <Field id={`${id}-damaged`} label={t("dsr.sheet.damaged")}>
+            <Field id={`${id}-damaged`} label={t("dsr.sheet.damaged")} className={entryFieldClass}>
               <input
                 id={`${id}-damaged`}
                 inputMode="numeric"
@@ -380,7 +383,7 @@ function EntryFormPanel({
                 className={inputClass}
               />
             </Field>
-            <Field id={`${id}-rate`} label={t("dsr.sheet.damageRate")}>
+            <Field id={`${id}-rate`} label={t("dsr.sheet.damageRate")} className={entryFieldClass}>
               <input
                 id={`${id}-rate`}
                 inputMode="decimal"
@@ -392,7 +395,7 @@ function EntryFormPanel({
           </>
         ) : null}
         {kind === "commission" ? (
-          <Field id={`${id}-commission`} label={t("dsr.sheet.commission")}>
+          <Field id={`${id}-commission`} label={t("dsr.sheet.commission")} className={entryFieldClass}>
             <input
               id={`${id}-commission`}
               inputMode="decimal"
@@ -402,29 +405,35 @@ function EntryFormPanel({
             />
           </Field>
         ) : null}
-        {product ? (
-          <Field id={`${id}-batch`} label={t("dsr.sheet.batch")}>
-            <select
-              id={`${id}-batch`}
-              value={batch?.key ?? ""}
-              onChange={(event) => patch({ batchKey: event.target.value })}
-              className={inputClass}
-            >
-              {batches.length === 0 ? (
-                <option value="">{t("dsr.sheet.noStock")}</option>
-              ) : null}
-              {batches.map((o) => (
-                <option key={o.key} value={o.key}>
-                  {batchName(o)} · {t("batch.available")}{" "}
-                  {stockCartonPiece(o.quantity, product.piecesPerCarton)}
-                </option>
-              ))}
-            </select>
-          </Field>
-        ) : null}
+        <Field id={`${id}-batch`} label={t("dsr.sheet.batch")} className={entryFieldClass}>
+          <select
+            id={`${id}-batch`}
+            value={batch?.key ?? ""}
+            disabled={!product}
+            onChange={(event) => patch({ batchKey: event.target.value })}
+            className={`${inputClass} disabled:cursor-not-allowed disabled:opacity-60`}
+          >
+            {!product ? <option value="">{t("dsr.entry.item")}</option> : null}
+            {product && batches.length === 0 ? (
+              <option value="">{t("dsr.sheet.noStock")}</option>
+            ) : null}
+            {product
+              ? batches.map((o) => (
+                  <option key={o.key} value={o.key}>
+                    {batchName(o)} · {t("batch.available")}{" "}
+                    {stockCartonPiece(o.quantity, product.piecesPerCarton)}
+                  </option>
+                ))
+              : null}
+          </select>
+        </Field>
         {kind === "samari" && canEditPrices ? (
           <>
-            <Field id={`${id}-sale`} label={t("dsr.sheet.batchSalePrice")}>
+            <Field
+              id={`${id}-sale`}
+              label={t("dsr.sheet.batchSalePrice")}
+              className={entryFieldClass}
+            >
               <input
                 id={`${id}-sale`}
                 inputMode="decimal"
@@ -433,7 +442,7 @@ function EntryFormPanel({
                 className={inputClass}
               />
             </Field>
-            <Field id={`${id}-cost`} label={t("dsr.sheet.costPrice")}>
+            <Field id={`${id}-cost`} label={t("dsr.sheet.costPrice")} className={entryFieldClass}>
               <input
                 id={`${id}-cost`}
                 inputMode="decimal"
@@ -450,8 +459,8 @@ function EntryFormPanel({
           {t("dsr.entry.itemDetails")}: {details}
         </p>
       ) : null}
-      <div className="flex flex-wrap items-center gap-2">
-        <Button type="submit" variant="primary">
+      <div>
+        <Button type="submit" variant="secondary">
           {t("dsr.entry.add")}
         </Button>
       </div>
@@ -640,6 +649,7 @@ export function DsrSheetEntry({
   canEditPrices,
   issuedLocked,
   onChange,
+  onDeleteLine,
   onSaveAll,
   saveDisabled,
   savePending,
@@ -653,6 +663,8 @@ export function DsrSheetEntry({
   canEditPrices: boolean;
   issuedLocked: boolean;
   onChange: (next: SheetDraft) => void;
+  /** Active (saved) line: confirm + persist; pending: local remove only. */
+  onDeleteLine?: (id: string) => void;
   onSaveAll?: () => void;
   saveDisabled?: boolean;
   savePending?: boolean;
@@ -684,8 +696,13 @@ export function DsrSheetEntry({
     [draft.lines, view, searchQ],
   );
 
-  const removeLine = (id: string) =>
+  const removeLine = (id: string) => {
+    if (onDeleteLine) {
+      onDeleteLine(id);
+      return;
+    }
     onChange({ ...draft, lines: draft.lines.filter((l) => l.id !== id) });
+  };
 
   function addPatch(kind: EntryKind, input: EntryPatch): string | undefined {
     const cartons = input.cartons ?? "";
@@ -720,10 +737,13 @@ export function DsrSheetEntry({
         <div className="flex flex-wrap gap-2">
           {ENTRY_KINDS.map((kind) => {
             if (kind === "samari" && issuedLocked) return null;
+            const active = entry === kind;
             return (
               <Button
                 key={kind}
-                variant={entry === kind ? "primary" : "secondary"}
+                variant="secondary"
+                aria-pressed={active}
+                className={active ? "border-brand bg-brand/12 font-semibold text-text" : ""}
                 onClick={() => setEntry((cur) => (cur === kind ? null : kind))}
               >
                 {t(`dsr.entry.${kind}`)}
@@ -756,7 +776,7 @@ export function DsrSheetEntry({
         </div>
       ) : null}
       <div className="flex flex-wrap items-center justify-between gap-2">
-        {onSaveAll && !locked ? (
+        {entry && onSaveAll && !locked ? (
           <Button variant="primary" disabled={saveDisabled} onClick={onSaveAll}>
             {savePending ? t("common.saving") : t("dsr.entry.saveAll")}
           </Button>
