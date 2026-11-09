@@ -57,7 +57,13 @@ import {
 } from "./daily-kit";
 import { inputClass } from "@/components/field";
 import { StatusChip, money, quantity } from "@/components/data-table";
-import { DsrSheetEntry, lineKeyOf, type LineDraft, type SheetDraft } from "./dsr-sheet-entry";
+import {
+  DsrSheetEntry,
+  lineKeyOf,
+  markLinesActive,
+  type LineDraft,
+  type SheetDraft,
+} from "./dsr-sheet-entry";
 
 const PATH = "sales/daily-summaries";
 
@@ -166,6 +172,7 @@ function draftOf(sheet: DsrDay | undefined): SheetDraft {
       commission: toDecimal(line.commission).isZero() ? "" : line.commission,
       salePrice: priceText(line.salePrice),
       costPrice: priceText(line.costPrice),
+      entryStatus: "active" as const,
     };
   });
   return { lines, handedOver: sheet?.cashHandedOver ?? "" };
@@ -567,6 +574,30 @@ function SheetEditor({
       : []),
   ];
 
+  /** Drop a line; pending = local only; active = confirm then save (D56 reverse+repost if posted). */
+  async function deleteLine(id: string) {
+    setError(undefined);
+    const line = draft.lines.find((l) => l.id === id);
+    if (!line) return;
+    const next: SheetDraft = { ...draft, lines: draft.lines.filter((l) => l.id !== id) };
+    if (line.entryStatus !== "active") {
+      setDraft(next);
+      return;
+    }
+    const req = requestOf(next, view, base);
+    if (typeof req === "string") {
+      setError(req);
+      return;
+    }
+    await action.run(
+      async () => {
+        await save.mutateAsync(req);
+        setDraft(markLinesActive(next));
+      },
+      { confirm: "dsr.entry.deleteActiveConfirm" },
+    );
+  }
+
   async function run(kind: "save" | "post" | "discard" | "reverse" | "correct") {
     setError(undefined);
     if (kind === "correct") {
@@ -574,7 +605,10 @@ function SheetEditor({
         setError(built);
         return;
       }
-      await action.run(() => save.mutateAsync(built), { confirm: "dsr.sheet.correctConfirm" });
+      await action.run(async () => {
+        await save.mutateAsync(built);
+        setDraft((d) => markLinesActive(d));
+      }, { confirm: "dsr.sheet.correctConfirm" });
       return;
     }
     if (kind === "save" || kind === "post") {
@@ -584,6 +618,7 @@ function SheetEditor({
       }
       await action.run(async () => {
         const current = dirty || !sheet ? await save.mutateAsync(built) : sheet;
+        setDraft((d) => markLinesActive(d));
         if (kind === "post") {
           await command.mutateAsync({
             action: "post",
@@ -659,13 +694,16 @@ function SheetEditor({
         canEditPrices={!priceLocked}
         issuedLocked={issuedLocked}
         onChange={setDraft}
+        onDeleteLine={(id) => void deleteLine(id)}
+        {...(!posted && permissions.includes("sale.create")
+          ? {
+              onSaveAll: () => void run("save"),
+              saveDisabled: pending || (!dirty && Boolean(sheet)),
+              savePending: save.isPending,
+            }
+          : {})}
       />
       <div className="flex flex-wrap items-center gap-2">
-        {!posted && permissions.includes("sale.create") ? (
-          <Button disabled={pending || (!dirty && Boolean(sheet))} onClick={() => void run("save")}>
-            {save.isPending ? t("common.saving") : t("dsr.sheet.saveDraft")}
-          </Button>
-        ) : null}
         {posted && permissions.includes("sale.reverse") ? (
           <Button disabled={pending || reversePending} onClick={() => void run("reverse")}>
             {t("dsr.sheet.reverse")}
