@@ -89,8 +89,8 @@ export const dashboardSummarySchema = z.object({
    */
   cashInHand: decimalStringSchema.optional(),
   /**
-   * D112: badge on হাতে জমা when Managers have submitted day-end cash in the range.
-   * `pending` if any sheet is pending; else `approved` if any approved; else omitted/`none`.
+   * D112 / D125: badge on হাতে জমা. `pending` if any sheet is pending or has হাতে জমা
+   * amount saved but not yet Super-Admin approved; else `approved` if any approved; else `none`.
    */
   cashInHandHandover: z
     .object({

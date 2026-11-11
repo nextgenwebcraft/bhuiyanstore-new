@@ -12,17 +12,7 @@ import { Decimal } from "@bsd/domain";
 import { t, type TranslationKey, formatBusinessDate, formatRate } from "@bsd/i18n";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
-import { Button } from "@/components/button";
 import { useConfirm } from "@/components/confirm-dialog";
-import { DateRangePicker } from "@/components/date-picker";
-import { Icon } from "@/components/icons";
-import { PageHeader } from "@/components/page-header";
-import { QueryError } from "@/components/query-error";
-import { StatsSkeleton, TableSkeleton } from "@/components/skeleton";
-import { StatePanel } from "@/components/state-panel";
-import { StatTile, type StatTone } from "@/components/stat-tile";
-import { errorCodeOf } from "@/data/ports/service-error";
-import { useApproveDsrHandoversForRange, useDashboardSummary } from "@/data/queries";
 import {
   money,
   quantity,
@@ -35,7 +25,16 @@ import {
   thNum,
   theadClass,
 } from "@/components/data-table";
+import { DateRangePicker } from "@/components/date-picker";
+import { Icon } from "@/components/icons";
+import { PageHeader } from "@/components/page-header";
+import { QueryError } from "@/components/query-error";
+import { StatsSkeleton, TableSkeleton } from "@/components/skeleton";
+import { StatePanel } from "@/components/state-panel";
+import { StatTile, type StatTone } from "@/components/stat-tile";
 import { TableScroller } from "@/components/table-scroller";
+import { errorCodeOf } from "@/data/ports/service-error";
+import { useApproveDsrHandoversForRange, useDashboardSummary } from "@/data/queries";
 import { useStaffRowActions } from "@/features/accounts/staff-dialogs";
 import { ReportBody, SalesProfitBody } from "@/features/reports/report-view";
 import { companyHref } from "@/features/shell/navigation";
@@ -155,6 +154,82 @@ export function summaryCards(d: DashboardSummary, singleDay: boolean): Card[] {
 
 const OP_SIGN = { minus: "−", plus: "+", equals: "=" } as const;
 
+/** D125: হাতে জমা — পেন্ডিং (orange ▾); options পেন্ডিং=red / অ্যাপ্রুভ=green; approved chip green. */
+function CashInHandHandoverBadge({
+  handover,
+  onApproveHandover,
+  approvePending,
+}: {
+  handover: NonNullable<DashboardSummary["cashInHandHandover"]>;
+  onApproveHandover?: (() => void) | undefined;
+  approvePending?: boolean | undefined;
+}) {
+  const [open, setOpen] = useState(false);
+  if (handover.status === "none") return null;
+  if (handover.status === "approved") {
+    return (
+      <div className="absolute right-2 top-2 z-10">
+        <span className="rounded-md border border-success bg-success/15 px-2.5 py-1 text-sm font-semibold text-success">
+          {t("dsr.handover.approved")}
+        </span>
+      </div>
+    );
+  }
+  if (onApproveHandover) {
+    return (
+      <div className="absolute right-2 top-2 z-10">
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-haspopup="listbox"
+          disabled={approvePending}
+          className="inline-flex items-center gap-1 rounded-md border border-warning/50 bg-warning/20 px-2.5 py-1 text-sm font-semibold text-warning"
+          onClick={() => setOpen((v) => !v)}
+          onBlur={() => {
+            // Defer so option click can run first.
+            window.setTimeout(() => setOpen(false), 120);
+          }}
+        >
+          {t("dsr.handover.pending")}
+          <Icon name="chevronDown" className="size-3.5 shrink-0 opacity-80" />
+        </button>
+        {open ? (
+          <ul
+            role="listbox"
+            className="absolute end-0 mt-1 min-w-full overflow-hidden rounded-md border border-border bg-surface py-0.5 shadow-card"
+          >
+            <li role="option" aria-selected>
+              <span className="block px-2.5 py-1.5 text-sm font-semibold text-error">
+                {t("dsr.handover.pending")}
+              </span>
+            </li>
+            <li role="option">
+              <button
+                type="button"
+                className="block w-full px-2.5 py-1.5 text-left text-sm font-semibold text-success hover:bg-success/10"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => {
+                  setOpen(false);
+                  onApproveHandover();
+                }}
+              >
+                {t("dsr.handover.approveSuperAdmin")}
+              </button>
+            </li>
+          </ul>
+        ) : null}
+      </div>
+    );
+  }
+  return (
+    <div className="absolute right-2 top-2 z-10">
+      <span className="rounded-md border border-warning/50 bg-warning/20 px-2.5 py-1 text-sm font-semibold text-warning">
+        {t("dsr.handover.pending")}
+      </span>
+    </div>
+  );
+}
+
 export function SummaryCards({
   cards,
   columns = 4,
@@ -176,7 +251,17 @@ export function SummaryCards({
         card.value === undefined
           ? []
           : [
-              <div key={card.label} className="flex flex-col gap-1">
+              <div
+                key={card.label}
+                className={`relative flex flex-col gap-1 ${
+                  card.label === "dashboard.card.cashInHand" && handover?.status === "pending"
+                    ? "[&>div]:border-error"
+                    : card.label === "dashboard.card.cashInHand" &&
+                        handover?.status === "approved"
+                      ? "[&>div]:border-success"
+                      : ""
+                }`}
+              >
                 <StatTile
                   label={card.op ? `${OP_SIGN[card.op]} ${t(card.label)}` : t(card.label)}
                   value={money(card.value)}
@@ -188,32 +273,12 @@ export function SummaryCards({
                       : card.tone
                   }
                 />
-                {card.label === "dashboard.card.cashInHand" &&
-                handover &&
-                handover.status !== "none" ? (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span
-                      className={`self-start rounded-md px-2 py-0.5 text-[11px] font-medium ${
-                        handover.status === "pending"
-                          ? "bg-warning/15 text-warning"
-                          : "bg-success/15 text-success"
-                      }`}
-                    >
-                      {handover.status === "pending"
-                        ? t("dsr.handover.pending")
-                        : t("dsr.handover.approved")}
-                    </span>
-                    {handover.status === "pending" && onApproveHandover ? (
-                      <Button
-                        variant="primary"
-                        className="px-2 py-1 text-xs"
-                        disabled={approvePending}
-                        onClick={onApproveHandover}
-                      >
-                        {approvePending ? t("common.posting") : t("dsr.handover.approveRange")}
-                      </Button>
-                    ) : null}
-                  </div>
+                {card.label === "dashboard.card.cashInHand" && handover ? (
+                  <CashInHandHandoverBadge
+                    handover={handover}
+                    {...(onApproveHandover ? { onApproveHandover } : {})}
+                    {...(approvePending !== undefined ? { approvePending } : {})}
+                  />
                 ) : null}
               </div>,
             ],
@@ -415,15 +480,22 @@ function ExportButtons({
 function ReportSections({
   range,
   dsrLimited = false,
+  hidePayrollColumns = false,
 }: {
   range: ReportRange;
   /** D112: DSR sees staff balances without salary/cashPabe/staffCost and without row actions. */
   dsrLimited?: boolean;
+  /**
+   * D127: Manager (and DSR) hide বেতন / ক্যাশ পাবে / ডিএসআর খরচ — payroll figures belong on
+   * বেতন ও খরচ, which Manager cannot open (D119).
+   */
+  hidePayrollColumns?: boolean;
 }) {
   const { company, permissions } = useCurrentWorkspace();
   const canExport = !dsrLimited && permissions.includes("report.export");
   const allowed = (id: ReportId) => canViewReport(id, permissions);
   const staffActions = useStaffRowActions();
+  const hideStaffPayroll = dsrLimited || hidePayrollColumns;
   return (
     <>
       {allowed("staff-balances") ? (
@@ -437,7 +509,9 @@ function ReportSections({
             companyId={company.id}
             report="staff-balances"
             range={range}
-            {...(dsrLimited ? { hideColumns: ["salary", "cashPabe", "staffCost"] as const } : {})}
+            {...(hideStaffPayroll
+              ? { hideColumns: ["salary", "cashPabe", "staffCost"] as const }
+              : {})}
             rowActions={dsrLimited ? {} : { staffBalances: staffActions.rowAction }}
           />
           {dsrLimited ? null : staffActions.dialog}
@@ -493,6 +567,7 @@ function DashboardBody({ range }: { range: ReportRange }) {
   const approveHandovers = useApproveDsrHandoversForRange(company.id);
   const canReport = company.modules.includes("reports") && permissions.includes("report.view");
   const dsrLimited = loginRoleKind === "dsr";
+  const managerLimited = loginRoleKind === "manager";
   const canApproveHandover =
     loginRoleKind === null && permissions.includes("sale.handover_approve");
 
@@ -576,7 +651,9 @@ function DashboardBody({ range }: { range: ReportRange }) {
       <Section title={t("dashboard.section.damageLots")}>
         <DamageLotsTable rows={d.damageLots} />
       </Section>
-      {canReport ? <ReportSections range={range} /> : null}
+      {canReport ? (
+        <ReportSections range={range} hidePayrollColumns={managerLimited} />
+      ) : null}
     </div>
   );
 }

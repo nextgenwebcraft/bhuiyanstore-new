@@ -96,6 +96,31 @@ const TEMPLATE: Record<LoginRoleKind, readonly PermissionId[]> = {
 
 type RoleWriter = Pick<Database, "role" | "rolePermission"> | Pick<Tx, "role" | "rolePermission">;
 
+/** Replace role permissions only when the set differs; skipDuplicates covers concurrent ensure. */
+async function syncRolePermissions(
+  db: RoleWriter,
+  roleId: string,
+  permissions: readonly PermissionId[],
+): Promise<void> {
+  const desired = [...new Set(permissions)];
+  const existing = await db.rolePermission.findMany({
+    where: { roleId },
+    select: { permission: true },
+  });
+  if (
+    existing.length === desired.length &&
+    desired.every((permission) => existing.some((row) => row.permission === permission))
+  ) {
+    return;
+  }
+  await db.rolePermission.deleteMany({ where: { roleId } });
+  if (desired.length === 0) return;
+  await db.rolePermission.createMany({
+    data: desired.map((permission) => ({ roleId, permission })),
+    skipDuplicates: true,
+  });
+}
+
 /** Idempotent: ensure each tenant has Manager, DSR and TSM roles with the coded permission sets. */
 export async function ensureFixedLoginRoles(
   db: RoleWriter,
@@ -125,10 +150,7 @@ export async function ensureFixedLoginRoles(
         data: { name: LOGIN_ROLE_NAMES[kind] },
       });
     }
-    await db.rolePermission.deleteMany({ where: { roleId: role.id } });
-    await db.rolePermission.createMany({
-      data: permissions.map((permission) => ({ roleId: role.id, permission })),
-    });
+    await syncRolePermissions(db, role.id, permissions);
     ids[kind] = role.id;
   }
   return ids;

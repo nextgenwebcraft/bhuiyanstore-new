@@ -55,7 +55,12 @@ function Empty({ text }: { text: string }) {
 }
 
 function StatementBody({ statement }: { statement: StaffStatement }) {
-  const keys = KIND_KEYS[statement.kind];
+  const { loginRoleKind } = useCurrentWorkspace();
+  // D127: Manager/DSR must not see বকেয়া বেতন on বিবরণী (payroll stays on বেতন ও খরচ).
+  const hideSalaryPayable = loginRoleKind === "manager" || loginRoleKind === "dsr";
+  const keys = KIND_KEYS[statement.kind].filter(
+    (k) => !(hideSalaryPayable && k === "salaryPayable"),
+  );
   return (
     <div className="flex flex-col gap-6">
       {statement.from !== statement.to ? (

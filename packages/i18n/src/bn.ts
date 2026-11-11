@@ -1063,13 +1063,15 @@ export const bn = {
   "validation.daily.dsrCannotEditIssued": "ডিএসআর সামারি/ইস্যু পরিমাণ বদলাতে পারেন না",
   "dsr.handover.submit": "হাতে জমা জমা দিন",
   "dsr.handover.approve": "হাতে জমা অনুমোদন",
+  "dsr.handover.approveSuperAdmin": "অ্যাপ্রুভ",
+  "dsr.handover.approveMenu": "অ্যাপ্রুভ",
   "dsr.handover.approveRange": "দিনের সব পেন্ডিং হাতে জমা অনুমোদন",
   "dsr.handover.approveRangeConfirm":
     "নির্বাচিত তারিখের সব পেন্ডিং হাতে জমা অনুমোদন করবেন? শিট আলাদা করে অনুমোদন লাগবে না।",
   "dsr.handover.approveOnDashboard":
     "হাতে জমা পেন্ডিং — ড্যাশবোর্ড থেকে দিনের সব পেন্ডিং একসাথে অনুমোদন করুন।",
   "dsr.handover.pending": "পেন্ডিং",
-  "dsr.handover.approved": "অনুমোদিত",
+  "dsr.handover.approved": "অ্যাপ্রুভ",
   "dsr.handover.pendingBanner":
     "হাতে জমা জমা দেওয়া হয়েছে — সুপার অ্যাডমিনের অনুমোদনের অপেক্ষায়। এডিট বন্ধ।",
   "dsr.handover.approvedBanner": "হাতে জমা সুপার অ্যাডমিন অনুমোদন করেছেন।",
@@ -1225,7 +1227,7 @@ export const bn = {
   "dsr.sheet.damageRate": "ড্যামেজ দর",
   "dsr.sheet.commission": "কমিশন (টাকা)",
   "dsr.sheet.salePrice": "আজকের বিক্রয় দাম",
-  "dsr.sheet.engineAmount": "বিক্রি (টাকা)",
+  "dsr.sheet.engineAmount": "মোট (টাকা)",
   "dsr.sheet.marketDueNew": "আজকের নতুন বাকি",
   "dsr.sheet.marketDueCollected": "আগের বাকি আদায়",
   "dsr.sheet.note": "মন্তব্য",

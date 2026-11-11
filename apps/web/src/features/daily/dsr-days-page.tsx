@@ -212,6 +212,8 @@ function requestOf(
   draft: SheetDraft,
   view: DayView,
   base: { date: string; staffId: string; version: number },
+  /** D112: only Super Admin (sale.price_override) may send sale/cost overrides. */
+  includePrices = false,
 ): DsrDaySaveRequest | string {
   const handed = clean(draft.handedOver);
   if (handed && !isAmount(handed)) return t("validation.opening.amount");
@@ -233,9 +235,12 @@ function requestOf(
       return `${d.dsrStaffName} · ${product.productName}: ${t("validation.daily.duplicateProduct")}`;
     }
     seen.add(key);
-    const salePrice = d.salePrice === undefined ? undefined : clean(d.salePrice);
+    const salePrice =
+      !includePrices || d.salePrice === undefined ? undefined : clean(d.salePrice);
     const costPrice =
-      d.costPrice === undefined || !view.canSeeCost ? undefined : clean(d.costPrice);
+      !includePrices || d.costPrice === undefined || !view.canSeeCost
+        ? undefined
+        : clean(d.costPrice);
     if ([salePrice, costPrice].some((p) => p !== undefined && !isUnitPrice(p))) {
       return `${product.productName}: ${t("validation.unitPrice.invalid")}`;
     }
@@ -445,14 +450,14 @@ function SheetEditor({
     sheet?.handoverStatus === "pending" || sheet?.handoverStatus === "approved";
   const isDsrLogin = loginRoleKind === "dsr";
   const isManagerLogin = loginRoleKind === "manager";
-  // D56: Super Admin may correct a posted sheet. Owner 2026-11-11: Manager may edit/correct
-  // until হাতে জমা; DSR never posts or corrects; issued (সামারি) stays Manager/Admin only.
+  // D56/D126: Super Admin alone may correct a posted sheet. Manager edits while draft only;
+  // after post the sheet locks (হাতে জমা amount still open until submit). DSR never corrects.
   const canCorrect =
     !handoverLocked &&
-    !isDsrLogin &&
+    loginRoleKind === null &&
     permissions.includes("sale.create") &&
     permissions.includes("sale.post") &&
-    (isManagerLogin || permissions.includes("sale.reverse"));
+    permissions.includes("sale.reverse");
   const locked =
     handoverLocked ||
     !permissions.includes("sale.create") ||
@@ -469,10 +474,12 @@ function SheetEditor({
     permissions.includes("sale.handover_submit");
   const handoverAmountLocked = canTypeHandover ? false : locked || handoverLocked;
   const base = { date, staffId: staff.id, version: sheet?.version ?? 0 };
-  const built = requestOf(draft, view, base);
+  const includePrices = permissions.includes("sale.price_override");
+  const built = requestOf(draft, view, base, includePrices);
   const dirty =
     typeof built === "string" ||
-    JSON.stringify(built) !== JSON.stringify(requestOf(draftOf(sheet), view, base));
+    JSON.stringify(built) !==
+      JSON.stringify(requestOf(draftOf(sheet), view, base, includePrices));
   const pending = save.isPending || command.isPending;
   // D122: engine persons are line DSRs, not the SR sheet owner.
   const sheetDsrIds = new Set(
@@ -608,7 +615,7 @@ function SheetEditor({
       setDraft(next);
       return;
     }
-    const req = requestOf(next, view, base);
+    const req = requestOf(next, view, base, includePrices);
     if (typeof req === "string") {
       setError(req);
       return;

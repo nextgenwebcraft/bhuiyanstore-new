@@ -200,4 +200,29 @@ describe("hubs", () => {
     expect(equivalentPath("unknown/path", snacks)).toBe("");
     expect(equivalentPath("reports/month", snacks)).toBe("");
   });
+
+  it("limits Manager / DSR / TSM hubs to their D112–D125 allowlists", async () => {
+    const base = await workspace("user-owner", "drinko");
+    const pathsOf = (loginRoleKind: "manager" | "dsr" | "tsm") =>
+      visibleHubs({ ...base, loginRoleKind }).flatMap((h) => h.tabs.map((tab) => tab.path));
+
+    const managerPaths = pathsOf("manager");
+    expect(managerPaths).toContain("sales/daily-summaries");
+    expect(managerPaths).toContain("purchases/receipts");
+    expect(managerPaths).not.toContain("finance/company-account");
+    expect(managerPaths).not.toContain("dsr/salary-recovery");
+    expect(managerPaths).not.toContain("history/orders");
+    expect(managerPaths).not.toContain("masters/products");
+
+    expect(pathsOf("dsr").sort()).toEqual(["", "sales/daily-summaries"]);
+
+    const tsmPaths = pathsOf("tsm");
+    expect(tsmPaths.sort()).toEqual([
+      "",
+      "inventory/stock",
+      "inventory/undelivered",
+      "purchases/orders",
+    ]);
+    expect(tsmPaths).not.toContain("purchases/receipts");
+  });
 });
