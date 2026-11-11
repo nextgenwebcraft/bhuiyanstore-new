@@ -2,11 +2,16 @@ import { bootstrapSuperAdmin } from "@bsd/auth";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createCompany } from "./companies";
 import {
+  applyPreviousDueReduction,
+  createPreviousDue,
   createShareholder,
+  deletePreviousDue,
   getCompanyHishabYear,
   getMasterHishabYear,
+  listPreviousDues,
   listShareholders,
   saveInvestments,
+  updatePreviousDue,
   updateShareholder,
 } from "./company-hishab";
 import { AppError } from "./errors";
@@ -178,7 +183,10 @@ describe("company hishab (shareholder invest, replacing D76/D77 units)", () => {
       Array.from({ length: 12 }, (_, index) => `2026-${String(index + 1).padStart(2, "0")}`),
     );
     expect(year.companies.map((company) => company.companyName)).toEqual(["Drinko"]);
+    expect(year.openPreviousDueTotal).toBe("0.00");
+    expect(year.months.every((month) => month.previousDueTotal === "0.00")).toBe(true);
     expect(year.months.every((month) => month.totalProfit === "0.00")).toBe(true);
+    expect(year.months.every((month) => month.distributableProfit === "0.00")).toBe(true);
     expect(year.months.every((month) => month.totalDan === "0.00")).toBe(true);
     expect(year.months[2]?.invest).toBe("200000.00");
     await expect(getMasterHishabYear(admin, masterId, "2026-1")).rejects.toSatisfy((error) =>
@@ -189,5 +197,49 @@ describe("company hishab (shareholder invest, replacing D76/D77 units)", () => {
     const forKarim = await getMasterHishabYear(admin, masterId, "2026", karim?.shareholderId);
     expect(forKarim.months[2]?.shareholderProfit).toBe("0.00");
     expect(forKarim.months[2]?.profitPerLakh).toBe(year.months[2]?.profitPerLakh);
+  });
+
+  it("CRUDs Previous Due and exposes the open total on the master year (D128)", async () => {
+    const created = await createPreviousDue(
+      admin,
+      masterId,
+      { reason: "Old loan", amount: "1500.00" },
+      "previous-due-1",
+    );
+    expect(created).toMatchObject({ reason: "Old loan", amount: "1500.00" });
+    const listed = await listPreviousDues(admin, masterId);
+    expect(listed.openTotal).toBe("1500.00");
+    expect(listed.items.some((row) => row.id === created.id)).toBe(true);
+
+    const yearOpen = await getMasterHishabYear(admin, masterId, "2026");
+    expect(yearOpen.openPreviousDueTotal).toBe("1500.00");
+    // Until a reduction is applied, months keep full totalProfit as distributable.
+    expect(yearOpen.months.every((month) => month.previousDueTotal === "0.00")).toBe(true);
+
+    await applyPreviousDueReduction(
+      admin,
+      masterId,
+      { previousDueId: created.id, month: "2026-03", amount: "500.00" },
+      "previous-due-reduce-mar",
+    );
+    const afterReduce = await listPreviousDues(admin, masterId);
+    expect(afterReduce.openTotal).toBe("1000.00");
+    const yearReduced = await getMasterHishabYear(admin, masterId, "2026");
+    expect(yearReduced.openPreviousDueTotal).toBe("1000.00");
+    expect(yearReduced.months[2]?.previousDueTotal).toBe("500.00");
+
+    await updatePreviousDue(
+      admin,
+      masterId,
+      created.id,
+      { reason: "Old loan settled", amount: "0" },
+      "previous-due-settle",
+    );
+    const settled = await listPreviousDues(admin, masterId);
+    expect(settled.openTotal).toBe("0.00");
+    expect((await getMasterHishabYear(admin, masterId, "2026")).openPreviousDueTotal).toBe("0.00");
+
+    await deletePreviousDue(admin, masterId, created.id);
+    expect((await listPreviousDues(admin, masterId)).items).toEqual([]);
   });
 });

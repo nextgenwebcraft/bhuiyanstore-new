@@ -2,6 +2,8 @@ import {
   apiErrorSchema,
   companyWorkspaceSchema,
   damageCaseSchema,
+  dashboardDailySchema,
+  dashboardMonthlySchema,
   dashboardSummarySchema,
   dayViewSchema,
   dsrDaySchema,
@@ -23,6 +25,8 @@ import {
   masterSummarySchema,
   companyHishabYearSchema,
   masterHishabYearSchema,
+  previousDueListSchema,
+  previousDueSchema,
   shareholderListSchema,
   shareholderSchema,
   monthCloseResultSchema,
@@ -234,6 +238,14 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
         `${company(companyId)}/dashboard?${new URLSearchParams(range).toString()}`,
         options,
       ),
+    getDashboardMonthly: (companyId, year, options) =>
+      request(
+        dashboardMonthlySchema,
+        `${company(companyId)}/dashboard-monthly?${new URLSearchParams({ year }).toString()}`,
+        options,
+      ),
+    getDashboardDaily: (companyId, options) =>
+      request(dashboardDailySchema, `${company(companyId)}/dashboard-daily`, options),
 
     getDayView: (companyId, date, options) =>
       request(dayViewSchema, `${company(companyId)}/days/${id(date)}`, options),
@@ -410,10 +422,7 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
     updateStaff: (companyId, staffId, input) =>
       request(staffRecordSchema, `${company(companyId)}/staff/${id(staffId)}`, write("PUT", input)),
     getStaffDeleteImpact: (companyId, staffId) =>
-      request(
-        staffDeleteImpactSchema,
-        `${company(companyId)}/staff/${id(staffId)}/delete-impact`,
-      ),
+      request(staffDeleteImpactSchema, `${company(companyId)}/staff/${id(staffId)}/delete-impact`),
     deleteStaff: (companyId, staffId) =>
       request(z.undefined(), `${company(companyId)}/staff/${id(staffId)}`, remove()),
     addStaffAssignment: (companyId, staffId, input) =>
@@ -580,6 +589,24 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
         z.undefined(),
         `${company(companyId)}/master-shareholder-payouts`,
         write("PUT", input),
+      ),
+    listPreviousDues: (companyId, options) =>
+      request(previousDueListSchema, `${company(companyId)}/previous-dues`, options),
+    createPreviousDue: (companyId, input) =>
+      request(previousDueSchema, `${company(companyId)}/previous-dues`, write("POST", input)),
+    updatePreviousDue: (companyId, previousDueId, input) =>
+      request(
+        previousDueSchema,
+        `${company(companyId)}/previous-dues/${id(previousDueId)}`,
+        write("PUT", input),
+      ),
+    deletePreviousDue: (companyId, previousDueId) =>
+      request(z.undefined(), `${company(companyId)}/previous-dues/${id(previousDueId)}`, remove()),
+    applyPreviousDueReduction: (companyId, input) =>
+      request(
+        previousDueSchema,
+        `${company(companyId)}/previous-dues/reductions`,
+        write("POST", input),
       ),
     getReport: (companyId, report, range, options) =>
       request(

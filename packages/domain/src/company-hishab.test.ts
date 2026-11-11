@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { companyHishabMonth, danOf, investShare, profitPerLakh } from "./company-hishab";
+import {
+  companyHishabMonth,
+  danOf,
+  distributableProfit,
+  investShare,
+  previousDueOpenTotal,
+  profitPerLakh,
+} from "./company-hishab";
 
 const company = (profit: string, khoroch: string) => ({
   companyId: "c",
@@ -60,5 +67,35 @@ describe("investShare", () => {
   it("is zero when nothing is invested in total", () => {
     expect(investShare("50000", "0", "0")).toBe("0.00");
     expect(investShare("50000", "100000", "-100")).toBe("0.00");
+  });
+});
+
+describe("previousDueOpenTotal", () => {
+  it("sums only positive amounts", () => {
+    expect(previousDueOpenTotal(["100.00", "0.00", "50.50", "-1"])).toBe("150.50");
+  });
+
+  it("is zero when nothing is open", () => {
+    expect(previousDueOpenTotal([])).toBe("0.00");
+    expect(previousDueOpenTotal(["0", "0.00"])).toBe("0.00");
+  });
+});
+
+describe("distributableProfit", () => {
+  it("subtracts open dues from a positive totalProfit and floors at zero", () => {
+    expect(distributableProfit("100000", "25000")).toBe("75000.00");
+    expect(distributableProfit("10000", "25000")).toBe("0.00");
+  });
+
+  it("leaves a loss alone", () => {
+    expect(distributableProfit("-5000", "1000")).toBe("-5000.00");
+    expect(distributableProfit("0", "1000")).toBe("0.00");
+  });
+
+  it("keeps investShare consistent on the reduced pool", () => {
+    const pool = distributableProfit("100000", "20000");
+    expect(pool).toBe("80000.00");
+    expect(investShare(pool, "100000", "500000")).toBe("16000.00");
+    expect(profitPerLakh(pool, "500000")).toBe("16000.00");
   });
 });

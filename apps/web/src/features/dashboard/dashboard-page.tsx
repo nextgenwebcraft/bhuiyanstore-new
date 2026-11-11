@@ -43,6 +43,7 @@ import { PrintButton, PrintHeader } from "@/features/shell/print";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 import { DashboardTargetStrip } from "@/features/targets/dashboard-targets";
 import { useToday } from "@/lib/today";
+import { MonthlySalesChart } from "./monthly-sales-chart";
 import { parsePeriod, periodForRange, periodParam, periodRange, type Period } from "./period";
 
 const nonZero = (value: string) => !new Decimal(value).isZero();
@@ -167,17 +168,22 @@ function CashInHandHandoverBadge({
   const [open, setOpen] = useState(false);
   if (handover.status === "none") return null;
   if (handover.status === "approved") {
+    // Readonly "অ্যাপ্রুভ": solid success fill + canvas text so it stays readable on a
+    // success-tinted হাতে জমা card (green-on-green was invisible).
     return (
-      <div className="absolute right-2 top-2 z-10">
-        <span className="rounded-md border border-success bg-success/15 px-2.5 py-1 text-sm font-semibold text-success">
-          {t("dsr.handover.approved")}
+      <div className="absolute top-2 right-2 z-10">
+        <span
+          aria-disabled="true"
+          className="inline-flex cursor-default items-center rounded-md bg-success px-2.5 py-1 text-sm font-semibold text-[var(--canvas)]"
+        >
+          {t("dsr.handover.approveSuperAdmin")}
         </span>
       </div>
     );
   }
   if (onApproveHandover) {
     return (
-      <div className="absolute right-2 top-2 z-10">
+      <div className="absolute top-2 right-2 z-10">
         <button
           type="button"
           aria-expanded={open}
@@ -222,7 +228,7 @@ function CashInHandHandoverBadge({
     );
   }
   return (
-    <div className="absolute right-2 top-2 z-10">
+    <div className="absolute top-2 right-2 z-10">
       <span className="rounded-md border border-warning/50 bg-warning/20 px-2.5 py-1 text-sm font-semibold text-warning">
         {t("dsr.handover.pending")}
       </span>
@@ -256,8 +262,7 @@ export function SummaryCards({
                 className={`relative flex flex-col gap-1 ${
                   card.label === "dashboard.card.cashInHand" && handover?.status === "pending"
                     ? "[&>div]:border-error"
-                    : card.label === "dashboard.card.cashInHand" &&
-                        handover?.status === "approved"
+                    : card.label === "dashboard.card.cashInHand" && handover?.status === "approved"
                       ? "[&>div]:border-success"
                       : ""
                 }`}
@@ -651,15 +656,13 @@ function DashboardBody({ range }: { range: ReportRange }) {
       <Section title={t("dashboard.section.damageLots")}>
         <DamageLotsTable rows={d.damageLots} />
       </Section>
-      {canReport ? (
-        <ReportSections range={range} hidePayrollColumns={managerLimited} />
-      ) : null}
+      {canReport ? <ReportSections range={range} hidePayrollColumns={managerLimited} /> : null}
     </div>
   );
 }
 
 export function DashboardPage() {
-  const { company } = useCurrentWorkspace();
+  const { company, loginRoleKind } = useCurrentWorkspace();
   const router = useRouter();
   const search = useSearchParams();
   const today = useToday();
@@ -667,6 +670,7 @@ export function DashboardPage() {
   const range = periodRange(period, today);
   // The opening cutoff comes with the summary and widens the picker's year list.
   const cutoff = useDashboardSummary(company.id, range).data?.cutoffDate ?? null;
+  const dsrLimited = loginRoleKind === "dsr";
 
   const choose = (next: Period) =>
     router.push(
@@ -684,11 +688,23 @@ export function DashboardPage() {
         actions={<PrintButton />}
       />
       <PrintHeader title={t("nav.dashboard")} from={range.from} to={range.to} />
-      <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between print:hidden">
-        <PeriodBar period={period} cutoffDate={cutoff} today={today} onChange={choose} />
-        <DashboardTargetStrip />
-      </div>
+      {dsrLimited ? (
+        <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between print:hidden">
+          <PeriodBar period={period} cutoffDate={cutoff} today={today} onChange={choose} />
+          <DashboardTargetStrip />
+        </div>
+      ) : (
+        <div className="mb-5 print:hidden">
+          <PeriodBar period={period} cutoffDate={cutoff} today={today} onChange={choose} />
+        </div>
+      )}
       <RangeHeading range={range} isToday={period.kind === "today"} />
+      {dsrLimited ? null : (
+        <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,22rem)] lg:items-stretch">
+          <MonthlySalesChart year={range.to.slice(0, 4)} />
+          <DashboardTargetStrip layout="column" />
+        </div>
+      )}
       <DashboardBody range={range} />
     </NavGate>
   );

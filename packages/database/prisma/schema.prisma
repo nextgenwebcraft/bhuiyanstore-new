@@ -25,6 +25,8 @@ model Tenant {
   staffRoles        StaffRole[]
   expenseCategories ExpenseCategory[]
   shareholders      Shareholder[]
+  previousDues      PreviousDue[]
+  previousDueReductions PreviousDueReduction[]
 
   @@map("tenant")
 }
@@ -1037,4 +1039,38 @@ model ShareholderPayout {
 
   @@unique([shareholderId, month])
   @@map("shareholder_payout")
+}
+
+/// D128: tenant-wide Previous Due (reason + remaining amount). Amount 0 is settled.
+/// Profit is reduced only when admin applies a reduction for a month (see PreviousDueReduction).
+model PreviousDue {
+  id         String                 @id @default(cuid())
+  tenantId   String                 @map("tenant_id")
+  reason     String
+  amount     Decimal                @db.Decimal(14, 2)
+  createdAt  DateTime               @default(now()) @map("created_at")
+  updatedAt  DateTime               @updatedAt @map("updated_at")
+  tenant     Tenant                 @relation(fields: [tenantId], references: [id])
+  reductions PreviousDueReduction[]
+
+  @@index([tenantId])
+  @@map("previous_due")
+}
+
+/// D128: admin applies part (or all) of a Previous Due against one month's profit — that amount
+/// is cut from distributable profit and from the due's remaining balance.
+model PreviousDueReduction {
+  id            String      @id @default(cuid())
+  tenantId      String      @map("tenant_id")
+  previousDueId String      @map("previous_due_id")
+  month         String
+  amount        Decimal     @db.Decimal(14, 2)
+  createdAt     DateTime    @default(now()) @map("created_at")
+  createdById   String      @map("created_by_id")
+  tenant        Tenant      @relation(fields: [tenantId], references: [id])
+  previousDue   PreviousDue @relation(fields: [previousDueId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, month])
+  @@index([previousDueId])
+  @@map("previous_due_reduction")
 }

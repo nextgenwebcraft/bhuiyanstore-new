@@ -409,6 +409,34 @@ export const bn = {
   "nav.master.staff": "আমাদের স্টাফ",
   "nav.master.companyHishab": "কোম্পানি হিসাব রিপোর্ট",
   "nav.master.shareholders": "অংশীদার",
+  "nav.master.previousDue": "পূর্ববর্তী বাকি",
+  "previousDue.description":
+    "কারণ ও টাকা দিয়ে পূর্ববর্তী বাকি রাখুন। মাস্টার ড্যাশবোর্ড থেকে নির্দিষ্ট মাসের প্রফিটের বিপরীতে কাটলে বাকি ও বণ্টনযোগ্য প্রফিট দুই জায়গা থেকেই কমে।",
+  "previousDue.reason": "কারণ",
+  "previousDue.amount": "টাকা",
+  "previousDue.add": "বাকি যোগ করুন",
+  "previousDue.empty": "কোনো পূর্ববর্তী বাকি নেই",
+  "previousDue.openTotal": "খোলা পূর্ববর্তী বাকি",
+  "previousDue.applied": "কাটা বাকি",
+  "previousDue.distributable": "বণ্টনযোগ্য প্রফিট",
+  "previousDue.distributableHint": "অংশীদারের প্রফিট এই বাকি কাটার পরের অংশ থেকে হিসাব হয়",
+  "previousDue.manageLink": "পূর্ববর্তী বাকি এন্ট্রি / এডিট",
+  "previousDue.applyTitle": "পূর্ববর্তী বাকি কাটা",
+  "previousDue.applyHint":
+    "বাকি বেছে নিয়ে মাস ও টাকা দিয়ে সাবমিট করুন — ওই পরিমাণ ওই মাসের বণ্টনযোগ্য প্রফিট এবং বাকির ব্যালেন্স দুই জায়গা থেকেই কাটা হবে।",
+  "previousDue.reduceAmount": "কাটার টাকা",
+  "previousDue.applySubmit": "কাটুন",
+  "previousDue.deleteConfirm": "এই বাকি মুছে ফেলবেন?",
+  "share.paid.activeOnly": "বন্ধ করা অংশীদার এখানে দেখায় না এবং প্রফিট ভাগ পায় না।",
+  "validation.previousDue.reason": "কারণ লিখুন",
+  "validation.previousDue.unknown": "বাকি পাওয়া যায়নি",
+  "validation.previousDue.reduceAmount": "কাটার টাকা শূন্যের বেশি হতে হবে",
+  "validation.previousDue.exceedsRemaining": "কাটার টাকা বাকির চেয়ে বেশি হতে পারে না",
+  "dashboard.chart.title": "মোট বিক্রি",
+  "dashboard.chart.subtitle.days": "গতশেষ ১২ দিনের মোট বিক্রি",
+  "dashboard.chart.subtitle.months": "নির্বাচিত বছরের প্রতি মাসের মোট বিক্রি",
+  "dashboard.chart.tab.days": "দিন ভিত্তিক",
+  "dashboard.chart.tab.months": "মাস ভিত্তিক",
   "share.description":
     "প্রতি মাসে কোম্পানির প্রফিট, খরচ ও ২% দান, এবং বাছাই করা অংশীদারের বিনিয়োগ ও প্রতি লাখে প্রফিট। এটি হিসাবের বিবরণী; টাকা এখান থেকে কাটা হয় না।",
   "share.year.description":
@@ -829,7 +857,8 @@ export const bn = {
   "user.form.createTitle": "নতুন ব্যবহারকারী যোগ করুন",
   "user.form.editTitle": "ব্যবহারকারী এডিট করুন",
   "user.temporaryPassword": "পাসওয়ার্ড (কমপক্ষে ৬ অক্ষর)",
-  "user.temporaryPasswordHint": "ব্যবহারকারীকে আলাদাভাবে জানান। এই পাসওয়ার্ড দিয়েই সাইন ইন করতে পারবেন।",
+  "user.temporaryPasswordHint":
+    "ব্যবহারকারীকে আলাদাভাবে জানান। এই পাসওয়ার্ড দিয়েই সাইন ইন করতে পারবেন।",
   "user.active": "সক্রিয়",
   "user.inactive": "নিষ্ক্রিয়",
   "user.activeHint": "নিষ্ক্রিয় করলে সব ডিভাইস থেকে সাইন আউট হবে।",
@@ -838,7 +867,8 @@ export const bn = {
   "user.noAccess": "কোনো কোম্পানিতে প্রবেশাধিকার নেই",
   "user.resetPassword": "পাসওয়ার্ড রিসেট",
   "user.resetTitle": "নতুন পাসওয়ার্ড দিন",
-  "user.resetHint": "ব্যবহারকারী সব ডিভাইস থেকে সাইন আউট হবেন; নতুন পাসওয়ার্ড দিয়েই সাইন ইন করতে পারবেন।",
+  "user.resetHint":
+    "ব্যবহারকারী সব ডিভাইস থেকে সাইন আউট হবেন; নতুন পাসওয়ার্ড দিয়েই সাইন ইন করতে পারবেন।",
   "user.empty": "এখনো কোনো ব্যবহারকারী নেই",
 
   "role.new": "নতুন ভূমিকা",
@@ -1056,7 +1086,8 @@ export const bn = {
   "notify.pendingOrders": "পেন্ডিং অর্ডার",
   "notify.pendingOrdersHint": "অনুমোদনের অপেক্ষায় থাকা কোম্পানি অর্ডার।",
   "validation.role.fixedOnly": "নির্ধারিত রোল ছাড়া নতুন রোল তৈরি বা সম্পাদনা করা যায় না",
-  "validation.membership.oneRole": "প্রতি কোম্পানিতে একটি রোল বেছে নিন (ম্যানেজার, ডিএসআর বা টিএসএম)",
+  "validation.membership.oneRole":
+    "প্রতি কোম্পানিতে একটি রোল বেছে নিন (ম্যানেজার, ডিএসআর বা টিএসএম)",
   "validation.daily.handoverLocked": "হাতে জমা জমা দেওয়ার পর ম্যানেজার আর এডিট করতে পারেন না",
   "validation.daily.handoverAlreadySubmitted": "হাতে জমা ইতিমধ্যে জমা দেওয়া হয়েছে",
   "validation.daily.handoverNotPending": "অনুমোদনের জন্য অপেক্ষমাণ হাতে জমা নেই",
@@ -1321,8 +1352,7 @@ export const bn = {
   "money.deleteConfirm":
     "এই দোকানের বাকি/আদায় মুছে ফেলা হবে এবং হিসাব থেকে বাদ যাবে। এটি ফেরানো যাবে না।",
   "validation.money.shopDueDeleteOnly": "শুধু দোকানের বাকি ও আদায় এখান থেকে মুছে ফেলা যায়",
-  "money.correctConfirm":
-    "এন্ট্রিটি সংশোধন করবেন? আগের এন্ট্রি বাতিল হয়ে নতুন এন্ট্রি পোস্ট হবে।",
+  "money.correctConfirm": "এন্ট্রিটি সংশোধন করবেন? আগের এন্ট্রি বাতিল হয়ে নতুন এন্ট্রি পোস্ট হবে।",
   "validation.money.correctDateFixed": "সংশোধনের তারিখ আগের এন্ট্রির তারিখই থাকতে হবে",
   "money.marketOutstanding": "বাজারে মোট বাকি",
   "money.unassigned": "ডিএসআর ছাড়া",

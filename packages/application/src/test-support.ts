@@ -63,6 +63,8 @@ const TABLES = [
   "shareholder_investment",
   "shareholder_payout",
   "shareholder",
+  "previous_due_reduction",
+  "previous_due",
   "company",
   "legal_entity",
   "session",

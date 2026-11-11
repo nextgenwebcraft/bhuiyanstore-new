@@ -38,6 +38,7 @@ export const navigation: readonly NavSection[] = [
       item("", "nav.dashboard", "company.view"),
       item("master/company-hishab", "nav.master.companyHishab", "company.view"),
       item("master/shareholders", "nav.master.shareholders", "company.view"),
+      item("master/previous-due", "nav.master.previousDue", "company.view"),
       item("master/companies", "nav.master.companies", "company.view"),
     ],
   },
@@ -126,7 +127,8 @@ export type HubId =
   | "staff"
   | "companies"
   | "shares"
-  | "shareholders";
+  | "shareholders"
+  | "previousDue";
 
 type HubTab = {
   path: string;
@@ -231,6 +233,12 @@ const masterHubDefinitions: readonly Omit<Hub, "shortcut">[] = [
     tabs: [{ path: "master/shareholders", labelKey: "nav.master.shareholders" }],
   },
   {
+    id: "previousDue",
+    labelKey: "nav.master.previousDue",
+    icon: "finance",
+    tabs: [{ path: "master/previous-due", labelKey: "nav.master.previousDue" }],
+  },
+  {
     id: "staff",
     labelKey: "nav.master.staff",
     icon: "srAccounts",
@@ -276,12 +284,7 @@ export function hubOfPath(path: string, master = false): Hub | undefined {
 }
 
 /** Hubs a Manager must not see (owner 2026-11-08; amends D112 UI). */
-const MANAGER_HIDDEN_HUBS: ReadonlySet<HubId> = new Set([
-  "money",
-  "ledgers",
-  "history",
-  "setup",
-]);
+const MANAGER_HIDDEN_HUBS: ReadonlySet<HubId> = new Set(["money", "ledgers", "history", "setup"]);
 
 /**
  * D112: DSR only opens the dashboard and দৈনিক বিক্রয় হিসাব (sheet money/dues live on that

@@ -29,12 +29,17 @@ export {
 export { MASTER_COMPANY_NAME, ensureMasterCompany } from "./master";
 export { closeMonthAll, getMasterMonth, getMasterSummary, reopenMonthAll } from "./master-panel";
 export {
+  applyPreviousDueReduction,
+  createPreviousDue,
   createShareholder,
+  deletePreviousDue,
   getCompanyHishabYear,
   getMasterHishabYear,
+  listPreviousDues,
   listShareholders,
   saveInvestments,
   setShareholderPayout,
+  updatePreviousDue,
   updateShareholder,
 } from "./company-hishab";
 export { cashAccounts, expenseCategories, staffRoles } from "./configuration";
@@ -44,6 +49,8 @@ export {
   correctMoneyEntry,
   deleteMoneyEntry,
   discardDsrDay,
+  getDashboardDaily,
+  getDashboardMonthly,
   getDashboardSummary,
   getDayView,
   listDsrDays,

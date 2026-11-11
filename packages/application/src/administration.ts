@@ -18,8 +18,9 @@ import { ensureFixedLoginRoles, isLoginRoleKind, type LoginRoleKind } from "./fi
 import { isUniqueViolation, runIdempotent } from "./idempotency";
 
 /**
- * Users and fixed roles are tenant administration (D112). Only the super-admin manages them.
- * Production: Manager/DSR only. Vitest may still create ad-hoc roles (kind null) for permission tests.
+ * Users and fixed roles are tenant administration (D112/D125). Only the super-admin manages them.
+ * Production: Manager / DSR / TSM only. Vitest may still create ad-hoc roles (kind null) for
+ * permission tests.
  */
 
 const roleInclude = { permissions: true } as const;
@@ -47,7 +48,7 @@ export async function listRoles(ctx: AppContext): Promise<Role[]> {
   requireSuperAdminView(ctx);
   await ensureFixedLoginRoles(ctx.db, ctx.actor.tenantId);
   const rows = await ctx.db.role.findMany({
-    where: { tenantId: ctx.actor.tenantId, kind: { in: ["manager", "dsr"] } },
+    where: { tenantId: ctx.actor.tenantId, kind: { in: ["manager", "dsr", "tsm"] } },
     include: roleInclude,
     orderBy: { kind: "asc" },
   });

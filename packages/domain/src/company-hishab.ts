@@ -71,3 +71,31 @@ export function investShare(
   if (totalInvestDecimal.lte(0)) return "0.00";
   return roundSettlement(toDecimal(totalProfit).mul(toDecimal(invest)).div(totalInvestDecimal));
 }
+
+/**
+ * Open Previous Due amounts (D128): sum every positive amount; zero and negative rows do not
+ * reduce the pool. Used only on the master shareholder split, after দান.
+ */
+export function previousDueOpenTotal(amounts: readonly DecimalInput[]): string {
+  let sum = toDecimal("0");
+  for (const amount of amounts) {
+    const value = toDecimal(amount);
+    if (value.gt(0)) sum = sum.add(value);
+  }
+  return roundSettlement(sum);
+}
+
+/**
+ * Distributable pool after Previous Due (D128): when totalProfit is positive, subtract open dues
+ * and floor at zero; when totalProfit is already ≤ 0, leave it alone (dues do not deepen a loss
+ * for the share). Operating totalProfit and দান stay unchanged.
+ */
+export function distributableProfit(
+  totalProfit: DecimalInput,
+  previousDueTotal: DecimalInput,
+): string {
+  const profit = toDecimal(totalProfit);
+  if (profit.lte(0)) return roundSettlement(profit);
+  const remaining = profit.sub(toDecimal(previousDueTotal));
+  return roundSettlement(remaining.gt(0) ? remaining : toDecimal("0"));
+}
