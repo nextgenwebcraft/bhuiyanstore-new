@@ -331,6 +331,7 @@ function CashCheck({
   dueGiven,
   dueCollected,
   expenses,
+  operatingCost,
   staffMoney,
   handedOver,
   locked,
@@ -342,6 +343,7 @@ function CashCheck({
   dueGiven: string;
   dueCollected: string;
   expenses: string;
+  operatingCost: string;
   staffMoney: string;
   handedOver: string;
   locked: boolean;
@@ -354,6 +356,7 @@ function CashCheck({
     dueGiven,
     dueCollected,
     expenses,
+    operatingCost,
     staffMoney,
     handedOver: handed && /^\d+(\.\d{1,2})?$/.test(handed) ? handed : null,
   });
@@ -369,6 +372,7 @@ function CashCheck({
             ["dsr.cash.dueGiven", dueGiven],
             ["dsr.cash.dueCollected", dueCollected],
             ["dsr.cash.expenses", expenses],
+            ["dsr.cash.operating", operatingCost],
             ["dsr.cash.staffMoney", staffMoney],
             ["dsr.cash.expected", settlement.expected],
           ] as const
@@ -441,14 +445,14 @@ function SheetEditor({
     sheet?.handoverStatus === "pending" || sheet?.handoverStatus === "approved";
   const isDsrLogin = loginRoleKind === "dsr";
   const isManagerLogin = loginRoleKind === "manager";
-  // D56: Super Admin may correct a posted sheet (reverse + re-post). Owner 2026-11-07: Manager
-  // enters every field (incl. সামারি) on the draft, posts, then cannot edit; may still submit
-  // হাতে জমা → pending. DSR never posts or corrects; issued (সামারি) stays Manager/Admin only.
+  // D56: Super Admin may correct a posted sheet. Owner 2026-11-11: Manager may edit/correct
+  // until হাতে জমা; DSR never posts or corrects; issued (সামারি) stays Manager/Admin only.
   const canCorrect =
     !handoverLocked &&
     !isDsrLogin &&
-    !isManagerLogin &&
-    (["sale.create", "sale.post", "sale.reverse"] as const).every((p) => permissions.includes(p));
+    permissions.includes("sale.create") &&
+    permissions.includes("sale.post") &&
+    (isManagerLogin || permissions.includes("sale.reverse"));
   const locked =
     handoverLocked ||
     !permissions.includes("sale.create") ||
@@ -492,32 +496,52 @@ function SheetEditor({
     id: person.id,
     name: person.name,
   }));
-  const entries = useMoneyEntries(companyId, { from: date, to: date, staffId: staff.id });
+  // Dues / DSR খরচ post under the picked DSR, not the SR sheet owner — load the whole date.
+  const entries = useMoneyEntries(companyId, { from: date, to: date });
   const field = fieldDay.data && fieldDay.data.visits.length > 0 ? fieldDay.data : null;
   const posts = (entries.data ?? []).filter((e) => e.status === "posted");
-  const entrySum = (kind: MoneyEntry["kind"]) =>
-    sumAmounts(["0", ...posts.filter((e) => e.kind === kind).map((e) => e.amount)]);
+  const teamIds = new Set(dsrChoices.map((d) => d.id));
+  const teamPosts = posts.filter((e) => e.staffId !== null && teamIds.has(e.staffId));
+  const srPosts = posts.filter((e) => e.staffId === staff.id);
+  /** DSRs on the sheet excluding the open SR when that person is also listed as a DSR. */
+  const dsrOnlyPosts = teamPosts.filter((e) => e.staffId !== staff.id);
+  const teamSum = (kind: MoneyEntry["kind"], rows: MoneyEntry[] = teamPosts) =>
+    sumAmounts(["0", ...rows.filter((e) => e.kind === kind).map((e) => e.amount)]);
+  const srSum = (kind: MoneyEntry["kind"]) =>
+    sumAmounts(["0", ...srPosts.filter((e) => e.kind === kind).map((e) => e.amount)]);
   const srMove = (kind: "srLoan" | "srRepayment") =>
     sumAmounts([
       "0",
-      ...posts.filter((e) => e.kind === kind && e.srLoanType !== "commission").map((e) => e.amount),
+      ...srPosts.filter((e) => e.kind === kind && e.srLoanType !== "commission").map((e) => e.amount),
     ]);
+  const operatingCost = sumAmounts([
+    "0",
+    ...posts.filter((e) => e.kind === "expense").map((e) => e.amount),
+  ]);
   const sheetDue = (value: string | undefined) => value ?? "0";
   const cash = {
     sales: posted && !dirty ? sumAmounts(["0", ...amounts.values()]) : previewSales(entered, view),
-    dueGiven: field
-      ? field.totals.dueCreated
-      : sumAmounts([entrySum("marketDueNew"), sheetDue(sheet?.marketDueNew)]),
-    dueCollected: field
-      ? field.totals.dueCollected
-      : sumAmounts([entrySum("marketDueCollected"), sheetDue(sheet?.marketDueCollected)]),
-    expenses: entrySum("staffCostPaid"),
-    // D79: the open person's advance and short. An SR's are srLoan (cash or shortage);
-    // a DSR sheet still counts staffAdvance and staffShortage. Commission is not this line.
-    staffMoney: toDecimal(entrySum("staffRepayment"))
+    // Field visits (when present) own that person's due; office ShopDue rows cover the DSRs.
+    dueGiven: sumAmounts([
+      field ? field.totals.dueCreated : "0",
+      teamSum("marketDueNew", dsrOnlyPosts),
+      sheetDue(sheet?.marketDueNew),
+    ]),
+    dueCollected: sumAmounts([
+      field ? field.totals.dueCollected : "0",
+      teamSum("marketDueCollected", dsrOnlyPosts),
+      sheetDue(sheet?.marketDueCollected),
+    ]),
+    expenses: teamSum("staffCostPaid"),
+    operatingCost,
+    // D79: SR অগ্রিম ও শর্ট on the open SR; DSR advance/short for other DSRs on the sheet.
+    staffMoney: toDecimal(srSum("staffRepayment"))
+      .add(teamSum("staffRepayment", dsrOnlyPosts))
       .add(srMove("srRepayment"))
-      .sub(toDecimal(entrySum("staffAdvance")))
-      .sub(toDecimal(entrySum("staffShortage")))
+      .sub(toDecimal(srSum("staffAdvance")))
+      .sub(toDecimal(teamSum("staffAdvance", dsrOnlyPosts)))
+      .sub(toDecimal(srSum("staffShortage")))
+      .sub(toDecimal(teamSum("staffShortage", dsrOnlyPosts)))
       .sub(srMove("srLoan"))
       .toString(),
   };
@@ -695,11 +719,11 @@ function SheetEditor({
         issuedLocked={issuedLocked}
         onChange={setDraft}
         onDeleteLine={(id) => void deleteLine(id)}
-        {...(!posted && permissions.includes("sale.create")
+        {...(permissions.includes("sale.create") && (!posted || canCorrect)
           ? {
-              onSaveAll: () => void run("save"),
+              onSaveAll: () => void run(posted ? "correct" : "save"),
               saveDisabled: pending || (!dirty && Boolean(sheet)),
-              savePending: save.isPending,
+              savePending: save.isPending || command.isPending,
             }
           : {})}
       />
@@ -809,19 +833,7 @@ function SheetEditor({
           </Button>
         ) : null}
         {posted && sheet && sheet.handoverStatus === "pending" && loginRoleKind === null ? (
-          <Button
-            variant="primary"
-            disabled={pending}
-            onClick={() =>
-              void command.mutateAsync({
-                action: "handover-approve",
-                dayId: sheet.id,
-                version: sheet.version,
-              })
-            }
-          >
-            {t("dsr.handover.approve")}
-          </Button>
+          <StatePanel title={t("dsr.handover.approveOnDashboard")} />
         ) : null}
       </div>
       {history.length ? (

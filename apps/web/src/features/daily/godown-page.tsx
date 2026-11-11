@@ -20,6 +20,8 @@ import { StatePanel } from "@/components/state-panel";
 import { TableSummary, type SummaryItem } from "@/components/table-summary";
 import { describeError } from "@/data/ports/service-error";
 import {
+  useApprovePendingOrders,
+  useDiscardPendingOrder,
   usePostStockEntries,
   useReverseStockEntry,
   useStockEntries,
@@ -28,6 +30,7 @@ import {
 } from "@/data/queries";
 import { NavGate } from "@/features/shell/nav-gate";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
+import { useConfirm } from "@/components/confirm-dialog";
 import {
   batchName,
   CellInput,
@@ -277,21 +280,97 @@ function PostedEntries({
   kind: GodownKind;
   view: DayView;
 }) {
-  const { permissions } = useCurrentWorkspace();
+  const { permissions, loginRoleKind } = useCurrentWorkspace();
+  const confirm = useConfirm();
   const entries = useStockEntries(companyId, date);
   const reverse = useReverseStockEntry(companyId);
+  const approve = useApprovePendingOrders(companyId);
+  const discard = useDiscardPendingOrder(companyId);
   const action = useAsyncAction();
   const canReverse = permissions.includes("purchase.reverse");
+  const canApprove = permissions.includes("purchase.approve");
+  const canDiscardPending =
+    permissions.includes("purchase.create") || permissions.includes("purchase.approve");
   const sizes = new Map(view.products.map((p) => [p.productId, p.piecesPerCarton]));
   const rows = (entries.data ?? []).filter((e) => e.kind === kind);
+  const pendingRows = rows.filter((e) => e.status === "pending");
+  const liveRows = rows.filter((e) => e.status !== "pending");
 
   return (
     <>
+      {kind === "order" && pendingRows.length > 0 ? (
+        <div className="mb-4 flex flex-col gap-3 rounded-lg border border-warning/40 bg-warning/5 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 className="font-semibold">{t("godown.order.pending")}</h3>
+              <p className="text-sm text-text-muted">{t("godown.order.pendingHint")}</p>
+            </div>
+            {canApprove ? (
+              <Button
+                variant="primary"
+                disabled={approve.isPending}
+                onClick={() =>
+                  void (async () => {
+                    const ok = await confirm({
+                      message: t("godown.order.approveConfirm"),
+                      confirmLabel: t("godown.order.approve"),
+                    });
+                    if (!ok) return;
+                    await approve.mutateAsync(date);
+                  })()
+                }
+              >
+                {approve.isPending ? t("common.posting") : t("godown.order.approve")}
+              </Button>
+            ) : null}
+          </div>
+          <ul className="flex flex-col gap-1 text-sm">
+            {pendingRows.map((entry) => (
+              <li key={entry.id} className="flex flex-wrap items-center justify-between gap-2">
+                <span>
+                  {entry.productName} ·{" "}
+                  <CartonQty
+                    pieces={entry.pieces}
+                    piecesPerCarton={sizes.get(entry.productId) ?? "1"}
+                  />
+                  {entry.freePieces && entry.freePieces !== "0" ? (
+                    <>
+                      {" "}
+                      (+{t("godown.posted.free")}{" "}
+                      <CartonQty
+                        pieces={entry.freePieces}
+                        piecesPerCarton={sizes.get(entry.productId) ?? "1"}
+                      />
+                      )
+                    </>
+                  ) : null}
+                </span>
+                <span className="flex items-center gap-2">
+                  <StatusChip status="pending" />
+                  {canDiscardPending || loginRoleKind === "tsm" ? (
+                    <Button
+                      className="px-2 py-1 text-xs"
+                      disabled={discard.isPending}
+                      onClick={() =>
+                        void action.run(() => discard.mutateAsync(entry.id), {
+                          confirm: "godown.reverseConfirm",
+                        })
+                      }
+                    >
+                      {t("common.delete")}
+                    </Button>
+                  ) : null}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       <SectionTitle>{t("godown.posted.title")}</SectionTitle>
       {action.error ? <StatePanel tone="error" title={action.error} /> : null}
       {entries.isPending ? (
         <TableSkeleton rows={3} columns={5} />
-      ) : rows.length === 0 ? (
+      ) : liveRows.length === 0 ? (
         <EmptyListNote textKey="godown.posted.empty" />
       ) : (
         <>
@@ -332,7 +411,7 @@ function PostedEntries({
                 </tr>
               </thead>
               <tbody>
-                {rows.map((entry) => (
+                {liveRows.map((entry) => (
                   <tr key={entry.id} className="border-t border-border">
                     <td className={`${tdClass} ${stickyCell}`}>{entry.productName}</td>
                     <td className={tdNum}>

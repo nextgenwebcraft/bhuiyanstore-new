@@ -313,6 +313,53 @@ export async function postStockEntries(
       );
       await ensureBatchDue(tx, companyId, request.date, receipts);
       await ensureDamageLots(tx, access, request.date, request.lines);
+
+      // TSM orders stay pending until Manager/Super Admin approve (no batch / ledger yet).
+      if (access.loginRoleKind === "tsm") {
+        if (request.lines.some((l) => l.kind !== "order") || request.prices.length > 0) {
+          throw new AppError("FORBIDDEN");
+        }
+        for (const line of request.lines) {
+          const piecesPerCarton = packOf(line.productId);
+          const salePrice = line.salePrice ?? "0";
+          const costPrice =
+            line.cartonRate === undefined
+              ? null
+              : orderBatchCostPrice({
+                  paid: line.pieces,
+                  free: line.freePieces ?? "0",
+                  cartonRate: line.cartonRate,
+                  piecesPerCarton: String(piecesPerCarton),
+                });
+          await tx.stockEntry.create({
+            data: {
+              ...owner,
+              date,
+              kind: "order",
+              productId: line.productId,
+              pieces: line.pieces,
+              freePieces: line.freePieces ?? "0",
+              cartonRate: line.cartonRate ?? "0",
+              piecesPerCarton,
+              fundFrom: request.fundFrom,
+              orderGroup,
+              costPrice,
+              salePrice,
+              status: "pending",
+              createdById: ctx.actor.userId,
+            },
+          });
+        }
+        await recordAudit(tx, ctx, {
+          companyId,
+          action: "stock.pending",
+          resourceType: "stock_day",
+          resourceId: request.date,
+          after: { lines: request.lines, status: "pending" },
+        });
+        return stockEntriesOn(tx, access, request.date);
+      }
+
       for (const [index, line] of request.lines.entries()) {
         const base = {
           ...owner,
@@ -330,7 +377,14 @@ export async function postStockEntries(
             line.batchId ?? "",
             `lines.${index}.batchId`,
           );
-          const prices = await useBatchPrices(tx, batch, line);
+          // Only Super Admin may reprice a batch on receive; Manager posts qty against batch rates.
+          const prices = await useBatchPrices(
+            tx,
+            batch,
+            ctx.actor.isSuperAdmin
+              ? { costPrice: line.costPrice, salePrice: line.salePrice }
+              : {},
+          );
           const free =
             line.freePieces !== undefined && line.freePieces !== "0" ? line.freePieces : null;
           await tx.stockEntry.create({
@@ -414,6 +468,131 @@ export async function postStockEntries(
         after: { lines: request.lines, prices: request.prices },
       });
       return stockEntriesOn(tx, access, request.date);
+    },
+  );
+}
+
+/**
+ * Approves TSM pending orders for a date: creates batches and marks lines posted so undelivered
+ * and the month engine pick them up. Manager + Super Admin (`purchase.approve`).
+ */
+export async function approvePendingOrders(
+  ctx: AppContext,
+  companyId: string,
+  dateInput: unknown,
+  requestKey?: string,
+): Promise<StockEntry[]> {
+  const access = await requirePermission(ctx, companyId, "purchase.approve", { write: true });
+  const date = businessDate(dateInput);
+  return runIdempotent(
+    ctx,
+    { scope: companyId, action: "stock.approve", requestKey },
+    { date },
+    async (tx) => {
+      await postingGuard(tx, companyId, date);
+      const rows = await tx.stockEntry.findMany({
+        where: {
+          companyId,
+          date: toDbDate(date),
+          kind: "order",
+          status: "pending",
+        },
+        orderBy: { createdAt: "asc" },
+      });
+      if (rows.length === 0) return stockEntriesOn(tx, access, date);
+
+      const productIds = [...new Set(rows.map((r) => r.productId))];
+      const known = await tx.product.findMany({
+        where: { companyId, id: { in: productIds } },
+        include: { packs: true },
+      });
+      if (known.length !== productIds.length) {
+        throw invalid("lines", "validation.daily.unknownProduct");
+      }
+      const owner = { tenantId: access.company.tenantId, companyId };
+      const orderPrices = new Map<string, string>();
+      const dbDate = toDbDate(date);
+
+      for (const row of rows) {
+        const salePrice = row.salePrice === null ? "0" : plain(row.salePrice);
+        const costPrice = row.costPrice === null ? null : plain(row.costPrice);
+        const batch = await orderBatch(tx, owner, row.productId, { costPrice, salePrice });
+        if (row.cartonRate !== null && plain(row.pieces) !== "0" && row.piecesPerCarton) {
+          orderPrices.set(
+            row.productId,
+            pieceFromCarton(plain(row.cartonRate), String(row.piecesPerCarton)),
+          );
+        }
+        await tx.stockEntry.update({
+          where: { id: row.id },
+          data: {
+            status: "posted",
+            batchId: batch.id,
+            costPrice: batch.costPrice,
+            salePrice,
+          },
+        });
+      }
+
+      for (const [productId, price] of orderPrices) {
+        const key = { productId, kind: "order" as const, effectiveFrom: dbDate };
+        await tx.priceChange.upsert({
+          where: { productId_kind_effectiveFrom: key },
+          create: { ...key, price, source: "manual" },
+          update: { price, source: "manual" },
+        });
+      }
+
+      await recordAudit(tx, ctx, {
+        companyId,
+        action: "stock.approve",
+        resourceType: "stock_day",
+        resourceId: date,
+        after: { ids: rows.map((r) => r.id), count: rows.length },
+      });
+      return stockEntriesOn(tx, access, date);
+    },
+  );
+}
+
+/** Deletes a pending TSM order line (creator, Manager, or Super Admin). */
+export async function discardPendingOrder(
+  ctx: AppContext,
+  companyId: string,
+  entryId: string,
+  requestKey?: string,
+): Promise<void> {
+  const access = await loadCompanyAccess(ctx, companyId);
+  if (
+    !access.permissions.includes("purchase.create") &&
+    !access.permissions.includes("purchase.approve")
+  ) {
+    throw new AppError("FORBIDDEN");
+  }
+  return runIdempotent(
+    ctx,
+    { scope: companyId, action: "stock.discardPending", requestKey },
+    { entryId },
+    async (tx) => {
+      const row = await tx.stockEntry.findFirst({
+        where: { id: entryId, companyId, kind: "order", status: "pending" },
+      });
+      if (!row) throw invalid("", "validation.daily.notFound");
+      if (
+        access.loginRoleKind === "tsm" &&
+        row.createdById !== ctx.actor.userId &&
+        !ctx.actor.isSuperAdmin
+      ) {
+        throw new AppError("FORBIDDEN");
+      }
+      await tx.stockEntry.delete({ where: { id: row.id } });
+      await recordAudit(tx, ctx, {
+        companyId,
+        action: "stock.discardPending",
+        resourceType: "stock_entry",
+        resourceId: entryId,
+        before: { status: "pending", productId: row.productId },
+      });
     },
   );
 }
@@ -662,18 +841,16 @@ export async function saveDsrDayIn(
   }
   // D56: saving a posted sheet corrects it; the posted one is reversed with all it owns and
   // the edited sheet is posted in its place, in this transaction.
-  // Owner 2026-11-07: Manager may draft/post every দৈনিক বিক্রয় হিসাব field (incl. সামারি)
-  // and submit হাতে জমা → pending, but must not edit a posted sheet (sale.reverse stays
-  // Super Admin). Handover lock is already asserted above.
+  // Owner 2026-11-11: Manager may correct until হাতে জমা (handover lock already asserted);
+  // Super Admin always (needs sale.post + sale.reverse). DSR never.
   const corrected = live?.status === "posted" ? await loadDsrDay(tx, companyId, live.id) : null;
   if (corrected) {
-    if (
-      access.loginRoleKind === "manager" ||
-      !access.permissions.includes("sale.post") ||
-      !access.permissions.includes("sale.reverse")
-    ) {
-      throw new AppError("FORBIDDEN");
-    }
+    const managerOk = access.loginRoleKind === "manager" && access.permissions.includes("sale.post");
+    const adminOk =
+      access.loginRoleKind === null &&
+      access.permissions.includes("sale.post") &&
+      access.permissions.includes("sale.reverse");
+    if (!managerOk && !adminOk) throw new AppError("FORBIDDEN");
     await moveDsrDay(tx, ctx, access, corrected, "reversed");
   }
   const data = {
@@ -1067,7 +1244,7 @@ export async function submitDsrHandover(
   );
 }
 
-/** D112: Super Admin approves a pending handover amount (accept figure only). */
+/** D112: Super Admin approves a pending handover amount (accept figure only). Kept for API compat. */
 export async function approveDsrHandover(
   ctx: AppContext,
   companyId: string,
@@ -1114,6 +1291,67 @@ export async function approveDsrHandover(
         after: { handoverStatus: "approved" },
       });
       return toDsrDay(await loadDsrDay(tx, companyId, id), seesCost(access));
+    },
+  );
+}
+
+/**
+ * Dashboard date/range approve: all pending হাতে জমা sheets in [from, to] → approved
+ * (owner 2026-11-11; replaces per-sheet Approve). Super Admin / `sale.handover_approve`.
+ */
+export async function approveDsrHandoversForRange(
+  ctx: AppContext,
+  companyId: string,
+  input: unknown,
+  requestKey?: string,
+): Promise<{ count: number }> {
+  const access = await requirePermission(ctx, companyId, "sale.handover_approve", { write: true });
+  const from = businessDate(
+    typeof input === "object" && input && "from" in input ? (input as { from: unknown }).from : input,
+    "from",
+  );
+  const toRaw =
+    typeof input === "object" && input && "to" in input
+      ? (input as { to?: unknown }).to
+      : undefined;
+  const to = toRaw === undefined || toRaw === null ? from : businessDate(toRaw, "to");
+  return runIdempotent(
+    ctx,
+    { scope: companyId, action: `dsr_day.handover_approve_range:${from}:${to}`, requestKey },
+    { from, to },
+    async (tx) => {
+      const rows = await tx.dsrDay.findMany({
+        where: {
+          companyId,
+          date: { gte: toDbDate(from), lte: toDbDate(to) },
+          status: "posted",
+          handoverStatus: "pending",
+        },
+        select: { id: true },
+      });
+      if (rows.length === 0) return { count: 0 };
+      const updated = await tx.dsrDay.updateMany({
+        where: {
+          companyId,
+          id: { in: rows.map((r) => r.id) },
+          status: "posted",
+          handoverStatus: "pending",
+        },
+        data: {
+          handoverStatus: "approved",
+          handoverApprovedAt: new Date(),
+          handoverApprovedById: ctx.actor.userId,
+          version: { increment: 1 },
+        },
+      });
+      await recordAudit(tx, ctx, {
+        companyId,
+        action: "dsr_day.handover_approve_range",
+        resourceType: "stock_day",
+        resourceId: from === to ? from : `${from}/${to}`,
+        after: { count: updated.count, ids: rows.map((r) => r.id) },
+      });
+      return { count: updated.count };
     },
   );
 }

@@ -6,6 +6,8 @@ Evidence-based progress. Mark an item done only with evidence.
 
 The canonical plan is now [PLAN.md](PLAN.md). The owner approved backend integration (D30).
 
+**2026-11-10** ([manifest](../changes/2026-11-10-session-token-ttl.yaml)): Login session TTL — access cookie-cache 7 days, DB session/refresh 30 days; API always revalidates session in DB (D124).
+
 **2026-11-10** ([manifest](../changes/2026-11-10-dsr-pos-entry-flow.yaml)): দৈনিক বিক্রয় হিসাব POS-style entry — DSR once, Add Item into list, Save All + search; fields unchanged (D122).
 
 **2026-11-07** ([manifest](../changes/2026-11-07-manager-samari-entry.yaml)): Manager may enter every দৈনিক বিক্রয় হিসাব field incl. সামারি, post, then cannot edit; may submit হাতে জমা → Pending (D112).

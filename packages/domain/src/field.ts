@@ -59,7 +59,7 @@ export function cashCheckSales(netSales: DecimalInput, damageSaleValue: DecimalI
 
 /**
  * DSR cash handover (D39, D62, D107, display only). Expected = the DSR's sales − damage at the sale
- * price − new due given + old due collected − expenses paid from that cash + staff money
+ * price − new due given + old due collected − DSR expenses − operating cost + staff money
  * (repayments − advances − shortages); the difference is handed over − expected. `damage` defaults
  * to 0 where the sales figure already excludes damaged pieces.
  */
@@ -68,6 +68,8 @@ export function dsrCashSettlement(input: {
   dueGiven: DecimalInput;
   dueCollected: DecimalInput;
   expenses: DecimalInput;
+  /** Company operating cost (`expense`) for the day; subtracted from expected cash. */
+  operatingCost?: DecimalInput;
   staffMoney?: DecimalInput;
   /** ড্যামেজ (বিক্রয় মূল্যে), taken off expected cash. Omit when `sales` is already net of damage. */
   damage?: DecimalInput;
@@ -78,6 +80,7 @@ export function dsrCashSettlement(input: {
     .sub(toDecimal(input.dueGiven))
     .add(toDecimal(input.dueCollected))
     .sub(toDecimal(input.expenses))
+    .sub(toDecimal(input.operatingCost ?? "0"))
     .add(toDecimal(input.staffMoney ?? "0"));
   if (input.handedOver === null) {
     return { expected: roundSettlement(expected), handedOver: null, difference: null };

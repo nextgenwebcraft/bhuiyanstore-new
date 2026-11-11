@@ -151,7 +151,7 @@ afterAll(async () => {
 describe("D112: fixed Manager and DSR login roles", () => {
   it("seeds only Manager and DSR on listRoles", async () => {
     const roles = await listRoles(ctx);
-    expect(roles.map((r) => r.kind).sort()).toEqual(["dsr", "manager"]);
+    expect(roles.map((r) => r.kind).sort()).toEqual(["dsr", "manager", "tsm"]);
     expect(roles.map((r) => r.name).sort()).toEqual(
       [LOGIN_ROLE_NAMES.dsr, LOGIN_ROLE_NAMES.manager].sort(),
     );

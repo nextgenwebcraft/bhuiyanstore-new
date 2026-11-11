@@ -12,6 +12,8 @@ import { Decimal } from "@bsd/domain";
 import { t, type TranslationKey, formatBusinessDate, formatRate } from "@bsd/i18n";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
+import { Button } from "@/components/button";
+import { useConfirm } from "@/components/confirm-dialog";
 import { DateRangePicker } from "@/components/date-picker";
 import { Icon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
@@ -20,7 +22,7 @@ import { StatsSkeleton, TableSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
 import { StatTile, type StatTone } from "@/components/stat-tile";
 import { errorCodeOf } from "@/data/ports/service-error";
-import { useDashboardSummary } from "@/data/queries";
+import { useApproveDsrHandoversForRange, useDashboardSummary } from "@/data/queries";
 import {
   money,
   quantity,
@@ -157,10 +159,14 @@ export function SummaryCards({
   cards,
   columns = 4,
   handover,
+  onApproveHandover,
+  approvePending,
 }: {
   cards: Card[];
   columns?: 4 | 5;
   handover?: DashboardSummary["cashInHandHandover"];
+  onApproveHandover?: () => void;
+  approvePending?: boolean;
 }) {
   return (
     <dl
@@ -185,17 +191,29 @@ export function SummaryCards({
                 {card.label === "dashboard.card.cashInHand" &&
                 handover &&
                 handover.status !== "none" ? (
-                  <span
-                    className={`self-start rounded-md px-2 py-0.5 text-[11px] font-medium ${
-                      handover.status === "pending"
-                        ? "bg-warning/15 text-warning"
-                        : "bg-success/15 text-success"
-                    }`}
-                  >
-                    {handover.status === "pending"
-                      ? t("dsr.handover.pending")
-                      : t("dsr.handover.approved")}
-                  </span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      className={`self-start rounded-md px-2 py-0.5 text-[11px] font-medium ${
+                        handover.status === "pending"
+                          ? "bg-warning/15 text-warning"
+                          : "bg-success/15 text-success"
+                      }`}
+                    >
+                      {handover.status === "pending"
+                        ? t("dsr.handover.pending")
+                        : t("dsr.handover.approved")}
+                    </span>
+                    {handover.status === "pending" && onApproveHandover ? (
+                      <Button
+                        variant="primary"
+                        className="px-2 py-1 text-xs"
+                        disabled={approvePending}
+                        onClick={onApproveHandover}
+                      >
+                        {approvePending ? t("common.posting") : t("dsr.handover.approveRange")}
+                      </Button>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>,
             ],
@@ -205,10 +223,26 @@ export function SummaryCards({
 }
 
 /** The chain, then the other cards (D67). */
-export function SummaryGroups({ d, singleDay }: { d: DashboardSummary; singleDay: boolean }) {
+export function SummaryGroups({
+  d,
+  singleDay,
+  onApproveHandover,
+  approvePending,
+}: {
+  d: DashboardSummary;
+  singleDay: boolean;
+  onApproveHandover?: () => void;
+  approvePending?: boolean;
+}) {
   return (
     <>
-      <SummaryCards cards={chainCards(d)} columns={5} handover={d.cashInHandHandover} />
+      <SummaryCards
+        cards={chainCards(d)}
+        columns={5}
+        {...(d.cashInHandHandover ? { handover: d.cashInHandHandover } : {})}
+        {...(onApproveHandover ? { onApproveHandover } : {})}
+        {...(approvePending !== undefined ? { approvePending } : {})}
+      />
       <SummaryCards cards={summaryCards(d, singleDay)} columns={5} />
     </>
   );
@@ -454,9 +488,13 @@ export function RangeHeading({ range, isToday }: { range: ReportRange; isToday: 
  */
 function DashboardBody({ range }: { range: ReportRange }) {
   const { company, permissions, loginRoleKind } = useCurrentWorkspace();
+  const confirm = useConfirm();
   const summary = useDashboardSummary(company.id, range);
+  const approveHandovers = useApproveDsrHandoversForRange(company.id);
   const canReport = company.modules.includes("reports") && permissions.includes("report.view");
   const dsrLimited = loginRoleKind === "dsr";
+  const canApproveHandover =
+    loginRoleKind === null && permissions.includes("sale.handover_approve");
 
   if (summary.isPending || summary.isPlaceholderData) {
     return (
@@ -511,7 +549,24 @@ function DashboardBody({ range }: { range: ReportRange }) {
         <StatePanel title={t("dashboard.noActivity")} hint={t("dashboard.noActivityHint")} />
       ) : null}
       <Section title={t("dashboard.section.summary")}>
-        <SummaryGroups d={d} singleDay={range.from === range.to} />
+        <SummaryGroups
+          d={d}
+          singleDay={range.from === range.to}
+          {...(canApproveHandover
+            ? {
+                approvePending: approveHandovers.isPending,
+                onApproveHandover: () =>
+                  void (async () => {
+                    const ok = await confirm({
+                      message: t("dsr.handover.approveRangeConfirm"),
+                      confirmLabel: t("dsr.handover.approveRange"),
+                    });
+                    if (!ok) return;
+                    await approveHandovers.mutateAsync({ from: range.from, to: range.to });
+                  })(),
+              }
+            : {})}
+        />
       </Section>
       {d.byDsr.length > 0 ? (
         <Section title={t("dashboard.section.byDsr")}>

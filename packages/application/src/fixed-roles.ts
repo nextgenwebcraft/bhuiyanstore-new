@@ -2,18 +2,21 @@ import type { PermissionId } from "@bsd/contracts";
 import type { Database } from "@bsd/database";
 import type { Tx } from "./context";
 
-export const loginRoleKinds = ["manager", "dsr"] as const;
+export const loginRoleKinds = ["manager", "dsr", "tsm"] as const;
 export type LoginRoleKind = (typeof loginRoleKinds)[number];
 
 export const LOGIN_ROLE_NAMES: Record<LoginRoleKind, string> = {
   manager: "ম্যানেজার",
   dsr: "ডিএসআর",
+  tsm: "টিএসএম",
 };
 
 /**
- * Fixed permission templates (D112). Super Admin is User.isSuperAdmin (all permissions), not a Role.
+ * Fixed permission templates (D112, amended for TSM). Super Admin is User.isSuperAdmin
+ * (all permissions), not a Role.
  * Manager: daily ops without reverse/delete, price override, master/role admin, or field panel.
  * DSR: draft sheet + limited dashboard (damage lots + staff balances).
+ * TSM: orders (pending until approve) + stock / undelivered; no মাল গ্রহণ.
  */
 export const MANAGER_PERMISSIONS: readonly PermissionId[] = [
   "company.view",
@@ -26,6 +29,7 @@ export const MANAGER_PERMISSIONS: readonly PermissionId[] = [
   "purchase.view",
   "purchase.create",
   "purchase.post",
+  "purchase.approve",
   "sale.view",
   "sale.create",
   "sale.post",
@@ -76,14 +80,23 @@ export const DSR_PERMISSIONS: readonly PermissionId[] = [
   "report.view",
 ];
 
+export const TSM_PERMISSIONS: readonly PermissionId[] = [
+  "company.view",
+  "company.switch",
+  "purchase.view",
+  "purchase.create",
+  "inventory.view",
+];
+
 const TEMPLATE: Record<LoginRoleKind, readonly PermissionId[]> = {
   manager: MANAGER_PERMISSIONS,
   dsr: DSR_PERMISSIONS,
+  tsm: TSM_PERMISSIONS,
 };
 
 type RoleWriter = Pick<Database, "role" | "rolePermission"> | Pick<Tx, "role" | "rolePermission">;
 
-/** Idempotent: ensure each tenant has Manager and DSR roles with the coded permission sets. */
+/** Idempotent: ensure each tenant has Manager, DSR and TSM roles with the coded permission sets. */
 export async function ensureFixedLoginRoles(
   db: RoleWriter,
   tenantId: string,
@@ -122,5 +135,5 @@ export async function ensureFixedLoginRoles(
 }
 
 export function isLoginRoleKind(value: string | null | undefined): value is LoginRoleKind {
-  return value === "manager" || value === "dsr";
+  return value === "manager" || value === "dsr" || value === "tsm";
 }

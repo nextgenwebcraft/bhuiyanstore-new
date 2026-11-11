@@ -282,11 +282,11 @@ export function SectionTitle({ children }: { children: React.ReactNode }) {
  * omitted (other surfaces), Edit stays hidden.
  */
 export function canEditDailyMoney(
-  loginRoleKind: "manager" | "dsr" | null,
+  loginRoleKind: "manager" | "dsr" | "tsm" | null,
   handoverLocked: boolean | undefined,
 ): boolean {
   if (handoverLocked === undefined) return false;
-  if (loginRoleKind === "dsr") return false;
+  if (loginRoleKind === "dsr" || loginRoleKind === "tsm") return false;
   if (handoverLocked && loginRoleKind === "manager") return false;
   return loginRoleKind === null || loginRoleKind === "manager";
 }
@@ -296,7 +296,7 @@ export function canEditDailyMoney(
  * When `handoverLocked` is omitted, posting is unchanged for other surfaces.
  */
 export function canPostDailyMoney(
-  loginRoleKind: "manager" | "dsr" | null,
+  loginRoleKind: "manager" | "dsr" | "tsm" | null,
   handoverLocked: boolean | undefined,
 ): boolean {
   if (handoverLocked === undefined) return true;

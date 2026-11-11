@@ -14,7 +14,11 @@ export async function actorFromHeaders(
   db: Database,
   headers: Headers,
 ): Promise<Actor | null> {
-  const session = await auth.api.getSession({ headers });
+  // Always re-read the DB session so cookieCache cannot outlive a revoke/reset (D124).
+  const session = await auth.api.getSession({
+    headers,
+    query: { disableCookieCache: true },
+  });
   if (!session) return null;
   const user = await db.user.findUnique({
     where: { id: session.user.id },

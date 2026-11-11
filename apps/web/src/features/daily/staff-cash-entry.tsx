@@ -9,7 +9,6 @@ import { Button } from "@/components/button";
 import { useConfirm } from "@/components/confirm-dialog";
 import {
   money,
-  StatusChip,
   tableClass,
   tdClass,
   tdNum,
@@ -226,9 +225,6 @@ function Entries({
                 <th scope="col" className={thNum}>
                   {t("common.amount")}
                 </th>
-                <th scope="col" className={thClass}>
-                  {t("common.status")}
-                </th>
                 {canEdit ? (
                   <th scope="col" className={thClass}>
                     <span className="sr-only">{t("common.edit")}</span>
@@ -244,12 +240,9 @@ function Entries({
                     <td className={tdClass}>{entry.staffName}</td>
                     <td className={tdClass}>{kind ? t(LABEL[kind]) : null}</td>
                     <td className={tdNum}>{money(entry.amount)}</td>
-                    <td className={tdClass}>
-                      <StatusChip status={entry.status} />
-                    </td>
                     {canEdit ? (
                       <td className={`${tdClass} text-right`}>
-                        {entry.status === "posted" && !entry.dsrDayId && !entry.payrollRunId ? (
+                        {!entry.dsrDayId && !entry.payrollRunId ? (
                           <Button onClick={() => onEdit(entry)}>{t("common.edit")}</Button>
                         ) : null}
                       </td>
@@ -330,7 +323,9 @@ export function StaffCashEntry({
         <QueryError error={entries.error} onRetry={() => void entries.refetch()} />
       ) : (
         <Entries
-          rows={entries.data.filter((e) => staffCashKindOf(e) !== null)}
+          rows={entries.data.filter(
+            (e) => e.status === "posted" && staffCashKindOf(e) !== null,
+          )}
           canEdit={canEdit}
           onEdit={(entry) => {
             if (entry.staffId) setPicked(entry.staffId);

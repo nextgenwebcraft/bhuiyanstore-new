@@ -151,6 +151,10 @@ export interface DistributionService {
   postStockEntries(companyId: string, input: StockEntryPostRequest): Promise<StockEntry[]>;
   /** Requires `purchase.reverse`. */
   reverseStockEntry(companyId: string, entryId: string): Promise<StockEntry>;
+  /** Requires `purchase.approve`: posts all pending TSM orders for the date. */
+  approvePendingOrders(companyId: string, date: string): Promise<StockEntry[]>;
+  /** Discard a pending TSM order line. */
+  discardPendingOrder(companyId: string, entryId: string): Promise<void>;
   /** Requires `sale.view`: every DSR sheet of the date. */
   listDsrDays(companyId: string, date: string, options?: RequestOptions): Promise<DsrDay[]>;
   /** Requires `sale.create`: creates (version 0) or replaces the DSR's draft for the date. */
@@ -171,6 +175,11 @@ export interface DistributionService {
     dayId: string,
     input: import("@bsd/contracts").DsrHandoverSubmitRequest,
   ): Promise<DsrDay>;
+  /** Dashboard: approve all pending handovers in a date range. */
+  approveDsrHandoversForRange(
+    companyId: string,
+    range: { from: string; to: string },
+  ): Promise<{ count: number }>;
   /** D112: Super Admin approves pending handover. */
   approveDsrHandover(
     companyId: string,

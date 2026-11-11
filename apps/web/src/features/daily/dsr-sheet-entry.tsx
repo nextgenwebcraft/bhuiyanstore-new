@@ -1,7 +1,7 @@
 "use client";
 
 import type { DayView } from "@bsd/contracts";
-import { sumQuantities, toBaseQuantity, toCartonDisplay, toDecimal } from "@bsd/domain";
+import { sumAmounts, sumQuantities, toBaseQuantity, toCartonDisplay, toDecimal } from "@bsd/domain";
 import { formatCount, formatRate, t } from "@bsd/i18n";
 import { useId, useMemo, useState } from "react";
 import { Button } from "@/components/button";
@@ -23,7 +23,7 @@ import { Field, inputClass } from "@/components/field";
 import { StatePanel } from "@/components/state-panel";
 import { TableScroller } from "@/components/table-scroller";
 import { DsrSelect, type DsrChoice } from "@/features/daily/dsr-select";
-import { batchName, clean } from "./daily-kit";
+import { batchName, CellInput, clean } from "./daily-kit";
 
 type Product = DayView["products"][number];
 
@@ -498,6 +498,41 @@ function displayCostOf(line: LineDraft, view: DayView): string | null {
   return batch?.costPrice || product.costPrice || null;
 }
 
+/** Per-line বিক্রি (টাকা): সামারি − ফিরত − ড্যামেজ − কমিশন at sale / damage rates. */
+function lineNetAmount(line: LineDraft, view: DayView): string {
+  const product = view.products.find((p) => p.productId === line.productId);
+  const size = product?.piecesPerCarton ?? "1";
+  const issued = toBaseQuantity(
+    clean(line.issuedCartons) || "0",
+    clean(line.issuedPieces) || "0",
+    size,
+  );
+  const returned = toBaseQuantity(
+    clean(line.returnedCartons) || "0",
+    clean(line.returnedPieces) || "0",
+    size,
+  );
+  const damaged = clean(line.damaged) || "0";
+  const sale = displaySaleOf(line, view) ?? "0";
+  const damageRate = clean(line.damageRate ?? "") || sale;
+  return toDecimal(issued)
+    .mul(sale)
+    .sub(toDecimal(returned).mul(sale))
+    .sub(toDecimal(damaged).mul(damageRate))
+    .sub(toDecimal(clean(line.commission) || "0"))
+    .toString();
+}
+
+function sortLinesBySku(lines: readonly LineDraft[], view: DayView): LineDraft[] {
+  return [...lines].sort((a, b) => {
+    const skuA = view.products.find((p) => p.productId === a.productId)?.sku ?? "";
+    const skuB = view.products.find((p) => p.productId === b.productId)?.sku ?? "";
+    const cmp = skuA.localeCompare(skuB, undefined, { numeric: true, sensitivity: "base" });
+    if (cmp !== 0) return cmp;
+    return batchSeqOf(view, a.productId, a.batchKey) - batchSeqOf(view, b.productId, b.batchKey);
+  });
+}
+
 /**
  * One row per product+batch in a table: sum qty/money across DSRs (এসআর মোট).
  * Draft lines stay separate by DSR in storage; this is display-only.
@@ -536,16 +571,50 @@ function ReadOnlyLinesTable({
   lines,
   view,
   locked,
+  canEdit,
+  canEditPrices,
+  issuedLocked,
   onRemove,
+  onUpdate,
 }: {
   title: string;
   lines: readonly LineDraft[];
   view: DayView;
   locked: boolean;
+  canEdit: boolean;
+  canEditPrices: boolean;
+  issuedLocked: boolean;
   onRemove: (id: string) => void;
+  onUpdate: (id: string, patch: Partial<LineDraft>) => void;
 }) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [edit, setEdit] = useState<Partial<LineDraft>>({});
   if (lines.length === 0) return null;
   const productOf = (id: string) => view.products.find((p) => p.productId === id);
+  const sorted = sortLinesBySku(lines, view);
+  const totalAmount = sumAmounts(["0", ...sorted.map((l) => lineNetAmount(l, view))]);
+
+  function startEdit(line: LineDraft) {
+    setEditingId(line.id);
+    setEdit({
+      issuedCartons: line.issuedCartons,
+      issuedPieces: line.issuedPieces,
+      returnedCartons: line.returnedCartons,
+      returnedPieces: line.returnedPieces,
+      damaged: line.damaged,
+      damageRate: line.damageRate ?? "",
+      commission: line.commission,
+      salePrice: line.salePrice ?? "",
+      costPrice: line.costPrice ?? "",
+    });
+  }
+
+  function saveEdit(id: string) {
+    onUpdate(id, edit);
+    setEditingId(null);
+    setEdit({});
+  }
+
   return (
     <section className="flex flex-col gap-2">
       <h3 className="font-semibold">{title}</h3>
@@ -582,34 +651,40 @@ function ReadOnlyLinesTable({
                   {t("dsr.sheet.costPrice")}
                 </th>
               ) : null}
+              <th scope="col" className={thNum}>
+                {t("dsr.sheet.engineAmount")}
+              </th>
               <th scope="col" className={thClass}>
                 {t("common.status")}
               </th>
-              {!locked ? (
+              {canEdit || !locked ? (
                 <th scope="col" className={thClass}>
-                  <span className="sr-only">{t("common.delete")}</span>
+                  <span className="sr-only">{t("common.edit")}</span>
                 </th>
               ) : null}
             </tr>
           </thead>
           <tbody>
-            {lines.map((line) => {
+            {sorted.map((line) => {
               const product = productOf(line.productId);
               const size = product?.piecesPerCarton ?? "1";
+              const editing = editingId === line.id;
+              const row = editing ? { ...line, ...edit } : line;
               const issued = toBaseQuantity(
-                clean(line.issuedCartons) || "0",
-                clean(line.issuedPieces) || "0",
+                clean(row.issuedCartons) || "0",
+                clean(row.issuedPieces) || "0",
                 size,
               );
               const returned = toBaseQuantity(
-                clean(line.returnedCartons) || "0",
-                clean(line.returnedPieces) || "0",
+                clean(row.returnedCartons) || "0",
+                clean(row.returnedPieces) || "0",
                 size,
               );
               const pending = line.entryStatus === "pending";
               const seq = batchSeqOf(view, line.productId, line.batchKey);
-              const sale = displaySaleOf(line, view);
-              const cost = displayCostOf(line, view);
+              const sale = displaySaleOf(row as LineDraft, view);
+              const cost = displayCostOf(row as LineDraft, view);
+              const amount = lineNetAmount(row as LineDraft, view);
               return (
                 <tr key={line.id} className="border-t border-border">
                   <th scope="row" className={`${tdClass} ${stickyCell} text-left font-medium`}>
@@ -618,51 +693,184 @@ function ReadOnlyLinesTable({
                   </th>
                   <td className={tdClass}>{batchName({ key: line.batchKey, seq })}</td>
                   <td className={tdNum}>
-                    <CartonQty pieces={issued} piecesPerCarton={size} />
+                    {editing && !issuedLocked ? (
+                      <span className="inline-flex gap-1">
+                        <CellInput
+                          label={t("dsr.sheet.issued")}
+                          value={edit.issuedCartons ?? ""}
+                          onChange={(issuedCartons) => setEdit((e) => ({ ...e, issuedCartons }))}
+                          width="w-14"
+                        />
+                        <CellInput
+                          label={t("godown.column.pieces")}
+                          value={edit.issuedPieces ?? ""}
+                          onChange={(issuedPieces) => setEdit((e) => ({ ...e, issuedPieces }))}
+                          width="w-14"
+                        />
+                      </span>
+                    ) : (
+                      <CartonQty pieces={issued} piecesPerCarton={size} />
+                    )}
                   </td>
                   <td className={tdNum}>
-                    <CartonQty pieces={returned} piecesPerCarton={size} />
+                    {editing ? (
+                      <span className="inline-flex gap-1">
+                        <CellInput
+                          label={t("dsr.sheet.returned")}
+                          value={edit.returnedCartons ?? ""}
+                          onChange={(returnedCartons) =>
+                            setEdit((e) => ({ ...e, returnedCartons }))
+                          }
+                          width="w-14"
+                        />
+                        <CellInput
+                          label={t("godown.column.pieces")}
+                          value={edit.returnedPieces ?? ""}
+                          onChange={(returnedPieces) =>
+                            setEdit((e) => ({ ...e, returnedPieces }))
+                          }
+                          width="w-14"
+                        />
+                      </span>
+                    ) : (
+                      <CartonQty pieces={returned} piecesPerCarton={size} />
+                    )}
                   </td>
-                  <td className={tdNum}>{quantity(clean(line.damaged) || "0")}</td>
                   <td className={tdNum}>
-                    {line.damageRate ? formatRate(line.damageRate) : "—"}
+                    {editing ? (
+                      <CellInput
+                        label={t("dsr.sheet.damaged")}
+                        value={edit.damaged ?? ""}
+                        onChange={(damaged) => setEdit((e) => ({ ...e, damaged }))}
+                        width="w-16"
+                      />
+                    ) : (
+                      quantity(clean(line.damaged) || "0")
+                    )}
                   </td>
-                  <td className={tdNum}>{money(clean(line.commission) || "0")}</td>
-                  <td className={tdNum}>{sale ? formatRate(sale) : "—"}</td>
+                  <td className={tdNum}>
+                    {editing ? (
+                      <CellInput
+                        label={t("dsr.sheet.damageRate")}
+                        value={edit.damageRate ?? ""}
+                        onChange={(damageRate) => setEdit((e) => ({ ...e, damageRate }))}
+                        mode="decimal"
+                        width="w-20"
+                      />
+                    ) : line.damageRate ? (
+                      formatRate(line.damageRate)
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                  <td className={tdNum}>
+                    {editing ? (
+                      <CellInput
+                        label={t("dsr.sheet.commission")}
+                        value={edit.commission ?? ""}
+                        onChange={(commission) => setEdit((e) => ({ ...e, commission }))}
+                        mode="decimal"
+                        width="w-20"
+                      />
+                    ) : (
+                      money(clean(line.commission) || "0")
+                    )}
+                  </td>
+                  <td className={tdNum}>
+                    {editing && canEditPrices ? (
+                      <CellInput
+                        label={t("dsr.sheet.batchSalePrice")}
+                        value={edit.salePrice ?? ""}
+                        onChange={(salePrice) => setEdit((e) => ({ ...e, salePrice }))}
+                        mode="decimal"
+                        width="w-20"
+                      />
+                    ) : sale ? (
+                      formatRate(sale)
+                    ) : (
+                      "—"
+                    )}
+                  </td>
                   {view.canSeeCost ? (
-                    <td className={tdNum}>{cost ? formatRate(cost) : "—"}</td>
+                    <td className={tdNum}>
+                      {editing && canEditPrices ? (
+                        <CellInput
+                          label={t("dsr.sheet.costPrice")}
+                          value={edit.costPrice ?? ""}
+                          onChange={(costPrice) => setEdit((e) => ({ ...e, costPrice }))}
+                          mode="decimal"
+                          width="w-20"
+                        />
+                      ) : cost ? (
+                        formatRate(cost)
+                      ) : (
+                        "—"
+                      )}
+                    </td>
                   ) : null}
+                  <td className={tdNum}>{money(amount)}</td>
                   <td className={tdClass}>
                     <span
                       className={`inline-flex rounded-md px-2 py-0.5 text-xs font-semibold ${
-                        pending
-                          ? "bg-error text-white"
-                          : "bg-success/15 text-success"
+                        pending ? "bg-error text-white" : "bg-success/15 text-success"
                       }`}
                     >
                       {t(pending ? "dsr.entry.status.pending" : "dsr.entry.status.active")}
                     </span>
                   </td>
-                  {!locked ? (
-                    <td className={`${tdClass} text-right`}>
-                      <button
-                        type="button"
-                        className="inline-flex size-8 items-center justify-center rounded-md bg-error text-white transition-opacity hover:opacity-90"
-                        aria-label={t("common.delete")}
-                        onClick={() => onRemove(line.id)}
-                      >
-                        <svg
-                          viewBox="0 0 20 20"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2.25"
-                          strokeLinecap="round"
-                          className="size-4"
-                          aria-hidden
-                        >
-                          <path d="M5 5l10 10M15 5L5 15" />
-                        </svg>
-                      </button>
+                  {canEdit || !locked ? (
+                    <td className={`${tdClass} whitespace-nowrap text-right`}>
+                      {editing ? (
+                        <span className="inline-flex gap-1">
+                          <Button
+                            className="px-2 py-1 text-xs"
+                            variant="primary"
+                            onClick={() => saveEdit(line.id)}
+                          >
+                            {t("common.save")}
+                          </Button>
+                          <Button
+                            className="px-2 py-1 text-xs"
+                            onClick={() => {
+                              setEditingId(null);
+                              setEdit({});
+                            }}
+                          >
+                            {t("common.cancel")}
+                          </Button>
+                        </span>
+                      ) : (
+                        <span className="inline-flex gap-1">
+                          {canEdit ? (
+                            <Button
+                              className="px-2 py-1 text-xs"
+                              onClick={() => startEdit(line)}
+                            >
+                              {t("common.edit")}
+                            </Button>
+                          ) : null}
+                          {!locked ? (
+                            <button
+                              type="button"
+                              className="inline-flex size-8 items-center justify-center rounded-md bg-error text-white transition-opacity hover:opacity-90"
+                              aria-label={t("common.delete")}
+                              onClick={() => onRemove(line.id)}
+                            >
+                              <svg
+                                viewBox="0 0 20 20"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2.25"
+                                strokeLinecap="round"
+                                className="size-4"
+                                aria-hidden
+                              >
+                                <path d="M5 5l10 10M15 5L5 15" />
+                              </svg>
+                            </button>
+                          ) : null}
+                        </span>
+                      )}
                     </td>
                   ) : null}
                 </tr>
@@ -672,11 +880,11 @@ function ReadOnlyLinesTable({
         </table>
       </TableScroller>
       <p className="text-xs text-text-muted">
-        {formatCount(String(lines.length))} {t("warning.products")} ·{" "}
+        {formatCount(String(sorted.length))} {t("warning.products")} ·{" "}
         {t("dsr.sheet.issued")}{" "}
         {quantity(
           sumQuantities(
-            lines.map((l) => {
+            sorted.map((l) => {
               const size = productOf(l.productId)?.piecesPerCarton ?? "1";
               return toBaseQuantity(
                 clean(l.issuedCartons) || "0",
@@ -685,7 +893,8 @@ function ReadOnlyLinesTable({
               );
             }),
           ),
-        )}
+        )}{" "}
+        · {t("dsr.sheet.engineAmount")} {money(totalAmount)}
       </p>
     </section>
   );
@@ -854,10 +1063,19 @@ export function DsrSheetEntry({
         <ReadOnlyLinesTable
           key={dsrKey}
           title={group.name}
-          lines={mergeLinesByProductBatch(group.lines)}
+          lines={group.lines}
           view={view}
           locked={locked}
+          canEdit={!locked}
+          canEditPrices={canEditPrices}
+          issuedLocked={issuedLocked}
           onRemove={removeLine}
+          onUpdate={(id, patch) =>
+            onChange({
+              ...draft,
+              lines: draft.lines.map((l) => (l.id === id ? { ...l, ...patch } : l)),
+            })
+          }
         />
       ))}
       {filteredAll.length > 0 ? (
@@ -866,14 +1084,23 @@ export function DsrSheetEntry({
           lines={filteredAll}
           view={view}
           locked={locked || byDsr.length > 0}
+          canEdit={!locked && byDsr.length === 0}
+          canEditPrices={canEditPrices}
+          issuedLocked={issuedLocked}
           onRemove={removeLine}
+          onUpdate={(id, patch) =>
+            onChange({
+              ...draft,
+              lines: draft.lines.map((l) => (l.id === id ? { ...l, ...patch } : l)),
+            })
+          }
         />
       ) : (
         <p className="text-sm text-text-muted">
           {draft.lines.length > 0 ? t("dsr.entry.searchEmpty") : t("dsr.entry.empty")}
         </p>
       )}
-      {entry && onSaveAll && !locked ? (
+      {onSaveAll && !locked ? (
         <div>
           <Button variant="primary" disabled={saveDisabled} onClick={onSaveAll}>
             {savePending ? t("common.saving") : t("dsr.entry.saveAll")}

@@ -3,7 +3,7 @@ import { permissionIds } from "./definitions/permissions";
 import { MIN_PASSWORD_LENGTH } from "./organization";
 import { idSchema } from "./primitives";
 
-export const loginRoleKinds = ["manager", "dsr"] as const;
+export const loginRoleKinds = ["manager", "dsr", "tsm"] as const;
 export type LoginRoleKind = (typeof loginRoleKinds)[number];
 
 /** A role is a named set of fixed permission IDs (guide §12.2 / D112). */
