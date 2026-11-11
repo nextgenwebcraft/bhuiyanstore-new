@@ -367,8 +367,7 @@ export function ReceiptForm({
               const draft = drafts.get(line.key);
               const wrong = draft !== null && draft !== undefined && "error" in draft;
               const rows = lines.filter((l) => l.product.productId === product.productId);
-              const dueCount = dueLots(product).length;
-              const canAdd = line.first && rows.length < dueCount;
+              const canAdd = line.first && rows.length < line.lots.length;
               const takenIds = new Set(
                 rows.filter((l) => l.key !== line.key).map((l) => l.lot.id),
               );
@@ -388,14 +387,9 @@ export function ReceiptForm({
                           {product.sku} · {t("godown.column.size")}{" "}
                           {quantity(product.piecesPerCarton)}
                         </div>
-                        <CurrentBatches product={product} />
-                        {product.lots.length > 1 ? (
+                        {canAdd ? (
                           <Button
                             className="mt-2 px-2 py-1 text-xs"
-                            disabled={!canAdd}
-                            title={
-                              canAdd ? t("dsr.sheet.addBatch") : t("godown.receipt.noBatch")
-                            }
                             onClick={() =>
                               setAdded((current) => [
                                 ...current,
@@ -408,7 +402,11 @@ export function ReceiptForm({
                           >
                             {t("dsr.sheet.addBatch")}
                           </Button>
-                        ) : null}
+                        ) : (
+                          <div className="mt-1 text-xs font-normal text-text-muted">
+                            {t("godown.receipt.noOtherBatch")}
+                          </div>
+                        )}
                       </>
                     ) : (
                       <Button
@@ -442,11 +440,7 @@ export function ReceiptForm({
                       className={`${inputClass} min-w-56`}
                     >
                       {line.lots.map((l) => (
-                        <option
-                          key={l.id}
-                          value={l.id}
-                          disabled={(!hasDue(l) && l.id !== lot.id) || takenIds.has(l.id)}
-                        >
+                        <option key={l.id} value={l.id} disabled={takenIds.has(l.id)}>
                           {lotLabel(l, product.piecesPerCarton, showCost)}
                         </option>
                       ))}
