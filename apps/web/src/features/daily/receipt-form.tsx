@@ -29,9 +29,10 @@ import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 import { batchName, CellInput, clean, pairOf, PriceCells, type PricePair } from "./daily-kit";
 
 /**
- * Receiving ordered goods (D68, D118): each line names a batch that still has order due.
- * Batches with nothing due are not listed. Extra due batches are added with “+ আরেক ব্যাচ”
- * under the product name. Paid and free pieces are entered separately; neither may exceed its due.
+ * Receiving ordered goods (D68, D118, D125): one row per batch that still has order/free due.
+ * Batches with nothing due are not listed. A secondary row can be hidden with × and restored
+ * with “+ আরেক ব্যাচ” under the product name. Paid and free are entered separately; neither may
+ * exceed its due. Manager cannot reprice; Super Admin may.
  */
 type Product = DayView["products"][number];
 type Edit = {
@@ -119,7 +120,8 @@ export function ReceiptForm({
   const { loginRoleKind } = useCurrentWorkspace();
   const post = usePostStockEntries(companyId);
   const [edits, setEdits] = useState<Record<string, Edit>>({});
-  const [added, setAdded] = useState<{ key: string; productId: string }[]>([]);
+  /** Due-batch rows the user hid with ×; “+ আরেক ব্যাচ” brings one back. */
+  const [hidden, setHidden] = useState<ReadonlySet<string>>(() => new Set());
   const [error, setError] = useState<string | undefined>();
   const [done, setDone] = useState(false);
   const showCost = view.canSeeCost;
@@ -131,23 +133,29 @@ export function ReceiptForm({
     setEdits((current) => ({ ...current, [key]: { ...current[key], ...patch } }));
   };
 
+  /** Stable row key for a due lot: the product's first lot uses productId (D125). */
+  const dueKey = (productId: string, lotId: string, index: number) =>
+    index === 0 ? productId : `${productId}#due:${lotId}`;
+
   /**
-   * One line per product with goods due, plus lines added for its other due batches. Only
-   * batches that still have order/free due appear (D68). Extra due batches are added with
-   * “+ আরেক ব্যাচ” under the product name.
+   * One row per due batch (D125/D68). Only batches with order/free due appear. Hiding a row
+   * with × and restoring with “+ আরেক ব্যাচ” under the product name keeps the day-sheet pattern.
    */
   const lines: Line[] = view.products.flatMap((product) => {
     const lots = dueLots(product);
     if (lots.length === 0) return [];
-    const keys = [
-      product.productId,
-      ...added.filter((a) => a.productId === product.productId).map((a) => a.key),
-    ];
+    const keys = lots
+      .map((lot, index) => dueKey(product.productId, lot.id, index))
+      .filter((key) => !hidden.has(key));
     const used = new Set<string>();
     return keys.flatMap((key, index) => {
       const own = edits[key] ?? {};
+      const preferredId = key.includes("#due:") ? key.slice(key.indexOf("#due:") + 5) : undefined;
       const lot =
         lots.find((l) => l.id === own.batchId && !used.has(l.id)) ??
+        (preferredId
+          ? lots.find((l) => l.id === preferredId && !used.has(l.id))
+          : undefined) ??
         lots.find((l) => !used.has(l.id)) ??
         lots[0];
       if (!lot) return [];
@@ -253,7 +261,7 @@ export function ReceiptForm({
     try {
       await post.mutateAsync(built);
       setEdits({});
-      setAdded([]);
+      setHidden(new Set());
       setDone(true);
     } catch (e) {
       setError(describeError(e, []).form);
@@ -367,7 +375,10 @@ export function ReceiptForm({
               const draft = drafts.get(line.key);
               const wrong = draft !== null && draft !== undefined && "error" in draft;
               const rows = lines.filter((l) => l.product.productId === product.productId);
-              const canAdd = line.first && rows.length < line.lots.length;
+              const hiddenForProduct = [...hidden].filter((key) =>
+                key === product.productId || key.startsWith(`${product.productId}#`),
+              );
+              const canAdd = line.first && hiddenForProduct.length > 0;
               const takenIds = new Set(
                 rows.filter((l) => l.key !== line.key).map((l) => l.lot.id),
               );
@@ -390,15 +401,16 @@ export function ReceiptForm({
                         {canAdd ? (
                           <Button
                             className="mt-2 px-2 py-1 text-xs"
-                            onClick={() =>
-                              setAdded((current) => [
-                                ...current,
-                                {
-                                  key: `${product.productId}#${crypto.randomUUID()}`,
-                                  productId: product.productId,
-                                },
-                              ])
-                            }
+                            onClick={() => {
+                              const restore = hiddenForProduct[0];
+                              if (!restore) return;
+                              setHidden((current) => {
+                                const next = new Set(current);
+                                next.delete(restore);
+                                return next;
+                              });
+                              setDone(false);
+                            }}
                           >
                             {t("dsr.sheet.addBatch")}
                           </Button>
@@ -414,12 +426,13 @@ export function ReceiptForm({
                         title={t("dsr.sheet.removeBatch")}
                         className="px-2 py-1 text-xs"
                         onClick={() => {
-                          setAdded((current) => current.filter((a) => a.key !== line.key));
+                          setHidden((current) => new Set(current).add(line.key));
                           setEdits((current) =>
                             Object.fromEntries(
                               Object.entries(current).filter(([key]) => key !== line.key),
                             ),
                           );
+                          setDone(false);
                         }}
                       >
                         ×
