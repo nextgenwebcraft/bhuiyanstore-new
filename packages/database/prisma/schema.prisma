@@ -170,7 +170,7 @@ model Role {
   id          String           @id @default(cuid())
   tenantId    String           @map("tenant_id")
   name        String
-  /// D112: fixed login roles only — `manager` | `dsr`. Super Admin is User.isSuperAdmin, not a Role.
+  /// D112: fixed login roles only — `manager` | `dsr` | `tsm`. Super Admin is User.isSuperAdmin, not a Role.
   kind        String?
   createdAt   DateTime         @default(now()) @map("created_at")
   tenant      Tenant           @relation(fields: [tenantId], references: [id])

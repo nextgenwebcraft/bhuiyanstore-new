@@ -1,13 +1,14 @@
 "use client";
 
 import type { DayView, ProductLot, StockEntryPostRequest } from "@bsd/contracts";
-import { sumQuantities, toBaseQuantity, toDecimal } from "@bsd/domain";
+import { sumAmounts, sumQuantities, toBaseQuantity, toDecimal } from "@bsd/domain";
 import { formatRate, t } from "@bsd/i18n";
 import { useState } from "react";
 import { Button } from "@/components/button";
 import {
   CartonQty,
   cartonText,
+  money,
   quantity,
   stickyCell,
   stickyHead,
@@ -24,12 +25,14 @@ import { TableScroller } from "@/components/table-scroller";
 import { TableSummary, type SummaryItem } from "@/components/table-summary";
 import { describeError } from "@/data/ports/service-error";
 import { usePostStockEntries } from "@/data/queries";
-import { visibleBatches } from "./day-report-page";
+import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 import { batchName, CellInput, clean, pairOf, PriceCells, type PricePair } from "./daily-kit";
 
 /**
- * Receiving ordered goods (D68, D118): each line names the batch it fills. Paid and free pieces
- * due on the batch are shown and entered separately; neither may exceed its due.
+ * Receiving ordered goods (D68, D118, D125): one row per batch that still has order/free due.
+ * Batches with nothing due are not listed. A secondary row can be hidden with × and restored
+ * with “+ আরেক ব্যাচ” under the product name. Paid and free are entered separately; neither may
+ * exceed its due. Manager cannot reprice; Super Admin may.
  */
 type Product = DayView["products"][number];
 type Edit = {
@@ -58,7 +61,7 @@ type Line = {
 type PostLine = NonNullable<StockEntryPostRequest["lines"]>[number];
 type Draft =
   | { error: string }
-  | { pieces: string; free: string; line: PostLine };
+  | { pieces: string; free: string; costAmount: string; line: PostLine };
 
 const whole = /^\d+$/;
 const unitPrice = /^\d+(\.\d{1,6})?$/;
@@ -84,26 +87,24 @@ function lotLabel(lot: ProductLot, piecesPerCarton: string, showCost: boolean): 
   return parts.join(" · ");
 }
 
-/** The product's batches in stock, one line each, collapsed under the product name (D49). */
-function CurrentBatches({ product }: { product: Product }) {
-  const batches = visibleBatches(product);
-  if (batches.length === 0) return null;
+function ReadPriceCells({
+  label,
+  value,
+  className = "",
+}: {
+  label: string;
+  value: PricePair;
+  className?: string;
+}) {
   return (
-    <details className="mt-1 text-xs font-normal text-text-muted">
-      <summary className="cursor-pointer">{t("batch.current")}</summary>
-      <ul className="mt-1 flex flex-col gap-0.5">
-        {batches.map((b) => (
-          <li key={b.key}>
-            {batchName(b)} · {cartonText(b.quantity, product.piecesPerCarton)} @{" "}
-            {b.costPrice === null
-              ? ""
-              : `${t("batch.costShort")} ${t("batch.currency")}${formatRate(b.costPrice)} / `}
-            {t("batch.saleShort")} {t("batch.currency")}
-            {formatRate(b.salePrice)}
-          </li>
-        ))}
-      </ul>
-    </details>
+    <>
+      <td className={`${tdNum} ${className}`} title={`${label} ${t("godown.price.carton")}`}>
+        {value.carton ? formatRate(value.carton) : "—"}
+      </td>
+      <td className={tdNum} title={`${label} ${t("godown.price.piece")}`}>
+        {value.piece ? formatRate(value.piece) : "—"}
+      </td>
+    </>
   );
 }
 
@@ -116,30 +117,47 @@ export function ReceiptForm({
   date: string;
   view: DayView;
 }) {
+  const { loginRoleKind } = useCurrentWorkspace();
   const post = usePostStockEntries(companyId);
   const [edits, setEdits] = useState<Record<string, Edit>>({});
-  const [added, setAdded] = useState<{ key: string; productId: string }[]>([]);
+  /** Due-batch rows the user hid with ×; “+ আরেক ব্যাচ” brings one back. */
+  const [hidden, setHidden] = useState<ReadonlySet<string>>(() => new Set());
   const [error, setError] = useState<string | undefined>();
   const [done, setDone] = useState(false);
   const showCost = view.canSeeCost;
+  /** Super Admin alone may change batch rates on receive; Manager sees them read-only. */
+  const canEditPrices = loginRoleKind === null;
 
   const edit = (key: string, patch: Edit) => {
     setDone(false);
     setEdits((current) => ({ ...current, [key]: { ...current[key], ...patch } }));
   };
 
-  /** One line per product with goods due, plus the lines added for its other batches. */
+  /** Stable row key for a due lot: the product's first lot uses productId (D125). */
+  const dueKey = (productId: string, lotId: string, index: number) =>
+    index === 0 ? productId : `${productId}#due:${lotId}`;
+
+  /**
+   * One row per due batch (D125/D68). Only batches with order/free due appear. Hiding a row
+   * with × and restoring with “+ আরেক ব্যাচ” under the product name keeps the day-sheet pattern.
+   */
   const lines: Line[] = view.products.flatMap((product) => {
     const lots = dueLots(product);
-    const keys = [
-      product.productId,
-      ...added.filter((a) => a.productId === product.productId).map((a) => a.key),
-    ];
+    if (lots.length === 0) return [];
+    const keys = lots
+      .map((lot, index) => dueKey(product.productId, lot.id, index))
+      .filter((key) => !hidden.has(key));
     const used = new Set<string>();
     return keys.flatMap((key, index) => {
       const own = edits[key] ?? {};
+      const preferredId = key.includes("#due:") ? key.slice(key.indexOf("#due:") + 5) : undefined;
       const lot =
-        lots.find((l) => l.id === own.batchId) ?? lots.find((l) => !used.has(l.id)) ?? lots[0];
+        lots.find((l) => l.id === own.batchId && !used.has(l.id)) ??
+        (preferredId
+          ? lots.find((l) => l.id === preferredId && !used.has(l.id))
+          : undefined) ??
+        lots.find((l) => !used.has(l.id)) ??
+        lots[0];
       if (!lot) return [];
       used.add(lot.id);
       return {
@@ -198,17 +216,21 @@ export function ReceiptForm({
         out.set(line.key, { error: t("godown.order.priceMissing") });
         continue;
       }
+      const costAmount =
+        showCost && unitPrice.test(costPrice)
+          ? toDecimal(paid).add(free).mul(costPrice).toString()
+          : "0";
       out.set(line.key, {
         pieces: paid,
         free,
+        costAmount,
         line: {
           kind: "receipt",
           productId: line.product.productId,
           pieces: paid,
           ...(free !== "0" ? { freePieces: free } : {}),
           batchId: line.lot.id,
-          salePrice,
-          ...(showCost ? { costPrice } : {}),
+          ...(canEditPrices ? { salePrice, ...(showCost ? { costPrice } : {}) } : {}),
         },
       });
     }
@@ -239,7 +261,7 @@ export function ReceiptForm({
     try {
       await post.mutateAsync(built);
       setEdits({});
-      setAdded([]);
+      setHidden(new Set());
       setDone(true);
     } catch (e) {
       setError(describeError(e, []).form);
@@ -248,6 +270,7 @@ export function ReceiptForm({
 
   if (lines.length === 0) return <StatePanel title={t("godown.receipt.noBatch")} />;
   const entering = [...drafts.values()].flatMap((d) => (d && !("error" in d) ? [d] : []));
+  const enteringCost = sumAmounts(["0", ...entering.map((d) => d.costAmount)]);
   const summary: SummaryItem[] = [
     { label: t("table.summary.products"), value: quantity(String(lines.length)) },
     { label: t("godown.summary.entering"), value: quantity(String(entering.length)) },
@@ -257,10 +280,19 @@ export function ReceiptForm({
         sumQuantities(entering.flatMap((d) => [d.pieces, d.free === "0" ? [] : [d.free]].flat())),
       ),
     },
+    ...(showCost
+      ? [
+          {
+            label: t("godown.summary.enteringCost"),
+            value: money(enteringCost),
+            emphasis: true as const,
+          },
+        ]
+      : []),
     {
       label: `${t("day.column.received")} (${t("godown.column.pieces")})`,
       value: quantity(sumQuantities(view.products.map((p) => p.received))),
-      emphasis: true,
+      emphasis: !showCost,
     },
   ];
 
@@ -306,14 +338,16 @@ export function ReceiptForm({
               <th scope="col" colSpan={2} className={`${thCenter} border-b border-l border-border`}>
                 {t("godown.order.saleGroup")}
               </th>
+              {showCost ? (
+                <th scope="col" rowSpan={2} className={`${thNum} whitespace-nowrap`}>
+                  {t("godown.receipt.costAmount")}
+                </th>
+              ) : null}
               <th scope="col" rowSpan={2} className={`${thNum} whitespace-nowrap`}>
                 {t("godown.column.stock")}
                 <span className="block text-[10.5px] font-normal text-text-subtle">
                   {t("common.cartonPiece")}
                 </span>
-              </th>
-              <th scope="col" rowSpan={2} className={thClass}>
-                <span className="sr-only">{t("dsr.sheet.addBatch")}</span>
               </th>
             </tr>
             <tr>
@@ -341,8 +375,16 @@ export function ReceiptForm({
               const draft = drafts.get(line.key);
               const wrong = draft !== null && draft !== undefined && "error" in draft;
               const rows = lines.filter((l) => l.product.productId === product.productId);
-              const canAdd = line.first && rows.length < line.lots.length;
+              const hiddenForProduct = [...hidden].filter((key) =>
+                key === product.productId || key.startsWith(`${product.productId}#`),
+              );
+              const canAdd = line.first && hiddenForProduct.length > 0;
+              const takenIds = new Set(
+                rows.filter((l) => l.key !== line.key).map((l) => l.lot.id),
+              );
               const freeOff = toDecimal(lot.undeliveredFree).lte(0);
+              const costAmount =
+                draft && !("error" in draft) ? draft.costAmount : previewCost(line);
               return (
                 <tr
                   key={line.key}
@@ -356,9 +398,46 @@ export function ReceiptForm({
                           {product.sku} · {t("godown.column.size")}{" "}
                           {quantity(product.piecesPerCarton)}
                         </div>
-                        <CurrentBatches product={product} />
+                        {canAdd ? (
+                          <Button
+                            className="mt-2 px-2 py-1 text-xs"
+                            onClick={() => {
+                              const restore = hiddenForProduct[0];
+                              if (!restore) return;
+                              setHidden((current) => {
+                                const next = new Set(current);
+                                next.delete(restore);
+                                return next;
+                              });
+                              setDone(false);
+                            }}
+                          >
+                            {t("dsr.sheet.addBatch")}
+                          </Button>
+                        ) : (
+                          <div className="mt-1 text-xs font-normal text-text-muted">
+                            {t("godown.receipt.noOtherBatch")}
+                          </div>
+                        )}
                       </>
-                    ) : null}
+                    ) : (
+                      <Button
+                        aria-label={t("dsr.sheet.removeBatch")}
+                        title={t("dsr.sheet.removeBatch")}
+                        className="px-2 py-1 text-xs"
+                        onClick={() => {
+                          setHidden((current) => new Set(current).add(line.key));
+                          setEdits((current) =>
+                            Object.fromEntries(
+                              Object.entries(current).filter(([key]) => key !== line.key),
+                            ),
+                          );
+                          setDone(false);
+                        }}
+                      >
+                        ×
+                      </Button>
+                    )}
                   </th>
                   <td className={tdClass}>
                     <select
@@ -374,13 +453,14 @@ export function ReceiptForm({
                       className={`${inputClass} min-w-56`}
                     >
                       {line.lots.map((l) => (
-                        <option key={l.id} value={l.id}>
+                        <option key={l.id} value={l.id} disabled={takenIds.has(l.id)}>
                           {lotLabel(l, product.piecesPerCarton, showCost)}
                         </option>
                       ))}
                     </select>
                     <div className="mt-1 text-[10.5px] text-text-muted">
-                      {t("godown.receipt.due")} {cartonText(lot.undeliveredPaid, product.piecesPerCarton)}
+                      {t("godown.receipt.due")}{" "}
+                      {cartonText(lot.undeliveredPaid, product.piecesPerCarton)}
                       {toDecimal(lot.undeliveredFree).gt(0) ? (
                         <>
                           {" · "}
@@ -429,60 +509,42 @@ export function ReceiptForm({
                     />
                   </td>
                   {showCost ? (
+                    canEditPrices ? (
+                      <PriceCells
+                        label={`${label} ${t("godown.order.purchaseGroup")}`}
+                        value={line.buy}
+                        piecesPerCarton={product.piecesPerCarton}
+                        onChange={(buy) => edit(line.key, { buy })}
+                        className="border-l border-border"
+                      />
+                    ) : (
+                      <ReadPriceCells
+                        label={`${label} ${t("godown.order.purchaseGroup")}`}
+                        value={line.buy}
+                        className="border-l border-border"
+                      />
+                    )
+                  ) : null}
+                  {canEditPrices ? (
                     <PriceCells
-                      label={`${label} ${t("godown.order.purchaseGroup")}`}
-                      value={line.buy}
+                      label={`${label} ${t("godown.order.saleGroup")}`}
+                      value={line.sale}
                       piecesPerCarton={product.piecesPerCarton}
-                      onChange={(buy) => edit(line.key, { buy })}
+                      onChange={(sale) => edit(line.key, { sale })}
                       className="border-l border-border"
                     />
-                  ) : null}
-                  <PriceCells
-                    label={`${label} ${t("godown.order.saleGroup")}`}
-                    value={line.sale}
-                    piecesPerCarton={product.piecesPerCarton}
-                    onChange={(sale) => edit(line.key, { sale })}
-                    className="border-l border-border"
-                  />
+                  ) : (
+                    <ReadPriceCells
+                      label={`${label} ${t("godown.order.saleGroup")}`}
+                      value={line.sale}
+                      className="border-l border-border"
+                    />
+                  )}
+                  {showCost ? <td className={tdNum}>{money(costAmount)}</td> : null}
                   <td className={tdNum}>
                     {line.first ? (
                       <CartonQty pieces={product.stock} piecesPerCarton={product.piecesPerCarton} />
                     ) : null}
-                  </td>
-                  <td className={`${tdClass} whitespace-nowrap`}>
-                    {canAdd ? (
-                      <Button
-                        className="px-2 py-1 text-xs"
-                        onClick={() =>
-                          setAdded((current) => [
-                            ...current,
-                            {
-                              key: `${product.productId}#${crypto.randomUUID()}`,
-                              productId: product.productId,
-                            },
-                          ])
-                        }
-                      >
-                        {t("dsr.sheet.addBatch")}
-                      </Button>
-                    ) : null}
-                    {line.first ? null : (
-                      <Button
-                        aria-label={t("dsr.sheet.removeBatch")}
-                        title={t("dsr.sheet.removeBatch")}
-                        className="px-2 py-1 text-xs"
-                        onClick={() => {
-                          setAdded((current) => current.filter((a) => a.key !== line.key));
-                          setEdits((current) =>
-                            Object.fromEntries(
-                              Object.entries(current).filter(([key]) => key !== line.key),
-                            ),
-                          );
-                        }}
-                      >
-                        ×
-                      </Button>
-                    )}
                   </td>
                 </tr>
               );
@@ -502,6 +564,18 @@ export function ReceiptForm({
       </div>
     </div>
   );
+}
+
+function previewCost(line: Line): string {
+  const vals = [line.cartons, line.pieces, line.freeCartons, line.freePieces].map(
+    (v) => clean(v) || "0",
+  );
+  if (!vals.every((v) => whole.test(v))) return "0";
+  const costPrice = clean(line.buy.piece);
+  if (!unitPrice.test(costPrice)) return "0";
+  const paid = toBaseQuantity(vals[0]!, vals[1]!, line.product.piecesPerCarton);
+  const free = toBaseQuantity(vals[2]!, vals[3]!, line.product.piecesPerCarton);
+  return toDecimal(paid).add(free).mul(costPrice).toString();
 }
 
 function PriceHeads() {

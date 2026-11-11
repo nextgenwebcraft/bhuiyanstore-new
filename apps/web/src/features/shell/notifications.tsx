@@ -1,11 +1,11 @@
 "use client";
 
-import type { OrderTarget } from "@bsd/contracts";
+import type { OrderTarget, StockEntry } from "@bsd/contracts";
 import { toDecimal } from "@bsd/domain";
 import { t, formatCount, toBengaliDigits } from "@bsd/i18n";
 import { useId, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@/components/icons";
-import { useDayView, useOrderTargets } from "@/data/queries";
+import { useDayView, useOrderTargets, useStockEntries } from "@/data/queries";
 import { targetLabel, targetMetric } from "@/features/targets/target-progress";
 import { useToday } from "@/lib/today";
 import { useCurrentWorkspace } from "./workspace-context";
@@ -63,6 +63,18 @@ function nearTargetAlerts(targets: readonly OrderTarget[]): Alert[] {
     }));
 }
 
+function pendingOrderAlerts(entries: readonly StockEntry[]): Alert[] {
+  const pending = entries.filter((e) => e.kind === "order" && e.status === "pending");
+  if (pending.length === 0) return [];
+  return [
+    {
+      id: "pending-orders",
+      title: t("notify.pendingOrders"),
+      detail: `${formatCount(pending.length)} · ${t("notify.pendingOrdersHint")}`,
+    },
+  ];
+}
+
 function AlertList({ alerts }: { alerts: readonly Alert[] }) {
   if (alerts.length === 0) {
     return (
@@ -86,18 +98,25 @@ function AlertList({ alerts }: { alerts: readonly Alert[] }) {
 
 /** Header bell: out-of-stock products and near order targets (D121). */
 export function NotificationBell() {
-  const { company } = useCurrentWorkspace();
+  const { company, permissions, loginRoleKind } = useCurrentWorkspace();
   const today = useToday();
   const operating = !company.isMaster;
   const day = useDayView(company.id, today, operating);
   const targets = useOrderTargets(company.id, false, operating);
+  const watchOrders =
+    operating &&
+    (permissions.includes("purchase.approve") ||
+      permissions.includes("purchase.create") ||
+      loginRoleKind === "tsm");
+  const stock = useStockEntries(company.id, today, watchOrders);
   const alerts = useMemo(() => {
     if (!operating) return [];
     return [
       ...outOfStockAlerts(day.data?.products ?? []),
       ...nearTargetAlerts(targets.data?.items ?? []),
+      ...(watchOrders ? pendingOrderAlerts(stock.data ?? []) : []),
     ];
-  }, [operating, day.data?.products, targets.data?.items]);
+  }, [operating, day.data?.products, targets.data?.items, watchOrders, stock.data]);
   const count = alerts.length;
   const panelId = useId();
   const rootRef = useRef<HTMLDivElement>(null);

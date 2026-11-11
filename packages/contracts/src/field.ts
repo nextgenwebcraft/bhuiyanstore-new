@@ -178,8 +178,8 @@ export const staffLoginCreateRequestSchema = z.object({
   email: z.email().max(200),
   /** One-time password; the user changes it at first sign-in. */
   password: z.string().min(MIN_PASSWORD_LENGTH).max(128),
-  /** Fixed login role Manager or DSR. */
-  roleKind: z.enum(["manager", "dsr"]).default("dsr"),
+  /** Fixed login role Manager, DSR or TSM. */
+  roleKind: z.enum(["manager", "dsr", "tsm"]).default("dsr"),
   /** Operating companies this login may open (never the master panel). */
   companyIds: z.array(idSchema).min(1),
 });
@@ -188,7 +188,7 @@ export type StaffLoginCreateRequest = z.infer<typeof staffLoginCreateRequestSche
 
 /** Updates role, company access and active flag for a staff-linked login (D113). */
 export const staffLoginUpdateRequestSchema = z.object({
-  roleKind: z.enum(["manager", "dsr"]),
+  roleKind: z.enum(["manager", "dsr", "tsm"]),
   companyIds: z.array(idSchema).min(1),
   active: z.boolean(),
 });

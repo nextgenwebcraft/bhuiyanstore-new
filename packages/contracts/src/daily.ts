@@ -28,6 +28,10 @@ export const positiveAmountSchema = positiveAmountStringSchema("validation.amoun
 export const documentStatuses = ["posted", "reversed"] as const;
 export type DocumentStatus = (typeof documentStatuses)[number];
 
+/** Stock entries: TSM orders stay `pending` until Manager/Super Admin approve. */
+export const stockEntryStatuses = ["pending", "posted", "reversed"] as const;
+export type StockEntryStatus = (typeof stockEntryStatuses)[number];
+
 // ---------------------------------------------------------------- godown (stock entries)
 
 /** Excel `C` Due Quantity (order), `G` Receive (receipt) and `N` DAMAGE PRODUCT (damage). */
@@ -70,7 +74,7 @@ export const stockEntrySchema = z.object({
   /** D68: per-piece prices (an order's batch prices, a receipt's own); cost null without cost view. */
   costPrice: decimalStringSchema.nullable(),
   salePrice: decimalStringSchema.nullable(),
-  status: z.enum(documentStatuses),
+  status: z.enum(stockEntryStatuses),
   createdAt: z.string(),
   reversedAt: z.string().nullable(),
 });

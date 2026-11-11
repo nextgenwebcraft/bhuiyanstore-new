@@ -8,7 +8,6 @@ import { Button } from "@/components/button";
 import { useConfirm } from "@/components/confirm-dialog";
 import {
   money,
-  StatusChip,
   tableClass,
   tdClass,
   tdNum,
@@ -174,7 +173,7 @@ export function OperatingCostEntry({
         <QueryError error={entries.error} onRetry={() => void entries.refetch()} />
       ) : (
         <Entries
-          rows={(entries.data ?? []).filter((e) => e.kind === "expense")}
+          rows={(entries.data ?? []).filter((e) => e.kind === "expense" && e.status === "posted")}
           canEdit={canEdit}
           onEdit={startEdit}
         />
@@ -212,9 +211,6 @@ function Entries({
                 <th scope="col" className={thNum}>
                   {t("common.amount")}
                 </th>
-                <th scope="col" className={thClass}>
-                  {t("common.status")}
-                </th>
                 {canEdit ? (
                   <th scope="col" className={thClass}>
                     <span className="sr-only">{t("common.edit")}</span>
@@ -227,12 +223,9 @@ function Entries({
                 <tr key={entry.id} className="border-t border-border">
                   <td className={tdClass}>{entry.categoryName}</td>
                   <td className={tdNum}>{money(entry.amount)}</td>
-                  <td className={tdClass}>
-                    <StatusChip status={entry.status} />
-                  </td>
                   {canEdit ? (
                     <td className={`${tdClass} text-right`}>
-                      {entry.status === "posted" && !entry.dsrDayId && !entry.payrollRunId ? (
+                      {!entry.dsrDayId && !entry.payrollRunId ? (
                         <Button onClick={() => onEdit(entry)}>{t("common.edit")}</Button>
                       ) : null}
                     </td>

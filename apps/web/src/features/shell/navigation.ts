@@ -283,11 +283,33 @@ const MANAGER_HIDDEN_HUBS: ReadonlySet<HubId> = new Set([
   "setup",
 ]);
 
+/**
+ * D112: DSR only opens the dashboard and দৈনিক বিক্রয় হিসাব (sheet money/dues live on that
+ * page). Other hubs/paths are forbidden even by URL.
+ */
+const DSR_ALLOWED_PATHS: ReadonlySet<string> = new Set(["", "sales/daily-summaries"]);
+
+/** TSM only sees dashboard + অর্ডার ও মজুদ (orders / stock / undelivered — not মাল গ্রহণ). */
+const TSM_ALLOWED_PATHS: ReadonlySet<string> = new Set([
+  "",
+  "purchases/orders",
+  "inventory/stock",
+  "inventory/undelivered",
+]);
+
 /** The hubs with at least one screen this person may open in this company, tabs cut down too. */
 export function visibleHubs(workspace: CompanyWorkspace): VisibleHub[] {
   return hubsFor(workspace.company.isMaster).flatMap((hub): VisibleHub[] => {
     if (workspace.loginRoleKind === "manager" && MANAGER_HIDDEN_HUBS.has(hub.id)) return [];
+    if (workspace.loginRoleKind === "dsr" && hub.id !== "dashboard" && hub.id !== "sales") {
+      return [];
+    }
+    if (workspace.loginRoleKind === "tsm" && hub.id !== "dashboard" && hub.id !== "goods") {
+      return [];
+    }
     const tabs = hub.tabs.flatMap((tab): VisibleTab[] => {
+      if (workspace.loginRoleKind === "dsr" && !DSR_ALLOWED_PATHS.has(tab.path)) return [];
+      if (workspace.loginRoleKind === "tsm" && !TSM_ALLOWED_PATHS.has(tab.path)) return [];
       const found = findNavEntry(tab.path);
       if (!found || navAccess(workspace, found.section, found.item) !== "ok") return [];
       return [{ path: tab.path, labelKey: tab.labelKey ?? found.item.labelKey }];
@@ -330,6 +352,12 @@ export function navAccess(
   const hub = hubOfPath(navItem.path, workspace.company.isMaster);
   if (!hub) return "forbidden";
   if (workspace.loginRoleKind === "manager" && MANAGER_HIDDEN_HUBS.has(hub.id)) {
+    return "forbidden";
+  }
+  if (workspace.loginRoleKind === "dsr" && !DSR_ALLOWED_PATHS.has(navItem.path)) {
+    return "forbidden";
+  }
+  if (workspace.loginRoleKind === "tsm" && !TSM_ALLOWED_PATHS.has(navItem.path)) {
     return "forbidden";
   }
   if (

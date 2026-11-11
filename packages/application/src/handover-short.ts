@@ -26,6 +26,7 @@ const MONEY_KINDS = [
   "staffRepayment",
   "srLoan",
   "srRepayment",
+  "expense",
 ] as const;
 
 type MoneyRow = {
@@ -74,6 +75,7 @@ export async function listHandoverShorts(
             damaged: true,
             commission: true,
             salePrice: true,
+            dsrStaffId: true,
           },
         },
       },
@@ -82,7 +84,6 @@ export async function listHandoverShorts(
       where: {
         companyId,
         status: "posted",
-        staffId: { not: null },
         date: range,
         kind: { in: [...MONEY_KINDS] },
       },
@@ -90,17 +91,18 @@ export async function listHandoverShorts(
     }),
     db.fieldVisit.findMany({
       where: { companyId, date: range },
-      include: { lines: { select: { delivered: true, unitPrice: true } } },
+      include: {
+        lines: { select: { delivered: true, unitPrice: true } },
+      },
     }),
   ]);
 
-  const moneyByKey = new Map<string, MoneyRow[]>();
+  const moneyByDate = new Map<string, MoneyRow[]>();
   for (const entry of entries) {
-    if (!entry.staffId) continue;
-    const key = `${entry.staffId}|${fromDbDate(entry.date)}`;
-    const list = moneyByKey.get(key) ?? [];
+    const key = fromDbDate(entry.date);
+    const list = moneyByDate.get(key) ?? [];
     list.push(entry);
-    moneyByKey.set(key, list);
+    moneyByDate.set(key, list);
   }
   const visitsByKey = new Map<string, typeof visits>();
   for (const visit of visits) {
@@ -114,9 +116,12 @@ export async function listHandoverShorts(
   for (const day of days) {
     if (day.cashHandedOver === null) continue;
     const date = fromDbDate(day.date);
-    const key = `${day.staffId}|${date}`;
-    const money = moneyByKey.get(key) ?? [];
-    const field = visitsByKey.get(key) ?? [];
+    const dayMoney = moneyByDate.get(date) ?? [];
+    const dsrIds = new Set(day.lines.map((l) => l.dsrStaffId));
+    const teamMoney = dayMoney.filter((e) => e.staffId !== null && dsrIds.has(e.staffId));
+    const srMoney = dayMoney.filter((e) => e.staffId === day.staffId);
+    const dsrOnly = teamMoney.filter((e) => e.staffId !== day.staffId);
+    const field = visitsByKey.get(`${day.staffId}|${date}`) ?? [];
     const sales = sumAmounts(
       day.lines.map((line) => {
         const sold = toDecimal(text(line.issued)).sub(text(line.returned)).sub(text(line.damaged));
@@ -126,7 +131,7 @@ export async function listHandoverShorts(
           .toString();
       }),
     );
-    const dueGiven =
+    const fieldDueGiven =
       field.length > 0
         ? toDecimal(
             sumAmounts(
@@ -139,21 +144,36 @@ export async function listHandoverShorts(
           )
             .sub(sumAmounts(["0", ...field.map((visit) => text(visit.cashReceived))]))
             .toString()
-        : sumAmounts([text(day.marketDueNew), sumOf(money, "marketDueNew")]);
-    const dueCollected =
+        : "0";
+    const dueGiven = sumAmounts([
+      fieldDueGiven,
+      sumOf(dsrOnly, "marketDueNew"),
+      text(day.marketDueNew),
+    ]);
+    const dueCollected = sumAmounts([
       field.length > 0
         ? sumAmounts(["0", ...field.map((visit) => text(visit.dueCollected))])
-        : sumAmounts([text(day.marketDueCollected), sumOf(money, "marketDueCollected")]);
-    const staffMoney = toDecimal(sumOf(money, "staffRepayment"))
-      .add(sumOf(money, "srRepayment", true))
-      .sub(sumOf(money, "staffAdvance"))
-      .sub(sumOf(money, "staffShortage"))
-      .sub(sumOf(money, "srLoan", true));
+        : "0",
+      sumOf(dsrOnly, "marketDueCollected"),
+      text(day.marketDueCollected),
+    ]);
+    const staffMoney = toDecimal(sumOf(srMoney, "staffRepayment"))
+      .add(sumOf(dsrOnly, "staffRepayment"))
+      .add(sumOf(srMoney, "srRepayment", true))
+      .sub(sumOf(srMoney, "staffAdvance"))
+      .sub(sumOf(dsrOnly, "staffAdvance"))
+      .sub(sumOf(srMoney, "staffShortage"))
+      .sub(sumOf(dsrOnly, "staffShortage"))
+      .sub(sumOf(srMoney, "srLoan", true));
     const settlement = dsrCashSettlement({
       sales,
       dueGiven,
       dueCollected,
-      expenses: sumOf(money, "staffCostPaid"),
+      expenses: sumOf(teamMoney, "staffCostPaid"),
+      operatingCost: sumOf(
+        dayMoney.filter((e) => e.kind === "expense"),
+        "expense",
+      ),
       staffMoney: staffMoney.toString(),
       handedOver: text(day.cashHandedOver),
     });

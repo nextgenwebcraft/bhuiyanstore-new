@@ -141,6 +141,15 @@ export function useDashboardSummary(companyId: string, range: ReportRange) {
   });
 }
 
+export function useApproveDsrHandoversForRange(companyId: string) {
+  const service = useService();
+  return usePostingMutation(
+    companyId,
+    "dsrDay",
+    (range: { from: string; to: string }) => service.approveDsrHandoversForRange(companyId, range),
+  );
+}
+
 export function useCreateProduct(companyId: string) {
   const service = useService();
   const invalidate = useInvalidate(companyId, "products");
@@ -196,12 +205,13 @@ export function useDayView(companyId: string, date: string, enabled = true) {
   });
 }
 
-export function useStockEntries(companyId: string, date: string) {
+export function useStockEntries(companyId: string, date: string, enabled = true) {
   const service = useService();
   const actorId = useActorId();
   return useQuery({
     queryKey: queryKeys.stockEntries(actorId, companyId, date),
     queryFn: ({ signal }) => service.listStockEntries(companyId, date, { signal }),
+    enabled: enabled && companyId !== "" && date !== "",
   });
 }
 
@@ -216,6 +226,20 @@ export function useReverseStockEntry(companyId: string) {
   const service = useService();
   return usePostingMutation(companyId, "stock", (entryId: string) =>
     service.reverseStockEntry(companyId, entryId),
+  );
+}
+
+export function useApprovePendingOrders(companyId: string) {
+  const service = useService();
+  return usePostingMutation(companyId, "stock", (date: string) =>
+    service.approvePendingOrders(companyId, date),
+  );
+}
+
+export function useDiscardPendingOrder(companyId: string) {
+  const service = useService();
+  return usePostingMutation(companyId, "stock", (entryId: string) =>
+    service.discardPendingOrder(companyId, entryId),
   );
 }
 

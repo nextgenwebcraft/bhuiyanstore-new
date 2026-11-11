@@ -11,7 +11,6 @@ import { Combobox, type ComboboxOption } from "@/components/combobox";
 import { exactMatch } from "@/components/combobox-logic";
 import {
   money,
-  StatusChip,
   tableClass,
   tdClass,
   tdNum,
@@ -266,8 +265,9 @@ function Entries({
   if (entries.isPending) return <FormSkeleton fields={1} />;
   if (entries.isError)
     return <QueryError error={entries.error} onRetry={() => void entries.refetch()} />;
-  const rows: MoneyEntry[] = entries.data.filter((e) =>
-    (KINDS as readonly string[]).includes(e.kind),
+  // Day sheet: only posted rows — corrected (বাতিল) history stays off this card.
+  const rows: MoneyEntry[] = entries.data.filter(
+    (e) => e.status === "posted" && (KINDS as readonly string[]).includes(e.kind),
   );
   const total = (kind: DueKind) =>
     sumAmounts([
@@ -295,9 +295,6 @@ function Entries({
                 <th scope="col" className={thNum}>
                   {t("common.amount")}
                 </th>
-                <th scope="col" className={thClass}>
-                  {t("common.status")}
-                </th>
                 {canEdit ? (
                   <th scope="col" className={thClass}>
                     <span className="sr-only">{t("common.edit")}</span>
@@ -311,16 +308,11 @@ function Entries({
                   <td className={tdClass}>{entry.shopName ?? t("shop.none")}</td>
                   <td className={tdClass}>{t(`money.kind.${entry.kind as DueKind}`)}</td>
                   <td className={tdNum}>{money(entry.amount)}</td>
-                  <td className={tdClass}>
-                    <StatusChip status={entry.status} />
-                  </td>
                   {canEdit ? (
                     <td className={`${tdClass} text-right`}>
                       {handEntered(entry) ? (
                         <div className="flex flex-wrap justify-end gap-2">
-                          {entry.status === "posted" ? (
-                            <Button onClick={() => onEdit(entry)}>{t("common.edit")}</Button>
-                          ) : null}
+                          <Button onClick={() => onEdit(entry)}>{t("common.edit")}</Button>
                           <DeleteButton
                             name={entry.shopName ?? t(`money.kind.${entry.kind as DueKind}`)}
                             message={t("money.deleteConfirm")}

@@ -106,4 +106,17 @@ describe("DSR cash handover (D39)", () => {
       }),
     ).toEqual({ expected: "4700.00", handedOver: "4700.00", difference: "0.00" });
   });
+
+  it("subtracts operating cost from expected cash", () => {
+    expect(
+      dsrCashSettlement({
+        sales: "5000",
+        dueGiven: "0",
+        dueCollected: "0",
+        expenses: "100",
+        operatingCost: "200",
+        handedOver: "4700",
+      }),
+    ).toEqual({ expected: "4700.00", handedOver: "4700.00", difference: "0.00" });
+  });
 });

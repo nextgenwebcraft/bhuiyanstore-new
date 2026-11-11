@@ -38,7 +38,7 @@ export const companyWorkspaceSchema = z.object({
   /**
    * D112: fixed login role for this membership. Null for Super Admin (full access via isSuperAdmin).
    */
-  loginRoleKind: z.enum(["manager", "dsr"]).nullable().default(null),
+  loginRoleKind: z.enum(["manager", "dsr", "tsm"]).nullable().default(null),
 });
 
 export type CompanyWorkspace = z.infer<typeof companyWorkspaceSchema>;

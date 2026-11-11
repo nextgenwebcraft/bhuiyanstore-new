@@ -68,7 +68,7 @@ export const staffRecordSchema = z.object({
   /** Login email linked to this person (D112); null = none. */
   loginEmail: z.string().nullable(),
   /** Fixed login role when a login exists; null = none (D112 / D113). */
-  loginRoleKind: z.enum(["manager", "dsr"]).nullable(),
+  loginRoleKind: z.enum(["manager", "dsr", "tsm"]).nullable(),
   /** User.active for the linked login; null when no login. */
   loginActive: z.boolean().nullable(),
   /** Operating companies the login may open; empty when no login (D113). */

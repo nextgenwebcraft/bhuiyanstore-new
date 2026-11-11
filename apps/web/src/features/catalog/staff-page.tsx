@@ -480,7 +480,9 @@ function LoginDialog({
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [resetting, setResetting] = useState(false);
-  const [roleKind, setRoleKind] = useState<"manager" | "dsr">(person.loginRoleKind ?? "dsr");
+  const [roleKind, setRoleKind] = useState<"manager" | "dsr" | "tsm">(
+    person.loginRoleKind ?? "dsr",
+  );
   const [active, setActive] = useState(person.loginActive ?? true);
   const onlyCompany = companies.length === 1 ? companies[0] : undefined;
   const [companyIds, setCompanyIds] = useState<string[]>(
@@ -559,7 +561,7 @@ function LoginDialog({
       ) : null}
       <fieldset className="flex flex-wrap gap-4">
         <legend className="mb-1 text-sm font-medium">{t("staff.login.role")}</legend>
-        {(["dsr", "manager"] as const).map((kind) => (
+        {(["dsr", "manager", "tsm"] as const).map((kind) => (
           <label key={kind} className="flex min-h-(--touch-target) items-center gap-2 text-sm">
             <input
               type="radio"
@@ -567,7 +569,11 @@ function LoginDialog({
               checked={roleKind === kind}
               onChange={() => setRoleKind(kind)}
             />
-            {kind === "dsr" ? t("role.kind.dsr") : t("role.kind.manager")}
+            {kind === "dsr"
+              ? t("role.kind.dsr")
+              : kind === "manager"
+                ? t("role.kind.manager")
+                : t("role.kind.tsm")}
           </label>
         ))}
       </fieldset>

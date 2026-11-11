@@ -255,6 +255,18 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
         `${company(companyId)}/stock-entries/${id(entryId)}/reverse`,
         write("POST", {}),
       ),
+    approvePendingOrders: (companyId, date) =>
+      request(
+        z.array(stockEntrySchema),
+        `${company(companyId)}/stock-entries/approve`,
+        write("POST", { date }),
+      ),
+    discardPendingOrder: (companyId, entryId) =>
+      request(
+        z.undefined(),
+        `${company(companyId)}/stock-entries/${id(entryId)}/discard`,
+        write("POST", {}),
+      ),
     listDsrDays: (companyId, date, options) =>
       request(z.array(dsrDaySchema), `${company(companyId)}/dsr-days?date=${id(date)}`, options),
     saveDsrDay: (companyId, input) =>
@@ -281,6 +293,12 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
         dsrDaySchema,
         `${company(companyId)}/dsr-days/${id(dayId)}/handover-submit`,
         write("POST", input),
+      ),
+    approveDsrHandoversForRange: (companyId, range) =>
+      request(
+        z.object({ count: z.number().int().nonnegative() }),
+        `${company(companyId)}/dsr-handovers/approve`,
+        write("POST", range),
       ),
     approveDsrHandover: (companyId, dayId, input) =>
       request(

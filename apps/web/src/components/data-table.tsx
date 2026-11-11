@@ -37,11 +37,15 @@ export function ColumnHead({
   );
 }
 
-export function StatusChip({ status }: { status: "draft" | "posted" | "reversed" | "none" }) {
+export function StatusChip({
+  status,
+}: {
+  status: "draft" | "pending" | "posted" | "reversed" | "none";
+}) {
   const tone =
     status === "posted"
       ? "success"
-      : status === "draft"
+      : status === "draft" || status === "pending"
         ? "brand"
         : status === "reversed"
           ? "error"

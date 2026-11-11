@@ -85,11 +85,13 @@ function assignmentCompanyIds(visible: Set<string>, staffScope: readonly string[
   return scope;
 }
 
-function loginRoleKindOf(user: StaffRow["user"]): "manager" | "dsr" | null {
+function loginRoleKindOf(user: StaffRow["user"]): "manager" | "dsr" | "tsm" | null {
   if (!user) return null;
   for (const m of user.memberships) {
     for (const r of m.roles) {
-      if (r.role.kind === "manager" || r.role.kind === "dsr") return r.role.kind;
+      if (r.role.kind === "manager" || r.role.kind === "dsr" || r.role.kind === "tsm") {
+        return r.role.kind;
+      }
     }
   }
   return null;

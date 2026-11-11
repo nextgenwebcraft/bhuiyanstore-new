@@ -8,7 +8,6 @@ import { Button } from "@/components/button";
 import { useConfirm } from "@/components/confirm-dialog";
 import {
   money,
-  StatusChip,
   tableClass,
   tdClass,
   tdNum,
@@ -83,7 +82,10 @@ export function SrCashEntry({
   const [amount, setAmount] = useState("");
   const [error, setError] = useState<string | undefined>();
   const [editing, setEditing] = useState<MoneyEntry | null>(null);
-  const rows = (entries.data ?? []).filter((entry) => postedKind(entry) !== null);
+  // Day sheet: only live posted rows — corrected (বাতিল) history stays off this card.
+  const rows = (entries.data ?? []).filter(
+    (entry) => entry.status === "posted" && postedKind(entry) !== null,
+  );
   const total = (cardKind: SrCashKind) =>
     sumAmounts([
       "0",
@@ -205,9 +207,6 @@ export function SrCashEntry({
                     <th scope="col" className={thNum}>
                       {t("common.amount")}
                     </th>
-                    <th scope="col" className={thClass}>
-                      {t("common.status")}
-                    </th>
                     {canEdit ? (
                       <th scope="col" className={thClass}>
                         <span className="sr-only">{t("common.edit")}</span>
@@ -228,13 +227,9 @@ export function SrCashEntry({
                               : null}
                         </td>
                         <td className={tdNum}>{money(entry.amount)}</td>
-                        <td className={tdClass}>
-                          <StatusChip status={entry.status} />
-                        </td>
                         {canEdit ? (
                           <td className={`${tdClass} text-right`}>
-                            {entry.status === "posted" &&
-                            !entry.dsrDayId &&
+                            {!entry.dsrDayId &&
                             !entry.payrollRunId &&
                             cardKind !== "commission" ? (
                               <Button onClick={() => startEdit(entry)}>{t("common.edit")}</Button>

@@ -32,6 +32,7 @@ import { TableScroller } from "@/components/table-scroller";
 import { TableSummary, type SummaryItem } from "@/components/table-summary";
 import { describeError } from "@/data/ports/service-error";
 import { usePostStockEntries } from "@/data/queries";
+import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 import {
   CellInput,
   clean,
@@ -107,10 +108,12 @@ export function OrderForm({
   fundFrom: OrderFund[];
   setFundFrom: (value: OrderFund[]) => void;
 }) {
+  const { loginRoleKind } = useCurrentWorkspace();
   const post = usePostStockEntries(companyId);
   const [rows, setRows] = useState<Record<string, Row>>({});
   const [error, setError] = useState<string | undefined>();
   const [done, setDone] = useState(false);
+  const pendingSubmit = loginRoleKind === "tsm";
 
   const set = (productId: string, patch: Partial<Row>) => {
     setDone(false);
@@ -458,7 +461,11 @@ export function OrderForm({
         {t("godown.quantityHint")} {t("godown.order.hint")} {t("godown.order.batchHint")}
       </p>
       {error ? <StatePanel tone="error" title={error} /> : null}
-      {done ? <StatePanel title={t("common.posted")} /> : null}
+      {done ? (
+        <StatePanel
+          title={t(pendingSubmit ? "godown.order.submittedPending" : "common.posted")}
+        />
+      ) : null}
       <div>
         <Button variant="primary" disabled={post.isPending} onClick={() => void submit()}>
           {post.isPending ? t("common.posting") : t("common.post")}
