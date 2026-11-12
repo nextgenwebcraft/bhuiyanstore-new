@@ -460,6 +460,11 @@ export const moneyEntryPostRequestSchema = z
      * name exists, reused) in the same atomic request; mutually exclusive with `shopId`.
      */
     newShop: newShopSchema.nullable().default(null),
+    /**
+     * The SR whose daily sheet the entry is entered on (shop due, staff/SR cash, operating cost).
+     * Scopes that sheet's cash check; null for entries made anywhere else.
+     */
+    sheetStaffId: idSchema.nullable().default(null),
   })
   .superRefine((value, ctx) => {
     if (value.newShop !== null) {
@@ -497,6 +502,8 @@ export const moneyEntrySchema = z.object({
   payrollRunId: idSchema.nullable(),
   /** Set when a posted DSR day created the entry (field visits, D40; handover difference, D54). */
   dsrDayId: idSchema.nullable(),
+  /** The SR sheet the entry was entered on; null when it was not entered on a daily sheet. */
+  sheetStaffId: idSchema.nullable(),
   status: z.enum(documentStatuses),
   createdAt: z.string(),
   reversedAt: z.string().nullable(),

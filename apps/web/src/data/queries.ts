@@ -46,7 +46,13 @@ import type {
   UserPasswordResetRequest,
   UserUpdateRequest,
 } from "@bsd/contracts";
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import type { ConfigListId, ConfigLists } from "./ports/distribution-service";
 import { postingEffects, queryKeys, resourceKey } from "./query-keys";
 import { useActorId, useService } from "./service-context";
@@ -335,7 +341,13 @@ export function useDecideFieldReport(companyId: string) {
 
 export function useMoneyEntries(
   companyId: string,
-  query: { from: string; to?: string; staffId?: string; shopId?: string },
+  query: {
+    from: string;
+    to?: string;
+    staffId?: string;
+    shopId?: string;
+    sheetStaffId?: string;
+  },
   enabled = true,
 ) {
   const service = useService();
@@ -348,6 +360,7 @@ export function useMoneyEntries(
       query.to ?? query.from,
       query.staffId ?? "",
       query.shopId ?? "",
+      query.sheetStaffId ?? "",
     ),
     queryFn: ({ signal }) => service.listMoneyEntries(companyId, query, { signal }),
     enabled,
@@ -1093,6 +1106,19 @@ export function useDsrFieldDay(companyId: string, staffId: string, date: string,
     queryKey: [...queryKeys.fieldDay(actorId, companyId, date), staffId] as const,
     queryFn: ({ signal }) => service.getDsrFieldDay(companyId, staffId, date, { signal }),
     enabled: enabled && staffId !== "",
+  });
+}
+
+/** Field days of several people on one date; same cache entries as `useDsrFieldDay`. */
+export function useDsrFieldDays(companyId: string, staffIds: readonly string[], date: string) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQueries({
+    queries: staffIds.map((staffId) => ({
+      queryKey: [...queryKeys.fieldDay(actorId, companyId, date), staffId] as const,
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        service.getDsrFieldDay(companyId, staffId, date, { signal }),
+    })),
   });
 }
 

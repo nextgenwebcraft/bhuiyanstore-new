@@ -771,6 +771,8 @@ export const bn = {
   "dashboard.card.totalCost": "মোট খরচ",
   "dashboard.card.profitCost": "অপারেটিং + ডিএসআর",
   "dashboard.card.salesProfit": "মোট প্রফিট",
+  /** দৈনিক বিক্রয় হিসাব card: সামারি − ফেরত − ড্যামেজ − কমিশন ± বাকি/আদায়, অগ্রিম/শর্ট, খরচ. */
+  "dashboard.card.totalMoney": "মোট টাকা",
   "dashboard.card.netProfit": "নিট প্রফিট",
   "dashboard.netSales": "মোট বিক্রয়",
   "dashboard.grossProfit": "মোট লাভ",

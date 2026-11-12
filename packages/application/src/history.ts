@@ -291,6 +291,7 @@ export async function listHistoryMoneyEntries(
         srLoanType: row.srLoanType,
         payrollRunId: row.payrollRunId,
         dsrDayId: row.dsrDayId,
+        sheetStaffId: row.sheetStaffId,
         status: row.status,
         createdAt: row.createdAt.toISOString(),
         reversedAt: iso(row.reversedAt),

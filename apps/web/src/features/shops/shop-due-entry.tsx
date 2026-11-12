@@ -54,12 +54,15 @@ function EntryForm({
   kinds,
   shops,
   dsr,
+  sheetStaffId,
   editing,
   onClearEdit,
 }: {
   companyId: string;
   staffId: string;
   date: string;
+  /** The SR sheet the entry is entered on; the entry then counts on that sheet only. */
+  sheetStaffId?: string | undefined;
   kinds: DueKind[];
   shops: Shop[];
   dsr?: { id: string; dsrs: readonly DsrChoice[]; onChange: (staffId: string) => void };
@@ -117,6 +120,7 @@ function EntryForm({
       kind,
       amount: value,
       staffId,
+      ...(sheetStaffId ? { sheetStaffId } : {}),
       ...(shop ? { shopId: shop.id } : { newShop: { name: newName } }),
     };
     try {
@@ -244,12 +248,14 @@ function EntryForm({
 function Entries({
   companyId,
   staffId,
+  sheetStaffId,
   date,
   canEdit,
   onEdit,
 }: {
   companyId: string;
   staffId: string;
+  sheetStaffId?: string | undefined;
   date: string;
   canEdit: boolean;
   onEdit: (entry: MoneyEntry) => void;
@@ -259,6 +265,7 @@ function Entries({
     from: date,
     to: date,
     ...(staffId ? { staffId } : {}),
+    ...(sheetStaffId ? { sheetStaffId } : {}),
   });
   const remove = useDeleteMoneyEntry(companyId);
 
@@ -351,10 +358,13 @@ export function ShopDueEntry({
   fieldOwned,
   dsrs,
   handoverLocked,
+  sheetStaffId,
 }: {
   companyId: string;
   staffId: string;
   date: string;
+  /** The SR whose daily sheet this card is on: entries are saved to, and listed for, that sheet only. */
+  sheetStaffId?: string;
   /** The sheet DSR has field visits that day, used when no DSR list is passed. */
   fieldOwned: boolean;
   /** DSRs the card can post for. Starts with none selected (D120). */
@@ -399,6 +409,7 @@ export function ShopDueEntry({
           date={date}
           kinds={kinds}
           shops={shops.data}
+          sheetStaffId={sheetStaffId}
           editing={editing}
           onClearEdit={() => setEditing(null)}
           {...(choosing ? { dsr: { id: activeId, dsrs: dsrList, onChange: setPicked } } : {})}
@@ -407,6 +418,7 @@ export function ShopDueEntry({
       <Entries
         companyId={companyId}
         staffId={activeId}
+        sheetStaffId={sheetStaffId}
         date={date}
         canEdit={canEdit && !owned}
         onEdit={(entry) => {

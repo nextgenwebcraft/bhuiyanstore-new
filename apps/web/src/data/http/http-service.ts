@@ -333,6 +333,7 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
       if (query.to) params.set("to", query.to);
       if (query.staffId) params.set("staffId", query.staffId);
       if (query.shopId) params.set("shopId", query.shopId);
+      if (query.sheetStaffId) params.set("sheetStaffId", query.sheetStaffId);
       return request(
         z.array(moneyEntrySchema),
         `${company(companyId)}/money-entries?${params.toString()}`,

@@ -12,6 +12,7 @@ export async function GET(request: Request, { params }: Params) {
       to: query.get("to"),
       staffId: query.get("staffId"),
       shopId: query.get("shopId"),
+      sheetStaffId: query.get("sheetStaffId"),
     }),
   );
 }

@@ -64,6 +64,7 @@ export const queryKeys = {
     to: string,
     staffId: string,
     shopId = "",
+    sheetStaffId = "",
   ) =>
     [
       ...companyResource(actorId, companyId, resourceIds.moneyEntry),
@@ -71,6 +72,7 @@ export const queryKeys = {
       to,
       staffId,
       shopId,
+      sheetStaffId,
     ] as const,
   historyStock: (
     actorId: string,

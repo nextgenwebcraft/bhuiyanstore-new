@@ -9,7 +9,6 @@ import type {
 } from "@bsd/contracts";
 import {
   cashCheckSales,
-  cashInHandOf,
   dsrCashSettlement,
   roundSettlement,
   salesProfit,
@@ -27,13 +26,13 @@ import { FormDialog } from "@/components/form-dialog";
 import { QueryError } from "@/components/query-error";
 import { ListSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
-import { StatTile } from "@/components/stat-tile";
 import { TableSummary, type SummaryItem } from "@/components/table-summary";
 import { describeError } from "@/data/ports/service-error";
 import {
   useDsrDayCommand,
   useDsrDays,
   useDsrFieldDay,
+  useDsrFieldDays,
   useMoneyEntries,
   useSaveDsrDay,
   useStaffRecords,
@@ -335,6 +334,60 @@ function salariFirotAmounts(lines: DsrDaySaveRequest["lines"], view: DayView): M
   );
 }
 
+/**
+ * One SR sheet's money figures from the entries entered on it (D79, D122). Only posted rows with
+ * this `sheetStaffId` count, so two SR sheets of one date never share a due, advance or খরচ.
+ * Field visits own the SR's own due; office rows cover the other DSRs. One owner for the sheet's
+ * cash check and the SR cards.
+ */
+function sheetMoneyFigures(
+  entries: readonly MoneyEntry[],
+  srId: string,
+  sheet: Pick<DsrDay, "marketDueNew" | "marketDueCollected"> | undefined,
+  fieldDue: { dueCreated: string; dueCollected: string } | null,
+) {
+  const posts = entries.filter((e) => e.status === "posted" && e.sheetStaffId === srId);
+  const people = posts.filter((e) => e.staffId !== null);
+  const srRows = people.filter((e) => e.staffId === srId);
+  /** DSRs and staff on the sheet, excluding the open SR when that person is also listed. */
+  const otherRows = people.filter((e) => e.staffId !== srId);
+  const sum = (kind: MoneyEntry["kind"], rows: readonly MoneyEntry[]) =>
+    sumAmounts(["0", ...rows.filter((e) => e.kind === kind).map((e) => e.amount)]);
+  const srMove = (kind: "srLoan" | "srRepayment") =>
+    sumAmounts([
+      "0",
+      ...srRows.filter((e) => e.kind === kind && e.srLoanType !== "commission").map((e) => e.amount),
+    ]);
+  // D79: SR অগ্রিম ও শর্ট on the open SR; DSR/staff advance and short for the others on the sheet.
+  const srMoney = toDecimal(sum("staffRepayment", srRows))
+    .add(srMove("srRepayment"))
+    .sub(toDecimal(sum("staffAdvance", srRows)))
+    .sub(toDecimal(sum("staffShortage", srRows)))
+    .sub(srMove("srLoan"))
+    .toString();
+  const dsrMoney = toDecimal(sum("staffRepayment", otherRows))
+    .sub(toDecimal(sum("staffAdvance", otherRows)))
+    .sub(toDecimal(sum("staffShortage", otherRows)))
+    .toString();
+  return {
+    dueGiven: sumAmounts([
+      fieldDue?.dueCreated ?? "0",
+      sum("marketDueNew", otherRows),
+      sheet?.marketDueNew ?? "0",
+    ]),
+    dueCollected: sumAmounts([
+      fieldDue?.dueCollected ?? "0",
+      sum("marketDueCollected", otherRows),
+      sheet?.marketDueCollected ?? "0",
+    ]),
+    expenses: sum("staffCostPaid", people),
+    operatingCost: sum("expense", posts),
+    dsrMoney,
+    srMoney,
+    staffMoney: toDecimal(dsrMoney).add(srMoney).toString(),
+  };
+}
+
 /** Day-end cash check (D39, D62): the difference is shown only, never posted. */
 function CashCheck({
   sales,
@@ -509,57 +562,14 @@ function SheetEditor({
     id: person.id,
     name: person.name,
   }));
-  // Dues / DSR খরচ post under the picked DSR, not the SR sheet owner — load the whole date.
-  const entries = useMoneyEntries(companyId, { from: date, to: date });
+  // Dues, advances and খরচ belong to the SR sheet they were entered on: this sheet's cash check
+  // must not count another SR's entries of the same date.
+  const entries = useMoneyEntries(companyId, { from: date, to: date, sheetStaffId: staff.id });
   const field = fieldDay.data && fieldDay.data.visits.length > 0 ? fieldDay.data : null;
-  const posts = (entries.data ?? []).filter((e) => e.status === "posted");
-  const teamIds = new Set(dsrChoices.map((d) => d.id));
-  const teamPosts = posts.filter((e) => e.staffId !== null && teamIds.has(e.staffId));
-  const srPosts = posts.filter((e) => e.staffId === staff.id);
-  /** DSRs on the sheet excluding the open SR when that person is also listed as a DSR. */
-  const dsrOnlyPosts = teamPosts.filter((e) => e.staffId !== staff.id);
-  const teamSum = (kind: MoneyEntry["kind"], rows: MoneyEntry[] = teamPosts) =>
-    sumAmounts(["0", ...rows.filter((e) => e.kind === kind).map((e) => e.amount)]);
-  const srSum = (kind: MoneyEntry["kind"]) =>
-    sumAmounts(["0", ...srPosts.filter((e) => e.kind === kind).map((e) => e.amount)]);
-  const srMove = (kind: "srLoan" | "srRepayment") =>
-    sumAmounts([
-      "0",
-      ...srPosts.filter((e) => e.kind === kind && e.srLoanType !== "commission").map((e) => e.amount),
-    ]);
-  const operatingCost = sumAmounts([
-    "0",
-    ...posts.filter((e) => e.kind === "expense").map((e) => e.amount),
-  ]);
-  const sheetDue = (value: string | undefined) => value ?? "0";
   const cash = {
     sales: posted && !dirty ? sumAmounts(["0", ...amounts.values()]) : previewSales(entered, view),
-    // Field visits (when present) own that person's due; office ShopDue rows cover the DSRs.
-    dueGiven: sumAmounts([
-      field ? field.totals.dueCreated : "0",
-      teamSum("marketDueNew", dsrOnlyPosts),
-      sheetDue(sheet?.marketDueNew),
-    ]),
-    dueCollected: sumAmounts([
-      field ? field.totals.dueCollected : "0",
-      teamSum("marketDueCollected", dsrOnlyPosts),
-      sheetDue(sheet?.marketDueCollected),
-    ]),
-    expenses: teamSum("staffCostPaid"),
-    operatingCost,
-    // D79: SR অগ্রিম ও শর্ট on the open SR; DSR advance/short for other DSRs on the sheet.
-    staffMoney: toDecimal(srSum("staffRepayment"))
-      .add(teamSum("staffRepayment", dsrOnlyPosts))
-      .add(srMove("srRepayment"))
-      .sub(toDecimal(srSum("staffAdvance")))
-      .sub(toDecimal(teamSum("staffAdvance", dsrOnlyPosts)))
-      .sub(toDecimal(srSum("staffShortage")))
-      .sub(toDecimal(teamSum("staffShortage", dsrOnlyPosts)))
-      .sub(srMove("srLoan"))
-      .toString(),
+    ...sheetMoneyFigures(entries.data ?? [], staff.id, sheet, field ? field.totals : null),
   };
-  // হাতে জমা (D106): sales − due given + due collected, before expenses or staff money.
-  const cashInHand = cashInHandOf(cash);
 
   // D69: the table's amounts as the profit's parts (domain `salesProfit`), pieces underneath.
   const parts = salesProfit(
@@ -710,17 +720,11 @@ function SheetEditor({
         />
       ) : null}
       {posted ? (
-        <StatePanel title={t(canCorrect ? "dsr.sheet.postedEditHint" : "dsr.sheet.postedHint")} />
-      ) : null}
-      <dl className="grid grid-cols-1 gap-3 sm:max-w-xs">
-        <StatTile
-          label={t("dsr.cash.inHand")}
-          value={money(cashInHand)}
-          hint={t("dsr.cash.inHandHint")}
-          tone="info"
-          large
+        <StatePanel
+          compact
+          title={t(canCorrect ? "dsr.sheet.postedEditHint" : "dsr.sheet.postedHint")}
         />
-      </dl>
+      ) : null}
       <TableSummary label={t("table.summary")} items={sheetSummary} />
       <DsrSheetEntry
         draft={draft}
@@ -774,6 +778,7 @@ function SheetEditor({
         fieldOwned={false}
         dsrs={dsrChoices}
         handoverLocked={handoverLocked}
+        sheetStaffId={staff.id}
       />
       <StaffCashEntry
         companyId={companyId}
@@ -781,6 +786,7 @@ function SheetEditor({
         date={date}
         dsrs={staffChoices}
         handoverLocked={handoverLocked}
+        sheetStaffId={staff.id}
       />
       <SrCashEntry
         companyId={companyId}
@@ -788,7 +794,12 @@ function SheetEditor({
         date={date}
         handoverLocked={handoverLocked}
       />
-      <OperatingCostEntry companyId={companyId} date={date} handoverLocked={handoverLocked} />
+      <OperatingCostEntry
+        companyId={companyId}
+        date={date}
+        handoverLocked={handoverLocked}
+        sheetStaffId={staff.id}
+      />
       {!isDsrLogin ? (
         <CashCheck
           {...cash}
@@ -800,10 +811,10 @@ function SheetEditor({
         />
       ) : null}
       {sheet?.handoverStatus === "pending" ? (
-        <StatePanel tone="warning" title={t("dsr.handover.pendingBanner")} />
+        <StatePanel compact tone="warning" title={t("dsr.handover.pendingBanner")} />
       ) : null}
       {sheet?.handoverStatus === "approved" ? (
-        <StatePanel title={t("dsr.handover.approvedBanner")} />
+        <StatePanel compact title={t("dsr.handover.approvedBanner")} />
       ) : null}
       {shownError ? <StatePanel tone="error" title={shownError} /> : null}
       <div className="flex flex-wrap gap-2">
@@ -846,7 +857,7 @@ function SheetEditor({
           </Button>
         ) : null}
         {posted && sheet && sheet.handoverStatus === "pending" && loginRoleKind === null ? (
-          <StatePanel title={t("dsr.handover.approveOnDashboard")} />
+          <StatePanel compact title={t("dsr.handover.approveOnDashboard")} />
         ) : null}
       </div>
       {history.length ? (
@@ -912,61 +923,144 @@ function Sheets({
       {srs.length === 0 ? (
         <StatePanel title={t("sr.empty")} />
       ) : (
-        <div className="flex flex-col gap-4">
-          <DaySalesTotals view={view} />
-          <DsrList dsrs={srs} live={live} view={view} onOpen={setOpen} />
-        </div>
+        <SheetsOverview
+          companyId={companyId}
+          date={date}
+          view={view}
+          srs={srs}
+          live={live}
+          onOpen={setOpen}
+        />
       )}
     </>
   );
 }
 
-/** Column set shared by the day strip and each SR card (D107 মোট বিক্রি = সামারি − ফেরত). */
-function salesItemsFromParts(
-  parts: ReturnType<typeof salesProfit>,
-  showProfit: boolean,
-): SummaryItem[] {
-  const totalSales = roundSettlement(
-    toDecimal(parts.issuedValue).sub(toDecimal(parts.returnValue)),
-  );
+/** Every figure behind one sheet's মোট টাকা (at settlement scale, signed as they act on it). */
+type SheetCash = {
+  issued: string;
+  returned: string;
+  damage: string;
+  commission: string;
+  dueGiven: string;
+  dueCollected: string;
+  dsrMoney: string;
+  srMoney: string;
+  expenses: string;
+  operatingCost: string;
+  total: string;
+};
+
+const CASH_KEYS = [
+  "issued",
+  "returned",
+  "damage",
+  "commission",
+  "dueGiven",
+  "dueCollected",
+  "dsrMoney",
+  "srMoney",
+  "expenses",
+  "operatingCost",
+  "total",
+] as const satisfies readonly (keyof SheetCash)[];
+
+/**
+ * The cards of the strip and of each SR, in the order the মোট টাকা is worked out. A null cash
+ * (figures still loading) shows "…".
+ */
+function cashItems(cash: SheetCash | null): SummaryItem[] {
+  const value = (key: keyof SheetCash) => (cash ? money(cash[key]) : "…");
   return [
-    { label: t("dashboard.card.issued"), value: money(parts.issuedValue) },
-    { label: t("dashboard.card.returned"), value: money(parts.returnValue) },
-    { label: t("dashboard.card.damage"), value: money(parts.damageValue) },
-    { label: t("dashboard.card.commission"), value: money(parts.commission) },
-    ...(showProfit
-      ? [{ label: t("dashboard.card.salesProfit"), value: money(parts.profit) }]
-      : []),
-    { label: t("dashboard.card.totalSales"), value: money(totalSales), emphasis: true },
+    { label: t("dashboard.card.issued"), value: value("issued") },
+    { label: `− ${t("dashboard.card.returned")}`, value: value("returned") },
+    { label: `− ${t("dashboard.card.damage")}`, value: value("damage") },
+    { label: `− ${t("dashboard.card.commission")}`, value: value("commission") },
+    { label: `− ${t("dsr.cash.dueGiven")}`, value: value("dueGiven") },
+    { label: `+ ${t("dsr.cash.dueCollected")}`, value: value("dueCollected") },
+    { label: `± ${t("staffCash.title")}`, value: value("dsrMoney") },
+    { label: `± ${t("srCash.title")}`, value: value("srMoney") },
+    { label: `− ${t("dsr.cash.expenses")}`, value: value("expenses") },
+    { label: `− ${t("dsr.cash.operating")}`, value: value("operatingCost") },
+    { label: `= ${t("dashboard.card.totalMoney")}`, value: value("total"), emphasis: true },
   ];
 }
 
 /**
- * Day strip: all posted person lines for the date (D69). UI only formats;
- * `salesProfit` owns the maths.
+ * The day strip and the SR cards. মোট টাকা of a card is the sheet's জমা হওয়ার কথা: সামারি − ফেরত
+ * − ড্যামেজ − কমিশন, ± দোকানের বাকি/আদায়, DSR and SR অগ্রিম/শর্ট and খরচ entered on that sheet,
+ * with every part shown. Each sheet counts only its own entries, so two SRs never share a due or
+ * a খরচ. The strip adds up every live sheet, draft or posted.
  */
-function daySalesItems(view: DayView): SummaryItem[] {
-  const parts = salesProfit(
-    view.persons.map((p) => {
-      const product = view.products.find((x) => x.productId === p.productId);
-      const batch = p.allocations[0];
-      return {
-        issued: p.issued,
-        returned: p.returned,
-        damaged: p.damaged,
-        commission: p.commission,
-        salePrice: batch?.salePrice ?? product?.salePrice ?? "0",
-        costPrice: batch?.costPrice ?? product?.costPrice ?? "0",
-        ...(p.damageRate == null ? {} : { damageRate: p.damageRate }),
-      };
-    }),
+function SheetsOverview({
+  companyId,
+  date,
+  view,
+  srs,
+  live,
+  onOpen,
+}: {
+  companyId: string;
+  date: string;
+  view: DayView;
+  srs: StaffRecord[];
+  live: (staffId: string) => DsrDay | undefined;
+  onOpen: (staffId: string) => void;
+}) {
+  const entries = useMoneyEntries(companyId, { from: date, to: date });
+  const fieldIds = srs
+    .filter((s) => s.assignments.some((a) => a.roleKind === "dsr"))
+    .map((s) => s.id);
+  const fieldDays = useDsrFieldDays(companyId, fieldIds, date);
+  const ready = !entries.isPending && fieldDays.every((q) => !q.isPending);
+  const fieldOf = (staffId: string) => {
+    const day = fieldDays[fieldIds.indexOf(staffId)]?.data;
+    return day && day.visits.length > 0 ? day.totals : null;
+  };
+  /** The sheet's figures, or null while they load or when the SR has no sheet. */
+  const cashOf = (sr: StaffRecord): SheetCash | null => {
+    const sheet = live(sr.id);
+    if (!sheet || !ready) return null;
+    const parts = sheetParts(sheet, view);
+    const figures = sheetMoneyFigures(entries.data ?? [], sr.id, sheet, fieldOf(sr.id));
+    return {
+      issued: parts.issuedValue,
+      returned: parts.returnValue,
+      damage: parts.damageValue,
+      commission: parts.commission,
+      dueGiven: figures.dueGiven,
+      dueCollected: figures.dueCollected,
+      dsrMoney: roundSettlement(figures.dsrMoney),
+      srMoney: roundSettlement(figures.srMoney),
+      expenses: figures.expenses,
+      operatingCost: figures.operatingCost,
+      total: dsrCashSettlement({
+        sales: cashCheckSales(parts.netSales, parts.damageValue),
+        damage: parts.damageValue,
+        ...figures,
+        handedOver: null,
+      }).expected,
+    };
+  };
+  const sheets = srs.flatMap((sr) => {
+    const cash = live(sr.id) ? cashOf(sr) : null;
+    return cash ? [cash] : [];
+  });
+  const dayCash: SheetCash | null = ready
+    ? (Object.fromEntries(
+        CASH_KEYS.map((key) => [key, sumAmounts(["0", ...sheets.map((cash) => cash[key])])]),
+      ) as SheetCash)
+    : null;
+  return (
+    <div className="flex flex-col gap-4">
+      <DaySalesTotals columns={cashItems(dayCash)} />
+      <DsrList dsrs={srs} live={live} onOpen={onOpen} items={(sr) => cashItems(cashOf(sr))} />
+    </div>
   );
-  return salesItemsFromParts(parts, view.canSeeCost && view.canSeeProfit);
 }
 
 /** Day totals above the SR cards. */
-function DaySalesTotals({ view }: { view: DayView }) {
-  const columns = daySalesItems(view);
+function DaySalesTotals({ columns }: { columns: SummaryItem[] }) {
   return (
     <TableScroller>
       <table className={tableClass} aria-label={t("table.summary")}>
@@ -1027,8 +1121,8 @@ function HandoverShorts({ rows }: { rows: DayView["handoverShorts"] }) {
  * One SR card: that sheet's own lines only (not the day total, not other SRs).
  * Prices via saleOf/costOf — same path as the open-sheet profit strip.
  */
-function dsrSummary(sheet: DsrDay, view: DayView): SummaryItem[] {
-  const parts = salesProfit(
+function sheetParts(sheet: DsrDay, view: DayView): ReturnType<typeof salesProfit> {
+  return salesProfit(
     sheet.lines.map((l) => ({
       issued: l.issued,
       returned: l.returned,
@@ -1045,19 +1139,19 @@ function dsrSummary(sheet: DsrDay, view: DayView): SummaryItem[] {
       ...(l.damageRate == null ? {} : { damageRate: l.damageRate }),
     })),
   );
-  return salesItemsFromParts(parts, view.canSeeCost && view.canSeeProfit);
 }
 
 function DsrList({
   dsrs,
   live,
-  view,
   onOpen: setOpen,
+  items,
 }: {
   dsrs: StaffRecord[];
   live: (staffId: string) => DsrDay | undefined;
-  view: DayView;
   onOpen: (staffId: string) => void;
+  /** The cards of an SR's sheet: every figure behind its মোট টাকা. */
+  items: (sr: StaffRecord) => SummaryItem[];
 }) {
   return (
     <ul className="flex flex-col gap-2">
@@ -1085,7 +1179,7 @@ function DsrList({
             {sheet ? (
               <TableSummary
                 label={`${dsr.name} ${t("table.summary")}`}
-                items={dsrSummary(sheet, view)}
+                items={items(dsr)}
               />
             ) : null}
           </li>
