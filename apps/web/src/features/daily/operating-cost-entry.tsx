@@ -41,9 +41,12 @@ export function OperatingCostEntry({
   companyId,
   date,
   handoverLocked,
+  sheetStaffId,
 }: {
   companyId: string;
   date: string;
+  /** The SR whose daily sheet this card is on: খরচ is saved to, and listed for, that sheet only. */
+  sheetStaffId?: string;
   /** D114: pass from the day sheet; omitted elsewhere hides Edit. */
   handoverLocked?: boolean;
 }) {
@@ -53,7 +56,11 @@ export function OperatingCostEntry({
   const categories = useConfigList("expenseCategories");
   const post = usePostMoneyEntry(companyId);
   const correct = useCorrectMoneyEntry(companyId);
-  const entries = useMoneyEntries(companyId, { from: date, to: date });
+  const entries = useMoneyEntries(companyId, {
+    from: date,
+    to: date,
+    ...(sheetStaffId ? { sheetStaffId } : {}),
+  });
   const [categoryId, setCategoryId] = useState("");
   const [amount, setAmount] = useState("");
   const [error, setError] = useState<string | undefined>();
@@ -86,6 +93,7 @@ export function OperatingCostEntry({
       kind: "expense" as const,
       amount: value,
       expenseCategoryId: categoryId,
+      ...(sheetStaffId ? { sheetStaffId } : {}),
     };
     try {
       if (editing) {

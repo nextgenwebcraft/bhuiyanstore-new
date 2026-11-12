@@ -72,7 +72,12 @@ export function SrCashEntry({
   const { permissions, loginRoleKind } = useCurrentWorkspace();
   const post = usePostMoneyEntry(companyId);
   const correct = useCorrectMoneyEntry(companyId);
-  const entries = useMoneyEntries(companyId, { from: date, to: date, staffId });
+  const entries = useMoneyEntries(companyId, {
+    from: date,
+    to: date,
+    staffId,
+    sheetStaffId: staffId,
+  });
   const canLoan = permissions.includes(moneyKindPermission.srLoan);
   const canRepay = permissions.includes(moneyKindPermission.srRepayment);
   const kinds = KINDS.filter((kind) =>
@@ -111,7 +116,7 @@ export function SrCashEntry({
     if (!/^\d+(\.\d{1,2})?$/.test(value) || !/[1-9]/.test(value)) {
       return setError(t("validation.amountPositive"));
     }
-    const body = { date, amount: value, staffId, ...requestOf(kind) };
+    const body = { date, amount: value, staffId, sheetStaffId: staffId, ...requestOf(kind) };
     try {
       if (editing) {
         const ok = await confirm({

@@ -220,7 +220,14 @@ export interface DistributionService {
   /** Market due kinds need `sale.view`, the others `finance.view`; only visible kinds return. */
   listMoneyEntries(
     companyId: string,
-    query: { from: string; to?: string; staffId?: string; shopId?: string },
+    query: {
+      from: string;
+      to?: string;
+      staffId?: string;
+      shopId?: string;
+      /** Only entries entered on this SR's daily sheet. */
+      sheetStaffId?: string;
+    },
     options?: RequestOptions,
   ): Promise<MoneyEntry[]>;
   /** The permission depends on the entry type (D27). */

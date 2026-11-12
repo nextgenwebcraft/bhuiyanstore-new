@@ -31,6 +31,8 @@ const MONEY_KINDS = [
 
 type MoneyRow = {
   staffId: string | null;
+  /** The SR sheet the entry was entered on; a sheet's check counts only its own entries. */
+  sheetStaffId: string | null;
   date: Date;
   kind: string;
   amount: Parameters<typeof plain>[0];
@@ -87,7 +89,14 @@ export async function listHandoverShorts(
         date: range,
         kind: { in: [...MONEY_KINDS] },
       },
-      select: { staffId: true, date: true, kind: true, amount: true, srLoanType: true },
+      select: {
+        staffId: true,
+        sheetStaffId: true,
+        date: true,
+        kind: true,
+        amount: true,
+        srLoanType: true,
+      },
     }),
     db.fieldVisit.findMany({
       where: { companyId, date: range },
@@ -117,9 +126,11 @@ export async function listHandoverShorts(
     if (day.cashHandedOver === null) continue;
     const date = fromDbDate(day.date);
     const dayMoney = moneyByDate.get(date) ?? [];
-    const dsrIds = new Set(day.lines.map((l) => l.dsrStaffId));
-    const teamMoney = dayMoney.filter((e) => e.staffId !== null && dsrIds.has(e.staffId));
-    const srMoney = dayMoney.filter((e) => e.staffId === day.staffId);
+    // Only what was entered on this SR's sheet: another SR's dues, advances and operating cost
+    // must not be charged to this sheet's cash again.
+    const sheetMoney = dayMoney.filter((e) => e.sheetStaffId === day.staffId);
+    const teamMoney = sheetMoney.filter((e) => e.staffId !== null);
+    const srMoney = teamMoney.filter((e) => e.staffId === day.staffId);
     const dsrOnly = teamMoney.filter((e) => e.staffId !== day.staffId);
     const field = visitsByKey.get(`${day.staffId}|${date}`) ?? [];
     const sales = sumAmounts(
@@ -170,10 +181,7 @@ export async function listHandoverShorts(
       dueGiven,
       dueCollected,
       expenses: sumOf(teamMoney, "staffCostPaid"),
-      operatingCost: sumOf(
-        dayMoney.filter((e) => e.kind === "expense"),
-        "expense",
-      ),
+      operatingCost: sumOf(sheetMoney, "expense"),
       staffMoney: staffMoney.toString(),
       handedOver: text(day.cashHandedOver),
     });

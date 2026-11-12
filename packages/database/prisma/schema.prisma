@@ -826,6 +826,10 @@ model MoneyEntry {
   payrollRunId      String?          @map("payroll_run_id")
   /// D40: the posted DSR day that created this entry from field visits (reversed with it).
   dsrDayId          String?          @map("dsr_day_id")
+  /// The SR whose দৈনিক বিক্রয় হিসাব sheet the entry was entered on (shop due, staff/SR cash,
+  /// operating cost). It scopes that sheet's cash check and reversal; NULL for entries made
+  /// elsewhere (payroll, company money, field-owned rows).
+  sheetStaffId      String?          @map("sheet_staff_id")
   /// D42: SR loan/repayment type, `cash` or `commission`; NULL for every other kind.
   srLoanType        String?          @map("sr_loan_type")
   /// D52: the cash/bank account the money moves (NULL = the default account at read time).
@@ -856,6 +860,7 @@ model MoneyEntry {
   @@index([shopId])
   @@index([payrollRunId])
   @@index([dsrDayId])
+  @@index([sheetStaffId])
   @@index([productId])
   @@map("money_entry")
   checkPayment CompanyCheckPayment?

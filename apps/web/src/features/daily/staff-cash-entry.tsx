@@ -81,12 +81,15 @@ function EntryForm({
   date,
   kinds,
   dsr,
+  sheetStaffId,
   editing,
   onClearEdit,
 }: {
   companyId: string;
   staffId: string;
   date: string;
+  /** The SR sheet the entry is entered on; the entry then counts on that sheet only. */
+  sheetStaffId?: string | undefined;
   kinds: StaffCashKind[];
   dsr?: { id: string; dsrs: readonly DsrChoice[]; onChange: (staffId: string) => void };
   editing: MoneyEntry | null;
@@ -111,7 +114,13 @@ function EntryForm({
     if (!/^\d+(\.\d{1,2})?$/.test(value) || !/[1-9]/.test(value)) {
       return setError(t("validation.amountPositive"));
     }
-    const body = { date, amount: value, staffId, ...staffCashRequest(kind, value) };
+    const body = {
+      date,
+      amount: value,
+      staffId,
+      ...(sheetStaffId ? { sheetStaffId } : {}),
+      ...staffCashRequest(kind, value),
+    };
     try {
       if (editing) {
         const ok = await confirm({
@@ -276,10 +285,13 @@ export function StaffCashEntry({
   date,
   dsrs,
   handoverLocked,
+  sheetStaffId,
 }: {
   companyId: string;
   staffId: string;
   date: string;
+  /** The SR whose daily sheet this card is on: entries are saved to, and listed for, that sheet only. */
+  sheetStaffId?: string;
   /** People the card can post for. Starts with none selected when a list is passed (D120). */
   dsrs?: readonly DsrChoice[];
   /** D114: pass from the day sheet; omitted elsewhere hides Edit. */
@@ -296,7 +308,11 @@ export function StaffCashEntry({
       : ""
     : staffId;
   // Today's entries list every person, not only the one picked above (the form posts for that one).
-  const entries = useMoneyEntries(companyId, { from: date, to: date });
+  const entries = useMoneyEntries(companyId, {
+    from: date,
+    to: date,
+    ...(sheetStaffId ? { sheetStaffId } : {}),
+  });
   const kinds = KINDS.filter((k) =>
     permissions.includes(moneyKindPermission[staffCashRequest(k, "0").kind]),
   );
@@ -312,6 +328,7 @@ export function StaffCashEntry({
           staffId={activeId}
           date={date}
           kinds={kinds}
+          sheetStaffId={sheetStaffId}
           editing={editing}
           onClearEdit={() => setEditing(null)}
           {...(choosing ? { dsr: { id: activeId, dsrs: people, onChange: setPicked } } : {})}

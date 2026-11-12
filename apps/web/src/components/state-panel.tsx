@@ -21,18 +21,25 @@ export function StatePanel({
   hint,
   tone = "neutral",
   action,
+  compact = false,
 }: {
   title: string;
   hint?: string;
   tone?: Tone;
   action?: React.ReactNode;
+  /** A slim one-line note instead of a full panel. */
+  compact?: boolean;
 }) {
   return (
     <section
       role={tone === "error" ? "alert" : "status"}
-      className={`flex flex-col items-start gap-2 rounded-xl border p-5 shadow-card ${toneClasses[tone]}`}
+      className={`flex flex-col items-start rounded-xl border shadow-card ${toneClasses[tone]} ${
+        compact ? "gap-1 px-3 py-2" : "gap-2 p-5"
+      }`}
     >
-      <h2 className="flex items-center gap-2.5 text-base font-semibold">
+      <h2
+        className={`flex items-center gap-2.5 font-semibold ${compact ? "text-sm" : "text-base"}`}
+      >
         <span aria-hidden className={`size-2 shrink-0 rounded-full ${dotClasses[tone]}`} />
         {title}
       </h2>

@@ -922,7 +922,8 @@ export async function saveDsrDayIn(
       access.permissions.includes("sale.post") &&
       access.permissions.includes("sale.reverse");
     if (!adminOk) throw new AppError("FORBIDDEN");
-    await moveDsrDay(tx, ctx, access, corrected, "reversed");
+    // A correction re-posts the same sheet, so the money entered on it stays.
+    await moveDsrDay(tx, ctx, access, corrected, "reversed", { keepSheetMoney: true });
   }
   const data = {
     ...(request.marketDueNew === undefined ? {} : { marketDueNew: request.marketDueNew }),
@@ -1022,8 +1023,9 @@ const DSR_DAY_PAGE_MONEY_KINDS = [
 /**
  * Posts or reverses a sheet with everything it owns: the field visits' dues and exchange case
  * (D40). The handover difference is shown only (D62); reversing still removes entries an earlier
- * posting created (D54 history). On reverse, also reverses the day's page money for this person
- * and all operating-cost (`expense`) rows for the date. The stock check is left to the caller.
+ * posting created (D54 history). On a real reverse, also reverses the money entered on this SR
+ * sheet (shop due, staff/SR cash, operating cost); `keepSheetMoney` leaves it for a correction
+ * that re-posts the sheet. The stock check is left to the caller.
  */
 async function moveDsrDay(
   tx: Tx,
@@ -1031,6 +1033,7 @@ async function moveDsrDay(
   access: CompanyAccess,
   row: DsrRow,
   to: "posted" | "reversed",
+  options: { keepSheetMoney?: boolean } = {},
 ): Promise<void> {
   const now = new Date();
   const stamp =
@@ -1047,17 +1050,19 @@ async function moveDsrDay(
     await postFieldVisits(tx, ctx, access, { ...row, ...day });
   } else {
     await reverseFieldVisits(tx, ctx, access.company.id, day);
+    if (options.keepSheetMoney) return;
     const moneyStamp = {
       status: "reversed" as const,
       reversedAt: now,
       reversedById: ctx.actor.userId,
     };
-    // Hand-entered page money for this person/date (field-/sheet-owned rows already reversed).
+    // Hand-entered page money of this SR sheet (field-/sheet-owned rows already reversed). Rows
+    // from before sheets owned their money (no sheetStaffId) fall back to the SR's own entries.
     await tx.moneyEntry.updateMany({
       where: {
         companyId: access.company.id,
         date: row.date,
-        staffId: day.staffId,
+        OR: [{ sheetStaffId: day.staffId }, { sheetStaffId: null, staffId: day.staffId }],
         status: "posted",
         payrollRunId: null,
         dsrDayId: null,
@@ -1065,11 +1070,12 @@ async function moveDsrDay(
       },
       data: moneyStamp,
     });
-    // খরচ is company-wide for the date (not per DSR).
+    // খরচ entered on this sheet only; another SR's sheet keeps its own.
     await tx.moneyEntry.updateMany({
       where: {
         companyId: access.company.id,
         date: row.date,
+        sheetStaffId: day.staffId,
         status: "posted",
         payrollRunId: null,
         kind: "expense",
@@ -1457,6 +1463,7 @@ function toMoneyEntry(row: MoneyRow): MoneyEntry {
     srLoanType: row.srLoanType,
     payrollRunId: row.payrollRunId,
     dsrDayId: row.dsrDayId,
+    sheetStaffId: row.sheetStaffId,
     status: row.status,
     createdAt: row.createdAt.toISOString(),
     reversedAt: iso(row.reversedAt),
@@ -1505,7 +1512,14 @@ async function checkOwedLimits(
 export async function listMoneyEntries(
   ctx: AppContext,
   companyId: string,
-  query: { from: unknown; to?: unknown; staffId?: string | null; shopId?: string | null },
+  query: {
+    from: unknown;
+    to?: unknown;
+    staffId?: string | null;
+    shopId?: string | null;
+    /** Only entries entered on this SR's daily sheet. */
+    sheetStaffId?: string | null;
+  },
 ): Promise<MoneyEntry[]> {
   const access = await loadCompanyAccess(ctx, companyId);
   const from = businessDate(query.from, "from");
@@ -1523,6 +1537,7 @@ export async function listMoneyEntries(
       date: { gte: toDbDate(from), lte: toDbDate(to) },
       ...(query.staffId ? { staffId: query.staffId } : {}),
       ...(query.shopId ? { shopId: query.shopId } : {}),
+      ...(query.sheetStaffId ? { sheetStaffId: query.sheetStaffId } : {}),
     },
     include: moneyInclude,
     orderBy: [{ date: "asc" }, { createdAt: "asc" }],
@@ -1652,6 +1667,13 @@ async function insertMoneyEntry(
   ) {
     throw invalid("shopId", "validation.field.manualDueBlocked");
   }
+  if (request.sheetStaffId) {
+    const sheetOwner = await tx.staff.findFirst({
+      where: { id: request.sheetStaffId, tenantId: access.company.tenantId },
+      select: { id: true },
+    });
+    if (!sheetOwner) throw invalid("sheetStaffId", "validation.daily.staffNotAssigned");
+  }
   await checkOwedLimits(tx, access, request, allocation);
   const row = await tx.moneyEntry.create({
     data: {
@@ -1668,6 +1690,7 @@ async function insertMoneyEntry(
       allocLoan: allocation?.loan ?? null,
       allocShortage: allocation?.shortage ?? null,
       srLoanType: request.srLoanType,
+      sheetStaffId: request.sheetStaffId,
       createdById: ctx.actor.userId,
     },
     include: moneyInclude,
