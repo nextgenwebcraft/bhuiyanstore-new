@@ -11,9 +11,9 @@ import {
   cashCheckSales,
   cashInHandOf,
   dsrCashSettlement,
+  roundSettlement,
   salesProfit,
   sumAmounts,
-  sumQuantities,
   toBaseQuantity,
   toCartonDisplay,
   toDecimal,
@@ -56,7 +56,16 @@ import {
   useWorkingDate,
 } from "./daily-kit";
 import { inputClass } from "@/components/field";
-import { StatusChip, money, quantity } from "@/components/data-table";
+import {
+  StatusChip,
+  money,
+  quantity,
+  tableClass,
+  tdNum,
+  thNum,
+  theadClass,
+} from "@/components/data-table";
+import { TableScroller } from "@/components/table-scroller";
 import {
   DsrSheetEntry,
   lineKeyOf,
@@ -325,9 +334,6 @@ function salariFirotAmounts(lines: DsrDaySaveRequest["lines"], view: DayView): M
     [...byProduct].map(([productId, amts]) => [productId, sumAmounts(["0", ...amts])]),
   );
 }
-
-const commissionOf = (lines: { commission?: string | undefined }[]) =>
-  sumAmounts(["0", ...lines.map((l) => l.commission ?? "0")]);
 
 /** Day-end cash check (D39, D62): the difference is shown only, never posted. */
 function CashCheck({
@@ -906,9 +912,91 @@ function Sheets({
       {srs.length === 0 ? (
         <StatePanel title={t("sr.empty")} />
       ) : (
-        <DsrList dsrs={srs} live={live} view={view} onOpen={setOpen} />
+        <div className="flex flex-col gap-4">
+          <DaySalesTotals view={view} />
+          <DsrList dsrs={srs} live={live} view={view} onOpen={setOpen} />
+        </div>
       )}
     </>
+  );
+}
+
+/** Column set shared by the day strip and each SR card (D107 মোট বিক্রি = সামারি − ফেরত). */
+function salesItemsFromParts(
+  parts: ReturnType<typeof salesProfit>,
+  showProfit: boolean,
+): SummaryItem[] {
+  const totalSales = roundSettlement(
+    toDecimal(parts.issuedValue).sub(toDecimal(parts.returnValue)),
+  );
+  return [
+    { label: t("dashboard.card.issued"), value: money(parts.issuedValue) },
+    { label: t("dashboard.card.returned"), value: money(parts.returnValue) },
+    { label: t("dashboard.card.damage"), value: money(parts.damageValue) },
+    { label: t("dashboard.card.commission"), value: money(parts.commission) },
+    ...(showProfit
+      ? [{ label: t("dashboard.card.salesProfit"), value: money(parts.profit) }]
+      : []),
+    { label: t("dashboard.card.totalSales"), value: money(totalSales), emphasis: true },
+  ];
+}
+
+/**
+ * Day strip: all posted person lines for the date (D69). UI only formats;
+ * `salesProfit` owns the maths.
+ */
+function daySalesItems(view: DayView): SummaryItem[] {
+  const parts = salesProfit(
+    view.persons.map((p) => {
+      const product = view.products.find((x) => x.productId === p.productId);
+      const batch = p.allocations[0];
+      return {
+        issued: p.issued,
+        returned: p.returned,
+        damaged: p.damaged,
+        commission: p.commission,
+        salePrice: batch?.salePrice ?? product?.salePrice ?? "0",
+        costPrice: batch?.costPrice ?? product?.costPrice ?? "0",
+        ...(p.damageRate == null ? {} : { damageRate: p.damageRate }),
+      };
+    }),
+  );
+  return salesItemsFromParts(parts, view.canSeeCost && view.canSeeProfit);
+}
+
+/** Day totals above the SR cards. */
+function DaySalesTotals({ view }: { view: DayView }) {
+  const columns = daySalesItems(view);
+  return (
+    <TableScroller>
+      <table className={tableClass} aria-label={t("table.summary")}>
+        <thead className={theadClass}>
+          <tr>
+            {columns.map((c) => (
+              <th
+                key={c.label}
+                scope="col"
+                className={`${thNum}${c.emphasis ? " bg-brand/8 text-brand" : ""}`}
+              >
+                {c.label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          <tr className="border-t border-border">
+            {columns.map((c) => (
+              <td
+                key={c.label}
+                className={`${tdNum}${c.emphasis ? " bg-brand/8 font-semibold" : " font-semibold"}`}
+              >
+                {c.value}
+              </td>
+            ))}
+          </tr>
+        </tbody>
+      </table>
+    </TableScroller>
   );
 }
 
@@ -935,34 +1023,29 @@ function HandoverShorts({ rows }: { rows: DayView["handoverShorts"] }) {
   );
 }
 
-const pieceLabel = (key: "dsr.sheet.issued" | "dsr.sheet.returned" | "dsr.sheet.damaged") =>
-  `${t(key)} (${t("godown.column.pieces")})`;
-
-/** One DSR's day: quantities from the sheet (draft or posted), sales from the engine (posted). */
-function dsrSummary(sheet: DsrDay | undefined, view: DayView, staffId: string): SummaryItem[] {
-  const lines = sheet?.lines ?? [];
-  const sales = view.persons.filter((p) => p.staffId === staffId).map((p) => p.amount);
-  return [
-    { label: t("table.summary.products"), value: quantity(String(lines.length)) },
-    {
-      label: pieceLabel("dsr.sheet.issued"),
-      value: quantity(sumQuantities(lines.map((l) => l.issued))),
-    },
-    {
-      label: pieceLabel("dsr.sheet.returned"),
-      value: quantity(sumQuantities(lines.map((l) => l.returned))),
-    },
-    {
-      label: pieceLabel("dsr.sheet.damaged"),
-      value: quantity(sumQuantities(lines.map((l) => l.damaged))),
-    },
-    { label: t("dsr.summary.commission"), value: money(commissionOf(lines)) },
-    {
-      label: t("dsr.summary.dsrSales"),
-      value: sheet?.status === "posted" ? money(sumAmounts(sales)) : "—",
-      emphasis: true,
-    },
-  ];
+/**
+ * One SR card: that sheet's own lines only (not the day total, not other SRs).
+ * Prices via saleOf/costOf — same path as the open-sheet profit strip.
+ */
+function dsrSummary(sheet: DsrDay, view: DayView): SummaryItem[] {
+  const parts = salesProfit(
+    sheet.lines.map((l) => ({
+      issued: l.issued,
+      returned: l.returned,
+      damaged: l.damaged,
+      commission: l.commission ?? "0",
+      salePrice: saleOf(
+        { productId: l.productId, batchKey: l.batchKey, salePrice: l.salePrice ?? undefined },
+        view,
+      ),
+      costPrice: costOf(
+        { productId: l.productId, batchKey: l.batchKey, costPrice: l.costPrice ?? undefined },
+        view,
+      ),
+      ...(l.damageRate == null ? {} : { damageRate: l.damageRate }),
+    })),
+  );
+  return salesItemsFromParts(parts, view.canSeeCost && view.canSeeProfit);
 }
 
 function DsrList({
@@ -1002,7 +1085,7 @@ function DsrList({
             {sheet ? (
               <TableSummary
                 label={`${dsr.name} ${t("table.summary")}`}
-                items={dsrSummary(sheet, view, dsr.id)}
+                items={dsrSummary(sheet, view)}
               />
             ) : null}
           </li>

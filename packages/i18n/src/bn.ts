@@ -1239,7 +1239,7 @@ export const bn = {
   "godown.block.hint":
     "চালু থাকলে সামারি, স্টক থেকে বদলি বা গ্রহণ বাতিলের ফলে কোনো পণ্যের মজুদ শূন্যের নিচে গেলে পোস্ট হবে না। সব পণ্যের মজুদ শূন্য বা বেশি হলে তবেই চালু করা যায়।",
   "godown.summary.enteringPieces": "এখন লেখা পরিমাণ",
-  "godown.summary.enteringCost": "এখন লেখার ক্রয়মূল্য",
+  "godown.summary.enteringCost": "মোট টাকা",
   "godown.summary.postedPieces": "পোস্ট করা মোট",
   "godown.receipt.costAmount": "ক্রয়মূল্য (টাকা)",
   "godown.posted.title": "আজকের পোস্ট করা এন্ট্রি",

@@ -251,6 +251,10 @@ export function OrderForm({
     {
       label: `${t("godown.summary.enteringPieces")} (${t("godown.column.pieces")})`,
       value: quantity(sumQuantities(entering.flatMap((d) => [d.paid, d.free]))),
+    },
+    {
+      label: t("godown.summary.enteringCost"),
+      value: money(orderBill.toString()),
       emphasis: true,
     },
   ];

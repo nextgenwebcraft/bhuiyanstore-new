@@ -280,6 +280,11 @@ export function ReceiptForm({
         sumQuantities(entering.flatMap((d) => [d.pieces, d.free === "0" ? [] : [d.free]].flat())),
       ),
     },
+    {
+      label: `${t("day.column.received")} (${t("godown.column.pieces")})`,
+      value: quantity(sumQuantities(view.products.map((p) => p.received))),
+      emphasis: !showCost,
+    },
     ...(showCost
       ? [
           {
@@ -289,11 +294,6 @@ export function ReceiptForm({
           },
         ]
       : []),
-    {
-      label: `${t("day.column.received")} (${t("godown.column.pieces")})`,
-      value: quantity(sumQuantities(view.products.map((p) => p.received))),
-      emphasis: !showCost,
-    },
   ];
 
   return (
