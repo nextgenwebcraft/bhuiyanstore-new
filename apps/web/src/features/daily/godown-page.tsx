@@ -525,7 +525,7 @@ function StockBlockSwitch() {
   }
 
   return (
-    <div className="flex flex-col gap-2 rounded-xl border border-border bg-surface p-4 shadow-card">
+    <div className="mb-6 flex flex-col gap-2 rounded-xl border border-border bg-surface p-4 shadow-card">
       <label className="flex items-start gap-3 text-sm">
         <input
           type="checkbox"
