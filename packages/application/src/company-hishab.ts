@@ -4,6 +4,11 @@ import {
   investmentsRequestSchema,
   masterHishabYearSchema,
   monthSchema,
+  previousDueCreateRequestSchema,
+  previousDueListSchema,
+  previousDueReduceRequestSchema,
+  previousDueSchema,
+  previousDueUpdateRequestSchema,
   shareholderCreateRequestSchema,
   shareholderListSchema,
   shareholderPayoutRequestSchema,
@@ -11,16 +16,21 @@ import {
   shareholderUpdateRequestSchema,
   type CompanyHishabYear,
   type MasterHishabYear,
+  type PreviousDueList,
+  type PreviousDueRecord,
+  type PreviousDueReduceRequest,
   type ShareholderList,
   type ShareholderRecord,
 } from "@bsd/contracts";
 import {
   companyHishabMonth,
   danOf,
+  distributableProfit,
   firstOfMonth,
   investShare,
   lastOfMonth,
   monthOf,
+  previousDueOpenTotal,
   profitPerLakh,
   roundSettlement,
   sumAmounts,
@@ -389,7 +399,7 @@ export async function getMasterHishabYear(
       ? shareholderIdInput
       : null;
 
-  const [companies, people, investments, payouts] = await Promise.all([
+  const [companies, people, investments, payouts, dueRows, reductions] = await Promise.all([
     companiesOf(ctx),
     peopleOf(ctx),
     ctx.db.shareholderInvestment.findMany({
@@ -400,18 +410,31 @@ export async function getMasterHishabYear(
       where: { shareholder: { tenantId: ctx.actor.tenantId }, month: { startsWith: year } },
       select: { shareholderId: true, month: true },
     }),
+    ctx.db.previousDue.findMany({
+      where: { tenantId: ctx.actor.tenantId },
+      select: { amount: true },
+    }),
+    ctx.db.previousDueReduction.findMany({
+      where: { tenantId: ctx.actor.tenantId, month: { startsWith: year } },
+      select: { month: true, amount: true },
+    }),
   ]);
-  if (shareholderId && !people.some((person) => person.id === shareholderId)) {
+  const listedPeople = people.filter((person) => person.active);
+  if (shareholderId && !listedPeople.some((person) => person.id === shareholderId)) {
     throw invalid("shareholderId", "validation.share.unknown");
   }
 
+  const openPreviousDueTotal = previousDueOpenTotal(dueRows.map((row) => plain(row.amount)));
+  const appliedByMonth = new Map<string, string>();
+  for (const row of reductions) {
+    const prev = appliedByMonth.get(row.month) ?? "0";
+    appliedByMonth.set(row.month, sumAmounts([prev, plain(row.amount)]));
+  }
   const today = monthOf(todayBusinessDate());
   const labels = monthsOfYear(year);
-  const shareholderIds = [...new Set(investments.map((investment) => investment.shareholderId))];
-  // D94: every shareholder a row shows (same set as `shareholders` below), not only invested ones.
-  const listedPeople = people.filter(
-    (person) => person.active || hasInvestment(person, () => true),
-  );
+  // Closed (inactive) shareholders are omitted from the payment table and get no share; their
+  // invest is also left out of totalInvest so the open partners split the full distributable pool.
+  const shareholderIds = listedPeople.map((person) => person.id);
   const paidSet = new Set(payouts.map((p) => `${p.shareholderId}|${p.month}`));
   const months = await Promise.all(
     labels.map(async (month) => {
@@ -430,6 +453,8 @@ export async function getMasterHishabYear(
         })),
       );
       const totalProfit = sumAmounts(rows.map((row) => row.totalProfit));
+      const dueApplied = appliedByMonth.get(month) ?? "0.00";
+      const pool = distributableProfit(totalProfit, dueApplied);
       const atMonth = investments.filter((investment) => investment.fromMonth <= month);
       const investOf = (id: string) =>
         sumAmounts(
@@ -449,15 +474,15 @@ export async function getMasterHishabYear(
         month,
         companies: rows.map((row) => ({ companyId: row.companyId, totalProfit: row.totalProfit })),
         totalProfit,
+        previousDueTotal: roundSettlement(dueApplied),
+        distributableProfit: pool,
         totalDan: danOf(totalProfit),
         invest,
-        shareholderProfit: shareholderId
-          ? investShare(totalProfit, invest, totalInvest)
-          : totalProfit,
-        profitPerLakh: profitPerLakh(totalProfit, totalInvest),
+        shareholderProfit: shareholderId ? investShare(pool, invest, totalInvest) : pool,
+        profitPerLakh: profitPerLakh(pool, totalInvest),
         perShareholder: listedPeople.map((person) => ({
           shareholderId: person.id,
-          profit: investShare(totalProfit, investOf(person.id), totalInvest),
+          profit: investShare(pool, investOf(person.id), totalInvest),
           paid: paidSet.has(`${person.id}|${month}`),
         })),
       };
@@ -467,6 +492,7 @@ export async function getMasterHishabYear(
   return masterHishabYearSchema.parse({
     year,
     shareholderId,
+    openPreviousDueTotal,
     companies: companies.map((company) => ({ companyId: company.id, companyName: company.name })),
     shareholders: listedPeople.map((person) => ({
       shareholderId: person.id,
@@ -475,6 +501,185 @@ export async function getMasterHishabYear(
     })),
     months,
   });
+}
+
+function previousDueRecordOf(row: {
+  id: string;
+  reason: string;
+  amount: DecimalLike;
+}): PreviousDueRecord {
+  return previousDueSchema.parse({
+    id: row.id,
+    reason: row.reason,
+    amount: roundSettlement(plain(row.amount)),
+  });
+}
+
+/** Master Previous Due list (D128): every row plus the open total used in the shareholder split. */
+export async function listPreviousDues(
+  ctx: AppContext,
+  companyId: string,
+): Promise<PreviousDueList> {
+  await requireMaster(ctx, companyId);
+  const rows = await ctx.db.previousDue.findMany({
+    where: { tenantId: ctx.actor.tenantId },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+  });
+  const items = rows.map(previousDueRecordOf);
+  return previousDueListSchema.parse({
+    items,
+    openTotal: previousDueOpenTotal(items.map((item) => item.amount)),
+  });
+}
+
+export async function createPreviousDue(
+  ctx: AppContext,
+  companyId: string,
+  input: unknown,
+  requestKey?: string,
+): Promise<PreviousDueRecord> {
+  await requireMaster(ctx, companyId, true);
+  const request = parseInput(previousDueCreateRequestSchema, input);
+  return runIdempotent(
+    ctx,
+    { scope: companyId, action: "previousDue.create", requestKey },
+    request,
+    async (tx) => {
+      const created = await tx.previousDue.create({
+        data: {
+          tenantId: ctx.actor.tenantId,
+          reason: request.reason,
+          amount: request.amount,
+        },
+      });
+      await recordAudit(tx, ctx, {
+        companyId,
+        action: "previousDue.create",
+        resourceType: "previousDue",
+        resourceId: created.id,
+        after: { reason: created.reason, amount: plain(created.amount) },
+      });
+      return previousDueRecordOf(created);
+    },
+  );
+}
+
+export async function updatePreviousDue(
+  ctx: AppContext,
+  companyId: string,
+  previousDueId: string,
+  input: unknown,
+  requestKey?: string,
+): Promise<PreviousDueRecord> {
+  await requireMaster(ctx, companyId, true);
+  const request = parseInput(previousDueUpdateRequestSchema, input);
+  return runIdempotent(
+    ctx,
+    { scope: companyId, action: `previousDue.update:${previousDueId}`, requestKey },
+    request,
+    async (tx) => {
+      const existing = await tx.previousDue.findFirst({
+        where: { id: previousDueId, tenantId: ctx.actor.tenantId },
+      });
+      if (!existing) throw invalid("previousDueId", "validation.previousDue.unknown");
+      const updated = await tx.previousDue.update({
+        where: { id: existing.id },
+        data: { reason: request.reason, amount: request.amount },
+      });
+      await recordAudit(tx, ctx, {
+        companyId,
+        action: "previousDue.update",
+        resourceType: "previousDue",
+        resourceId: existing.id,
+        before: { reason: existing.reason, amount: plain(existing.amount) },
+        after: { reason: updated.reason, amount: plain(updated.amount) },
+      });
+      return previousDueRecordOf(updated);
+    },
+  );
+}
+
+export async function deletePreviousDue(
+  ctx: AppContext,
+  companyId: string,
+  previousDueId: string,
+): Promise<void> {
+  await requireMaster(ctx, companyId, true);
+  await ctx.db.$transaction(async (tx) => {
+    const existing = await tx.previousDue.findFirst({
+      where: { id: previousDueId, tenantId: ctx.actor.tenantId },
+    });
+    if (!existing) throw invalid("previousDueId", "validation.previousDue.unknown");
+    await tx.previousDue.delete({ where: { id: existing.id } });
+    await recordAudit(tx, ctx, {
+      companyId,
+      action: "previousDue.delete",
+      resourceType: "previousDue",
+      resourceId: existing.id,
+      before: { reason: existing.reason, amount: plain(existing.amount) },
+    });
+  });
+}
+
+/**
+ * Apply an amount from one Previous Due against one month's profit (D128): lowers the due's
+ * remaining balance and records a reduction so that month's distributable profit is cut by the
+ * same amount.
+ */
+export async function applyPreviousDueReduction(
+  ctx: AppContext,
+  companyId: string,
+  input: unknown,
+  requestKey?: string,
+): Promise<PreviousDueRecord> {
+  await requireMaster(ctx, companyId, true);
+  const request = parseInput(previousDueReduceRequestSchema, input) as PreviousDueReduceRequest;
+  return runIdempotent(
+    ctx,
+    {
+      scope: companyId,
+      action: `previousDue.reduce:${request.previousDueId}:${request.month}`,
+      requestKey,
+    },
+    request,
+    async (tx) => {
+      const due = await tx.previousDue.findFirst({
+        where: { id: request.previousDueId, tenantId: ctx.actor.tenantId },
+      });
+      if (!due) throw invalid("previousDueId", "validation.previousDue.unknown");
+      const remaining = toDecimal(plain(due.amount));
+      const cut = toDecimal(request.amount);
+      if (cut.lte(0)) throw invalid("amount", "validation.previousDue.reduceAmount");
+      if (cut.gt(remaining)) throw invalid("amount", "validation.previousDue.exceedsRemaining");
+      const nextAmount = roundSettlement(remaining.sub(cut));
+      const updated = await tx.previousDue.update({
+        where: { id: due.id },
+        data: { amount: nextAmount },
+      });
+      await tx.previousDueReduction.create({
+        data: {
+          tenantId: ctx.actor.tenantId,
+          previousDueId: due.id,
+          month: request.month,
+          amount: request.amount,
+          createdById: ctx.actor.userId,
+        },
+      });
+      await recordAudit(tx, ctx, {
+        companyId,
+        action: "previousDue.reduce",
+        resourceType: "previousDue",
+        resourceId: due.id,
+        before: { amount: plain(due.amount) },
+        after: {
+          amount: nextAmount,
+          month: request.month,
+          reduced: request.amount,
+        },
+      });
+      return previousDueRecordOf(updated);
+    },
+  );
 }
 
 /**

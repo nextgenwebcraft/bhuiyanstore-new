@@ -28,6 +28,10 @@ export const resourceIds = {
   ledger: "ledger",
   /** D76: the master monthly account (shareholders and the calculated split). */
   shareMonth: "share-month",
+  /** D128: tenant-wide Previous Due rows that reduce distributable profit. */
+  previousDue: "previous-due",
+  /** D129: company cheques (register + due repay). */
+  companyCheck: "company-check",
   /** D111: company order-amount targets. */
   orderTarget: "order-target",
 } as const;

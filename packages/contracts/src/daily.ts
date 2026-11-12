@@ -68,6 +68,8 @@ export const stockEntrySchema = z.object({
   /** D63, orders only: the balance parts named to pay it, and the group posted together. */
   fundFrom: z.array(z.enum(orderFunds)),
   orderGroup: z.string().nullable(),
+  /** D129: cheque that received this order's bill (null = cash / company payable). */
+  companyCheckId: idSchema.nullable(),
   /** D68: the batch of an order (its paid and free pieces) or of a receipt. */
   batchId: idSchema.nullable(),
   batchSeq: z.number().int().positive().nullable(),
@@ -142,6 +144,9 @@ export const dayPriceRequestSchema = z.object({
   price: unitPriceSchema,
 });
 
+export const orderPaymentMethods = ["cash", "check"] as const;
+export type OrderPaymentMethod = (typeof orderPaymentMethods)[number];
+
 export const stockEntryPostRequestSchema = z
   .object({
     date: businessDateSchema,
@@ -149,6 +154,9 @@ export const stockEntryPostRequestSchema = z
     prices: z.array(dayPriceRequestSchema).max(1500).default([]),
     /** D63: the balance parts that pay this request's orders first. */
     fundFrom: z.array(z.enum(orderFunds)).max(2).default([]),
+    /** D129: cash → companyPayable; check → charge the named cheque. Default cash. */
+    paymentMethod: z.enum(orderPaymentMethods).default("cash"),
+    companyCheckId: idSchema.optional(),
   })
   .refine((v) => v.lines.length + v.prices.length > 0, {
     message: "validation.daily.empty",
@@ -157,6 +165,24 @@ export const stockEntryPostRequestSchema = z
   .refine((v) => v.fundFrom.length === 0 || v.lines.some((l) => l.kind === "order"), {
     message: "validation.daily.orderOnly",
     path: ["fundFrom"],
+  })
+  .superRefine((v, ctx) => {
+    const hasOrder = v.lines.some((l) => l.kind === "order");
+    if (!hasOrder) return;
+    if (v.paymentMethod === "check" && !v.companyCheckId) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["companyCheckId"],
+        message: "validation.companyCheck.required",
+      });
+    }
+    if (v.paymentMethod === "cash" && v.companyCheckId) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["companyCheckId"],
+        message: "validation.companyCheck.cashOnly",
+      });
+    }
   });
 
 export type StockEntryPostRequest = z.input<typeof stockEntryPostRequestSchema>;
@@ -316,6 +342,7 @@ export const moneyEntryKinds = [
   "companyIncentive",
   "cashTransfer",
   "rebateClaim",
+  "companyCheckPayment",
 ] as const;
 
 export type MoneyEntryKind = (typeof moneyEntryKinds)[number];
@@ -382,6 +409,7 @@ export const moneyKindPermission: Record<MoneyEntryKind, PermissionId> = {
   companyIncentive: "payment.post",
   cashTransfer: "payment.post",
   rebateClaim: "payment.post",
+  companyCheckPayment: "payment.post",
 };
 
 /** Kinds that need an expense category. */

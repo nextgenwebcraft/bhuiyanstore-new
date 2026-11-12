@@ -96,6 +96,8 @@ export const MONEY_KIND_EFFECTS: Readonly<Record<MoneyKind, MoneyKindEffect>> = 
   companyIncentive: { cash: 0, company: "incentive", requiresStaff: false },
   /** D105: a rebate claimed from the company; same effect as companyIncentive, own statement line. */
   rebateClaim: { cash: 0, company: "rebate", requiresStaff: false },
+  /** D129: repay cheque due — leaves cash book, never companyPayable (cleared only on the cheque). */
+  companyCheckPayment: { cash: 0, book: -1, requiresStaff: false },
 };
 
 /**

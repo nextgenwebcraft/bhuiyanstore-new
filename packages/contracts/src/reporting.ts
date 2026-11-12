@@ -123,6 +123,42 @@ export const dashboardSummarySchema = z.object({
 
 export type DashboardSummary = z.infer<typeof dashboardSummarySchema>;
 
+/**
+ * Month-wise মোট বিক্রি for one calendar year on the company dashboard (D128). Each month is the
+ * same engine range as the dashboard for that month; future months are zero. `salesProfit` is
+ * omitted without `inventory.cost_view` and `report.profit_view`.
+ */
+export const dashboardMonthlySchema = z.object({
+  year: z.string().regex(/^\d{4}$/),
+  months: z.array(
+    z.object({
+      month: z.string().regex(/^\d{4}-\d{2}$/),
+      totalSales: decimalStringSchema,
+      salesProfit: decimalStringSchema.optional(),
+    }),
+  ),
+});
+
+export type DashboardMonthly = z.infer<typeof dashboardMonthlySchema>;
+
+/**
+ * Last 12 business days of মোট বিক্রি for the company dashboard chart (D128 day tab).
+ * `salesProfit` is omitted without the same permissions as the monthly series.
+ */
+export const dashboardDailySchema = z.object({
+  from: businessDateSchema,
+  to: businessDateSchema,
+  days: z.array(
+    z.object({
+      date: businessDateSchema,
+      totalSales: decimalStringSchema,
+      salesProfit: decimalStringSchema.optional(),
+    }),
+  ),
+});
+
+export type DashboardDaily = z.infer<typeof dashboardDailySchema>;
+
 /** One company's net profit over the range (engine `month.profit`; salaries paid by it, D67). */
 const companyProfitSchema = z.object({
   companyId: idSchema,

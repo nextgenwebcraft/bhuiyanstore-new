@@ -32,7 +32,9 @@ export function OrderFunding({
           .map((f) => t(LABEL[f]))
           .join(" + ");
   return (
-    <div title={t("order.fund.hint")}>
+    <div className="flex flex-col gap-1" title={t("order.fund.hint")}>
+      {/* Same label-line height as পেমেন্ট so the two header controls share one baseline. */}
+      <span className="text-xs font-medium text-text-muted">{t("order.fund.shortLabel")}</span>
       <Popover
         label={t("order.fund.label")}
         triggerClassName="inline-flex min-h-(--touch-target) w-72 items-center justify-between gap-2 rounded-lg border border-border bg-surface px-3 text-left text-sm shadow-card transition-colors hover:border-border-strong aria-expanded:border-brand"
@@ -67,7 +69,7 @@ export function OrderFunding({
             })}
           </ul>
         )}
-      </Popover>{" "}
+      </Popover>
     </div>
   );
 }

@@ -22,6 +22,14 @@ export const queryKeys = {
     companyResource(actorId, companyId, resourceIds.staffMember),
   dashboardSummary: (actorId: string, companyId: string, from: string, to: string) =>
     [...companyResource(actorId, companyId, resourceIds.dashboardSummary), from, to] as const,
+  dashboardMonthly: (actorId: string, companyId: string, year: string) =>
+    [
+      ...companyResource(actorId, companyId, resourceIds.dashboardSummary),
+      "monthly",
+      year,
+    ] as const,
+  dashboardDaily: (actorId: string, companyId: string) =>
+    [...companyResource(actorId, companyId, resourceIds.dashboardSummary), "daily"] as const,
   productHistory: (actorId: string, companyId: string, productId: string) =>
     [...companyResource(actorId, companyId, resourceIds.productHistory), productId] as const,
   staffRecords: (actorId: string, companyId: string) =>
@@ -175,6 +183,14 @@ export const queryKeys = {
     ] as const,
   shareholders: (actorId: string, companyId: string, month: string) =>
     [...companyResource(actorId, companyId, resourceIds.shareMonth), "list", month] as const,
+  previousDues: (actorId: string, companyId: string) =>
+    companyResource(actorId, companyId, resourceIds.previousDue),
+  companyCheckDues: (actorId: string, companyId: string) =>
+    [...companyResource(actorId, companyId, resourceIds.companyCheck), "dues"] as const,
+  companyCheckPicker: (actorId: string, companyId: string) =>
+    [...companyResource(actorId, companyId, resourceIds.companyCheck), "picker"] as const,
+  companyCheckHistory: (actorId: string, companyId: string) =>
+    [...companyResource(actorId, companyId, resourceIds.companyCheck), "history"] as const,
   masterWorkspace: (actorId: string) =>
     [...queryKeys.actor(actorId), "master", resourceIds.companyWorkspace] as const,
   payrollRun: (actorId: string, companyId: string, month: string) =>
@@ -213,6 +229,14 @@ export const postingEffects = {
     resourceIds.ledger,
     resourceIds.dashboardSummary,
     resourceIds.orderTarget,
+    resourceIds.companyCheck,
+  ],
+  /** D129: register/repay company cheques. */
+  checks: [
+    resourceIds.companyCheck,
+    resourceIds.moneyEntry,
+    resourceIds.ledger,
+    resourceIds.dashboardSummary,
   ],
   /** Posting a sheet with field visits also writes shop dues and the exchange case (D40). */
   dsrDay: [

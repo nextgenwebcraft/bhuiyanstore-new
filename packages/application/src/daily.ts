@@ -1,4 +1,6 @@
 import {
+  dashboardDailySchema,
+  dashboardMonthlySchema,
   dashboardSummarySchema,
   dayViewSchema,
   documentTransitionRequestSchema,
@@ -16,6 +18,8 @@ import {
   srLoanTypeKinds,
   stockEntryPostRequestSchema,
   stockEntrySchema,
+  type DashboardDaily,
+  type DashboardMonthly,
   type DashboardSummary,
   type DayView,
   type DsrDay,
@@ -30,7 +34,11 @@ import type { Prisma } from "@bsd/database";
 import { randomUUID } from "node:crypto";
 import {
   MONEY_KIND_EFFECTS,
+  datesBetween,
+  firstOfMonth,
+  lastOfMonth,
   monthOf,
+  shiftBusinessDate,
   sumAmounts,
   sumQuantities,
   summarizeDay,
@@ -70,6 +78,11 @@ import {
   productLots,
   useBatchPrices,
 } from "./batches";
+import {
+  assertCheckUsable,
+  createCheckChargesForEntries,
+  reverseCheckChargeForEntry,
+} from "./company-check";
 
 /**
  * Daily entry (PLAN §9 Phase E): posted raw facts only. Every figure shown back comes from the
@@ -177,6 +190,7 @@ function toStockEntry(row: StockRow, canSeeCost: boolean): StockEntry {
     unitPrice: row.unitPrice === null ? null : plain(row.unitPrice),
     fundFrom: row.fundFrom,
     orderGroup: row.orderGroup,
+    companyCheckId: row.companyCheckId,
     batchId: row.batchId,
     batchSeq: row.batch?.seq ?? null,
     costPrice: canSeeCost && row.costPrice !== null ? plain(row.costPrice) : null,
@@ -314,6 +328,14 @@ export async function postStockEntries(
       await ensureBatchDue(tx, companyId, request.date, receipts);
       await ensureDamageLots(tx, access, request.date, request.lines);
 
+      const hasOrder = request.lines.some((l) => l.kind === "order");
+      const paymentMethod = request.paymentMethod ?? "cash";
+      const companyCheckId =
+        hasOrder && paymentMethod === "check" ? (request.companyCheckId ?? null) : null;
+      if (companyCheckId) await assertCheckUsable(tx, companyId, companyCheckId);
+      // Cheque orders do not consume damage/incentive funds (those settle companyPayable).
+      const fundFrom = companyCheckId ? [] : request.fundFrom;
+
       // TSM orders stay pending until Manager/Super Admin approve (no batch / ledger yet).
       if (access.loginRoleKind === "tsm") {
         if (request.lines.some((l) => l.kind !== "order") || request.prices.length > 0) {
@@ -341,8 +363,9 @@ export async function postStockEntries(
               freePieces: line.freePieces ?? "0",
               cartonRate: line.cartonRate ?? "0",
               piecesPerCarton,
-              fundFrom: request.fundFrom,
+              fundFrom,
               orderGroup,
+              companyCheckId,
               costPrice,
               salePrice,
               status: "pending",
@@ -355,10 +378,18 @@ export async function postStockEntries(
           action: "stock.pending",
           resourceType: "stock_day",
           resourceId: request.date,
-          after: { lines: request.lines, status: "pending" },
+          after: { lines: request.lines, status: "pending", companyCheckId },
         });
         return stockEntriesOn(tx, access, request.date);
       }
+
+      const postedOrders: {
+        id: string;
+        pieces: { toFixed(): string };
+        cartonRate: { toFixed(): string } | null;
+        piecesPerCarton: number | null;
+        kind: string;
+      }[] = [];
 
       for (const [index, line] of request.lines.entries()) {
         const base = {
@@ -381,9 +412,7 @@ export async function postStockEntries(
           const prices = await useBatchPrices(
             tx,
             batch,
-            ctx.actor.isSuperAdmin
-              ? { costPrice: line.costPrice, salePrice: line.salePrice }
-              : {},
+            ctx.actor.isSuperAdmin ? { costPrice: line.costPrice, salePrice: line.salePrice } : {},
           );
           const free =
             line.freePieces !== undefined && line.freePieces !== "0" ? line.freePieces : null;
@@ -425,18 +454,29 @@ export async function postStockEntries(
               });
         if (line.pieces !== "0" && nominal !== null) orderPrices.set(line.productId, nominal);
         const batch = await orderBatch(tx, owner, line.productId, { costPrice, salePrice });
-        await tx.stockEntry.create({
+        const created = await tx.stockEntry.create({
           data: {
             ...base,
             freePieces: line.freePieces ?? "0",
             cartonRate: line.cartonRate ?? "0",
             piecesPerCarton,
-            fundFrom: request.fundFrom,
+            fundFrom,
             orderGroup,
+            companyCheckId,
             batchId: batch.id,
             costPrice: batch.costPrice,
             salePrice,
           },
+        });
+        postedOrders.push(created);
+      }
+      if (companyCheckId && postedOrders.length > 0) {
+        await createCheckChargesForEntries(tx, {
+          tenantId: access.company.tenantId,
+          companyId,
+          companyCheckId,
+          orderGroup,
+          entries: postedOrders,
         });
       }
       // D53: pieces found damaged in the godown leave saleable stock.
@@ -513,6 +553,7 @@ export async function approvePendingOrders(
       const orderPrices = new Map<string, string>();
       const dbDate = toDbDate(date);
 
+      const byCheck = new Map<string, typeof rows>();
       for (const row of rows) {
         const salePrice = row.salePrice === null ? "0" : plain(row.salePrice);
         const costPrice = row.costPrice === null ? null : plain(row.costPrice);
@@ -531,6 +572,22 @@ export async function approvePendingOrders(
             costPrice: batch.costPrice,
             salePrice,
           },
+        });
+        if (row.companyCheckId) {
+          const list = byCheck.get(row.companyCheckId) ?? [];
+          list.push(row);
+          byCheck.set(row.companyCheckId, list);
+        }
+      }
+
+      for (const [companyCheckId, entries] of byCheck) {
+        await assertCheckUsable(tx, companyId, companyCheckId);
+        await createCheckChargesForEntries(tx, {
+          tenantId: access.company.tenantId,
+          companyId,
+          companyCheckId,
+          orderGroup: entries[0]?.orderGroup ?? null,
+          entries,
         });
       }
 
@@ -618,7 +675,10 @@ export async function reverseStockEntry(
         data: { status: "reversed", reversedAt: new Date(), reversedById: ctx.actor.userId },
       });
       if (updated.count !== 1) throw invalid("", "validation.daily.alreadyReversed");
-      if (row.kind === "order") await ensureOrderReversible(tx, companyId, row);
+      if (row.kind === "order") {
+        await ensureOrderReversible(tx, companyId, row);
+        await reverseCheckChargeForEntry(tx, entryId);
+      }
       if (row.kind === "receipt" || row.kind === "incentive") {
         await ensureStockCovers(tx, access, fromDbDate(row.date), [row.productId]);
       }
@@ -779,7 +839,12 @@ export async function saveDsrDayIn(
   // (UI already locks Manager; this closes the API gap found in the role audit).
   const canOverridePrice = access.permissions.includes("sale.price_override");
   const lines = request.lines.flatMap((line, index) => {
-    if (line.issued === "0" && line.returned === "0" && line.damaged === "0" && isZero(line.commission)) {
+    if (
+      line.issued === "0" &&
+      line.returned === "0" &&
+      line.damaged === "0" &&
+      isZero(line.commission)
+    ) {
       return [];
     }
     const safe =
@@ -1298,7 +1363,9 @@ export async function approveDsrHandoversForRange(
 ): Promise<{ count: number }> {
   const access = await requirePermission(ctx, companyId, "sale.handover_approve", { write: true });
   const from = businessDate(
-    typeof input === "object" && input && "from" in input ? (input as { from: unknown }).from : input,
+    typeof input === "object" && input && "from" in input
+      ? (input as { from: unknown }).from
+      : input,
     "from",
   );
   const toRaw =
@@ -1470,7 +1537,12 @@ function parseMoneyPostRequest(input: unknown): MoneyPostParsed {
   const request = parseInput(moneyEntryPostRequestSchema, input);
   // D69: SR incentive paid in cash is retired; D72: so is a transfer between accounts (all money
   // is cash). Old entries stay in the history.
-  if (request.kind === "srIncentive" || request.kind === "cashTransfer") {
+  if (
+    request.kind === "srIncentive" ||
+    request.kind === "cashTransfer" ||
+    request.kind === "companyCheckPayment"
+  ) {
+    // companyCheckPayment is posted only via postCompanyCheckPayment (D129).
     throw invalid("kind", "validation.daily.kindRetired");
   }
   const effect = MONEY_KIND_EFFECTS[request.kind];
@@ -1566,8 +1638,7 @@ async function insertMoneyEntry(
       throw invalid("newShop", "validation.shop.inactiveName");
     }
     shopId =
-      existing?.id ??
-      (await insertShop(tx, ctx, access.company.tenantId, companyId, { name })).id;
+      existing?.id ?? (await insertShop(tx, ctx, access.company.tenantId, companyId, { name })).id;
   } else if (shopId) {
     const shop = await tx.shop.findFirst({
       where: { id: shopId, companyId, status: "active" },
@@ -1952,6 +2023,104 @@ export async function getDashboardSummary(
   return (await dashboardOf(ctx, access, parseReportRange(query))).summary;
 }
 
+/**
+ * Month-wise মোট বিক্রি for the company dashboard chart (D128). Reuses `dashboardOf` per month;
+ * months after today are zero.
+ */
+export async function getDashboardMonthly(
+  ctx: AppContext,
+  companyId: string,
+  yearInput: unknown,
+): Promise<DashboardMonthly> {
+  const access = await requirePermission(ctx, companyId, "company.view");
+  const year =
+    typeof yearInput === "string" && /^\d{4}$/.test(yearInput)
+      ? yearInput
+      : todayBusinessDate().slice(0, 4);
+  const today = monthOf(todayBusinessDate());
+  const canSeeProfit =
+    access.permissions.includes("inventory.cost_view") &&
+    access.permissions.includes("report.profit_view");
+  const months = await Promise.all(
+    Array.from({ length: 12 }, (_, index) => {
+      const month = `${year}-${String(index + 1).padStart(2, "0")}`;
+      return (async () => {
+        if (month > today) {
+          return {
+            month,
+            totalSales: "0.00",
+            ...(canSeeProfit ? { salesProfit: "0.00" } : {}),
+          };
+        }
+        const { summary } = await dashboardOf(ctx, access, {
+          from: firstOfMonth(month),
+          to: lastOfMonth(month),
+        });
+        return {
+          month,
+          totalSales: summary.totalSales,
+          ...(canSeeProfit && summary.salesProfit !== undefined
+            ? { salesProfit: summary.salesProfit }
+            : {}),
+        };
+      })();
+    }),
+  );
+  return dashboardMonthlySchema.parse({ year, months });
+}
+
+/**
+ * Last 12 calendar days of মোট বিক্রি for the dashboard chart day tab (D128). One ledger run
+ * over the window; days with no activity are zero.
+ */
+export async function getDashboardDaily(
+  ctx: AppContext,
+  companyId: string,
+): Promise<DashboardDaily> {
+  const access = await requirePermission(ctx, companyId, "company.view");
+  const to = todayBusinessDate();
+  const from = shiftBusinessDate(to, -11);
+  const labels = datesBetween(from, to);
+  const canSeeProfit =
+    access.permissions.includes("inventory.cost_view") &&
+    access.permissions.includes("report.profit_view");
+  const active = await liveOpening(ctx.db, companyId);
+  const run = await rangeRun(ctx.db, access, from, to, active);
+  const byDate = new Map<string, { totalSales: string; salesProfit?: string }>();
+  if (run) {
+    for (let index = 0; index < run.output.days.length; index += 1) {
+      const day = run.output.days[index];
+      const input = run.input[index];
+      if (!day || !input) continue;
+      const summary = summarizeDay(day, input);
+      const totals = dashboardTotals({
+        issuedValue: summary.issuedValue,
+        returnValue: summary.returnValue,
+        damageSaleValue: summary.damageSaleValue,
+        commission: summary.commission,
+        expenses: summary.expenses,
+        staffCost: summary.staffCost,
+        marketDueCreated: summary.marketDueCreated,
+        oldDuesCollected: summary.oldDuesCollected,
+        salesProfit: summary.salesProfit,
+      });
+      byDate.set(day.date, {
+        totalSales: totals.totalSales,
+        ...(canSeeProfit ? { salesProfit: summary.salesProfit } : {}),
+      });
+    }
+  }
+  const days = labels.map((date) => {
+    const row = byDate.get(date);
+    return {
+      date,
+      totalSales: row?.totalSales ?? "0.00",
+      ...(canSeeProfit ? { salesProfit: row?.salesProfit ?? "0.00" } : {}),
+    };
+  });
+  return dashboardDailySchema.parse({ from, to, days });
+}
+
 /** The dashboard summary plus the engine's profit over the range (the master panel's P&L). */
 export async function dashboardOf(
   ctx: AppContext,
@@ -1998,8 +2167,7 @@ export async function dashboardOf(
   const cashInHandHandover = (() => {
     // Pending: explicit submit, or হাতে জমা amount saved on a posted sheet not yet approved.
     const awaiting = (r: (typeof handoverRows)[number]) =>
-      r.handoverStatus === "pending" ||
-      (r.handoverStatus === "none" && r.cashHandedOver != null);
+      r.handoverStatus === "pending" || (r.handoverStatus === "none" && r.cashHandedOver != null);
     if (handoverRows.some(awaiting)) {
       const pending = handoverRows.find(awaiting);
       return {

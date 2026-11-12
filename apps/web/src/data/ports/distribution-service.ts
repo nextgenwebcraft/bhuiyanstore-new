@@ -5,6 +5,8 @@ import type {
   DamageCase,
   DamageCaseCreateRequest,
   DamageEventRequest,
+  DashboardDaily,
+  DashboardMonthly,
   DashboardSummary,
   DayView,
   DocumentTransitionRequest,
@@ -33,6 +35,17 @@ import type {
   CompanyHishabYear,
   MasterHishabYear,
   InvestmentsRequest,
+  PreviousDueCreateRequest,
+  PreviousDueList,
+  PreviousDueRecord,
+  PreviousDueReduceRequest,
+  PreviousDueUpdateRequest,
+  CompanyCheckBulkCreateRequest,
+  CompanyCheckHistoryList,
+  CompanyCheckList,
+  CompanyCheckPaymentRecord,
+  CompanyCheckPaymentRequest,
+  CompanyCheckPickerList,
   ShareholderCreateRequest,
   ShareholderList,
   ShareholderPayoutRequest,
@@ -136,6 +149,14 @@ export interface DistributionService {
     range: ReportRange,
     options?: RequestOptions,
   ): Promise<DashboardSummary>;
+  /** Month-wise মোট বিক্রি for the dashboard chart (D128). */
+  getDashboardMonthly(
+    companyId: string,
+    year: string,
+    options?: RequestOptions,
+  ): Promise<DashboardMonthly>;
+  /** Last 12 days of মোট বিক্রি for the dashboard chart day tab (D128). */
+  getDashboardDaily(companyId: string, options?: RequestOptions): Promise<DashboardDaily>;
 
   // Daily entry (PLAN §9 Phase E). Posted documents are corrected by reversal, never edited.
 
@@ -325,6 +346,38 @@ export interface DistributionService {
   ): Promise<ShareholderRecord>;
   /** D94: marks or unmarks one shareholder's one month as paid on the master panel. */
   setShareholderPayout(companyId: string, input: ShareholderPayoutRequest): Promise<void>;
+  /** D128: master Previous Due list (reason + amount). */
+  listPreviousDues(companyId: string, options?: RequestOptions): Promise<PreviousDueList>;
+  createPreviousDue(companyId: string, input: PreviousDueCreateRequest): Promise<PreviousDueRecord>;
+  updatePreviousDue(
+    companyId: string,
+    previousDueId: string,
+    input: PreviousDueUpdateRequest,
+  ): Promise<PreviousDueRecord>;
+  deletePreviousDue(companyId: string, previousDueId: string): Promise<void>;
+  /** D128: apply amount from one Previous Due against one month's profit. */
+  applyPreviousDueReduction(
+    companyId: string,
+    input: PreviousDueReduceRequest,
+  ): Promise<PreviousDueRecord>;
+  /** D129: company cheques — due list, picker, bulk create, repay, history. */
+  listCompanyCheckDues(companyId: string, options?: RequestOptions): Promise<CompanyCheckList>;
+  listCompanyCheckPicker(
+    companyId: string,
+    options?: RequestOptions,
+  ): Promise<CompanyCheckPickerList>;
+  bulkCreateCompanyChecks(
+    companyId: string,
+    input: CompanyCheckBulkCreateRequest,
+  ): Promise<CompanyCheckList>;
+  postCompanyCheckPayment(
+    companyId: string,
+    input: CompanyCheckPaymentRequest,
+  ): Promise<CompanyCheckPaymentRecord>;
+  listCompanyCheckHistory(
+    companyId: string,
+    options?: RequestOptions,
+  ): Promise<CompanyCheckHistoryList>;
   /** Requires `report.view` (profit also `report.profit_view`, staff balances `finance.view`). */
   getReport(
     companyId: string,

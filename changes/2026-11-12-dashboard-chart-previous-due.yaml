@@ -1,0 +1,34 @@
+id: 2026-11-12-dashboard-chart-previous-due
+reason: >-
+  Owner 2026-11-12 (D128) — company dashboard day/month মোট বিক্রি chart (keep existing cards),
+  and master Previous Due CRUD (reason + amount). Admin explicitly applies an amount from an open
+  due against one month (above অংশীদারদের পেমেন্ট): that amount reduces the due balance and that
+  month's distributable profit. Operating totalProfit and দান stay unchanged. Inactive
+  shareholders are omitted from the payout table and invest pool.
+owners: [domain, contracts, application, database, architecture, web, i18n, docs]
+changes:
+  - packages/domain company-hishab.ts — previousDueOpenTotal, distributableProfit (post-দান split base)
+  - packages/contracts — dashboard daily/monthly schemas; previousDue CRUD + reduce schemas;
+    masterHishabYear openPreviousDueTotal + per-month previousDueTotal (applied) + distributableProfit
+  - packages/database — previous_due + previous_due_reduction; migrations 20261112010000 / 20261112020000
+  - packages/architecture — resourceIds.previousDue
+  - packages/application — getDashboardDaily/Monthly; previousDue CRUD + applyPreviousDueReduction;
+    getMasterHishabYear uses per-month applied reductions for investShare/profitPerLakh/perShareholder
+  - apps/web — dashboard chart tabs; master/previous-due CRUD; master dashboard apply form above
+    shareholder payments (no open-due banner card); reduce API
+  - docs — D128 (explicit apply amendment)
+affectedActionIds: []
+financialImpact: >-
+  Month engine, dashboard operating cards, company hishab totalProfit/দান, and cash posting are
+  unchanged. Only the master shareholder split (shareholderProfit, profitPerLakh, D94 payout
+  display amounts) uses totalProfit after Previous Due amounts applied to that month. Company
+  Hishab Reports are unchanged.
+backfill: none; Previous Due rows are entered on the master module; reductions are applied from
+  the master dashboard form
+tests:
+  - pnpm check (format/lint/types/unit)
+  - pnpm test:integration company-hishab (when TEST_DATABASE_URL available)
+rollout: >-
+  deploy the app and apply migrations 20261112010000_previous_due and
+  20261112020000_previous_due_reduction
+recovery: revert the commit; drop previous_due_reduction / previous_due if rolling back migrations

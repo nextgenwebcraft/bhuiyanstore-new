@@ -38,6 +38,7 @@ export const navigation: readonly NavSection[] = [
       item("", "nav.dashboard", "company.view"),
       item("master/company-hishab", "nav.master.companyHishab", "company.view"),
       item("master/shareholders", "nav.master.shareholders", "company.view"),
+      item("master/previous-due", "nav.master.previousDue", "company.view"),
       item("master/companies", "nav.master.companies", "company.view"),
     ],
   },
@@ -62,6 +63,7 @@ export const navigation: readonly NavSection[] = [
       item("history/staff-cash", "nav.history.staffCash", "finance.view"),
       item("history/sr-cash", "nav.history.srCash", "sr_loan.view"),
       item("history/expenses", "nav.history.expenses", "finance.view"),
+      item("history/company-checks", "nav.history.companyChecks", "finance.view"),
       item("history/dsr-sheets", "nav.history.dsrSheets", "sale.view"),
     ],
   },
@@ -97,6 +99,7 @@ export const navigation: readonly NavSection[] = [
       item("finance/company-account", "nav.finance.companyAccount", "finance.view"),
       item("finance/cash-book", "nav.finance.cashBook", "finance.view"),
       item("finance/supplier-deposits", "finance.supplierDeposit", "finance.view"),
+      item("finance/company-checks", "nav.finance.companyChecks", "finance.view"),
     ],
   },
   {
@@ -126,7 +129,8 @@ export type HubId =
   | "staff"
   | "companies"
   | "shares"
-  | "shareholders";
+  | "shareholders"
+  | "previousDue";
 
 type HubTab = {
   path: string;
@@ -172,7 +176,11 @@ const hubDefinitions: readonly Omit<Hub, "shortcut">[] = [
     id: "money",
     labelKey: "nav.hub.money",
     icon: "finance",
-    tabs: [{ path: "finance/supplier-deposits" }, { path: "finance/company-account" }],
+    tabs: [
+      { path: "finance/supplier-deposits" },
+      { path: "finance/company-account" },
+      { path: "finance/company-checks" },
+    ],
   },
   {
     id: "ledgers",
@@ -195,6 +203,7 @@ const hubDefinitions: readonly Omit<Hub, "shortcut">[] = [
       { path: "history/staff-cash" },
       { path: "history/sr-cash" },
       { path: "history/expenses" },
+      { path: "history/company-checks" },
       { path: "history/dsr-sheets" },
     ],
   },
@@ -229,6 +238,12 @@ const masterHubDefinitions: readonly Omit<Hub, "shortcut">[] = [
     labelKey: "nav.master.shareholders",
     icon: "srAccounts",
     tabs: [{ path: "master/shareholders", labelKey: "nav.master.shareholders" }],
+  },
+  {
+    id: "previousDue",
+    labelKey: "nav.master.previousDue",
+    icon: "finance",
+    tabs: [{ path: "master/previous-due", labelKey: "nav.master.previousDue" }],
   },
   {
     id: "staff",
@@ -276,12 +291,7 @@ export function hubOfPath(path: string, master = false): Hub | undefined {
 }
 
 /** Hubs a Manager must not see (owner 2026-11-08; amends D112 UI). */
-const MANAGER_HIDDEN_HUBS: ReadonlySet<HubId> = new Set([
-  "money",
-  "ledgers",
-  "history",
-  "setup",
-]);
+const MANAGER_HIDDEN_HUBS: ReadonlySet<HubId> = new Set(["money", "ledgers", "history", "setup"]);
 
 /**
  * D112: DSR only opens the dashboard and দৈনিক বিক্রয় হিসাব (sheet money/dues live on that

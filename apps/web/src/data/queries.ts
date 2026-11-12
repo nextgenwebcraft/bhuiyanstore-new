@@ -24,6 +24,11 @@ import type {
   ReportId,
   ReportRange,
   InvestmentsRequest,
+  PreviousDueCreateRequest,
+  PreviousDueReduceRequest,
+  PreviousDueUpdateRequest,
+  CompanyCheckBulkCreateRequest,
+  CompanyCheckPaymentRequest,
   ShareholderCreateRequest,
   ShareholderPayoutRequest,
   ShareholderUpdateRequest,
@@ -141,12 +146,32 @@ export function useDashboardSummary(companyId: string, range: ReportRange) {
   });
 }
 
+export function useDashboardMonthly(companyId: string, year: string, enabled = true) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.dashboardMonthly(actorId, companyId, year),
+    queryFn: ({ signal }) => service.getDashboardMonthly(companyId, year, { signal }),
+    placeholderData: keepPreviousData,
+    enabled,
+  });
+}
+
+export function useDashboardDaily(companyId: string, enabled = true) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.dashboardDaily(actorId, companyId),
+    queryFn: ({ signal }) => service.getDashboardDaily(companyId, { signal }),
+    placeholderData: keepPreviousData,
+    enabled,
+  });
+}
+
 export function useApproveDsrHandoversForRange(companyId: string) {
   const service = useService();
-  return usePostingMutation(
-    companyId,
-    "dsrDay",
-    (range: { from: string; to: string }) => service.approveDsrHandoversForRange(companyId, range),
+  return usePostingMutation(companyId, "dsrDay", (range: { from: string; to: string }) =>
+    service.approveDsrHandoversForRange(companyId, range),
   );
 }
 
@@ -584,6 +609,90 @@ export function useSetShareholderPayout(companyId: string) {
   return useMasterMutation([resourceIds.shareMonth], (input: ShareholderPayoutRequest) =>
     service.setShareholderPayout(companyId, input),
   );
+}
+
+export function usePreviousDues(companyId: string) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.previousDues(actorId, companyId),
+    queryFn: ({ signal }) => service.listPreviousDues(companyId, { signal }),
+  });
+}
+
+export function useCreatePreviousDue(companyId: string) {
+  const service = useService();
+  return useMasterMutation(
+    [resourceIds.previousDue, resourceIds.shareMonth],
+    (input: PreviousDueCreateRequest) => service.createPreviousDue(companyId, input),
+  );
+}
+
+export function useUpdatePreviousDue(companyId: string) {
+  const service = useService();
+  return useMasterMutation(
+    [resourceIds.previousDue, resourceIds.shareMonth],
+    ({ previousDueId, input }: { previousDueId: string; input: PreviousDueUpdateRequest }) =>
+      service.updatePreviousDue(companyId, previousDueId, input),
+  );
+}
+
+export function useDeletePreviousDue(companyId: string) {
+  const service = useService();
+  return useMasterMutation(
+    [resourceIds.previousDue, resourceIds.shareMonth],
+    (previousDueId: string) => service.deletePreviousDue(companyId, previousDueId),
+  );
+}
+
+export function useApplyPreviousDueReduction(companyId: string) {
+  const service = useService();
+  return useMasterMutation(
+    [resourceIds.previousDue, resourceIds.shareMonth],
+    (input: PreviousDueReduceRequest) => service.applyPreviousDueReduction(companyId, input),
+  );
+}
+
+export function useCompanyCheckDues(companyId: string) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.companyCheckDues(actorId, companyId),
+    queryFn: ({ signal }) => service.listCompanyCheckDues(companyId, { signal }),
+  });
+}
+
+export function useCompanyCheckPicker(companyId: string, enabled = true) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.companyCheckPicker(actorId, companyId),
+    queryFn: ({ signal }) => service.listCompanyCheckPicker(companyId, { signal }),
+    enabled,
+  });
+}
+
+export function useBulkCreateCompanyChecks(companyId: string) {
+  const service = useService();
+  return usePostingMutation(companyId, "checks", (input: CompanyCheckBulkCreateRequest) =>
+    service.bulkCreateCompanyChecks(companyId, input),
+  );
+}
+
+export function usePostCompanyCheckPayment(companyId: string) {
+  const service = useService();
+  return usePostingMutation(companyId, "checks", (input: CompanyCheckPaymentRequest) =>
+    service.postCompanyCheckPayment(companyId, input),
+  );
+}
+
+export function useCompanyCheckHistory(companyId: string) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.companyCheckHistory(actorId, companyId),
+    queryFn: ({ signal }) => service.listCompanyCheckHistory(companyId, { signal }),
+  });
 }
 
 export function useReport(companyId: string, report: ReportId, range: ReportRange, enabled = true) {

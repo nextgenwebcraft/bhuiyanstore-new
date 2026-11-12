@@ -6,6 +6,10 @@ Evidence-based progress. Mark an item done only with evidence.
 
 The canonical plan is now [PLAN.md](PLAN.md). The owner approved backend integration (D30).
 
+**2026-11-12** ([manifest](../changes/2026-11-12-company-check-dues.yaml)): Company cheques — bulk register + due repay page; order নগদ/চেক; cheque bills skip companyPayable; completed cheques in History (D129). Migration `20261112030000_company_checks` (apply before deploy).
+
+**2026-11-12** ([manifest](../changes/2026-11-12-dashboard-chart-previous-due.yaml)): Company dashboard day/month মোট বিক্রি chart; master Previous Due CRUD; explicit apply from master dashboard cuts due balance and that month’s distributable profit (D128). Migrations `20261112010000_previous_due` + `20261112020000_previous_due_reduction` (apply before deploy).
+
 **2026-11-11** ([manifest](../changes/2026-11-11-manager-price-override-api.yaml)): DSR sheet — strip sale/cost without `sale.price_override` on save (closes Manager API reprice gap, D112).
 
 **2026-11-11** ([manifest](../changes/2026-11-11-role-nav-allowlists.yaml)): DSR nav allowlist — dashboard + দৈনিক বিক্রয় হিসাব only (D112); Manager/TSM regression tests.

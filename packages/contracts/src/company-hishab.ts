@@ -100,13 +100,16 @@ export type CompanyHishabYear = z.infer<typeof companyHishabYearSchema>;
 /**
  * The master panel: every active company's totalProfit side by side, one year, filterable by
  * shareholder. totalDan is 2% of the combined totalProfit (not a sum of the per-company দান).
- * invest, shareholderProfit and profitPerLakh follow the same rule as Company Hishab Reports.
- * perShareholder (D94) is every shareholder's own profit share and paid status for that month,
- * always every shareholder regardless of the shareholderId filter above.
+ * previousDueTotal (D128) on each month is the sum of reductions applied to that month;
+ * shareholderProfit and profitPerLakh use distributableProfit (totalProfit after those
+ * reductions). openPreviousDueTotal is the remaining open dues for the apply form. perShareholder
+ * (D94) is every **active** shareholder's share (closed partners omitted).
  */
 export const masterHishabYearSchema = z.object({
   year: hishabYearSchema,
   shareholderId: idSchema.nullable(),
+  /** Remaining open Previous Due balances (amount > 0), for the apply form. */
+  openPreviousDueTotal: decimalStringSchema,
   companies: z.array(z.object({ companyId: idSchema, companyName: z.string() })),
   shareholders: z.array(
     z.object({ shareholderId: idSchema, name: z.string(), active: z.boolean() }),
@@ -116,6 +119,10 @@ export const masterHishabYearSchema = z.object({
       month: monthSchema,
       companies: z.array(z.object({ companyId: idSchema, totalProfit: decimalStringSchema })),
       totalProfit: decimalStringSchema,
+      /** Amount applied from Previous Due against this month's profit. */
+      previousDueTotal: decimalStringSchema,
+      /** totalProfit after Previous Due applications for the shareholder split (D128). */
+      distributableProfit: decimalStringSchema,
       totalDan: decimalStringSchema,
       invest: decimalStringSchema,
       shareholderProfit: decimalStringSchema,
@@ -127,6 +134,49 @@ export const masterHishabYearSchema = z.object({
   ),
 });
 export type MasterHishabYear = z.infer<typeof masterHishabYearSchema>;
+
+/** Tenant-wide Previous Due row (D128): reason + remaining amount; amount 0 is settled. */
+export const previousDueSchema = z.object({
+  id: idSchema,
+  reason: z.string(),
+  amount: decimalStringSchema,
+});
+export type PreviousDueRecord = z.infer<typeof previousDueSchema>;
+
+const previousDueReason = z
+  .string()
+  .trim()
+  .min(1, { message: "validation.previousDue.reason" })
+  .max(200, { message: "validation.previousDue.reason" });
+
+export const previousDueCreateRequestSchema = z.object({
+  reason: previousDueReason,
+  amount: investAmountSchema,
+});
+export type PreviousDueCreateRequest = z.input<typeof previousDueCreateRequestSchema>;
+
+export const previousDueUpdateRequestSchema = z.object({
+  reason: previousDueReason,
+  amount: investAmountSchema,
+});
+export type PreviousDueUpdateRequest = z.input<typeof previousDueUpdateRequestSchema>;
+
+export const previousDueListSchema = z.object({
+  items: z.array(previousDueSchema),
+  /** Sum of amounts where amount > 0. */
+  openTotal: decimalStringSchema,
+});
+export type PreviousDueList = z.infer<typeof previousDueListSchema>;
+
+/** Apply part of a Previous Due against one month's profit (D128). */
+export const previousDueReduceRequestSchema = z.object({
+  previousDueId: idSchema,
+  month: monthSchema,
+  amount: investAmountSchema.refine((value) => /[1-9]/.test(value), {
+    message: "validation.previousDue.reduceAmount",
+  }),
+});
+export type PreviousDueReduceRequest = z.input<typeof previousDueReduceRequestSchema>;
 
 /** D94: marks (or unmarks) one shareholder's one month as paid on the master panel. */
 export const shareholderPayoutRequestSchema = z.object({

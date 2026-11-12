@@ -2,6 +2,8 @@ import {
   apiErrorSchema,
   companyWorkspaceSchema,
   damageCaseSchema,
+  dashboardDailySchema,
+  dashboardMonthlySchema,
   dashboardSummarySchema,
   dayViewSchema,
   dsrDaySchema,
@@ -23,6 +25,12 @@ import {
   masterSummarySchema,
   companyHishabYearSchema,
   masterHishabYearSchema,
+  previousDueListSchema,
+  previousDueSchema,
+  companyCheckHistoryListSchema,
+  companyCheckListSchema,
+  companyCheckPaymentSchema,
+  companyCheckPickerListSchema,
   shareholderListSchema,
   shareholderSchema,
   monthCloseResultSchema,
@@ -234,6 +242,14 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
         `${company(companyId)}/dashboard?${new URLSearchParams(range).toString()}`,
         options,
       ),
+    getDashboardMonthly: (companyId, year, options) =>
+      request(
+        dashboardMonthlySchema,
+        `${company(companyId)}/dashboard-monthly?${new URLSearchParams({ year }).toString()}`,
+        options,
+      ),
+    getDashboardDaily: (companyId, options) =>
+      request(dashboardDailySchema, `${company(companyId)}/dashboard-daily`, options),
 
     getDayView: (companyId, date, options) =>
       request(dayViewSchema, `${company(companyId)}/days/${id(date)}`, options),
@@ -410,10 +426,7 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
     updateStaff: (companyId, staffId, input) =>
       request(staffRecordSchema, `${company(companyId)}/staff/${id(staffId)}`, write("PUT", input)),
     getStaffDeleteImpact: (companyId, staffId) =>
-      request(
-        staffDeleteImpactSchema,
-        `${company(companyId)}/staff/${id(staffId)}/delete-impact`,
-      ),
+      request(staffDeleteImpactSchema, `${company(companyId)}/staff/${id(staffId)}/delete-impact`),
     deleteStaff: (companyId, staffId) =>
       request(z.undefined(), `${company(companyId)}/staff/${id(staffId)}`, remove()),
     addStaffAssignment: (companyId, staffId, input) =>
@@ -580,6 +593,46 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
         z.undefined(),
         `${company(companyId)}/master-shareholder-payouts`,
         write("PUT", input),
+      ),
+    listPreviousDues: (companyId, options) =>
+      request(previousDueListSchema, `${company(companyId)}/previous-dues`, options),
+    createPreviousDue: (companyId, input) =>
+      request(previousDueSchema, `${company(companyId)}/previous-dues`, write("POST", input)),
+    updatePreviousDue: (companyId, previousDueId, input) =>
+      request(
+        previousDueSchema,
+        `${company(companyId)}/previous-dues/${id(previousDueId)}`,
+        write("PUT", input),
+      ),
+    deletePreviousDue: (companyId, previousDueId) =>
+      request(z.undefined(), `${company(companyId)}/previous-dues/${id(previousDueId)}`, remove()),
+    applyPreviousDueReduction: (companyId, input) =>
+      request(
+        previousDueSchema,
+        `${company(companyId)}/previous-dues/reductions`,
+        write("POST", input),
+      ),
+    listCompanyCheckDues: (companyId, options) =>
+      request(companyCheckListSchema, `${company(companyId)}/company-checks`, options),
+    listCompanyCheckPicker: (companyId, options) =>
+      request(companyCheckPickerListSchema, `${company(companyId)}/company-checks/picker`, options),
+    bulkCreateCompanyChecks: (companyId, input) =>
+      request(
+        companyCheckListSchema,
+        `${company(companyId)}/company-checks`,
+        write("POST", input),
+      ),
+    postCompanyCheckPayment: (companyId, input) =>
+      request(
+        companyCheckPaymentSchema,
+        `${company(companyId)}/company-checks/payments`,
+        write("POST", input),
+      ),
+    listCompanyCheckHistory: (companyId, options) =>
+      request(
+        companyCheckHistoryListSchema,
+        `${company(companyId)}/company-checks/history`,
+        options,
       ),
     getReport: (companyId, report, range, options) =>
       request(
