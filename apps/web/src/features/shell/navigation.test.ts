@@ -88,7 +88,11 @@ describe("hubs", () => {
       "inventory/undelivered",
     ]);
     expect(paths("shops")).toEqual(["sales/shops"]);
-    expect(paths("money")).toEqual(["finance/supplier-deposits", "finance/company-account"]);
+    expect(paths("money")).toEqual([
+      "finance/supplier-deposits",
+      "finance/company-account",
+      "finance/company-checks",
+    ]);
     expect(paths("ledgers")).toEqual(["finance/cash-book", "dsr/salary-recovery"]);
     expect(paths("history")).toEqual([
       "history/orders",
@@ -98,6 +102,7 @@ describe("hubs", () => {
       "history/staff-cash",
       "history/sr-cash",
       "history/expenses",
+      "history/company-checks",
       "history/dsr-sheets",
     ]);
   });

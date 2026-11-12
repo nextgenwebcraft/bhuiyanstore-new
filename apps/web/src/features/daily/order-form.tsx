@@ -1,6 +1,6 @@
 "use client";
 
-import type { DayView, OrderFund, StockEntryPostRequest } from "@bsd/contracts";
+import type { DayView, OrderFund, OrderPaymentMethod, StockEntryPostRequest } from "@bsd/contracts";
 import {
   orderBatchCostPrice,
   orderFundingPreview,
@@ -100,6 +100,10 @@ export function OrderForm({
   view,
   fundFrom,
   setFundFrom,
+  paymentMethod,
+  companyCheckId,
+  setCompanyCheckId,
+  setPaymentMethod,
 }: {
   companyId: string;
   date: string;
@@ -107,6 +111,11 @@ export function OrderForm({
   /** The balances that pay the order first; chosen in the page header (D63). */
   fundFrom: OrderFund[];
   setFundFrom: (value: OrderFund[]) => void;
+  /** D129: cash → company payable; check → charge the named cheque. */
+  paymentMethod: OrderPaymentMethod;
+  companyCheckId: string;
+  setCompanyCheckId: (value: string) => void;
+  setPaymentMethod: (value: OrderPaymentMethod) => void;
 }) {
   const { loginRoleKind } = useCurrentWorkspace();
   const post = usePostStockEntries(companyId);
@@ -192,7 +201,17 @@ export function OrderForm({
       });
     }
     if (lines.length === 0) return t("godown.nothing");
-    return { date, lines, prices: [], fundFrom };
+    if (paymentMethod === "check" && !companyCheckId) {
+      return t("validation.companyCheck.required");
+    }
+    return {
+      date,
+      lines,
+      prices: [],
+      fundFrom: paymentMethod === "check" ? [] : fundFrom,
+      paymentMethod,
+      ...(paymentMethod === "check" ? { companyCheckId } : {}),
+    };
   }
 
   async function submit() {
@@ -206,6 +225,8 @@ export function OrderForm({
       await post.mutateAsync(built);
       setRows({});
       setFundFrom([]);
+      setPaymentMethod("cash");
+      setCompanyCheckId("");
       setDone(true);
     } catch (e) {
       setError(describeError(e, []).form);
@@ -462,9 +483,7 @@ export function OrderForm({
       </p>
       {error ? <StatePanel tone="error" title={error} /> : null}
       {done ? (
-        <StatePanel
-          title={t(pendingSubmit ? "godown.order.submittedPending" : "common.posted")}
-        />
+        <StatePanel title={t(pendingSubmit ? "godown.order.submittedPending" : "common.posted")} />
       ) : null}
       <div>
         <Button variant="primary" disabled={post.isPending} onClick={() => void submit()}>

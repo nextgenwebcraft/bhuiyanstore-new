@@ -30,6 +30,8 @@ export const resourceIds = {
   shareMonth: "share-month",
   /** D128: tenant-wide Previous Due rows that reduce distributable profit. */
   previousDue: "previous-due",
+  /** D129: company cheques (register + due repay). */
+  companyCheck: "company-check",
   /** D111: company order-amount targets. */
   orderTarget: "order-target",
 } as const;

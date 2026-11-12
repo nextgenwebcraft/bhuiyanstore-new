@@ -294,6 +294,7 @@ async function rangeInput(
           ref: entry.id,
           ...(entry.fundFrom.length > 0 ? { fundFrom: entry.fundFrom as CompanyFund[] } : {}),
           ...(entry.orderGroup ? { group: entry.orderGroup } : {}),
+          ...(entry.companyCheckId ? { paidByCheck: true } : {}),
         },
       ];
       continue;

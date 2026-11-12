@@ -141,6 +141,8 @@ type OrderStageEntry = {
   ref?: string;
   fundFrom: readonly CompanyFund[];
   group?: string;
+  /** D129: cheque-funded — skip companyPayable / fund split. */
+  paidByCheck?: boolean;
 };
 
 /** The day's orders and receipt of one product against its undelivered pool (D48, D57). */
@@ -188,8 +190,9 @@ function orderStage(
       cartonRate,
       bill: pieces.mul(cartonRate).div(perCarton),
       ...(o.ref === undefined ? {} : { ref: o.ref }),
-      fundFrom: o.fundFrom ?? [],
+      fundFrom: o.paidByCheck ? [] : (o.fundFrom ?? []),
       ...(o.group === undefined ? {} : { group: o.group }),
+      ...(o.paidByCheck ? { paidByCheck: true } : {}),
     });
   }
   let dueQty = state.dueFromCompany;
@@ -870,6 +873,8 @@ export function computeMonth(input: MonthInput): MonthOutput {
         dueValueWalk = dueValueWalk.add(o.bill);
         state.dueValue = dueValueWalk;
         companyOrders = companyOrders.add(o.bill);
+        // D129: cheque-funded orders still raise undelivered goods, but never companyPayable.
+        if (o.paidByCheck) continue;
         companyPayable = companyPayable.add(o.bill);
         const { fromDamage, fromIncentive, fromDeposit } = fundOrder(o.bill, o.fundFrom, {
           damage: damageFund.add(pendingDamage),

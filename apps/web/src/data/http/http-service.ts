@@ -27,6 +27,10 @@ import {
   masterHishabYearSchema,
   previousDueListSchema,
   previousDueSchema,
+  companyCheckHistoryListSchema,
+  companyCheckListSchema,
+  companyCheckPaymentSchema,
+  companyCheckPickerListSchema,
   shareholderListSchema,
   shareholderSchema,
   monthCloseResultSchema,
@@ -607,6 +611,28 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
         previousDueSchema,
         `${company(companyId)}/previous-dues/reductions`,
         write("POST", input),
+      ),
+    listCompanyCheckDues: (companyId, options) =>
+      request(companyCheckListSchema, `${company(companyId)}/company-checks`, options),
+    listCompanyCheckPicker: (companyId, options) =>
+      request(companyCheckPickerListSchema, `${company(companyId)}/company-checks/picker`, options),
+    bulkCreateCompanyChecks: (companyId, input) =>
+      request(
+        companyCheckListSchema,
+        `${company(companyId)}/company-checks`,
+        write("POST", input),
+      ),
+    postCompanyCheckPayment: (companyId, input) =>
+      request(
+        companyCheckPaymentSchema,
+        `${company(companyId)}/company-checks/payments`,
+        write("POST", input),
+      ),
+    listCompanyCheckHistory: (companyId, options) =>
+      request(
+        companyCheckHistoryListSchema,
+        `${company(companyId)}/company-checks/history`,
+        options,
       ),
     getReport: (companyId, report, range, options) =>
       request(

@@ -6,6 +6,7 @@ import type {
   StockEntryKind,
   StockEntryPostRequest,
   OrderFund,
+  OrderPaymentMethod,
 } from "@bsd/contracts";
 import { EmptyListNote } from "@/components/empty-list-note";
 import { ReverseCell } from "@/components/reverse-cell";
@@ -59,6 +60,7 @@ import { TableScroller } from "@/components/table-scroller";
 import { OrderForm } from "./order-form";
 import { ReceiptForm } from "./receipt-form";
 import { OrderFunding } from "./order-funding";
+import { OrderPaymentMethod as OrderPaymentMethodControl } from "./order-payment-method";
 
 /** D63: damage deposits are entered on the company deposit page, not here. */
 type GodownKind = Exclude<StockEntryKind, "damageDeposit">;
@@ -461,7 +463,9 @@ function PostedEntries({
                                   free: entry.freePieces ?? "0",
                                   cartonRate: entry.cartonRate,
                                   piecesPerCarton: sizes.get(entry.productId) ?? "1",
-                                }) ?? entry.costPrice ?? "0",
+                                }) ??
+                                  entry.costPrice ??
+                                  "0",
                               )}
                         </td>
                         <td className={tdNum}>{money(orderBill(entry))}</td>
@@ -548,16 +552,30 @@ export function GodownPage({ path, kind }: { path: string; kind: GodownKind }) {
   const { company } = useCurrentWorkspace();
   const [date, setDate] = useWorkingDate();
   const [fundFrom, setFundFrom] = useState<OrderFund[]>([]);
+  const [paymentMethod, setPaymentMethod] = useState<OrderPaymentMethod>("cash");
+  const [companyCheckId, setCompanyCheckId] = useState("");
   const day = useDayView(company.id, date);
-  const funding = kind === "order" ? day.data?.company : undefined;
+  const funding = kind === "order" && paymentMethod === "cash" ? day.data?.company : undefined;
   return (
     <NavGate path={path}>
       <PageHeader
         title={t(TITLES[kind].title)}
         description={t(TITLES[kind].description)}
         actions={
-          <>
+          <div className="flex flex-wrap items-end gap-3">
             <DateBar date={date} onChange={setDate} />
+            {kind === "order" ? (
+              <OrderPaymentMethodControl
+                companyId={company.id}
+                method={paymentMethod}
+                companyCheckId={companyCheckId}
+                onMethodChange={(next) => {
+                  setPaymentMethod(next);
+                  if (next === "check") setFundFrom([]);
+                }}
+                onCheckChange={setCompanyCheckId}
+              />
+            ) : null}
             {funding ? (
               <OrderFunding
                 value={fundFrom}
@@ -565,7 +583,7 @@ export function GodownPage({ path, kind }: { path: string; kind: GodownKind }) {
                 onChange={setFundFrom}
               />
             ) : null}
-          </>
+          </div>
         }
       />
       {kind === "receipt" ? <StockBlockSwitch /> : null}
@@ -581,6 +599,10 @@ export function GodownPage({ path, kind }: { path: string; kind: GodownKind }) {
                 view={view}
                 fundFrom={fundFrom}
                 setFundFrom={setFundFrom}
+                paymentMethod={paymentMethod}
+                companyCheckId={companyCheckId}
+                setCompanyCheckId={setCompanyCheckId}
+                setPaymentMethod={setPaymentMethod}
               />
             ) : kind === "receipt" ? (
               <ReceiptForm key={date} companyId={company.id} date={date} view={view} />

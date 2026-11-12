@@ -63,6 +63,7 @@ export const navigation: readonly NavSection[] = [
       item("history/staff-cash", "nav.history.staffCash", "finance.view"),
       item("history/sr-cash", "nav.history.srCash", "sr_loan.view"),
       item("history/expenses", "nav.history.expenses", "finance.view"),
+      item("history/company-checks", "nav.history.companyChecks", "finance.view"),
       item("history/dsr-sheets", "nav.history.dsrSheets", "sale.view"),
     ],
   },
@@ -98,6 +99,7 @@ export const navigation: readonly NavSection[] = [
       item("finance/company-account", "nav.finance.companyAccount", "finance.view"),
       item("finance/cash-book", "nav.finance.cashBook", "finance.view"),
       item("finance/supplier-deposits", "finance.supplierDeposit", "finance.view"),
+      item("finance/company-checks", "nav.finance.companyChecks", "finance.view"),
     ],
   },
   {
@@ -174,7 +176,11 @@ const hubDefinitions: readonly Omit<Hub, "shortcut">[] = [
     id: "money",
     labelKey: "nav.hub.money",
     icon: "finance",
-    tabs: [{ path: "finance/supplier-deposits" }, { path: "finance/company-account" }],
+    tabs: [
+      { path: "finance/supplier-deposits" },
+      { path: "finance/company-account" },
+      { path: "finance/company-checks" },
+    ],
   },
   {
     id: "ledgers",
@@ -197,6 +203,7 @@ const hubDefinitions: readonly Omit<Hub, "shortcut">[] = [
       { path: "history/staff-cash" },
       { path: "history/sr-cash" },
       { path: "history/expenses" },
+      { path: "history/company-checks" },
       { path: "history/dsr-sheets" },
     ],
   },

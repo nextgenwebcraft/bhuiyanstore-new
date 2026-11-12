@@ -1,0 +1,29 @@
+id: 2026-11-12-company-check-dues
+reason: >-
+  Owner 2026-11-12 (D129) — company cheques under কোম্পানির হিসাব: bulk register (bank + number,
+  no face value), order payment নগদ|চেক with searchable picker, order bill charges the cheque
+  (not companyPayable), repay partially on the same page; completed cheques move to History.
+  কোম্পানিতে জমা never clears cheque dues.
+owners: [domain, contracts, application, database, architecture, web, i18n, docs]
+changes:
+  - packages/database — company_check, company_check_charge, company_check_payment; stock_entry.company_check_id;
+    migration 20261112030000_company_checks
+  - packages/domain — checkDueRemaining/checkIsCompleted; OrderInput.paidByCheck skips companyPayable;
+    money kind companyCheckPayment (book -1, no company effect)
+  - packages/contracts — company-check schemas; stockEntryPostRequest paymentMethod + companyCheckId
+  - packages/architecture — resourceIds.companyCheck
+  - packages/application — bulk/list/pay/history; stock post/approve/reverse charge wiring; ledger paidByCheck
+  - apps/web — finance/company-checks page; order payment UI; history/company-checks; nav + i18n
+  - docs — D129
+affectedActionIds: []
+financialImpact: >-
+  Cash (নগদ) orders and supplierDeposit unchanged. Cheque-funded orders no longer raise
+  companyPayable; their bills live only on CompanyCheck charges. Cheque repayments leave the cash
+  book like a deposit but do not change companyPayable. Undelivered goods tracking unchanged.
+backfill: none; cheques are registered on the new page; only new orders can be cheque-funded
+tests:
+  - pnpm check (format/lint/types/unit)
+  - domain company-check + company-check-order tests
+  - pnpm test:integration when TEST_DATABASE_URL available
+rollout: deploy and apply migration 20261112030000_company_checks
+recovery: revert the commit; drop company_check_* and stock_entry.company_check_id if rolling back

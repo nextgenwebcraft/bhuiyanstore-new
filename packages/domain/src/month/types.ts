@@ -117,6 +117,11 @@ export type OrderInput = {
   fundFrom?: readonly CompanyFund[];
   /** D63: orders posted together share a group, echoed on their ledger lines. */
   group?: string;
+  /**
+   * D129: bill is charged to a company cheque — do not raise `companyPayable` or consume
+   * damage/incentive/deposit funds.
+   */
+  paidByCheck?: boolean;
 };
 
 /** D63: the named parts of the company balance an order may be paid from. */
@@ -240,7 +245,9 @@ export type MoneyKind =
   | "supplierDeposit"
   | "companyIncentive"
   | "cashTransfer"
-  | "rebateClaim";
+  | "rebateClaim"
+  /** D129: cash out to repay a company cheque due; does not touch companyPayable. */
+  | "companyCheckPayment";
 
 /** The owed buckets in recovery/allocation order: advance, then loan, then shortage. */
 export const owedBuckets = ["advance", "loan", "shortage"] as const;

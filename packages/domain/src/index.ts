@@ -111,6 +111,7 @@ export {
   type CompanyFigures,
   type CompanyHishabRow,
 } from "./company-hishab";
+export { checkDueRemaining, checkIsCompleted } from "./company-check";
 export {
   MONEY_KIND_EFFECTS,
   STAFF_COST_SIGN,

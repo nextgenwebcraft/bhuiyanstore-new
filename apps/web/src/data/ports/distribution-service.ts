@@ -40,6 +40,12 @@ import type {
   PreviousDueRecord,
   PreviousDueReduceRequest,
   PreviousDueUpdateRequest,
+  CompanyCheckBulkCreateRequest,
+  CompanyCheckHistoryList,
+  CompanyCheckList,
+  CompanyCheckPaymentRecord,
+  CompanyCheckPaymentRequest,
+  CompanyCheckPickerList,
   ShareholderCreateRequest,
   ShareholderList,
   ShareholderPayoutRequest,
@@ -354,6 +360,24 @@ export interface DistributionService {
     companyId: string,
     input: PreviousDueReduceRequest,
   ): Promise<PreviousDueRecord>;
+  /** D129: company cheques — due list, picker, bulk create, repay, history. */
+  listCompanyCheckDues(companyId: string, options?: RequestOptions): Promise<CompanyCheckList>;
+  listCompanyCheckPicker(
+    companyId: string,
+    options?: RequestOptions,
+  ): Promise<CompanyCheckPickerList>;
+  bulkCreateCompanyChecks(
+    companyId: string,
+    input: CompanyCheckBulkCreateRequest,
+  ): Promise<CompanyCheckList>;
+  postCompanyCheckPayment(
+    companyId: string,
+    input: CompanyCheckPaymentRequest,
+  ): Promise<CompanyCheckPaymentRecord>;
+  listCompanyCheckHistory(
+    companyId: string,
+    options?: RequestOptions,
+  ): Promise<CompanyCheckHistoryList>;
   /** Requires `report.view` (profit also `report.profit_view`, staff balances `finance.view`). */
   getReport(
     companyId: string,

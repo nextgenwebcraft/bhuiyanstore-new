@@ -78,6 +78,11 @@ import {
   productLots,
   useBatchPrices,
 } from "./batches";
+import {
+  assertCheckUsable,
+  createCheckChargesForEntries,
+  reverseCheckChargeForEntry,
+} from "./company-check";
 
 /**
  * Daily entry (PLAN §9 Phase E): posted raw facts only. Every figure shown back comes from the
@@ -185,6 +190,7 @@ function toStockEntry(row: StockRow, canSeeCost: boolean): StockEntry {
     unitPrice: row.unitPrice === null ? null : plain(row.unitPrice),
     fundFrom: row.fundFrom,
     orderGroup: row.orderGroup,
+    companyCheckId: row.companyCheckId,
     batchId: row.batchId,
     batchSeq: row.batch?.seq ?? null,
     costPrice: canSeeCost && row.costPrice !== null ? plain(row.costPrice) : null,
@@ -322,6 +328,14 @@ export async function postStockEntries(
       await ensureBatchDue(tx, companyId, request.date, receipts);
       await ensureDamageLots(tx, access, request.date, request.lines);
 
+      const hasOrder = request.lines.some((l) => l.kind === "order");
+      const paymentMethod = request.paymentMethod ?? "cash";
+      const companyCheckId =
+        hasOrder && paymentMethod === "check" ? (request.companyCheckId ?? null) : null;
+      if (companyCheckId) await assertCheckUsable(tx, companyId, companyCheckId);
+      // Cheque orders do not consume damage/incentive funds (those settle companyPayable).
+      const fundFrom = companyCheckId ? [] : request.fundFrom;
+
       // TSM orders stay pending until Manager/Super Admin approve (no batch / ledger yet).
       if (access.loginRoleKind === "tsm") {
         if (request.lines.some((l) => l.kind !== "order") || request.prices.length > 0) {
@@ -349,8 +363,9 @@ export async function postStockEntries(
               freePieces: line.freePieces ?? "0",
               cartonRate: line.cartonRate ?? "0",
               piecesPerCarton,
-              fundFrom: request.fundFrom,
+              fundFrom,
               orderGroup,
+              companyCheckId,
               costPrice,
               salePrice,
               status: "pending",
@@ -363,10 +378,18 @@ export async function postStockEntries(
           action: "stock.pending",
           resourceType: "stock_day",
           resourceId: request.date,
-          after: { lines: request.lines, status: "pending" },
+          after: { lines: request.lines, status: "pending", companyCheckId },
         });
         return stockEntriesOn(tx, access, request.date);
       }
+
+      const postedOrders: {
+        id: string;
+        pieces: { toFixed(): string };
+        cartonRate: { toFixed(): string } | null;
+        piecesPerCarton: number | null;
+        kind: string;
+      }[] = [];
 
       for (const [index, line] of request.lines.entries()) {
         const base = {
@@ -431,18 +454,29 @@ export async function postStockEntries(
               });
         if (line.pieces !== "0" && nominal !== null) orderPrices.set(line.productId, nominal);
         const batch = await orderBatch(tx, owner, line.productId, { costPrice, salePrice });
-        await tx.stockEntry.create({
+        const created = await tx.stockEntry.create({
           data: {
             ...base,
             freePieces: line.freePieces ?? "0",
             cartonRate: line.cartonRate ?? "0",
             piecesPerCarton,
-            fundFrom: request.fundFrom,
+            fundFrom,
             orderGroup,
+            companyCheckId,
             batchId: batch.id,
             costPrice: batch.costPrice,
             salePrice,
           },
+        });
+        postedOrders.push(created);
+      }
+      if (companyCheckId && postedOrders.length > 0) {
+        await createCheckChargesForEntries(tx, {
+          tenantId: access.company.tenantId,
+          companyId,
+          companyCheckId,
+          orderGroup,
+          entries: postedOrders,
         });
       }
       // D53: pieces found damaged in the godown leave saleable stock.
@@ -519,6 +553,7 @@ export async function approvePendingOrders(
       const orderPrices = new Map<string, string>();
       const dbDate = toDbDate(date);
 
+      const byCheck = new Map<string, typeof rows>();
       for (const row of rows) {
         const salePrice = row.salePrice === null ? "0" : plain(row.salePrice);
         const costPrice = row.costPrice === null ? null : plain(row.costPrice);
@@ -537,6 +572,22 @@ export async function approvePendingOrders(
             costPrice: batch.costPrice,
             salePrice,
           },
+        });
+        if (row.companyCheckId) {
+          const list = byCheck.get(row.companyCheckId) ?? [];
+          list.push(row);
+          byCheck.set(row.companyCheckId, list);
+        }
+      }
+
+      for (const [companyCheckId, entries] of byCheck) {
+        await assertCheckUsable(tx, companyId, companyCheckId);
+        await createCheckChargesForEntries(tx, {
+          tenantId: access.company.tenantId,
+          companyId,
+          companyCheckId,
+          orderGroup: entries[0]?.orderGroup ?? null,
+          entries,
         });
       }
 
@@ -624,7 +675,10 @@ export async function reverseStockEntry(
         data: { status: "reversed", reversedAt: new Date(), reversedById: ctx.actor.userId },
       });
       if (updated.count !== 1) throw invalid("", "validation.daily.alreadyReversed");
-      if (row.kind === "order") await ensureOrderReversible(tx, companyId, row);
+      if (row.kind === "order") {
+        await ensureOrderReversible(tx, companyId, row);
+        await reverseCheckChargeForEntry(tx, entryId);
+      }
       if (row.kind === "receipt" || row.kind === "incentive") {
         await ensureStockCovers(tx, access, fromDbDate(row.date), [row.productId]);
       }
@@ -1483,7 +1537,12 @@ function parseMoneyPostRequest(input: unknown): MoneyPostParsed {
   const request = parseInput(moneyEntryPostRequestSchema, input);
   // D69: SR incentive paid in cash is retired; D72: so is a transfer between accounts (all money
   // is cash). Old entries stay in the history.
-  if (request.kind === "srIncentive" || request.kind === "cashTransfer") {
+  if (
+    request.kind === "srIncentive" ||
+    request.kind === "cashTransfer" ||
+    request.kind === "companyCheckPayment"
+  ) {
+    // companyCheckPayment is posted only via postCompanyCheckPayment (D129).
     throw invalid("kind", "validation.daily.kindRetired");
   }
   const effect = MONEY_KIND_EFFECTS[request.kind];

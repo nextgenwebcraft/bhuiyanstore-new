@@ -27,6 +27,8 @@ import type {
   PreviousDueCreateRequest,
   PreviousDueReduceRequest,
   PreviousDueUpdateRequest,
+  CompanyCheckBulkCreateRequest,
+  CompanyCheckPaymentRequest,
   ShareholderCreateRequest,
   ShareholderPayoutRequest,
   ShareholderUpdateRequest,
@@ -649,6 +651,48 @@ export function useApplyPreviousDueReduction(companyId: string) {
     [resourceIds.previousDue, resourceIds.shareMonth],
     (input: PreviousDueReduceRequest) => service.applyPreviousDueReduction(companyId, input),
   );
+}
+
+export function useCompanyCheckDues(companyId: string) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.companyCheckDues(actorId, companyId),
+    queryFn: ({ signal }) => service.listCompanyCheckDues(companyId, { signal }),
+  });
+}
+
+export function useCompanyCheckPicker(companyId: string, enabled = true) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.companyCheckPicker(actorId, companyId),
+    queryFn: ({ signal }) => service.listCompanyCheckPicker(companyId, { signal }),
+    enabled,
+  });
+}
+
+export function useBulkCreateCompanyChecks(companyId: string) {
+  const service = useService();
+  return usePostingMutation(companyId, "checks", (input: CompanyCheckBulkCreateRequest) =>
+    service.bulkCreateCompanyChecks(companyId, input),
+  );
+}
+
+export function usePostCompanyCheckPayment(companyId: string) {
+  const service = useService();
+  return usePostingMutation(companyId, "checks", (input: CompanyCheckPaymentRequest) =>
+    service.postCompanyCheckPayment(companyId, input),
+  );
+}
+
+export function useCompanyCheckHistory(companyId: string) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.companyCheckHistory(actorId, companyId),
+    queryFn: ({ signal }) => service.listCompanyCheckHistory(companyId, { signal }),
+  });
 }
 
 export function useReport(companyId: string, report: ReportId, range: ReportRange, enabled = true) {

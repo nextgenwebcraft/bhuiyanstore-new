@@ -83,6 +83,10 @@ model Company {
   /// D93: people whose salary this company pays, not necessarily where they currently work.
   homeStaff              Staff[]
   orderTargets           OrderTarget[]
+  /// D129: registered company cheques (bank + number); order bills charge them separately from payable.
+  companyChecks          CompanyCheck[]
+  companyCheckCharges    CompanyCheckCharge[]
+  companyCheckPayments   CompanyCheckPayment[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -607,6 +611,8 @@ model StockEntry {
   fundFrom        String[]      @default([]) @map("fund_from")
   /// D63 (kind order only): orders posted together.
   orderGroup      String?       @map("order_group")
+  /// D129: when set, this order's bill charges the cheque (not companyPayable).
+  companyCheckId  String?       @map("company_check_id")
   /// D68: the batch of an order (its paid and free pieces) or of a receipt. A receipt keeps the
   /// per-piece prices it was received at.
   batchId         String?       @map("batch_id")
@@ -626,9 +632,12 @@ model StockEntry {
   product         Product       @relation(fields: [productId], references: [id])
   supplier        Supplier?     @relation(fields: [supplierId], references: [id], onDelete: Restrict)
   batch           ProductBatch? @relation("StockEntryBatch", fields: [batchId], references: [id], onDelete: Restrict)
+  companyCheck    CompanyCheck? @relation(fields: [companyCheckId], references: [id], onDelete: Restrict)
+  checkCharge     CompanyCheckCharge?
 
   @@index([companyId, date])
   @@index([batchId])
+  @@index([companyCheckId])
   @@map("stock_entry")
 }
 
@@ -849,6 +858,69 @@ model MoneyEntry {
   @@index([dsrDayId])
   @@index([productId])
   @@map("money_entry")
+  checkPayment CompanyCheckPayment?
+}
+
+/// D129: a registered cheque (bank + number only; amount comes from charged orders).
+model CompanyCheck {
+  id           String                @id @default(cuid())
+  tenantId     String                @map("tenant_id")
+  companyId    String                @map("company_id")
+  bankName     String                @map("bank_name")
+  checkNumber  String                @map("check_number")
+  createdAt    DateTime              @default(now()) @map("created_at")
+  updatedAt    DateTime              @updatedAt @map("updated_at")
+  company      Company               @relation(fields: [companyId], references: [id])
+  stockEntries StockEntry[]
+  charges      CompanyCheckCharge[]
+  payments     CompanyCheckPayment[]
+
+  @@unique([companyId, bankName, checkNumber])
+  @@index([companyId])
+  @@map("company_check")
+}
+
+/// D129: order bill charged against a cheque (one row per posted stock entry line).
+model CompanyCheckCharge {
+  id             String       @id @default(cuid())
+  tenantId       String       @map("tenant_id")
+  companyId      String       @map("company_id")
+  companyCheckId String       @map("company_check_id")
+  stockEntryId   String       @unique @map("stock_entry_id")
+  orderGroup     String?      @map("order_group")
+  amount         Decimal      @db.Decimal(20, 2)
+  status         String       @default("posted")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  reversedAt     DateTime?    @map("reversed_at")
+  company        Company      @relation(fields: [companyId], references: [id])
+  companyCheck   CompanyCheck @relation(fields: [companyCheckId], references: [id])
+  stockEntry     StockEntry   @relation(fields: [stockEntryId], references: [id])
+
+  @@index([companyCheckId])
+  @@index([companyId, status])
+  @@map("company_check_charge")
+}
+
+/// D129: cash repayment against a cheque due (also posts money_entry companyCheckPayment).
+model CompanyCheckPayment {
+  id             String       @id @default(cuid())
+  tenantId       String       @map("tenant_id")
+  companyId      String       @map("company_id")
+  companyCheckId String       @map("company_check_id")
+  moneyEntryId   String       @unique @map("money_entry_id")
+  amount         Decimal      @db.Decimal(20, 2)
+  date           DateTime     @db.Date
+  status         String       @default("posted")
+  createdById    String       @map("created_by_id")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  reversedAt     DateTime?    @map("reversed_at")
+  company        Company      @relation(fields: [companyId], references: [id])
+  companyCheck   CompanyCheck @relation(fields: [companyCheckId], references: [id])
+  moneyEntry     MoneyEntry   @relation(fields: [moneyEntryId], references: [id])
+
+  @@index([companyCheckId])
+  @@index([companyId, date])
+  @@map("company_check_payment")
 }
 
 // ---------------------------------------------------------------- staff, payroll, damage (PLAN §9 Phase G)

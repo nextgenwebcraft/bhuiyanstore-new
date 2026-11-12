@@ -42,6 +42,13 @@ export {
   updatePreviousDue,
   updateShareholder,
 } from "./company-hishab";
+export {
+  bulkCreateCompanyChecks,
+  listCompanyCheckDues,
+  listCompanyCheckHistory,
+  listCompanyCheckPicker,
+  postCompanyCheckPayment,
+} from "./company-check";
 export { cashAccounts, expenseCategories, staffRoles } from "./configuration";
 export type { AppContext, Tx } from "./context";
 export {
