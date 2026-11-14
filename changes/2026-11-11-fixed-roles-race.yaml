@@ -1,8 +1,0 @@
-summary: >
-  Role audit / workspace load: concurrent ensureFixedLoginRoles delete+createMany hit
-  role_permission_pkey (P2002) and 500'd GET /api/v1/master and company workspace.
-impact:
-  packages/application: syncRolePermissions skips rewrite when set matches; createMany
-  uses skipDuplicates so parallel getWorkspace/listWorkspaces no longer collide.
-backfill: none
-rollout: deploy; reload workspace (hot path no longer rewrites every request)
