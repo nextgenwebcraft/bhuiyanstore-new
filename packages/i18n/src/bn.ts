@@ -287,7 +287,8 @@ export const bn = {
   "validation.daily.duplicateProduct": "একই পণ্য একাধিক লাইনে আছে",
   "validation.daily.commissionWithoutSale": "যে পণ্য বিক্রি হয়নি তাতে কমিশন দেওয়া যায় না",
   "validation.daily.dsrOnly": "এই তারিখে তিনি এই কোম্পানির ডিএসআর নন",
-  "validation.daily.lineDsrOnly": "প্রতি লাইনে একজন ডিএসআর বেছে নিন",
+  "validation.daily.lineDsrOnly":
+    "লাইনে বেছে নেওয়া ব্যক্তি এই তারিখে ডিএসআর নন। প্রতি লাইনে একজন ডিএসআর বেছে নিন",
   "validation.daily.posted": "শিটটি পোস্ট হয়ে গেছে। বদলাতে হলে আগে বাতিল (রিভার্স) করুন।",
   "validation.daily.stale": "এর মধ্যে অন্য কেউ শিটটি বদলেছেন। পাতা আবার লোড করে আবার চেষ্টা করুন।",
   "validation.daily.staffRequired": "এই ধরনের জন্য একজন ব্যক্তি বেছে নিন",

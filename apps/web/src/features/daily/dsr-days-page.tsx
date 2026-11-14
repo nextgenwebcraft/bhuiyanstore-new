@@ -741,6 +741,7 @@ function SheetEditor({
               onSaveAll: () => void run(posted ? "correct" : "save"),
               saveDisabled: pending || (!dirty && Boolean(sheet)),
               savePending: save.isPending || command.isPending,
+              ...(shownError ? { saveError: shownError } : {}),
             }
           : {})}
       />

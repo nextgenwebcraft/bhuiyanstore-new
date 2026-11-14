@@ -1,0 +1,15 @@
+id: 2026-11-14-dsr-save-error-message
+reason: >-
+  Save All on দৈনিক বিক্রয় হিসাব buried VALIDATION_FAILED (e.g. lineDsrOnly) far below
+  the button; Bangla text did not say the line person must be a DSR on that date.
+owners: [web, i18n]
+changes:
+  - packages/i18n - clearer validation.daily.lineDsrOnly (date + pick a DSR)
+  - apps/web - show localized saveError next to Save All on DsrSheetEntry
+affectedActionIds: [dsr_day.save]
+financialImpact: none — UI error display only
+tests: >-
+  pnpm --filter @bsd/web exec tsc --noEmit;
+  pnpm --filter @bsd/i18n exec tsc --noEmit
+rollout: deploy web + i18n; no migration
+recovery: revert

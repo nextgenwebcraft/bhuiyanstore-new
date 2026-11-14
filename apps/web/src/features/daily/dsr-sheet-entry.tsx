@@ -924,6 +924,7 @@ export function DsrSheetEntry({
   onSaveAll,
   saveDisabled,
   savePending,
+  saveError,
 }: {
   draft: SheetDraft;
   view: DayView;
@@ -939,6 +940,8 @@ export function DsrSheetEntry({
   onSaveAll?: () => void;
   saveDisabled?: boolean;
   savePending?: boolean;
+  /** Localized API / validation failure from Save All / correct. */
+  saveError?: string;
 }) {
   const dsrFieldId = useId();
   const searchId = useId();
@@ -1101,10 +1104,13 @@ export function DsrSheetEntry({
         </p>
       )}
       {onSaveAll && !locked ? (
-        <div>
-          <Button variant="primary" disabled={saveDisabled} onClick={onSaveAll}>
-            {savePending ? t("common.saving") : t("dsr.entry.saveAll")}
-          </Button>
+        <div className="flex flex-col gap-2">
+          {saveError ? <StatePanel tone="error" title={saveError} /> : null}
+          <div>
+            <Button variant="primary" disabled={saveDisabled} onClick={onSaveAll}>
+              {savePending ? t("common.saving") : t("dsr.entry.saveAll")}
+            </Button>
+          </div>
         </div>
       ) : null}
     </div>
