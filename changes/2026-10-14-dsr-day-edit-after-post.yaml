@@ -1,0 +1,16 @@
+id: 2026-10-14-dsr-day-edit-after-post
+reason: The owner wants a posted দৈনিক বিক্রয় হিসাব (DSR day sheet) to stay editable instead of locking after post (D56).
+owners: [application, web, i18n, docs]
+changes:
+  - packages/application - daily.ts saveDsrDay corrects a posted sheet in its transaction - reverses it with its owned effects (field-visit dues and exchange case, handover shortage/excess), creates the edited sheet (version above the old one; omitted DSR-level dues and handover carried over), posts it, checks stock for both and audits `dsr_day.correct`; needs sale.post and sale.reverse besides sale.create; the closed-month guard is unchanged. moveDsrDay and stockTakenOut factored out of transitionDsrDay (post/reverse behaviour unchanged)
+  - apps/web - dsr-days-page.tsx keeps a posted sheet's inputs open for users with create, post and reverse rights; "সংশোধন পোস্ট করুন" (with confirmation) saves the correction; the cash check previews the edited sales and says the difference will be posted again; reverse stays
+  - packages/i18n - posted-edit hint, correct button and confirmation; history title covers corrected sheets
+  - docs - D56
+affectedActionIds: [sale.create, sale.post, sale.reverse]
+financialImpact: none by itself; a correction is the same as reversing the sheet and posting the edited one, in one transaction (no moment where the day lacks the sheet)
+backfill: none
+tests:
+  - phase-e.integration.ts - saving a posted sheet returns a new posted sheet, the old one reversed, the day money unchanged for identical lines; a second save with the old version is stale (needs TEST_DATABASE_URL)
+  - typecheck (application, web), eslint on the changed files, Vitest unit tests
+rollout: deploy the app (no migration)
+recovery: revert the commit

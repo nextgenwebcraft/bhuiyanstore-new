@@ -1,0 +1,30 @@
+id: 2026-10-31-damage-lots
+reason: >-
+  Owner 2026-10-31 (D109). Damaged pieces on দৈনিক বিক্রয় হিসাব keep a per-piece rate
+  (default the sale price, editable). The rate does not change sheet calculations or the batch.
+  Outstanding damage is listed by product and rate on the dashboard, and কোম্পানিতে জমা
+  offers only those lots.
+owners: [domain, contracts, application, database, i18n, web]
+changes:
+  - >-
+    packages/domain damage-lots.ts and compute-month.ts: sheet damage adds a lot at damageRate
+    or the line sale price; a company refund subtracts that rate. Sales, profit and cash are
+    unchanged. Lots are carried on the day and in the month closing
+  - packages/database: dsr_line.damage_rate (migration 20261031010000_dsr_damage_rate)
+  - >-
+    packages/contracts: DSR line damageRate; day product damageLots; dashboard damageLots
+  - >-
+    packages/application: save and read the rate, feed it to the engine, refuse a deposit
+    larger than the lot, and put end-of-range lots on the dashboard
+  - >-
+    apps/web: ড্যামেজ দর column; dashboard ড্যামেজ পণ্য table; deposit dropdown is the lots,
+    one option per product and rate, hidden once chosen on the form
+  - packages/i18n: the new labels and validation.daily.damageLot
+affectedActionIds: []
+financialImpact: >-
+  sheet sales, profit, cash and the dashboard damage card stay on the sale price. A damage
+  deposit's amount is pieces times the stored rate (previously defaulted to the purchase price).
+backfill: none
+tests: packages/domain damage-lots.test.ts
+rollout: apply the migration, then deploy the app
+recovery: revert the commit; the new column can stay unused

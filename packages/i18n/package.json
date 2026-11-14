@@ -1,0 +1,13 @@
+{
+  "name": "@bsd/i18n",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Canonical Bangla dictionary and number/date parse/format functions (guide sections 3.1, 5.1.1).",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p ."
+  }
+}

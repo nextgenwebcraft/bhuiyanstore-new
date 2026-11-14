@@ -1,0 +1,13 @@
+id: 2026-10-23-statement-print-pages
+reason: >-
+  Owner 2026-10-23 (D87). Company statement print was a blank page, the
+  statement, then another blank page, with an outer frame around the sheet.
+owners: [web, docs]
+changes:
+  - apps/web print page name covers the document; the statement frame is removed
+affectedActionIds: []
+financialImpact: none - print layout only
+backfill: none
+tests: []
+rollout: deploy the app; no migration
+recovery: revert the commit

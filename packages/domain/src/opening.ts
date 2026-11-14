@@ -1,0 +1,303 @@
+import { Decimal, toDecimal } from "./decimal";
+import { roundSettlement } from "./money";
+import type { MonthOpening, OpeningProduct, StaffBalances } from "./month/types";
+
+type Group = "marketDue" | "owesUs" | "weOwe" | "companyPayable" | "companyAdvance" | "cash";
+
+export type OpeningKindEffect = {
+  group: Group;
+  /** Who the balance belongs to: a person, optionally a person (legacy bucket), a shop, a cash account, or nobody. */
+  party: "staff" | "optionalStaff" | "shop" | "cashAccount" | "none";
+  /** The engine's staff balance it opens (D27, guide §11.9). */
+  staffBalance?: keyof StaffBalances;
+  /** SR-only kinds (D18) and kinds an SR never has (salary, distributor staff money; D02). */
+  personKind?: "sr" | "distributor";
+};
+
+/**
+ * The single owner of what each opening balance means (guide §16.7). Amounts are always positive;
+ * the kind decides the side, so nobody types a signed net (D27).
+ */
+export const OPENING_KIND_EFFECTS = {
+  market_due: { group: "marketDue", party: "optionalStaff" },
+  /** D38: a shop's opening due; it carries into the shop's statement. */
+  shop_due: { group: "marketDue", party: "shop" },
+  advance: { group: "owesUs", party: "staff", staffBalance: "advance", personKind: "distributor" },
+  loan: { group: "owesUs", party: "staff", staffBalance: "loan", personKind: "distributor" },
+  shortage: {
+    group: "owesUs",
+    party: "staff",
+    staffBalance: "shortage",
+    personKind: "distributor",
+  },
+  credit: { group: "weOwe", party: "staff", staffBalance: "credit", personKind: "distributor" },
+  salary_payable: {
+    group: "weOwe",
+    party: "staff",
+    staffBalance: "salaryPayable",
+    personKind: "distributor",
+  },
+  sr_loan: { group: "owesUs", party: "staff", staffBalance: "srLoan", personKind: "sr" },
+  owed_to_sr: { group: "weOwe", party: "staff", staffBalance: "owedToSr", personKind: "sr" },
+  company_payable: { group: "companyPayable", party: "none" },
+  company_advance: { group: "companyAdvance", party: "none" },
+  cash: { group: "cash", party: "cashAccount" },
+} as const satisfies Record<string, OpeningKindEffect>;
+
+export type OpeningKind = keyof typeof OPENING_KIND_EFFECTS;
+
+export type OpeningStockInput = {
+  productId: string;
+  pieces: string | null;
+  /** Damaged pieces held at go-live; blank counts as 0 in the engine. */
+  damagedPieces?: string | null;
+  unitCost: string | null;
+  salePrice: string | null;
+  dueFromCompany: string | null;
+  /** D68: the stored opening batch of the product (its key and number), when there is one. */
+  batch?: { key: string; seq: number } | null;
+};
+
+export type OpeningBalanceInput = {
+  kind: OpeningKind;
+  amount: string | null;
+  staffId: string | null;
+  cashAccountId: string | null;
+  shopId?: string | null;
+  /** The person's role kind in this company; SR kinds need an SR (D18). */
+  personRoleKind?: "dsr" | "sr" | "general" | null;
+};
+
+export type OpeningCheckInput = {
+  cutoffDate: string | null;
+  stock: readonly OpeningStockInput[];
+  balances: readonly OpeningBalanceInput[];
+};
+
+export type OpeningCheckIssue = {
+  code: string;
+  severity: "error" | "warning";
+  productId?: string;
+  kind?: OpeningKind;
+  staffId?: string;
+  cashAccountId?: string;
+  shopId?: string;
+};
+
+export type OpeningCheckTotals = {
+  stockPieces: string;
+  stockValue: string;
+  valuedRows: number;
+  excludedRows: number;
+  dueFromCompanyPieces: string;
+  marketDue: string;
+  staffOwesUs: string;
+  staffWeOwe: string;
+  companyPayable: string;
+  cash: string;
+};
+
+const isWholeNonNegative = (value: string) => /^(0|[1-9]\d*)$/.test(value);
+
+/**
+ * Checks and control totals for an opening (guide §16.1, §16.4, §16.6). A blank counts as 0
+ * (D43) and only warns; real mistakes are errors that refuse the section's save: invalid pieces,
+ * stock with pieces but no cost, wrong or duplicate parties.
+ */
+export function checkOpening(input: OpeningCheckInput): {
+  issues: OpeningCheckIssue[];
+  totals: OpeningCheckTotals;
+} {
+  const issues: OpeningCheckIssue[] = [];
+  if (!input.cutoffDate) issues.push({ code: "opening.issue.cutoffMissing", severity: "error" });
+
+  let pieces = new Decimal(0);
+  let value = new Decimal(0);
+  let due = new Decimal(0);
+  let valuedRows = 0;
+  let excludedRows = 0;
+  for (const line of input.stock) {
+    const rowIssues: OpeningCheckIssue[] = [];
+    const add = (code: string, severity: "error" | "warning") =>
+      rowIssues.push({ code, severity, productId: line.productId });
+    if (line.pieces === null) add("opening.issue.stockUnknown", "warning");
+    else if (!isWholeNonNegative(line.pieces)) add("opening.issue.stockInvalid", "error");
+    if (line.damagedPieces !== null && line.damagedPieces !== undefined) {
+      if (!isWholeNonNegative(line.damagedPieces)) add("opening.issue.damageInvalid", "error");
+    }
+    const hasStock = line.pieces !== null && toDecimal(line.pieces).gt(0);
+    const hasDamage =
+      line.damagedPieces !== null &&
+      line.damagedPieces !== undefined &&
+      isWholeNonNegative(line.damagedPieces) &&
+      toDecimal(line.damagedPieces).gt(0);
+    if (hasStock && line.unitCost === null) add("opening.issue.costMissing", "error");
+    if (hasDamage && line.unitCost === null) add("opening.issue.damageCostMissing", "error");
+    if (hasStock && line.salePrice === null) add("opening.issue.salePriceMissing", "warning");
+    if (line.dueFromCompany !== null && !isWholeNonNegative(line.dueFromCompany)) {
+      add("opening.issue.dueInvalid", "error");
+    }
+    issues.push(...rowIssues);
+
+    if (line.dueFromCompany !== null && isWholeNonNegative(line.dueFromCompany)) {
+      due = due.add(line.dueFromCompany);
+    }
+    if (rowIssues.some((i) => i.severity === "error")) {
+      excludedRows++;
+      continue;
+    }
+    if (line.pieces !== null) {
+      pieces = pieces.add(line.pieces);
+      if (line.unitCost !== null) value = value.add(toDecimal(line.pieces).mul(line.unitCost));
+      valuedRows++;
+    }
+  }
+
+  const sums: Record<Group, Decimal> = {
+    marketDue: new Decimal(0),
+    owesUs: new Decimal(0),
+    weOwe: new Decimal(0),
+    companyPayable: new Decimal(0),
+    companyAdvance: new Decimal(0),
+    cash: new Decimal(0),
+  };
+  const seen = new Set<string>();
+  for (const line of input.balances) {
+    const effect: OpeningKindEffect = OPENING_KIND_EFFECTS[line.kind];
+    const ref = {
+      kind: line.kind,
+      ...(line.staffId ? { staffId: line.staffId } : {}),
+      ...(line.cashAccountId ? { cashAccountId: line.cashAccountId } : {}),
+      ...(line.shopId ? { shopId: line.shopId } : {}),
+    };
+    const key = `${line.kind}|${line.staffId ?? ""}|${line.cashAccountId ?? ""}|${line.shopId ?? ""}`;
+    if (seen.has(key)) issues.push({ ...ref, code: "opening.issue.duplicate", severity: "error" });
+    seen.add(key);
+    if (effect.party === "staff" && !line.staffId) {
+      issues.push({ ...ref, code: "opening.issue.personMissing", severity: "error" });
+    }
+    if (effect.party === "shop" && !line.shopId) {
+      issues.push({ ...ref, code: "opening.issue.shopMissing", severity: "error" });
+    }
+    if (effect.party === "cashAccount" && !line.cashAccountId) {
+      issues.push({ ...ref, code: "opening.issue.accountMissing", severity: "error" });
+    }
+    if (effect.personKind === "sr" && line.staffId && line.personRoleKind !== "sr") {
+      issues.push({ ...ref, code: "opening.issue.srOnly", severity: "error" });
+    }
+    if (effect.personKind === "distributor" && line.personRoleKind === "sr") {
+      issues.push({ ...ref, code: "opening.issue.notForSr", severity: "error" });
+    }
+    if (line.amount === null) {
+      issues.push({ ...ref, code: "opening.issue.amountUnknown", severity: "warning" });
+      continue;
+    }
+    sums[effect.group] = sums[effect.group].add(line.amount);
+  }
+
+  return {
+    issues,
+    totals: {
+      stockPieces: pieces.toFixed(0),
+      stockValue: roundSettlement(value),
+      valuedRows,
+      excludedRows,
+      dueFromCompanyPieces: due.toFixed(0),
+      marketDue: roundSettlement(sums.marketDue),
+      staffOwesUs: roundSettlement(sums.owesUs),
+      staffWeOwe: roundSettlement(sums.weOwe),
+      companyPayable: roundSettlement(sums.companyPayable.sub(sums.companyAdvance)),
+      cash: roundSettlement(sums.cash),
+    },
+  };
+}
+
+/**
+ * The month engine's first opening from a live opening (PLAN §4, §9 Phase D exit check): the
+ * engine starts from exactly the entered values. A blank value counts as 0 (D43).
+ */
+export function toMonthOpening(input: OpeningCheckInput): MonthOpening {
+  const products: Record<string, OpeningProduct> = {};
+  for (const line of input.stock) {
+    const pieces = line.pieces ?? "0";
+    const damaged = line.damagedPieces ?? "0";
+    products[line.productId] = {
+      stock: pieces,
+      dueFromCompany: line.dueFromCompany ?? "0",
+      // D49: the opening stock is the product's first batch at the line's cost and sale price. A
+      // line without both prices leaves it to the engine (one batch, prices as entered), unless it
+      // has a stored batch (D68), which DSR lines and receipts name.
+      ...(toDecimal(pieces).gt(0) &&
+      (line.batch || (line.unitCost !== null && line.salePrice !== null))
+        ? {
+            batches: [
+              {
+                ...(line.batch ? { key: line.batch.key } : {}),
+                seq: line.batch?.seq ?? 1,
+                startDate: input.cutoffDate ?? "opening",
+                costPrice: line.unitCost ?? "0",
+                salePrice: line.salePrice ?? "0",
+                quantity: pieces,
+              },
+            ],
+          }
+        : {}),
+      // Owner 2026-10-29: no separate opening order price; ক্রয়মূল্য seeds both (D104).
+      ...(line.unitCost !== null ? { orderPrice: line.unitCost, costPrice: line.unitCost } : {}),
+      ...(line.salePrice !== null ? { salePrice: line.salePrice } : {}),
+      ...(toDecimal(damaged).gt(0)
+        ? {
+            damagedStock: damaged,
+            damageLots: [{ rate: line.unitCost ?? "0", pieces: damaged }],
+          }
+        : {}),
+    };
+  }
+  const marketDue: Record<string, string> = {};
+  const shopDue: Record<string, string> = {};
+  const staff: Record<string, StaffBalances> = {};
+  const cashAccounts: Record<string, string> = {};
+  let companyPayable = new Decimal(0);
+  for (const line of input.balances) {
+    if (line.amount === null) continue;
+    const effect: OpeningKindEffect = OPENING_KIND_EFFECTS[line.kind];
+    if (effect.party === "shop") {
+      if (!line.shopId) continue;
+      shopDue[line.shopId] = toDecimal(shopDue[line.shopId] ?? "0")
+        .add(line.amount)
+        .toString();
+      // The engine's market due total is the per-DSR map; a shop opening is not a DSR's.
+      marketDue[""] = toDecimal(marketDue[""] ?? "0")
+        .add(line.amount)
+        .toString();
+    } else if (effect.group === "marketDue") {
+      const key = line.staffId ?? "";
+      marketDue[key] = toDecimal(marketDue[key] ?? "0")
+        .add(line.amount)
+        .toString();
+    } else if (effect.staffBalance && line.staffId) {
+      const balances = (staff[line.staffId] ??= {});
+      balances[effect.staffBalance] = toDecimal(balances[effect.staffBalance] ?? "0")
+        .add(line.amount)
+        .toString();
+    } else if (effect.group === "companyPayable") {
+      companyPayable = companyPayable.add(line.amount);
+    } else if (effect.group === "companyAdvance") {
+      companyPayable = companyPayable.sub(line.amount);
+    } else if (effect.group === "cash") {
+      // D52: the cash book's opening balance per account; a line without one is the "" bucket.
+      const key = line.cashAccountId ?? "";
+      cashAccounts[key] = toDecimal(cashAccounts[key] ?? "0")
+        .add(line.amount)
+        .toString();
+    }
+  }
+  return {
+    products,
+    marketDue,
+    shopDue,
+    staff,
+    companyPayable: companyPayable.toString(),
+    cashAccounts,
+  };
+}

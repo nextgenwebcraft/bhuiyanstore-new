@@ -1,0 +1,19 @@
+id: 2026-10-23-handover-short
+reason: >-
+  Owner 2026-10-23 (D81). A cash handover below the expected amount is a display-only
+  short: listed above the day's SR list and on the dashboard, and not a balance.
+  The shop hub is renamed বাকির খাতা. DSR picks sit on the same row as the other fields.
+owners: [web, i18n, contracts, domain, application, docs]
+changes:
+  - packages/domain handoverShortOf names the shortfall and nothing else
+  - packages/application day view and dashboard expose that short from saved handovers
+  - apps/web lists the day's shorts above the SR list and shows the sum on the dashboard
+  - apps/web দোকান hub is বাকির খাতা; DSR, shop or kind, and amount share one row
+affectedActionIds: []
+financialImpact: none - the figure is not a money entry and does not change cash or any balance
+backfill: none - derived from the handover already stored on the day sheet
+tests:
+  - domain field.test handoverShortOf
+  - pnpm exec tsc for domain, contracts, application and web
+rollout: deploy the app; no migration
+recovery: revert the commit; stored handovers stay, the short list disappears

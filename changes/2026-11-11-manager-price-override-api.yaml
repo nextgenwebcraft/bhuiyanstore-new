@@ -1,0 +1,17 @@
+id: 2026-11-11-manager-price-override-api
+reason: >-
+  Role audit: assertManagerPricesAllowed was a no-op, so Manager could reprice DSR sheet
+  batches via crafted saveDsrDay (UI already locked). Strip sale/cost without
+  sale.price_override on the server; omit them from Manager/DSR client saves (D112).
+owners: [application, web]
+changes:
+  - packages/application daily.saveDsrDayIn - strip unauthorized sale/cost before dsrLineBatch
+  - apps/web dsr-days-page requestOf - includePrices only with sale.price_override
+affectedActionIds: [sale.create]
+financialImpact: >-
+  Manager/DSR saves no longer update product_batch sale/cost from sheet lines; Super Admin
+  with sale.price_override unchanged.
+backfill: none
+tests: pnpm check / fixed-roles.integration when available
+rollout: deploy
+recovery: revert commit

@@ -1,0 +1,16 @@
+{
+  "name": "@bsd/domain",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Pure business rules and decimal quantity/money math. No React, Next.js, Prisma or Redis (guide section 21.3).",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "decimal.js": "10.6.0"
+  }
+}

@@ -1,0 +1,32 @@
+id: 2026-10-07-warnings-and-skeletons
+reason: The warning box repeated the same line once per day and product over a range (and showed no product names on reports); loading states were generic bars that didn't match each page.
+owners: [web, i18n]
+changedDefinitionIds:
+  - apps/web/src/features/daily/warning-groups.ts (new - one group per warning code with day count, first and last date, affected products and people)
+  - apps/web/src/features/daily/day-report-page.tsx (Warnings takes the warning list, groups it and names products and people from the masters)
+  - apps/web/src/components/skeleton.tsx (shimmer placeholder; table, list, stat, card grid, form, nav, page and summary skeletons)
+  - apps/web/src/app/globals.css (shimmer animation)
+  - apps/web/src/features/daily/daily-kit.tsx (DayGate takes a page-shaped skeleton)
+  - dashboard, godown, money, DSR sheets, reports, month, accounts, statement, payroll, damage, masters, users, roles, opening, import and company shell (loading placeholders match each page)
+  - packages/i18n/src/bn.ts (warning.days, warning.andMore, warning.products, warning.people)
+affectedActionIds: [none]
+affectedResources: [none]
+affectedMetrics:
+  - none; warnings are the engine's unchanged list, only grouped for display
+affectedUi:
+  - the warning box on the dashboard, day report, stock, month and range report screens
+  - the loading state of every data screen
+schemaMigration: none
+backfill: not-applicable
+historicalPolicy: unchanged
+contractCompatibility: unchanged
+cacheAndProjectionPlan: none
+securityReview: no permission change; names come from the product and staff lists the person can already read (a count is shown when they can't)
+knownGaps:
+  - no browser walkthrough or screenshot in this session; verified by typecheck, lint, unit tests and build
+tests:
+  - apps/web/src/features/daily/warning-groups.test.ts
+  - pnpm check
+  - pnpm build
+rollout: front end only
+recovery: revert the commit

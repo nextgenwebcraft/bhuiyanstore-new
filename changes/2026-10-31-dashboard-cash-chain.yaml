@@ -1,0 +1,49 @@
+id: 2026-10-31-dashboard-cash-chain
+reason: >-
+  Owner 2026-10-31 (D107). Dashboard মোট বিক্রি becomes সামারি minus ফেরত, and হাতে জমা continues
+  down that chain through damage, commission, operating cost, DSR cost, new due and shop
+  collection. A new বকেয়া জমা card is the shop collection. Day-end জমা হওয়ার কথা subtracts
+  ড্যামেজ (বিক্রয় মূল্যে). Other dashboard figures stay on their existing formulas.
+owners: [domain, contracts, application, i18n, web]
+changes:
+  - >-
+    packages/domain sales-profit.ts dashboardTotals: totalSales = issuedValue − returnValue;
+    cashInHand = totalSales − damageSaleValue − commission − expenses − staffCost −
+    marketDueCreated + oldDuesCollected. totalCost, profitCost and netProfit are unchanged
+  - >-
+    packages/domain day-summary.ts: each DSR's dashboard totalSales is that DSR's issued value
+    minus return value, so the by-DSR table matches the card. The sheet's salesProfit.netSales
+    is unchanged
+  - >-
+    packages/domain field.ts dsrCashSettlement: optional damage (default 0) is subtracted from
+    expected cash. Handover shorts and the dsr-daily report omit it because their sales figure
+    is already net of damaged pieces
+  - >-
+    packages/contracts reporting.ts: DashboardSummary.totalSales is always present;
+    cashInHand is optional (finance.view). DsrDayRow.totalSales comment updated
+  - >-
+    packages/application daily.ts: dashboard totals take market due created and old dues
+    collected; cashInHand is returned with the other finance figures; totalSales always
+  - packages/application master-panel.ts: the company total sums totalSales and cashInHand
+  - >-
+    packages/i18n bn.ts: dashboard.card.dueCollected ("বকেয়া জমা")
+  - >-
+    apps/web dashboard-page.tsx: chain order is সামারি, − ফেরত, = মোট বিক্রি, − ড্যামেজ,
+    − কমিশন, − অপারেটিং, − ডিএসআর খরচ, − নতুন বকেয়া, + বকেয়া জমা, = হাতে জমা. Profit and
+    position cards keep their numbers in the second group. The by-DSR মোট বিক্রি column sits
+    after ফেরত
+  - >-
+    apps/web dsr-days-page.tsx CashCheck: shows ড্যামেজ (বিক্রয় মূল্যে) and passes it into
+    dsrCashSettlement. বিক্রি is cashCheckSales (মোট বিক্রি + ড্যামেজ), so বিক্রি − ড্যামেজ
+    equals the sheet's মোট বিক্রি with no one-paisa gap from summing rounded line amounts
+affectedActionIds: []
+financialImpact: >-
+  display only. মোট বিক্রি, হাতে জমা and জমা হওয়ার কথা change on screen. Posted cash, staff
+  balances, profit and the handover-short list do not. The DSR sheet's own হাতে জমা card
+  (cashInHandOf) is unchanged.
+backfill: none
+tests: >-
+  packages/domain staff-cost.test.ts and field.test.ts cover the new totals and the damage
+  term on expected cash
+rollout: deploy the app; no migration
+recovery: revert the commit

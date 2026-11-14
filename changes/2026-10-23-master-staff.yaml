@@ -1,0 +1,19 @@
+id: 2026-10-23-master-staff
+reason: >-
+  Owner 2026-10-23 (D80). The master panel staff module is আমাদের স্টাফ.
+  A new person is only a DSR, driver or manager. The create form drops employer,
+  status, start, end and the salary-proposal hint, adds mobile, and the server
+  stores the entry date as the assignment start.
+owners: [web, i18n, contracts, application, docs]
+changes:
+  - apps/web master staff create shows name, mobile, role and monthly salary; the hub is আমাদের স্টাফ
+  - packages/contracts staff records carry phone; masterPanelHireRole names the three hire roles
+  - packages/application createStaff on the master forces today's start and refuses any other role
+affectedActionIds: [staff.create, staff.update, staff.assign]
+financialImpact: none - salary still comes from the monthly salary field; no posting change
+backfill: none - staff.phone already exists and stays empty where none was entered
+tests:
+  - pnpm exec tsc for contracts, application and web
+  - pnpm exec eslint on the staff page
+rollout: deploy the app; no migration
+recovery: revert the commit; saved mobiles stay on the person

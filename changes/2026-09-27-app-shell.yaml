@@ -1,0 +1,38 @@
+id: 2026-09-27-app-shell
+reason: Phase 1 app shell - company workspaces with themes, switching, scoped navigation, demo users and product list over the mock service
+owners: [organization-catalog, identity-access]
+changedDefinitionIds:
+  - contracts.permissionIds
+  - contracts.workspaceModuleIds
+  - contracts.errorCodes
+  - contracts.companyWorkspaceSchema
+  - contracts.productSchema
+  - architecture.resourceIds
+affectedActionIds: not-applicable (no action registry yet; read-only screens and demo tools only)
+affectedResources: [companyWorkspace, product]
+affectedMetrics: not-applicable (no metrics; dashboard shows an empty state, no hardcoded totals)
+affectedUi:
+  - CompanyShell
+  - CompanySwitcher
+  - SideNav
+  - MobileNav
+  - NavGate
+  - DemoBar
+  - CompanyPickerPage
+  - DashboardPage
+  - ProductListPage
+schemaMigration: not-applicable (no database in Phase 1)
+backfill: not-applicable
+historicalPolicy: not-applicable (no posted documents)
+contractCompatibility: new contracts; no previous release
+cacheAndProjectionPlan: query keys scoped by actor and company via query-keys.ts; old company queries cancelled on switch
+securityReview: presentation gating only; the mock adapter enforces membership (COMPANY_NOT_FOUND for unknown and inaccessible) and product.view independently
+tests:
+  - packages/i18n/src/search.test.ts
+  - packages/design-system/src/contrast.test.ts
+  - apps/web/src/data/mock/mock-service.test.ts
+  - apps/web/src/data/ports/service-error.test.ts
+  - apps/web/src/features/shell/navigation.test.ts
+  - manual browser script (scratchpad, not committed) for switching, mobile width, drawer, forbidden state
+rollout: prototype only
+recovery: revert commit

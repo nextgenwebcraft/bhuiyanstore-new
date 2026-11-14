@@ -1,0 +1,19 @@
+id: 2026-10-28-sales-column-samari-firot-only
+reason: >-
+  Owner 2026-10-28 (D92, amends D69(4)). বিক্রি (টাকা) on দৈনিক বিক্রয় হিসাব
+  was subtracting damage and commission like the profit cards below it; the
+  owner wants that one column to show samari − firot only, leaving every
+  other figure on the page (profit cards, cash check, the posted amount)
+  exactly as it was.
+owners: [web]
+changes:
+  - >-
+    apps/web dsr-days-page.tsx: new salariFirotAmounts (issued − returned only, no damage or
+    commission) replaces previewAmounts/the engine-amount branch for the বিক্রি (টাকা) column;
+    previewSales (cash check) and amounts (CashCheck's posted sales) are untouched
+affectedActionIds: []
+financialImpact: none - display only; no posted figure, profit calculation or cash check changed
+backfill: none
+tests: pnpm test (318/318), pnpm --filter @bsd/web exec tsc --noEmit, eslint
+rollout: deploy the app; no migration
+recovery: revert the commit

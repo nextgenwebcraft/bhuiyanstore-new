@@ -1,0 +1,21 @@
+id: 2026-10-27-zero-staff-balances
+reason: >-
+  Owner 2026-10-27. Staff are shown as a common DSR across every company; the
+  owner asked to zero every staff member's salary and dena-pauna (dues) in the
+  database before continuing, by direct delete rather than an audited reversal.
+owners: [application]
+changes:
+  - >-
+    packages/application one-time script `zero-staff-balances` (dry run by default, `--apply` to
+    write): deletes every staff-tied money_entry row, every payroll_run (cascades to payroll_line),
+    and every staff-tied opening_balance_line row
+affectedActionIds: []
+financialImpact: >-
+  destructive - permanently deletes real staff money_entry, payroll_run/line and
+  opening_balance_line rows tenant-wide; no reversal record is kept (owner's explicit choice)
+backfill: none
+tests: dry run counted rows before --apply; row counts re-checked at 0 after --apply
+rollout: run once with `pnpm db:zero-staff-balances -- --apply` against the live database
+recovery: >-
+  none from the database itself; a pre-delete export was taken to the operator's
+  local scratch folder for this run only (not part of the repo)

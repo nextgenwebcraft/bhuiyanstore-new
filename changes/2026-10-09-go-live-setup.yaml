@@ -1,0 +1,32 @@
+id: 2026-10-09-go-live-setup
+reason: The owner needs a guided go-live setup — carton sizes, opening stock in cartons + pieces, shop opening dues, section confirmations, monthly salaries and a nine-step checklist ending with "আমরা শুরু করতে প্রস্তুত" (D37, D38).
+owners: [web, application, contracts, domain, database, i18n, docs]
+changedDefinitionIds:
+  - apps/web - setup/cartons page (base size or dated change through updateProduct/addProductPack); admin/setup checklist page and dashboard banner (both need opening.prepare); opening stock tab takes cartons + pieces; opening shops tab with a due per shop; section confirm buttons; monthly salary on the staff page
+  - apps/web/src/app/api - GET /companies/{id}/setup, POST /companies/{id}/opening/confirm
+  - packages/application - setup.ts getSetupStatus (every step computed on the server); opening.ts confirmOpeningSection and confirmation drop on a changed save; shop_due lines; staff.ts monthlySalary (refused for SR); payroll.ts proposes the assignment's monthly salary first; scripts/load-cartons.ts (dry run by default, --apply writes only changed sizes, audited)
+  - packages/contracts - setup.ts; opening shopId on balance lines, confirmedSections, openingConfirmRequestSchema; staff assignment monthlySalary
+  - packages/domain - opening.ts shop_due kind (marketDue group, shop party) into toMonthOpening.shopDue; section of each kind
+  - packages/database - opening_balance_line.shop_id, opening_session.confirmed_sections, staff_assignment.monthly_salary
+  - packages/i18n - setup.*, opening section, carton and salary keys
+affectedActionIds: [opening.prepare, opening.confirm, staff.manage, product.edit]
+affectedResources: [opening, staff, product]
+affectedMetrics:
+  - market due opening now includes per-shop opening dues; shop statements start from them
+  - payroll proposal salary defaults to the monthly salary
+affectedUi:
+  - setup/cartons, admin/setup (new); admin/opening, staff page, dashboard banner
+schemaMigration: 20261009030000_setup_field_panel (shared with the field panel; additive; applied to test and public)
+backfill: not-applicable; carton sizes from the Oct 2026 sheet via pnpm db:load-cartons (dry run on Drinko 2026-10-09 found 0 changes; 8 sheet products have no product in the database)
+historicalPolicy: existing openings keep their lines; shop_id is null on older rows
+contractCompatibility: additive
+cacheAndProjectionPlan: setup status invalidated with opening, product, staff and shop writes
+securityReview: the carton script reads only carton sizes from the local workbook and writes nothing without --apply; no workbook data is copied into the repo
+knownGaps:
+  - browser walkthrough not done
+  - the 8 missing sheet products (Surjo 5tk, Surjo 2kg, Tango L 250ml, Tango 1lt, mama 5 tk, Lolipop, Bunny wafer, Joniur Biscut) must be added or matched before their sizes load
+tests:
+  - pnpm check (144 unit tests), pnpm build, pnpm verify:workbook, pnpm test:integration 56/56
+  - production-setup.integration.ts - setup steps, a save drops only the changed section's confirmation, shop opening due in the statement, salary default in payroll
+rollout: migration applied; deploy the app; run pnpm db:load-cartons, review, then --apply
+recovery: revert the commit; the added columns are nullable or defaulted and can stay

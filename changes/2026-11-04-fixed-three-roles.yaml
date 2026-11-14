@@ -1,0 +1,26 @@
+id: 2026-11-04-fixed-three-roles
+reason: >-
+  Owner 2026-11-04. Replace custom role creation with two fixed login roles (Manager, DSR)
+  plus singleton Super Admin; Manager day-end হাতে জমা submit → pending → Super Admin approve;
+  DSR limited sheet/dashboard; remove DSR field panel from sales hub (D112).
+owners: [database, contracts, application, auth, i18n, web]
+changes:
+  - >-
+    packages/database: Role.kind (manager|dsr); DsrDay handoverStatus + audit fields;
+    migration 20261104020000_fixed_roles_handover; one super-admin per tenant index
+  - >-
+    packages/application: ensureFixedLoginRoles templates; createRole refused;
+    submitDsrHandover / approveDsrHandover; Manager/DSR save locks; staff login uses fixed roles
+  - >-
+    apps/web: read-only roles page; single-role user/staff assign; sheet handover UI;
+    DSR dashboard limited; remove sales/field nav and FieldShell
+  - packages/i18n + docs/decisions D112
+affectedActionIds: []
+financialImpact: >-
+  Display and access only. Handover approve does not post ledger cash; sheet post stays separate.
+backfill: ensureFixedLoginRoles on listRoles/createUser/staff login
+tests: >-
+  packages/application fixed-roles.integration.ts (D112 handover + roles);
+  apps/web navigation.test.ts; pnpm check
+rollout: apply migration 20261104020000_fixed_roles_handover, then deploy
+recovery: revert commit; unused handover columns can stay

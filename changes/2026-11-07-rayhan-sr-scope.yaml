@@ -1,0 +1,22 @@
+id: 2026-11-07-rayhan-sr-scope
+reason: >-
+  Owner 2026-11-07: Rayhan appeared on master আমাদের স্টাফ as ম্যানেজার while
+  working as a company SR (supplier-employed, day sheets on Fresh Group). SRs
+  stay company-wise (D65/D79/D80); fix the row and stop the mis-tag path.
+owners: [application, web]
+changes:
+  - >-
+    Data (Neon): Rayhan assignment moved from master ম্যানেজার to Fresh Group
+    এসআর; employer stayed supplier; 11 day sheets kept
+  - >-
+    packages/application staff.ts: refuse master assignment when employer is
+    supplier; refuse employer=supplier while any non-SR assignment remains
+  - >-
+    apps/web staff-page.tsx: master আমাদের স্টাফ also hides supplier-employed
+    people (D79), not only role kind sr
+affectedActionIds: [staff.update, staff.assign, staff.assignment_update]
+financialImpact: none — role/scope only; day sheets and balances unchanged
+backfill: Rayhan row corrected in production DB (one-time)
+tests: none new; existing phase-i mistagged delete via raw insert still valid
+rollout: deploy app; data already fixed
+recovery: revert commit; Rayhan can be reassigned on master only if employer is set back to distributor first

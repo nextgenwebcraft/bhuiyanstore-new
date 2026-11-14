@@ -1,0 +1,25 @@
+id: 2026-10-22-product-batches
+reason: >-
+  D68 (owner change request 2026-10-22) - product batches from orders: purchase and sale price per
+  carton or piece on the order, a new batch when a price changes, receipts and DSR lines name a
+  batch with editable prices, firot and damage on the last batch issued.
+owners: [domain, contracts, database, application, i18n, web]
+changes:
+  - packages/database - migration 20261022010000_product_batches (product_batch table; stock_entry batch_id, free_batch_id, cost_price, sale_price; dsr_line batch_key, batch_seq, cost_price, sale_price; dsr_line unique per day, product and batch)
+  - packages/domain - keyed batch layers (receiveIntoBatch, takeFromBatch, auto:<n> for unbatched flows), ProductDayInput.batchReceipts, DsrLineInput.batch, opening batch key, batch-lots helpers (pieceFromCarton, cartonFromPiece, samePiecePrice, batchUndelivered)
+  - packages/contracts - order salePrice (required), receipt batchId (required) with costPrice / salePrice, DSR line batchKey and prices, stock entry and DSR line batch fields, ProductLot and day row lots, batch / allocation key
+  - packages/application - batches.ts (order batch reuse or create, batch due, due cap, order reversal guard, opening batch sync, product lots), daily posting / DSR save / day view, ledger batch input, field day-end on the last batch line, demo seed through batches
+  - packages/i18n - order price groups, batch, receipt and DSR batch strings, batch validation messages
+  - apps/web - order form (purchase and sale price per carton / piece, prefilled, new-batch badge), receipt form (batch dropdown with due, linked prices, more than one batch per product), posted entries batch column, DSR sheet lines per batch (batch select, sale / purchase price, add / remove batch line, field prefill on the last batch)
+affectedActionIds: [purchase.create, purchase.reverse, sale.create, sale.post]
+financialImpact: >-
+  Cost of goods sold and sales of a DSR line use its batch's prices (or the line's edited prices);
+  free goods cost 0 in their own batch instead of lowering the paid batch's average cost. Receipts
+  can no longer exceed what was ordered, so no excess receipt bills arise. Existing data is reset
+  (owner's choice); opening stock becomes each product's first batch.
+backfill: none (reset and reseed the demo with pnpm db:seed-demo)
+tests:
+  - pnpm check (format, lint, types, unit tests incl. domain batches.test.ts D68 cases)
+  - pnpm test:integration (phase-l rewritten for D68; phase-e, phase-k, phase-f adapted to batched receipts)
+rollout: pnpm db:migrate, reset the company data, pnpm db:seed-demo, deploy the app
+recovery: revert the commit and the migration (drops batch columns; batched receipts and DSR lines lose their batch)

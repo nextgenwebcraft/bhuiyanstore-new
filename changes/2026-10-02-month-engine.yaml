@@ -1,0 +1,28 @@
+id: 2026-10-02-month-engine
+reason: PLAN §9 Phase A - one pure month engine owns every workbook calculation; a header-driven sheet reader proves it against the real workbook locally
+owners: [domain, importer]
+changedDefinitionIds:
+  - packages/domain/src/month/compute-month.ts (computeMonth - PLAN §2.3-2.5)
+  - packages/domain/src/month/money-kinds.ts (MONEY_KIND_EFFECTS - the only owner of money entry directions, D27)
+  - packages/domain/src/month/types.ts (engine input/output)
+  - packages/importer (new - readMonthSheet, compareWithSaved, evaluateArithmetic)
+  - vitest.workbook.config.ts + pnpm verify:workbook (local only, skipped without docs/*.xlsx)
+  - eslint.config.mjs (importer is framework-free and cannot reach server-only packages)
+  - docs/PLAN.md §2.1, §2.4, §2.6; guide §11.9 shortage row and T58
+affectedActionIds: none yet (the engine is not wired to screens or API until phases C-F)
+affectedResources: none
+affectedMetrics:
+  - daily cash left - an approved shortage now reduces it (it starts from sales), matching the workbook; guide T58 changes from -250 to -350
+  - gross profit and stock value use quantity x the day's purchase price (D29) inside the engine; prototype screens still use FEFO layers until they move to the API
+affectedUi: none
+schemaMigration: not-applicable (Phase B)
+backfill: not-applicable
+historicalPolicy: not-applicable
+contractCompatibility: no contract changes; engine values are decimal strings and are never rounded (P01 stays open)
+cacheAndProjectionPlan: not-applicable
+securityReview: exceljs 4.4.0 pinned in @bsd/importer only (server side; it pulls deprecated transitive packages - review before Phase H accepts user uploads). The workbook stays gitignored; the verifier prints to the local console only and committed tests use a synthetic in-memory sheet
+tests:
+  - pnpm check (format, lint, typecheck of 7 packages, 104 Vitest tests)
+  - pnpm verify:workbook (local, real workbook) - Aug 2026 and Sep 2026 strict pass; Jul 2026 informational
+rollout: library code only
+recovery: revert commit

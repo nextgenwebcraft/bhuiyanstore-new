@@ -1,0 +1,26 @@
+id: 2026-10-22-field-day-report
+reason: >-
+  Owner 2026-10-22 (D71) - after the office posts a DSR's day, the DSR can still send firot and
+  damage from the field panel; it waits as a draft report that the office approves (correcting the
+  posted sheet) or rejects on the daily sales sheet.
+owners: [database, contracts, application, i18n, web]
+changes:
+  - packages/database - migration 20261022030000_field_day_report (field_day_report with one pending per DSR and date; field_day_report_line with whole non-negative pieces)
+  - packages/contracts - FieldDay.reportPending; DsrDay.fieldReport (pending report lines, optional)
+  - packages/application field.ts - saveFieldDayEnd stores a report when the day is posted; approveFieldDayReport (D56 correction through saveDsrDayIn) and rejectFieldDayReport; buildFieldDay shows a pending report's values
+  - packages/application daily.ts - saveDsrDay body split into saveDsrDayIn (same behaviour); listDsrDays attaches the pending report to the DSR's live sheet
+  - packages/application products.ts - a product on a report line is in use
+  - packages/application test-support - truncates the new tables
+  - apps/web - API POST field/reports/{id}/{approve|reject}; service decideFieldReport (http; mock read-only); field page keeps the day-end card after posting with a send-for-approval button and a pending note; DSR sheet shows a badge and FieldReportCard with approve / reject
+  - packages/i18n - field.dayEnd.hintPosted, pending, send, sent; dsr.report.*; validation.field.reportNoSheet; field.locked text
+  - packages/application phase-e and phase-g integration tests - no longer post the retired srIncentive kind (D69)
+affectedActionIds: []
+financialImpact: >-
+  None until the office approves a report; approval is a D56 correction of the posted sheet (the
+  same stock check, field-visit dues and audit). A rejected or pending report changes no figure.
+backfill: none
+tests:
+  - pnpm check (format, lint, types, 308 unit tests)
+  - pnpm test:integration production-setup (9/9, new D71 case), phase-e, phase-f, phase-g, phase-j, phase-k, phase-l (all passed after the srIncentive test fix)
+rollout: apply the migration (pnpm db:migrate; applied to the dev database), deploy the app
+recovery: revert the commit; the new tables can stay or be dropped

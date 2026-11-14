@@ -1,0 +1,43 @@
+id: 2026-11-03-opening-reverse-history
+reason: >-
+  Owner 2026-11-03. Opening stock accepts carton+piece entry and a separate opening damage
+  table; hide অসম্পূর্ণ badges. Day reverse under সামারি cascades shop/staff/SR money and
+  date-wide expenses via a modal. New History hub (above Setup) lists date-wise entries with
+  pagination and delete(=soft reverse).
+owners: [domain, contracts, application, database, i18n, web]
+changes:
+  - >-
+    packages/database: opening_stock_line.damaged_pieces
+    (migration 20261103010000_opening_damaged_pieces)
+  - >-
+    packages/contracts + domain opening: damagedPieces on stock lines; damage section save;
+    toMonthOpening feeds damagedStock/damageLots
+  - >-
+    apps/web opening page: carton+piece columns, damage table, hide pending section badge
+  - >-
+    packages/application daily moveDsrDay reverse: also reverses page money for the sheet
+    person/date and all expense rows for the date
+  - >-
+    apps/web daily sheet: reverse button under সামারি with FormDialog; per-row ReverseCell
+    removed from shop/staff/SR/operating-cost cards
+  - >-
+    History hub (nav + pages + paginated APIs listHistoryStock/Money/Dsr): latest first,
+    delete calls existing reverse endpoints
+  - >-
+    History tables: delete confirm FormDialog; single-date filter; status tabs
+    সব / পোস্ট হয়েছে / বাতিল (default posted) via historyPageQuerySchema date+status
+  - >-
+    History orders/stock: date-summary cards (carton/piece/amount) then drill-in table
+    with summary + carton/amount columns; no date picker on those tabs
+    (listHistoryStockDateSummaries, stockEntryAmount in domain)
+affectedActionIds: []
+financialImpact: >-
+  Opening damage raises godown damaged stock at go-live. Day reverse now also drops that
+  day's hand-entered shop/staff/SR money and all expenses for the date from the ledger
+  (soft reverse). History delete is the same soft reverse.
+backfill: none
+tests: >-
+  packages/domain opening.test.ts; packages/application opening-summary.test.ts;
+  apps/web navigation.test.ts
+rollout: apply the migration, then deploy the app
+recovery: revert the commit; unused damaged_pieces column can stay

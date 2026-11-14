@@ -1,0 +1,18 @@
+id: 2026-10-23-company-statement
+reason: >-
+  Owner 2026-10-23 (D82). The company transaction history is the statement:
+  credit cuts the balance, debit is money in or ordered goods now in hand,
+  and print is that table only.
+owners: [domain, application, web, i18n, docs]
+changes:
+  - packages/domain names the undelivered value released on a receipt and builds one statement line per movement
+  - packages/application reports credit, debit, the order split, undelivered value and the balance after the row
+  - apps/web frames that table with the company name and prints only it
+affectedActionIds: []
+financialImpact: none - the same order, receipt, deposit and fund figures, shown in the columns the owner named
+backfill: none - derived from the ledger; nothing stored
+tests:
+  - domain company-ledger.test company statement lines
+  - pnpm exec tsc for domain, application and web
+rollout: deploy the app; no migration
+recovery: revert the commit; stored orders and receipts stay

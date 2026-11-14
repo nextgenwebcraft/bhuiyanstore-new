@@ -1,0 +1,63 @@
+id: 2026-10-02-backend-foundation
+reason: PLAN §9 Phase B - real Postgres database, sign-in and the first /api/v1 endpoints behind the existing service port (owner approval D30)
+owners: [database, auth, application, contracts, web]
+changedDefinitionIds:
+  - packages/database (new - Prisma 7 schema, migration 20261002000000_init, createDatabase/database)
+  - packages/auth (new - createAuth/auth, actorFromHeaders, bootstrapSuperAdmin + bootstrap-admin CLI)
+  - packages/application (new - access, idempotency, audit, companies, products, me/changePassword)
+  - packages/contracts organization.ts (companyUpsertRequestSchema, meSchema, passwordChangeRequestSchema); errors (UNAUTHENTICATED, PASSWORD_CHANGE_REQUIRED)
+  - packages/i18n bn.ts (auth.* keys, two error messages)
+  - apps/web/src/app/api (auth catch-all, v1 me, me/password, companies, companies/[id], products, products/[id])
+  - apps/web/src/server/api.ts (actor resolution, ApiError mapping, same-origin JSON writes)
+  - apps/web/src/data/http (HTTP adapter + session gate); ServiceError gains fieldErrors
+  - apps/web/src/app/providers.tsx (NEXT_PUBLIC_DATA_SOURCE selects http or the demo mock)
+  - apps/web login and change-password pages; TopBar shows demo switcher or signed-in user
+  - eslint.config.mjs (only app/api and server may import database/auth/application)
+  - scripts/test-integration.mjs, vitest.integration.config.ts, root scripts test:integration, db:migrate, db:bootstrap-admin
+affectedActionIds:
+  [
+    company.create,
+    company.update,
+    product.create,
+    product.update,
+    user.password_changed,
+    user.bootstrap_super_admin,
+  ]
+affectedResources:
+  [
+    tenant,
+    legal_entity,
+    company,
+    company_module,
+    user,
+    session,
+    account,
+    role,
+    membership,
+    product,
+    audit_event,
+    idempotency_record,
+  ]
+affectedMetrics: none (no financial calculation is served by the API yet)
+affectedUi:
+  - new /login and /change-password; demo bar replaced by a session bar in http mode
+  - in http mode every screen other than companies and products shows MODULE_UNAVAILABLE until phases C-F
+schemaMigration: 20261002000000_init (forward only; adds CHECK constraints and the audit_event append-only trigger)
+backfill: not-applicable (empty database; the super-admin comes from pnpm db:bootstrap-admin)
+historicalPolicy: audit_event rows can never be updated or deleted (trigger); idempotency records replay the first response
+contractCompatibility: additive - existing DTOs unchanged; the mock adapter still satisfies DistributionService
+cacheAndProjectionPlan: none (no Redis, D30)
+securityReview: >-
+  better-auth 1.7.7, prisma/@prisma/client/@prisma/adapter-pg 7.10.0, pg 8.23.1, server-only 0.0.1 pinned.
+  Public sign-up disabled, 12-character minimum, inactive users cannot start a session, one-time
+  password must be changed before any write. Writes require same-origin JSON (CSRF); Better Auth
+  rejects sign-in without a matching Origin. COMPANY_NOT_FOUND hides other tenants' companies.
+  The bootstrap never resets an existing password or re-enables a user and prints no secrets.
+  Secrets only in the gitignored root .env; .env.example holds placeholders.
+tests:
+  - pnpm check (format, lint incl. boundaries, typecheck of 10 projects, 104 Vitest tests)
+  - pnpm test:integration (9 tests on the Neon test schema)
+  - pnpm build
+  - throwaway HTTP smoke script against pnpm dev (outside the repo)
+rollout: set NEXT_PUBLIC_DATA_SOURCE=http, run pnpm db:migrate and pnpm db:bootstrap-admin, sign in and change the one-time password
+recovery: unset NEXT_PUBLIC_DATA_SOURCE to return to the demo; revert commit; the database is a development database (to be cleared before production)

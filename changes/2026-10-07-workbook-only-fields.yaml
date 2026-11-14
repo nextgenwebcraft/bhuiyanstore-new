@@ -1,0 +1,38 @@
+id: 2026-10-07-workbook-only-fields
+reason: Owner (2026-10-04, D32) asked to remove every field and screen the monthly workbook does not have, and clarified that a batch means a receipt from the company with its own new purchase and sale price, applied from that day (Excel method, D29 unchanged).
+owners: [contracts, application, web, i18n, docs]
+changedDefinitionIds:
+  - packages/contracts/src/daily.ts (stock entry lines lose supplierId, reference, lot, expiry, note; DSR lines lose splits and the sheet loses note; money entries lose reference and note)
+  - packages/contracts/src/parties.ts and index.ts (supplier schemas and staff phone removed; RecordStatus exported)
+  - packages/contracts/src/accounts.ts (staff statement lines lose reference/note; payroll run loses note)
+  - packages/application/src/daily.ts, payroll.ts, accounts.ts, staff.ts (same fields dropped from reads and writes; split-price validation removed)
+  - packages/application/src/suppliers.ts and apps/web/src/app/api/v1/companies/[companyId]/suppliers/** (deleted)
+  - apps/web/src/data (supplier port, http, mock, queries and query keys removed; demo seed has no suppliers)
+  - apps/web/src/features/shell/navigation.ts (unbuilt placeholder screens with no workbook column removed from the menu)
+  - apps/web/src/features/daily/godown-page.tsx (receipt shows the batch purchase and sale price per product; no reference, lot or expiry)
+  - apps/web/src/features/daily/dsr-days-page.tsx, money-page.tsx, accounts/accounts-page.tsx, accounts/payroll-page.tsx, catalog/staff-page.tsx
+  - packages/i18n/src/bn.ts (batch price labels and hint added; keys of removed fields deleted)
+  - docs/decisions.md (D32 added; D05, D06, D22, D29 and P06 updated)
+affectedActionIds: [none]
+affectedResources:
+  - supplier (no longer served)
+affectedMetrics:
+  - none; the month engine never read lot, expiry, supplier, reference or note, and the posted data has no price splits
+affectedUi:
+  - menu, goods received, purchase order, DSR sheet, money entries, staff, staff statement, payroll
+schemaMigration: none (supplier and price-split tables and the nullable supplier_id, lot, expiry, note, reference columns stay; reference is still written internally for import and payroll links)
+backfill: not-applicable
+historicalPolicy: unchanged; existing rows keep their values, they are just no longer shown or accepted
+contractCompatibility: breaking for removed request fields (zod strips unknown keys, so old clients' extra fields are ignored, not rejected)
+cacheAndProjectionPlan: none
+securityReview: no permission change; supplier.manage stays in the permission list so saved roles still validate
+knownGaps:
+  - damage cases, cash accounts, period close and product aliases are kept although the workbook has no matching sheet; they back opening, import, month lock and the company damage amounts
+  - dropping the unused database columns and tables needs a separate migration
+  - no browser walkthrough in this session
+tests:
+  - pnpm check
+  - pnpm test:integration
+  - pnpm build
+rollout: deploy web and API together
+recovery: revert the commit

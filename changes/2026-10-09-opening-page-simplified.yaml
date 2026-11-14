@@ -1,0 +1,18 @@
+id: 2026-10-09-opening-page-simplified
+reason: The owner found the opening page hard to explain — per-section confirm buttons, red errors on every blank row, no guidance — and the staff opening step showed complete with no data entered (D38 amended).
+owners: [web, application, contracts, database, i18n, docs]
+changes:
+  - apps/web - opening page drops the section confirm bar and draft badge; a collapsible "এই পেজে কী করবেন?" guide (open until a go-live date is chosen) and a one-line hint per tab; blank rows show a muted "not entered yet" instead of a red error; the review tab shows a per-section summary (entered / total, saved amount, done/pending/optional, open button) with only real mistakes listed, blanks summarized; ?tab= opens a tab; dashboard/day gate link to the setup checklist first and to the review tab once only activation is left
+  - apps/web/src/app/api - POST /companies/{id}/opening/confirm removed
+  - packages/application - opening.ts confirmOpeningSection removed; setup.ts staffOpening needs an entered staff balance line (0 allowed) for every current staff member (setup.missing.staffBalances) and is incomplete with no current staff (setup.missing.noStaff); setup checklist links open the matching opening tab
+  - packages/contracts - confirmedSections and openingConfirmRequestSchema removed
+  - packages/database - migration 20261009040000_drop_opening_confirmations drops opening_session.confirmed_sections
+  - packages/i18n - opening.guide.*, opening.tabHint.*, setup.missing.staffBalances, setup.next.*; confirm texts removed
+affectedActionIds: [opening.prepare]
+financialImpact: none; blank opening amounts still block approval (checkOpening unchanged)
+backfill: not-applicable
+tests:
+  - pnpm check (format, lint, typecheck, 144 unit tests)
+  - production-setup.integration.ts - staffOpening stays incomplete with no staff line and reports setup.missing.staffBalances
+rollout: migration applied; restart the dev server / deploy the app
+recovery: revert the commit; re-adding the column restores the old confirm flow

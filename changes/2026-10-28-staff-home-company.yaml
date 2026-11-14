@@ -1,0 +1,31 @@
+id: 2026-10-28-staff-home-company
+reason: >-
+  Owner 2026-10-28 (D93). Staff created from the master panel's আমাদের স্টাফ
+  show up in every company (D65, unchanged, correct) but salary is paid
+  company-wise; the master panel had no way to say which company pays whom,
+  so the payroll sheet pulled in every global DSR regardless of company.
+owners: [database, contracts, application, web, i18n]
+changes:
+  - >-
+    packages/database migration 20261028010000_staff_home_company: staff.company_id (NOT NULL,
+    Restrict), backfilled to cmvml8dbz000008jjwlffqlye for all 27 existing rows
+  - >-
+    packages/contracts staffRecordSchema/staffUpsertRequestSchema gain companyId (required)
+  - >-
+    packages/application staff.ts createStaff/updateStaff read/write companyId (validated as a
+    real, non-master company); starter-dataset.ts sets it to the new company itself; payroll.ts
+    eligibleStaff filters distributor staff by staff.companyId = the company running payroll
+    (company-wise salary sheet); companies.ts deleteCompany also checks staff.count
+  - >-
+    apps/web staff-page.tsx PersonDialog gains a Company field (master panel only, required there;
+    elsewhere it defaults to the current company and stays hidden); sr-page.tsx and mock-service.ts
+    updated for the new required field
+  - packages/i18n staff.homeCompany, staff.homeCompanyHint, validation.company.unknown
+affectedActionIds: [staff.create, staff.update]
+financialImpact: none - payroll totals per staff member are unchanged; only which company's sheet lists them
+backfill: all existing staff backfilled to one company in the migration itself (owner's explicit instruction); to be corrected per person later
+tests: >-
+  pnpm test (318/318), pnpm test:integration (all phases incl. the 9 integration fixture files
+  updated for the new required field), pnpm check:types, eslint
+rollout: deploy the app; run pnpm db:migrate (already applied to the live database)
+recovery: revert the commit; the migration is additive (new column) so no down-migration was written

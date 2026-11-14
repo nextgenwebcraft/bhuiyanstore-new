@@ -1,0 +1,45 @@
+id: 2026-10-07-company-account-and-damage-return
+reason: Client feedback after the demo. All settlements with the company (bank deposit, money incentive, damage returned as money) must be visible in one place; the daily sales sheet is renamed and loses its market-due inputs; product tables get a summary panel; sending damage to the company is simplified to "which product, how many pieces, which date" with a confirmed return. Owner answers recorded as D33.
+owners: [domain, contracts, application, database, web, i18n, docs]
+changedDefinitionIds:
+  - docs/decisions.md (D33; D16 and D17 marked amended)
+  - packages/domain/src/month/money-kinds.ts (MoneyKindEffect.company replaces companyPayable; new kind companyIncentive lowers the company balance only)
+  - packages/domain/src/month/types.ts (ProductDayInput.companyRefunds; companyPayable gains incentives and damageRefunds; MonthOutput.companyEntries)
+  - packages/domain/src/month/compute-month.ts (refunds = pieces × unit cost lower the payable; company statement entries with running balance)
+  - packages/domain/src/month/damage-case.ts (event kind companyRefund settles accepted pieces like a replacement; progress.companyRefunded; companyReturnKinds)
+  - packages/contracts/src/daily.ts, damage.ts, month.ts (companyIncentive kind and permission; companyRefund kind, damageUnitCostKinds, companyRefunded, optional caseNumber, sentToCompany, autoAccept; companyPayable fields; report company-account)
+  - packages/database/prisma/migrations/20261007000000_company_account (CHECK constraints for the two new kinds and unit_cost on both company return kinds)
+  - packages/application/src/ledger.ts (companyRefund events reach the engine as companyRefunds)
+  - packages/application/src/damage.ts (auto case number, dispatch posted with the case, return with auto-accept, refund permissions, from/to filter)
+  - packages/application/src/month.ts (company-account report: summary and statement; company-due payable lines)
+  - apps/web/src/features/accounts/company-account-page.tsx and route finance/company-account (new)
+  - apps/web/src/features/damage/damage-cases-page.tsx (rewritten as the simple send / return list)
+  - apps/web/src/features/daily/dsr-days-page.tsx (market-due inputs hidden, values kept; summary cards)
+  - apps/web/src/components/table-summary.tsx, pager.tsx (new); report-page, day-report-page, godown-page (summary panels)
+  - apps/web/src/features/shell/navigation.ts; packages/i18n/src/bn.ts (labels, rename to দৈনিক বিক্রয় হিসাব)
+affectedActionIds:
+  [payment.post (companyIncentive), damage.claim_settle + inventory.cost_view (companyRefund)]
+affectedResources: [money_entry, damage_case, damage_event, ledger]
+affectedMetrics:
+  - company payable closing = opening + receipts − deposits − money incentives − damage money returns (previously opening + receipts − deposits)
+  - cash, banked, stock and profit unchanged by incentives and refunds (unit tested)
+affectedUi:
+  - new screen কোম্পানির সাথে হিসাব (finance) with summary tiles, statement with running balance, date range and deposit / incentive entry
+  - কোম্পানিতে ড্যামেজ জমা replaces the case screen; buyer leg hidden
+  - দৈনিক বিক্রয় হিসাব without the market-due inputs; summary cards on the list and the sheet
+  - summary panel above report tables, day sheet, stock, samari/firot and godown tables
+schemaMigration: 20261007000000_company_account (constraint changes only, no data change)
+backfill: not-applicable
+historicalPolicy: existing entries keep their meaning; old sheets keep their market-due values, which stay editable on the old-dues page
+contractCompatibility: additive except caseNumber (now optional) and the companyPayable object (two new fields)
+cacheAndProjectionPlan: damage and money postings already invalidate the ledger queries
+securityReview: no new permission; refund needs the same permissions as a company replacement; the money incentive uses payment.post like a deposit
+knownGaps:
+  - the money incentive is posted from the company account or deposit screen; there is no separate incentive screen
+  - goods incentives (D16) keep their current entry path
+  - phase-g integration test updated for companyRefunded but not run (needs TEST_DATABASE_URL); no browser walkthrough in this session
+tests:
+  - pnpm check
+  - packages/domain compute-month.test.ts (company account D33), staff-accounts.test.ts (companyRefund progress)
+rollout: apply the migration before deploying the app
+recovery: revert the commit; the migration's constraints accept a superset of the old kinds, so reverting the app alone is safe while no new-kind rows exist

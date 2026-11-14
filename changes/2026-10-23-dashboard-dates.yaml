@@ -1,0 +1,15 @@
+id: 2026-10-23-dashboard-dates
+reason: >-
+  Owner 2026-10-23 (D83). The dashboard date filter is the three buttons and a
+  calendar for one day or a range. The day sheet save sits under the product table.
+owners: [web, docs]
+changes:
+  - apps/web dashboard period bar uses the calendar after আজ, এই মাস and গত মাস
+  - apps/web খসড়া সংরক্ষণ is directly under the day-sheet product table
+affectedActionIds: []
+financialImpact: none - the same date range is sent to the dashboard; nothing is posted
+backfill: none
+tests:
+  - apps/web period.test calendar range
+rollout: deploy the app; no migration
+recovery: revert the commit

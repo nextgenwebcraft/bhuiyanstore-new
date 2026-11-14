@@ -1,0 +1,32 @@
+id: 2026-10-02-daily-dashboard
+reason: The owner asked for the dashboard to show only the reports for one date, today by default (guide 5.2 "date filters; sales, collections, gross profit if permitted, stock value, dues")
+owners: [contracts, domain, i18n, web]
+changedDefinitionIds:
+  - packages/contracts reporting.ts (dashboardSummarySchema is now a daily report - date, salesCash, oldDuesCollected, cashCollected, marketDueCreated, marketDueOutstanding as of the date, byDsr rows, receivedValue; dsrDayRowSchema new)
+  - packages/domain dates.ts (shiftBusinessDate)
+  - packages/i18n format.ts (formatBusinessDate) and bn.ts dashboard keys (replaced)
+  - apps/web/src/data (getDashboardSummary takes a date; queryKeys.dashboardSummary is keyed by date under the same resource, so posting invalidation still covers every date)
+  - apps/web dashboard page (date bar with previous/next/today, grouped report sections, per-DSR table, links to the screens behind each figure); StatTile hint/emphasis; chevron and calendar icons
+affectedActionIds: []
+affectedResources: [dashboard_summary]
+affectedMetrics: >-
+  Dashboard figures are now scoped to one business date: net sales, gross profit, sales cash, new
+  market due and summary count from that date's summaries; old dues collected from that date's
+  collections; cash collected = sales cash + old dues collected; market due outstanding = dues raised
+  up to the date less allocations collected up to the date; receipts and received value from that
+  date's receipts. Stock value stays the current value and is labelled as such. Derived from posted
+  events in the service, never stored.
+affectedUi:
+  - dashboard no longer shows the module card hub (navigation lives in the sidebar)
+  - on the real API the report shows a calm "not yet available" panel until posting lands (PLAN phases E-F)
+schemaMigration: none
+backfill: none
+historicalPolicy: past dates are recomputed from posted events; future dates show no report
+contractCompatibility: breaking for dashboardSummarySchema and the port's getDashboardSummary signature; no server endpoint exists yet (HTTP adapter answers MODULE_UNAVAILABLE)
+cacheAndProjectionPlan: none
+securityReview: Gross profit, received value and stock value stay server-redacted without report.profit_view / inventory.cost_view; drill-down links appear only for screens the user can open. No new dependencies.
+tests:
+  - pnpm check (format, lint, typecheck of 10 projects, 113 Vitest tests incl. date-scoped dashboard, as-of outstanding dues, malformed date, shiftBusinessDate and formatBusinessDate)
+  - not run - browser walkthrough of the new dashboard; pnpm build
+rollout: none
+recovery: revert commit

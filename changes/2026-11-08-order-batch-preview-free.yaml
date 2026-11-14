@@ -1,0 +1,23 @@
+id: 2026-11-08-order-batch-preview-free
+reason: >-
+  Owner 2026-11-08: when company order free goods change the D57 effective piece cost
+  (bill ÷ paid+free), open a new product batch — same carton rate with different free mix must
+  not share ব্যাচ ১. Also show পিস রেট on today's posted order entries. Amends D68.
+owners: [domain, application, web, i18n]
+changes:
+  - packages/domain - orderBatchCostPrice + orderJoinsLatestBatch (effective cost with free); batch-lots.test.ts
+  - packages/application daily.postStockEntries - batch cost from orderBatchCostPrice; order-price feed stays nominal carton rate
+  - packages/application phase-l.integration.ts - effective-cost expectations; free mix opens new batch
+  - apps/web order-form - batch badge matches server; godown PostedEntries পিস রেট column
+  - packages/i18n - godown.posted.pieceRate; godown.order.batchHint
+  - docs/decisions.md - D68 amended 2026-11-08
+affectedActionIds: [purchase.create]
+financialImpact: >-
+  Orders with free pieces store batch purchase = bill÷(paid+free) instead of cartonRate÷ppc.
+  Receipts/DSR/COGS/stock value for those batches use the lower effective cost. Paid-only orders
+  unchanged. Already-posted rows keep their stored batchId/cost until reversed and re-posted.
+backfill: none (re-post after reverse if old free-goods orders must split batches)
+tests: >-
+  packages/domain batch-lots.test.ts; packages/application phase-l.integration.ts
+rollout: deploy; reverse and re-enter free-goods orders that should have been separate batches
+recovery: revert commit

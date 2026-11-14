@@ -1,0 +1,31 @@
+id: 2026-10-28-shareholder-paid-status
+reason: >-
+  Owner 2026-10-28 (D94). The master dashboard's year grid shows every
+  company's combined profit but has no way to track which shareholder has
+  actually been paid for which month; the owner asked for a second table
+  with a mark-as-paid toggle per shareholder per month.
+owners: [database, contracts, application, web, i18n]
+changes:
+  - >-
+    packages/database migration 20261028020000_shareholder_payout: shareholder_payout table
+    (shareholder_id, month, unique together); a row's existence is the only fact, no amount stored
+  - >-
+    packages/contracts masterHishabYearSchema.months[].perShareholder (shareholderId, profit, paid)
+    for every shareholder regardless of the year grid's shareholder filter; new
+    shareholderPayoutRequestSchema
+  - >-
+    packages/application company-hishab.ts getMasterHishabYear computes perShareholder per month
+    (same investShare math already used for the filtered figure) and looks up paid status; new
+    setShareholderPayout(ctx, companyId, { shareholderId, month, paid }) upserts/deletes the row
+  - >-
+    apps/web new PUT /api/v1/companies/{companyId}/master-shareholder-payouts route,
+    setShareholderPayout on the HTTP/mock adapters, useSetShareholderPayout; master-dashboard.tsx
+    renders a second table below the year grid (rows: shareholders, columns: months, cell:
+    অংশীদারের প্রফিট) where clicking a cell toggles paid/unpaid; a paid cell turns green
+  - packages/i18n share.paid.title/hint/mark/unmark
+affectedActionIds: [shareholder.payout]
+financialImpact: none - no cash posting; paid is a record-only flag
+backfill: none
+tests: pnpm test (318/318), pnpm test:integration, pnpm check:types, eslint
+rollout: deploy the app; run pnpm db:migrate (already applied to the live database)
+recovery: revert the commit; the migration is additive (new table) so no down-migration was written

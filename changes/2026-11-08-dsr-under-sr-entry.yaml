@@ -1,0 +1,25 @@
+id: 2026-11-08-dsr-under-sr-entry
+reason: >-
+  Owner 2026-11-08 (D122): enter সামারি under an SR sheet per DSR; form-based add-item entry
+  instead of Excel-style all-product grid; dashboard byDsr is the selling DSR across SRs.
+owners: [database, contracts, application, domain, web, i18n, docs]
+changes:
+  - packages/database - dsr_line.dsr_staff_id + unique (day, dsr, product, batch); migration backfill
+  - packages/contracts - dsrLineRequestSchema.dsrStaffId; dsrLineSchema.dsrStaffName
+  - packages/application - save/list/ledger use line DSR; validate role kind dsr
+  - packages/domain - test: two DSRs → byDsr rows; same DSR across two days sums when folded
+  - apps/web - dsr-sheet-entry forms + DSR tables + SR total; dsr-days-page draft model
+  - packages/i18n - dsr.entry.* keys; validation.daily.lineDsrOnly
+  - docs/decisions.md - D122
+affectedActionIds: [dsr_day.save, dsr_day.post]
+financialImpact: >-
+  Attribution only: sales/stock/byDsr move from sheet owner to line DSR. Formulas unchanged.
+  Legacy backfilled lines still attribute to the SR (same grain as pre-D122) until re-entered.
+backfill: migration sets dsr_staff_id from parent dsr_day.staff_id
+tests: >-
+  pnpm --filter @bsd/domain exec vitest run src/month;
+  pnpm --filter @bsd/web build; pnpm --filter @bsd/{contracts,application,web,database} exec tsc --noEmit
+rollout: >-
+  Apply migration 20261108020000_dsr_line_dsr_staff before the app. Open SR drafts with
+  backfilled lines remain saveable; new form entries must pick a real DSR.
+recovery: revert app then migration (restore unique index)

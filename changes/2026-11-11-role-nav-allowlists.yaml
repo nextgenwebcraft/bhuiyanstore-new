@@ -1,0 +1,15 @@
+id: 2026-11-11-role-nav-allowlists
+reason: >-
+  Owner 2026-11-11 audit: DSR still opened shops/money/history via finance.view/company.view
+  despite D112 “dashboard + দৈনিক বিক্রয় হিসাব only”. Add DSR path allowlist (URL-enforced).
+  Manager/TSM allowlists already present; regression test covers all three.
+owners: [web]
+changes:
+  - apps/web navigation - DSR_ALLOWED_PATHS + navAccess/visibleHubs gates
+  - apps/web navigation.test.ts - Manager/DSR/TSM path allowlists
+affectedActionIds: []
+financialImpact: Access only; no formula change.
+backfill: none
+tests: apps/web navigation.test.ts role allowlist case
+rollout: deploy
+recovery: revert commit
