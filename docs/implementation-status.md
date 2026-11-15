@@ -6,6 +6,8 @@ Evidence-based progress. Mark an item done only with evidence.
 
 The canonical plan is now [PLAN.md](PLAN.md). The owner approved backend integration (D30).
 
+**2026-11-15** ([manifest](../changes/2026-11-15-floor-damage-order-payment.yaml)): Dashboard chart height; history `companyCheckId` Zod fix; Manager SR delete hidden (edit kept); Super Admin History order নগদ↔চেক edit (D130); Floor stock damage under অর্ডার ও মজুদ for Manager/Super Admin/TSM (D131).
+
 **2026-11-12** ([manifest](../changes/2026-11-12-company-check-dues.yaml)): Company cheques — bulk register + due repay page; order নগদ/চেক; cheque bills skip companyPayable; completed cheques in History (D129). Migration `20261112030000_company_checks` (apply before deploy).
 
 **2026-11-12** ([manifest](../changes/2026-11-12-dashboard-chart-previous-due.yaml)): Company dashboard day/month মোট বিক্রি chart; master Previous Due CRUD; explicit apply from master dashboard cuts due balance and that month’s distributable profit (D128). Migrations `20261112010000_previous_due` + `20261112020000_previous_due_reduction` (apply before deploy).

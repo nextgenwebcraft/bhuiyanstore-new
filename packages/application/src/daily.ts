@@ -16,6 +16,7 @@ import {
   moneyKindPermission,
   moneyKindPerson,
   srLoanTypeKinds,
+  orderPaymentCorrectRequestSchema,
   stockEntryPostRequestSchema,
   stockEntrySchema,
   type DashboardDaily,
@@ -167,6 +168,7 @@ const STOCK_PERMISSION: Record<StockEntryKind, PermissionId> = {
   damage: "damage.report",
   incentive: "purchase.post",
   damageDeposit: "payment.post",
+  floorDamageDeposit: "damage.report",
 };
 
 const stockInclude = {
@@ -426,6 +428,23 @@ export async function postStockEntries(
           });
           continue;
         }
+        if (line.kind === "floorDamageDeposit") {
+          const batch = await batchOf(
+            tx,
+            companyId,
+            line.productId,
+            line.batchId ?? "",
+            `lines.${index}.batchId`,
+          );
+          await tx.stockEntry.create({
+            data: {
+              ...base,
+              batchId: batch.id,
+              unitPrice: line.unitPrice ?? "0",
+            },
+          });
+          continue;
+        }
         if (line.kind !== "order") {
           await tx.stockEntry.create({
             data: {
@@ -479,9 +498,11 @@ export async function postStockEntries(
           entries: postedOrders,
         });
       }
-      // D53: pieces found damaged in the godown leave saleable stock.
-      const damaged = request.lines.filter((l) => l.kind === "damage").map((l) => l.productId);
-      await ensureStockCovers(tx, access, request.date, damaged);
+      // D53/D131: godown damage and floor damage deposits leave saleable stock.
+      const stockOut = request.lines
+        .filter((l) => l.kind === "damage" || l.kind === "floorDamageDeposit")
+        .map((l) => l.productId);
+      await ensureStockCovers(tx, access, request.date, stockOut);
       const before: Record<string, string> = {};
       const explicit = new Set(request.prices.map((p) => `${p.productId}|${p.kind}`));
       const derived = [...orderPrices]
@@ -694,6 +715,103 @@ export async function reverseStockEntry(
         await tx.stockEntry.findUniqueOrThrow({ where: { id: entryId }, include: stockInclude }),
         seesCost(access),
       );
+    },
+  );
+}
+
+/**
+ * D130: Super Admin changes payment on a posted order group (নগদ ↔ চেক) without reversing
+ * stock or undoing receipts. All posted order lines that share the entry's orderGroup update
+ * together; cheque charges reverse/create as needed so কোম্পানিতে জমা / cheque dues follow.
+ */
+export async function correctOrderPayment(
+  ctx: AppContext,
+  companyId: string,
+  entryId: string,
+  input: unknown,
+  requestKey?: string,
+): Promise<StockEntry[]> {
+  if (!ctx.actor.isSuperAdmin) throw new AppError("FORBIDDEN");
+  const access = await requirePermission(ctx, companyId, "purchase.create", { write: true });
+  const request = parseInput(orderPaymentCorrectRequestSchema, input);
+  return runIdempotent(
+    ctx,
+    { scope: companyId, action: "stock.correctPayment", requestKey },
+    { entryId, ...request },
+    async (tx) => {
+      const seed = await tx.stockEntry.findFirst({ where: { id: entryId, companyId } });
+      if (!seed) throw invalid("", "validation.daily.notFound");
+      if (seed.kind !== "order") throw invalid("", "validation.daily.orderOnly");
+      if (seed.status !== "posted") throw invalid("", "validation.daily.alreadyReversed");
+      await postingGuard(tx, companyId, fromDbDate(seed.date));
+
+      const rows = seed.orderGroup
+        ? await tx.stockEntry.findMany({
+            where: {
+              companyId,
+              kind: "order",
+              status: "posted",
+              orderGroup: seed.orderGroup,
+            },
+            orderBy: { createdAt: "asc" },
+          })
+        : [seed];
+      if (rows.length === 0) throw invalid("", "validation.daily.notFound");
+
+      const nextCheckId = request.paymentMethod === "check" ? (request.companyCheckId ?? null) : null;
+      if (nextCheckId) await assertCheckUsable(tx, companyId, nextCheckId);
+
+      for (const row of rows) {
+        await reverseCheckChargeForEntry(tx, row.id);
+      }
+
+      await tx.stockEntry.updateMany({
+        where: { id: { in: rows.map((r) => r.id) } },
+        data: {
+          companyCheckId: nextCheckId,
+          fundFrom: [],
+        },
+      });
+
+      if (nextCheckId) {
+        const refreshed = await tx.stockEntry.findMany({
+          where: { id: { in: rows.map((r) => r.id) } },
+          orderBy: { createdAt: "asc" },
+        });
+        await createCheckChargesForEntries(tx, {
+          tenantId: access.company.tenantId,
+          companyId,
+          companyCheckId: nextCheckId,
+          orderGroup: seed.orderGroup,
+          entries: refreshed,
+        });
+      }
+
+      await recordAudit(tx, ctx, {
+        companyId,
+        action: "stock.correctPayment",
+        resourceType: "stock_entry",
+        resourceId: entryId,
+        before: {
+          companyCheckId: seed.companyCheckId,
+          fundFrom: seed.fundFrom,
+          orderGroup: seed.orderGroup,
+        },
+        after: {
+          paymentMethod: request.paymentMethod,
+          companyCheckId: nextCheckId,
+          fundFrom: [],
+          orderGroup: seed.orderGroup,
+          entryIds: rows.map((r) => r.id),
+        },
+      });
+
+      const updated = await tx.stockEntry.findMany({
+        where: { id: { in: rows.map((r) => r.id) } },
+        include: stockInclude,
+        orderBy: { createdAt: "asc" },
+      });
+      return updated.map((row) => toStockEntry(row, seesCost(access)));
     },
   );
 }

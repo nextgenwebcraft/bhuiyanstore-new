@@ -119,6 +119,63 @@ describe("damaged goods stock and damage at the company (D53)", () => {
   });
 });
 
+describe("floor stock damage deposit (D131)", () => {
+  it("takes saleable pieces from a named batch and raises the damage balance", () => {
+    const out = computeMonth({
+      products: [{ id: "A", piecesPerCarton: "24" }],
+      opening: {
+        products: {
+          A: {
+            stock: "20",
+            dueFromCompany: "0",
+            costPrice: "10",
+            salePrice: "15",
+            batches: [
+              {
+                key: "b1",
+                seq: 1,
+                startDate: "opening",
+                costPrice: "10",
+                salePrice: "15",
+                quantity: "20",
+              },
+            ],
+          },
+        },
+      },
+      days: [
+        {
+          date: "2026-11-01",
+          products: {
+            A: {
+              batchDamageDeposits: [
+                { key: "b1", seq: 1, quantity: "4", unitCost: "10", ref: "fd1" },
+              ],
+            },
+          },
+        },
+      ],
+    });
+    expect(out.days[0]?.products[0]).toMatchObject({
+      stock: "16",
+      sales: "0",
+      cost: "0",
+      grossProfit: "0",
+      damageRecovery: "40",
+    });
+    expect(out.month.companyPayable).toMatchObject({
+      closing: "-40",
+      damageBalance: "40",
+      damageRefunds: "40",
+    });
+    expect(out.companyEntries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "damageRefund", amount: "40", ref: "fd1", productId: "A" }),
+      ]),
+    );
+  });
+});
+
 describe("damage case custody (D53)", () => {
   const events = (...e: [string, string][]) =>
     e.map(([kind, quantity]) => ({ kind: kind as never, quantity }));

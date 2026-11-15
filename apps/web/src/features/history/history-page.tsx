@@ -8,6 +8,7 @@ import type {
   HistoryStockKindGroup,
   HistoryStockLine,
   MoneyEntry,
+  OrderPaymentMethod,
 } from "@bsd/contracts";
 import { historyStatusFilters, historyStockDateCardGroups } from "@bsd/contracts";
 import { sumQuantities } from "@bsd/domain";
@@ -36,6 +37,7 @@ import { TableScroller } from "@/components/table-scroller";
 import { TableSummary } from "@/components/table-summary";
 import { describeError } from "@/data/ports/service-error";
 import {
+  useCorrectOrderPayment,
   useDsrDayCommand,
   useHistoryDsrDays,
   useHistoryMoneyEntries,
@@ -44,6 +46,7 @@ import {
   useReverseMoneyEntry,
   useReverseStockEntry,
 } from "@/data/queries";
+import { OrderPaymentMethod as OrderPaymentMethodFields } from "@/features/daily/order-payment-method";
 import { NavGate } from "@/features/shell/nav-gate";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 
@@ -262,6 +265,86 @@ function DeleteAction({
   );
 }
 
+/** D130: Super Admin edits নগদ ↔ চেক on a posted order (whole orderGroup). */
+function OrderPaymentEditAction({
+  companyId,
+  entry,
+  onSaved,
+}: {
+  companyId: string;
+  entry: HistoryStockLine;
+  onSaved: () => void;
+}) {
+  const correct = useCorrectOrderPayment(companyId);
+  const [open, setOpen] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | undefined>();
+  const [method, setMethod] = useState<OrderPaymentMethod>(
+    entry.companyCheckId ? "check" : "cash",
+  );
+  const [companyCheckId, setCompanyCheckId] = useState(entry.companyCheckId ?? "");
+
+  function openDialog() {
+    setMethod(entry.companyCheckId ? "check" : "cash");
+    setCompanyCheckId(entry.companyCheckId ?? "");
+    setError(undefined);
+    setOpen(true);
+  }
+
+  async function confirm() {
+    if (method === "check" && !companyCheckId) {
+      setError(t("validation.companyCheck.required"));
+      return;
+    }
+    setPending(true);
+    setError(undefined);
+    try {
+      await correct.mutateAsync({
+        entryId: entry.id,
+        body:
+          method === "check"
+            ? { paymentMethod: "check", companyCheckId }
+            : { paymentMethod: "cash" },
+      });
+      setOpen(false);
+      onSaved();
+    } catch (e) {
+      setError(describeError(e, []).form);
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <>
+      <Button onClick={openDialog}>{t("common.edit")}</Button>
+      <FormDialog
+        open={open}
+        title={`${t("history.orderPayment.edit")}: ${entry.sku}`}
+        error={error}
+        pending={pending}
+        submitLabel={t("common.save")}
+        onSubmit={() => void confirm()}
+        onClose={() => {
+          if (!pending) {
+            setOpen(false);
+            setError(undefined);
+          }
+        }}
+      >
+        <p className="mb-3 text-sm text-text-muted">{t("history.orderPayment.hint")}</p>
+        <OrderPaymentMethodFields
+          companyId={companyId}
+          method={method}
+          companyCheckId={companyCheckId}
+          onMethodChange={setMethod}
+          onCheckChange={setCompanyCheckId}
+        />
+      </FormDialog>
+    </>
+  );
+}
+
 function DateCardsSkeleton({ count = 6 }: { count?: number }) {
   return (
     <div role="status" className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -326,18 +409,25 @@ function DateSummaryCards({
 }
 
 function StockEntryTable({
+  companyId,
   items,
   showDateColumn,
   showFree,
   canDelete,
+  canEditPayment,
   onDelete,
+  onPaymentSaved,
 }: {
+  companyId: string;
   items: HistoryStockLine[];
   showDateColumn: boolean;
   /** Orders and stock (receipt) history: free pieces as their own column (D118). */
   showFree: boolean;
   canDelete: boolean;
+  /** D130: Super Admin may edit নগদ/চেক on posted order lines. */
+  canEditPayment?: boolean;
   onDelete: (id: string) => Promise<unknown>;
+  onPaymentSaved?: () => void;
 }) {
   return (
     <TableScroller>
@@ -376,7 +466,7 @@ function StockEntryTable({
               {t("common.status")}
             </th>
             <th scope="col" className={thClass}>
-              <span className="sr-only">{t("history.delete")}</span>
+              <span className="sr-only">{t("common.actions")}</span>
             </th>
           </tr>
         </thead>
@@ -403,11 +493,20 @@ function StockEntryTable({
                 <StatusChip status={entry.status} />
               </td>
               <td className={tdClass}>
-                <DeleteAction
-                  label={`${entry.sku} ${formatShortDate(entry.date)}`}
-                  canDelete={canDelete && entry.status === "posted"}
-                  onDelete={() => onDelete(entry.id)}
-                />
+                <div className="flex flex-wrap justify-end gap-2">
+                  {canEditPayment && entry.kind === "order" && entry.status === "posted" ? (
+                    <OrderPaymentEditAction
+                      companyId={companyId}
+                      entry={entry}
+                      onSaved={() => onPaymentSaved?.()}
+                    />
+                  ) : null}
+                  <DeleteAction
+                    label={`${entry.sku} ${formatShortDate(entry.date)}`}
+                    canDelete={canDelete && entry.status === "posted"}
+                    onDelete={() => onDelete(entry.id)}
+                  />
+                </div>
               </td>
             </tr>
           ))}
@@ -425,7 +524,7 @@ function StockDateCardHistory({
   companyId: string;
   group: HistoryStockKindGroup;
 }) {
-  const { permissions } = useCurrentWorkspace();
+  const { permissions, loginRoleKind } = useCurrentWorkspace();
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState<HistoryStatusFilter>("posted");
@@ -443,6 +542,7 @@ function StockDateCardHistory({
   );
   const reverse = useReverseStockEntry(companyId);
   const canDelete = permissions.includes("purchase.reverse");
+  const canEditPayment = group === "orders" && loginRoleKind === null;
   const daySummary = selectedDate
     ? dates.data?.items.find((d) => d.date === selectedDate)
     : undefined;
@@ -522,11 +622,17 @@ function StockDateCardHistory({
             <EmptyListNote textKey="history.empty" />
           ) : (
             <StockEntryTable
+              companyId={companyId}
               items={list.data.items}
               showDateColumn={false}
               showFree
               canDelete={canDelete}
+              canEditPayment={canEditPayment}
               onDelete={(id) => reverse.mutateAsync(id)}
+              onPaymentSaved={() => {
+                void list.refetch();
+                void dates.refetch();
+              }}
             />
           )}
           <Pager page={page} pageSize={pageSize} total={list.data.total} onPage={setPage} />
@@ -567,6 +673,7 @@ function StockFlatHistory({
         <EmptyListNote textKey="history.empty" />
       ) : (
         <StockEntryTable
+          companyId={companyId}
           items={list.data.items}
           showDateColumn
           showFree={false}

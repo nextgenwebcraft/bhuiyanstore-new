@@ -86,6 +86,9 @@ export const TSM_PERMISSIONS: readonly PermissionId[] = [
   "purchase.view",
   "purchase.create",
   "inventory.view",
+  /** D131: Floor stock damage — see purchase rate and post returns to company. */
+  "inventory.cost_view",
+  "damage.report",
 ];
 
 const TEMPLATE: Record<LoginRoleKind, readonly PermissionId[]> = {

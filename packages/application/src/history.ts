@@ -139,6 +139,7 @@ function toHistoryStockLine(row: StockRow, canSeeCost: boolean) {
     unitPrice: row.unitPrice === null ? null : plain(row.unitPrice),
     fundFrom: row.fundFrom,
     orderGroup: row.orderGroup,
+    companyCheckId: row.companyCheckId,
     batchId: row.batchId,
     batchSeq: row.batch?.seq ?? null,
     costPrice: metrics.costPrice,

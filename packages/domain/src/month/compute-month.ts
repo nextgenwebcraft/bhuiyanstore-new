@@ -735,6 +735,9 @@ export function computeMonth(input: MonthInput): MonthOutput {
       for (const r of p.companyRefunds ?? []) {
         pendingDamage = pendingDamage.add(toDecimal(r.quantity).mul(toDecimal(r.unitCost)));
       }
+      for (const r of p.batchDamageDeposits ?? []) {
+        pendingDamage = pendingDamage.add(toDecimal(r.quantity).mul(toDecimal(r.unitCost)));
+      }
     }
     for (const entry of day.money ?? []) {
       if (MONEY_KIND_EFFECTS[entry.kind]?.company === "incentive") {
@@ -803,6 +806,36 @@ export function computeMonth(input: MonthInput): MonthOutput {
           kind: "damageRefund",
           amount: str(amount),
           ...(refund.ref === undefined ? {} : { ref: refund.ref }),
+          productId: id,
+        });
+      }
+      // D131: floor stock → company money from a named batch (no damage-lot / profit charge).
+      for (const deposit of p?.batchDamageDeposits ?? []) {
+        const quantity = toDecimal(deposit.quantity);
+        const unitCost = toDecimal(deposit.unitCost);
+        if (quantity.lte(0) || unitCost.isNegative()) {
+          throw new RangeError(`invalid floor damage deposit: ${id}`);
+        }
+        const layer = state.batches.find((b) => b.key === deposit.key);
+        const prices = {
+          costPrice: layer?.costPrice ?? (state.prices.costPrice ?? ZERO),
+          salePrice: layer?.salePrice ?? (state.prices.salePrice ?? ZERO),
+        };
+        takeFromBatch(
+          state.batches,
+          { key: deposit.key, seq: deposit.seq },
+          quantity,
+          prices,
+          day.date,
+        );
+        const amount = quantity.mul(unitCost);
+        companyRefunds = companyRefunds.add(amount);
+        refundValue = refundValue.add(amount);
+        dayRefunds.push({
+          date: day.date,
+          kind: "damageRefund",
+          amount: str(amount),
+          ...(deposit.ref === undefined ? {} : { ref: deposit.ref }),
           productId: id,
         });
       }

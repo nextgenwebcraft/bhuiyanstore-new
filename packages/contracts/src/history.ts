@@ -97,7 +97,7 @@ export type HistoryStockDateSummaries = z.infer<typeof historyStockDateSummaries
 export const historyStockKindGroups = {
   orders: ["order"],
   stock: ["receipt", "incentive"],
-  damage: ["damage", "damageDeposit"],
+  damage: ["damage", "damageDeposit", "floorDamageDeposit"],
 } as const satisfies Record<string, readonly (typeof stockEntryKinds)[number][]>;
 
 export type HistoryStockKindGroup = keyof typeof historyStockKindGroups;
