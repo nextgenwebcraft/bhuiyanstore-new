@@ -1,0 +1,36 @@
+id: 2026-11-15-always-stock-block-batch-fix
+reason: >
+  Owner: never take product or named-batch stock below zero (remove optional switch);
+  hide zero/negative batches in ops UI; show মজুদ on দৈনিক বিক্রয় lines; one-time rekey
+  of overdrawn RSO ব্যাচ ১ takes onto ব্যাচ ২ so warehouse stock matches product totals.
+owners: [domain, application, contracts, database, web, i18n, docs]
+changedDefinitionIds:
+  - docs/decisions.md (D34 amended — always-on product + named-batch block; no switch)
+  - packages/database/prisma/migrations/20261115010000_always_block_negative_stock
+  - packages/application/src/stock-guard.ts (always run; refuse negative batch qty)
+  - packages/application/src/companies.ts (always store/report blockNegativeStock true)
+  - packages/application/src/scripts/fix-rso-batch-stock.ts (one-off rekey)
+  - apps/web dsr sheet মজুদ column + batch picker/validation; godown StockBlockSwitch removed
+affectedActionIds: [sale.post, sale.reverse, sale.create, damage legs, company.manage]
+affectedResources: [company, dsr_day, dsr_line, product_batch]
+affectedMetrics:
+  - stock / stockValue display after RSO rekey (sales/cash/dues unchanged; inventory value may shift to ব্যাচ ২ rates)
+affectedUi:
+  - receipt page: negative-stock switch removed
+  - দৈনিক বিক্রয়: মজুদ column; batch dropdown only qty > 0; oversell blocked
+  - গুদামের মজুদ: only batches with qty > 0
+schemaMigration: 20261115010000_always_block_negative_stock (set default true; backfill companies)
+backfill: pnpm db:fix-rso-batch-stock [-- --apply] for five RSO products
+historicalPolicy: >
+  DSR line batch_key reassignment only; issued/returned/money unchanged. Month-close snapshots
+  may need reopen/reclose if present.
+contractCompatibility: additive batchSeq on StockShortage; blockNegativeStock default true
+cacheAndProjectionPlan: none
+securityReview: stock guard always inside posting tx after write
+knownGaps: >
+  Pure domain FIFO may still mark newest batch negative in isolation; application guard is the
+  hard stop. Engine may keep a zero newest batch for merge; UI hides qty ≤ 0.
+tests:
+  - pnpm check
+rollout: migrate; deploy; dry-run then --apply fix-rso-batch-stock
+recovery: revert app; column remains true; rekey is one-way without restoring old batch_key values

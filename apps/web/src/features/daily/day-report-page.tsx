@@ -56,9 +56,9 @@ function visible(columns: Column[], view: DayView) {
   return columns.filter((c) => columnVisible(c.needs, view));
 }
 
-/** Batches worth showing: the newest batch may be empty (D49). */
+/** Batches with pieces left (D34: zero/negative lots stay out of the godown view). */
 export const visibleBatches = (row: DayProductRow): BatchRow[] =>
-  row.batches.filter((b) => !toDecimal(b.quantity).isZero());
+  row.batches.filter((b) => toDecimal(b.quantity).gt(0));
 
 /** A batch's figure under a product column; columns without one stay blank. */
 const BATCH_CELLS: Partial<

@@ -489,7 +489,7 @@ function buildTables(
           names.products.flatMap((p) => {
             const row = m.products.find((r) => r.productId === p.id);
             return (row?.closingBatches ?? [])
-              .filter((b) => !toDecimal(b.quantity).isZero())
+              .filter((b) => toDecimal(b.quantity).gt(0))
               .map((b) => ({
                 piecesPerCarton: p.piecesPerCarton,
                 cells: {

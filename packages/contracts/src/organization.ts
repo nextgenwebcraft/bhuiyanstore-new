@@ -21,8 +21,8 @@ export const companySchema = z.object({
   name: z.string().min(1),
   theme: companyThemeSchema,
   modules: z.array(z.enum(workspaceModuleIds)),
-  /** D34: postings that would take a product's stock below zero are refused. */
-  blockNegativeStock: z.boolean().default(false),
+  /** D34: always on — postings that would take product or batch stock below zero are refused. */
+  blockNegativeStock: z.boolean().default(true),
   /** D66: the tenant's hidden master company (global staff, payroll, all-company summary). */
   isMaster: z.boolean().default(false),
 });
@@ -48,7 +48,8 @@ export const companyUpsertRequestSchema = z.object({
   name: z.string().trim().min(1).max(120),
   theme: companyThemeSchema,
   modules: z.array(z.enum(workspaceModuleIds)),
-  blockNegativeStock: z.boolean().default(false),
+  /** Ignored on write; server always stores true (D34 always on). */
+  blockNegativeStock: z.boolean().default(true),
 });
 
 export type CompanyUpsertRequest = z.infer<typeof companyUpsertRequestSchema>;

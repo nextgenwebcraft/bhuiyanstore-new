@@ -69,7 +69,7 @@ export const bn = {
   "error.MODULE_UNAVAILABLE": "এই কোম্পানিতে এই মডিউলটি চালু নেই।",
   "error.VALIDATION_FAILED": "তথ্য সঠিক নয়। চিহ্নিত ঘরগুলো দেখুন।",
   "error.INSUFFICIENT_STOCK":
-    "গুদামে পর্যাপ্ত মজুদ নেই, তাই পোস্ট করা হয়নি। আগে কোম্পানি থেকে পণ্য গ্রহণ এন্ট্রি দিন। মজুদ শূন্যের নিচে যেত:",
+    "গুদামে পর্যাপ্ত মজুদ নেই, তাই পোস্ট করা হয়নি। পণ্য বা ব্যাচের মজুদ শূন্যের নিচে যেত:",
   "error.DUPLICATE_DOCUMENT": "এই ডিএসআরের এই তারিখের হিসাব ইতিমধ্যে পোস্ট করা হয়েছে।",
   "error.AMOUNT_EXCEEDS_DUE": "আদায়ের পরিমাণ খোলা বকেয়ার চেয়ে বেশি।",
   "error.IDEMPOTENCY_CONFLICT":
@@ -1259,7 +1259,7 @@ export const bn = {
   "godown.summary.entering": "এখন লেখা পণ্য",
   "godown.block.label": "মজুদের চেয়ে বেশি পণ্য বের হতে দেবেন না",
   "godown.block.hint":
-    "চালু থাকলে সামারি, স্টক থেকে বদলি বা গ্রহণ বাতিলের ফলে কোনো পণ্যের মজুদ শূন্যের নিচে গেলে পোস্ট হবে না। সব পণ্যের মজুদ শূন্য বা বেশি হলে তবেই চালু করা যায়।",
+    "সামারি ও স্টক থেকে বের হওয়া সবসময় আটকে যায় যদি পণ্য বা ব্যাচের মজুদ শূন্যের নিচে যায়।",
   "godown.summary.enteringPieces": "এখন লেখা পরিমাণ",
   "godown.summary.enteringCost": "মোট টাকা",
   "godown.summary.postedPieces": "পোস্ট করা মোট",
@@ -1326,6 +1326,7 @@ export const bn = {
   "dsr.sheet.commission": "কমিশন (টাকা)",
   "dsr.sheet.salePrice": "আজকের বিক্রয় দাম",
   "dsr.sheet.engineAmount": "মোট (টাকা)",
+  "dsr.sheet.stock": "মজুদ",
   "dsr.sheet.marketDueNew": "আজকের নতুন বাকি",
   "dsr.sheet.marketDueCollected": "আগের বাকি আদায়",
   "dsr.sheet.note": "মন্তব্য",

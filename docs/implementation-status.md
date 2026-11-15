@@ -6,6 +6,8 @@ Evidence-based progress. Mark an item done only with evidence.
 
 The canonical plan is now [PLAN.md](PLAN.md). The owner approved backend integration (D30).
 
+**2026-11-15** ([manifest](../changes/2026-11-15-always-stock-block-batch-fix.yaml)): D34 always-on stock block (product + named batch; switch removed); দৈনিক বিক্রয় মজুদ column; hide qty≤0 batches; one-off `pnpm db:fix-rso-batch-stock` for RSO batch rebalance. Migration `20261115010000_always_block_negative_stock`.
+
 **2026-11-15** ([manifest](../changes/2026-11-15-floor-damage-order-payment.yaml)): Dashboard chart height; history `companyCheckId` Zod fix; Manager SR delete hidden (edit kept); Super Admin History order নগদ↔চেক edit (D130); Floor stock damage under অর্ডার ও মজুদ for Manager/Super Admin/TSM (D131).
 
 **2026-11-12** ([manifest](../changes/2026-11-12-company-check-dues.yaml)): Company cheques — bulk register + due repay page; order নগদ/চেক; cheque bills skip companyPayable; completed cheques in History (D129). Migration `20261112030000_company_checks` (apply before deploy).
