@@ -100,7 +100,7 @@ async function seed(db: ReturnType<typeof createDatabase>, plan: SeedPlan): Prom
       name: plan.companyName,
       theme: { primary: "#0F766E", primaryForeground: "#FFFFFF" },
       modules: [...workspaceModuleIds],
-      blockNegativeStock: false,
+      blockNegativeStock: true,
       starterData: false,
     },
     key("company"),

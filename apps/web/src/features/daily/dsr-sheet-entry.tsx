@@ -81,40 +81,58 @@ export type EntryKind = "samari" | "firot" | "damage" | "commission";
 
 const ENTRY_KINDS: readonly EntryKind[] = ["samari", "firot", "damage", "commission"];
 
-function productBatches(
-  product: Product,
-  view: DayView,
-  named: readonly string[],
-): BatchOption[] {
-  const usedToday = new Map(
-    view.persons
-      .filter((p) => p.productId === product.productId)
-      .flatMap((p) => p.allocations)
-      .map((a) => [a.key, a]),
-  );
+function productBatches(product: Product, _view: DayView, named: readonly string[]): BatchOption[] {
   const out = new Map<string, BatchOption>();
   for (const b of product.batches) {
-    if (toDecimal(b.quantity).lte(0) && !usedToday.has(b.key) && !named.includes(b.key)) continue;
+    // D34: only batches with pieces left appear in pickers; keep a named empty batch so an
+    // already-chosen line can still display its selection.
+    if (toDecimal(b.quantity).lte(0) && !named.includes(b.key)) continue;
     out.set(b.key, b);
-  }
-  for (const a of usedToday.values()) {
-    if (out.has(a.key)) continue;
-    out.set(a.key, {
-      key: a.key,
-      seq: a.seq,
-      quantity: "0",
-      costPrice: a.costPrice,
-      salePrice: a.salePrice,
-    });
   }
   return [...out.values()].sort((a, b) => a.seq - b.seq);
 }
 
-function emptyLine(
-  dsr: DsrChoice,
+/** Net pieces a draft line takes from its batch (issued − returned). */
+export function lineNetPieces(line: LineDraft, piecesPerCarton: string): string {
+  const issued = toBaseQuantity(
+    clean(line.issuedCartons) || "0",
+    clean(line.issuedPieces) || "0",
+    piecesPerCarton,
+  );
+  const returned = toBaseQuantity(
+    clean(line.returnedCartons) || "0",
+    clean(line.returnedPieces) || "0",
+    piecesPerCarton,
+  );
+  return toDecimal(issued).sub(toDecimal(returned)).toString();
+}
+
+/**
+ * Remaining pieces on a batch after the sheet's current lines. `baselineLines` are the posted
+ * sheet's lines already reflected in the day-view batch qty (empty while the sheet is still a
+ * draft); adding them back then subtracting the draft nets keeps the figure live while editing.
+ */
+export function batchStockRemaining(
+  view: DayView,
+  draftLines: readonly LineDraft[],
+  baselineLines: readonly LineDraft[],
   productId: string,
   batchKey: string,
-): LineDraft {
+): string {
+  const product = view.products.find((p) => p.productId === productId);
+  const batch = product?.batches.find((b) => b.key === batchKey);
+  const ppc = product?.piecesPerCarton ?? "1";
+  const netOf = (lines: readonly LineDraft[]) =>
+    lines
+      .filter((l) => l.productId === productId && l.batchKey === batchKey)
+      .reduce((sum, l) => sum.add(toDecimal(lineNetPieces(l, ppc))), toDecimal("0"));
+  return toDecimal(batch?.quantity ?? "0")
+    .add(netOf(baselineLines))
+    .sub(netOf(draftLines))
+    .toString();
+}
+
+function emptyLine(dsr: DsrChoice, productId: string, batchKey: string): LineDraft {
   return {
     id: crypto.randomUUID(),
     dsrStaffId: dsr.id,
@@ -273,9 +291,7 @@ function EntryFormPanel({
   );
 
   const product = view.products.find((p) => p.productId === row.productId);
-  const batches = product
-    ? productBatches(product, view, row.batchKey ? [row.batchKey] : [])
-    : [];
+  const batches = product ? productBatches(product, view, row.batchKey ? [row.batchKey] : []) : [];
   const batch = batches.find((b) => b.key === row.batchKey) ?? batches[0];
 
   function patch(next: Partial<EntryRowDraft>) {
@@ -352,7 +368,11 @@ function EntryFormPanel({
         </Field>
         {kind === "samari" || kind === "firot" ? (
           <>
-            <Field id={`${id}-cartons`} label={t("godown.column.cartons")} className={entryFieldClass}>
+            <Field
+              id={`${id}-cartons`}
+              label={t("godown.column.cartons")}
+              className={entryFieldClass}
+            >
               <input
                 id={`${id}-cartons`}
                 inputMode="numeric"
@@ -361,7 +381,11 @@ function EntryFormPanel({
                 className={inputClass}
               />
             </Field>
-            <Field id={`${id}-pieces`} label={t("godown.column.pieces")} className={entryFieldClass}>
+            <Field
+              id={`${id}-pieces`}
+              label={t("godown.column.pieces")}
+              className={entryFieldClass}
+            >
               <input
                 id={`${id}-pieces`}
                 inputMode="numeric"
@@ -395,7 +419,11 @@ function EntryFormPanel({
           </>
         ) : null}
         {kind === "commission" ? (
-          <Field id={`${id}-commission`} label={t("dsr.sheet.commission")} className={entryFieldClass}>
+          <Field
+            id={`${id}-commission`}
+            label={t("dsr.sheet.commission")}
+            className={entryFieldClass}
+          >
             <input
               id={`${id}-commission`}
               inputMode="decimal"
@@ -558,9 +586,7 @@ function mergeLinesByProductBatch(lines: readonly LineDraft[]): LineDraft[] {
       salePrice: existing.salePrice || line.salePrice,
       costPrice: existing.costPrice || line.costPrice,
       entryStatus:
-        existing.entryStatus === "pending" || line.entryStatus === "pending"
-          ? "pending"
-          : "active",
+        existing.entryStatus === "pending" || line.entryStatus === "pending" ? "pending" : "active",
     });
   }
   return [...map.values()];
@@ -569,6 +595,8 @@ function mergeLinesByProductBatch(lines: readonly LineDraft[]): LineDraft[] {
 function ReadOnlyLinesTable({
   title,
   lines,
+  allDraftLines,
+  baselineLines,
   view,
   locked,
   canEdit,
@@ -579,6 +607,9 @@ function ReadOnlyLinesTable({
 }: {
   title: string;
   lines: readonly LineDraft[];
+  /** Full sheet draft — remaining stock sums nets across every DSR line on the batch. */
+  allDraftLines: readonly LineDraft[];
+  baselineLines: readonly LineDraft[];
   view: DayView;
   locked: boolean;
   canEdit: boolean;
@@ -593,6 +624,10 @@ function ReadOnlyLinesTable({
   const productOf = (id: string) => view.products.find((p) => p.productId === id);
   const sorted = sortLinesBySku(lines, view);
   const totalAmount = sumAmounts(["0", ...sorted.map((l) => lineNetAmount(l, view))]);
+  const displayLines = sorted.map((line) => {
+    if (editingId !== line.id) return line;
+    return { ...line, ...edit };
+  });
 
   function startEdit(line: LineDraft) {
     setEditingId(line.id);
@@ -610,6 +645,19 @@ function ReadOnlyLinesTable({
   }
 
   function saveEdit(id: string) {
+    const line = lines.find((l) => l.id === id);
+    if (line) {
+      const nextLine = { ...line, ...edit };
+      const stockDraft = allDraftLines.map((l) => (l.id === id ? nextLine : l));
+      const rem = batchStockRemaining(
+        view,
+        stockDraft,
+        baselineLines,
+        nextLine.productId,
+        nextLine.batchKey,
+      );
+      if (toDecimal(rem).lt(0)) return;
+    }
     onUpdate(id, edit);
     setEditingId(null);
     setEdit({});
@@ -654,6 +702,9 @@ function ReadOnlyLinesTable({
               <th scope="col" className={thNum}>
                 {t("dsr.sheet.engineAmount")}
               </th>
+              <th scope="col" className={thNum}>
+                {t("dsr.sheet.stock")}
+              </th>
               <th scope="col" className={thClass}>
                 {t("common.status")}
               </th>
@@ -685,6 +736,20 @@ function ReadOnlyLinesTable({
               const sale = displaySaleOf(row as LineDraft, view);
               const cost = displayCostOf(row as LineDraft, view);
               const amount = lineNetAmount(row as LineDraft, view);
+              const stockLines = displayLines.map((l) =>
+                l.id === line.id ? (row as LineDraft) : l,
+              );
+              // Prefer full-sheet lines so multi-DSR takes on one batch share one remaining figure.
+              const stockDraft = allDraftLines.map((l) =>
+                l.id === line.id ? (row as LineDraft) : l,
+              );
+              const remaining = batchStockRemaining(
+                view,
+                stockDraft.length > 0 ? stockDraft : stockLines,
+                baselineLines,
+                line.productId,
+                line.batchKey,
+              );
               return (
                 <tr key={line.id} className="border-t border-border">
                   <th scope="row" className={`${tdClass} ${stickyCell} text-left font-medium`}>
@@ -726,9 +791,7 @@ function ReadOnlyLinesTable({
                         <CellInput
                           label={t("godown.column.pieces")}
                           value={edit.returnedPieces ?? ""}
-                          onChange={(returnedPieces) =>
-                            setEdit((e) => ({ ...e, returnedPieces }))
-                          }
+                          onChange={(returnedPieces) => setEdit((e) => ({ ...e, returnedPieces }))}
                           width="w-14"
                         />
                       </span>
@@ -809,6 +872,9 @@ function ReadOnlyLinesTable({
                     </td>
                   ) : null}
                   <td className={tdNum}>{money(amount)}</td>
+                  <td className={tdNum}>
+                    <CartonQty pieces={remaining} piecesPerCarton={size} />
+                  </td>
                   <td className={tdClass}>
                     <span
                       className={`inline-flex rounded-md px-2 py-0.5 text-xs font-semibold ${
@@ -819,7 +885,7 @@ function ReadOnlyLinesTable({
                     </span>
                   </td>
                   {canEdit || !locked ? (
-                    <td className={`${tdClass} whitespace-nowrap text-right`}>
+                    <td className={`${tdClass} text-right whitespace-nowrap`}>
                       {editing ? (
                         <span className="inline-flex gap-1">
                           <Button
@@ -842,10 +908,7 @@ function ReadOnlyLinesTable({
                       ) : (
                         <span className="inline-flex gap-1">
                           {canEdit ? (
-                            <Button
-                              className="px-2 py-1 text-xs"
-                              onClick={() => startEdit(line)}
-                            >
+                            <Button className="px-2 py-1 text-xs" onClick={() => startEdit(line)}>
                               {t("common.edit")}
                             </Button>
                           ) : null}
@@ -880,8 +943,7 @@ function ReadOnlyLinesTable({
         </table>
       </TableScroller>
       <p className="text-xs text-text-muted">
-        {formatCount(String(sorted.length))} {t("warning.products")} ·{" "}
-        {t("dsr.sheet.issued")}{" "}
+        {formatCount(String(sorted.length))} {t("warning.products")} · {t("dsr.sheet.issued")}{" "}
         {quantity(
           sumQuantities(
             sorted.map((l) => {
@@ -913,6 +975,7 @@ function lineMatchesSearch(line: LineDraft, view: DayView, q: string): boolean {
 /** D122: POS-style add-item under one DSR, then Save All; DSR-wise tables + SR total. */
 export function DsrSheetEntry({
   draft,
+  baselineLines = [],
   view,
   dsrs,
   sheetStaffId,
@@ -926,6 +989,8 @@ export function DsrSheetEntry({
   savePending,
 }: {
   draft: SheetDraft;
+  /** Posted sheet lines already in the day-view batch qty; empty for a new draft. */
+  baselineLines?: readonly LineDraft[];
   view: DayView;
   dsrs: readonly DsrChoice[];
   /** Open SR for this day sheet — never shown as a DSR group table (D122). */
@@ -963,10 +1028,7 @@ export function DsrSheetEntry({
   }, [draft.lines, dsrs, sheetStaffId, view, searchQ]);
 
   const filteredAll = useMemo(
-    () =>
-      mergeLinesByProductBatch(
-        draft.lines.filter((l) => lineMatchesSearch(l, view, searchQ)),
-      ),
+    () => mergeLinesByProductBatch(draft.lines.filter((l) => lineMatchesSearch(l, view, searchQ))),
     [draft.lines, view, searchQ],
   );
 
@@ -1001,7 +1063,18 @@ export function DsrSheetEntry({
         return t("validation.amountPositive");
       }
     }
-    onChange(upsertEntry(draft, kind, input));
+    const next = upsertEntry(draft, kind, input);
+    if (kind === "samari" || kind === "firot") {
+      const rem = batchStockRemaining(
+        view,
+        next.lines,
+        baselineLines,
+        input.productId,
+        input.batchKey,
+      );
+      if (toDecimal(rem).lt(0)) return t("validation.exceedsAvailable");
+    }
+    onChange(next);
     return undefined;
   }
 
@@ -1056,7 +1129,7 @@ export function DsrSheetEntry({
           onChange={(e) => setSearch(e.target.value)}
           placeholder={t("dsr.entry.search")}
           aria-label={t("dsr.entry.search")}
-          className={`${inputClass} min-w-[12rem] max-w-xs`}
+          className={`${inputClass} max-w-xs min-w-[12rem]`}
         />
       </div>
       {byDsr.map(([dsrKey, group]) => (
@@ -1064,6 +1137,8 @@ export function DsrSheetEntry({
           key={dsrKey}
           title={group.name}
           lines={group.lines}
+          allDraftLines={draft.lines}
+          baselineLines={baselineLines}
           view={view}
           locked={locked}
           canEdit={!locked}
@@ -1082,6 +1157,8 @@ export function DsrSheetEntry({
         <ReadOnlyLinesTable
           title={t("dsr.entry.srTotal")}
           lines={filteredAll}
+          allDraftLines={draft.lines}
+          baselineLines={baselineLines}
           view={view}
           locked={locked || byDsr.length > 0}
           canEdit={!locked && byDsr.length === 0}

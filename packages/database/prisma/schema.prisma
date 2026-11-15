@@ -54,8 +54,8 @@ model Company {
   themePrimaryForeground String                  @map("theme_primary_foreground")
   themeAccent            String?                 @map("theme_accent")
   logoRef                String?                 @map("logo_ref")
-  /// D34: refuse postings that take a product's stock below zero.
-  blockNegativeStock     Boolean                 @default(false) @map("block_negative_stock")
+  /// D34: always on — refuse postings that take product or batch stock below zero.
+  blockNegativeStock     Boolean                 @default(true) @map("block_negative_stock")
   /// D66: the tenant's hidden master company (one per tenant, partial unique index in SQL).
   isMaster               Boolean                 @default(false) @map("is_master")
   status                 String                  @default("active")

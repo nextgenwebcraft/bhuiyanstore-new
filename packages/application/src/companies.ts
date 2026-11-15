@@ -1,4 +1,3 @@
-import { todayBusinessDate } from "@bsd/domain";
 import {
   companySchema,
   companyCreateRequestSchema,
@@ -16,10 +15,9 @@ import {
 } from "./access";
 import { ensureMasterCompany } from "./master";
 import { recordAudit } from "./audit";
-import type { AppContext, Tx } from "./context";
+import type { AppContext } from "./context";
 import { AppError, invalid, parseInput } from "./errors";
 import { isForeignKeyViolation, isUniqueViolation, runIdempotent } from "./idempotency";
-import { runLedger } from "./ledger";
 import { ensureFixedLoginRoles } from "./fixed-roles";
 import { applyStarterDataset } from "./starter-dataset";
 
@@ -35,36 +33,10 @@ function toCompany(company: CompanyAccess["company"]): Company {
       ...(company.logoRef ? { logoRef: company.logoRef } : {}),
     },
     modules: company.modules.map((m) => m.module).sort(),
-    blockNegativeStock: company.blockNegativeStock,
+    /** D34 always on — column kept for compat; API always reports true. */
+    blockNegativeStock: true,
     isMaster: company.isMaster,
   });
-}
-
-/** The block can only start from a godown with no product below zero today. */
-async function ensureNoNegativeStock(tx: Tx, access: CompanyAccess): Promise<void> {
-  const today = todayBusinessDate();
-  const run = await runLedger(tx, access, today);
-  if (!run) return;
-  const negative = Object.entries(run.output.closing.products).filter(([, p]) =>
-    String(p.stock).startsWith("-"),
-  );
-  if (negative.length === 0) return;
-  const names = await tx.product.findMany({
-    where: { id: { in: negative.map(([id]) => id) } },
-    select: { id: true, name: true },
-  });
-  const nameOf = new Map(names.map((n) => [n.id, n.name]));
-  throw new AppError(
-    "INSUFFICIENT_STOCK",
-    [{ path: "blockNegativeStock", code: "validation.company.negativeStockNow" }],
-    false,
-    negative.map(([productId, p]) => ({
-      productId,
-      productName: nameOf.get(productId) ?? "",
-      date: today,
-      stock: String(p.stock),
-    })),
-  );
 }
 
 function toWorkspace(ctx: AppContext, access: CompanyAccess): CompanyWorkspace {
@@ -144,7 +116,7 @@ export async function createCompany(
             tenantId: ctx.actor.tenantId,
             legalEntityId: legalEntity.id,
             name: data.name,
-            blockNegativeStock: data.blockNegativeStock,
+            blockNegativeStock: true,
             themePrimary: data.theme.primary,
             themePrimaryForeground: data.theme.primaryForeground,
             themeAccent: data.theme.accent ?? null,
@@ -238,15 +210,12 @@ export async function updateCompany(
           where: { tenantId: ctx.actor.tenantId, name: data.name, id: { not: companyId } },
         });
         if (clash) throw duplicateName();
-        if (data.blockNegativeStock && !access.company.blockNegativeStock) {
-          await ensureNoNegativeStock(tx, access);
-        }
         await tx.companyModule.deleteMany({ where: { companyId } });
         await tx.company.update({
           where: { id: companyId },
           data: {
             name: data.name,
-            blockNegativeStock: data.blockNegativeStock,
+            blockNegativeStock: true,
             themePrimary: data.theme.primary,
             themePrimaryForeground: data.theme.primaryForeground,
             themeAccent: data.theme.accent ?? null,

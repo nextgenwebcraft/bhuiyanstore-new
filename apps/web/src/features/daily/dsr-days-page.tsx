@@ -1,12 +1,6 @@
 "use client";
 
-import type {
-  DayView,
-  DsrDay,
-  DsrDaySaveRequest,
-  MoneyEntry,
-  StaffRecord,
-} from "@bsd/contracts";
+import type { DayView, DsrDay, DsrDaySaveRequest, MoneyEntry, StaffRecord } from "@bsd/contracts";
 import {
   cashCheckSales,
   dsrCashSettlement,
@@ -54,7 +48,6 @@ import {
   clean,
   useWorkingDate,
 } from "./daily-kit";
-import { inputClass } from "@/components/field";
 import {
   StatusChip,
   money,
@@ -67,6 +60,7 @@ import {
 import { TableScroller } from "@/components/table-scroller";
 import {
   DsrSheetEntry,
+  batchStockRemaining,
   lineKeyOf,
   markLinesActive,
   type LineDraft,
@@ -94,28 +88,11 @@ type BatchOption = {
  * The product's batches for the sheet: those in stock, those any sheet took from today (they may
  * be empty now) and those the draft names, oldest first.
  */
-function batchOptions(product: Product, view: DayView, named: readonly string[]): BatchOption[] {
-  const usedToday = new Map(
-    view.persons
-      .filter((p) => p.productId === product.productId)
-      .flatMap((p) => p.allocations)
-      .map((a) => [a.key, a]),
-  );
+function batchOptions(product: Product, _view: DayView, named: readonly string[]): BatchOption[] {
   const out = new Map<string, BatchOption>();
   for (const b of product.batches) {
-    if (toDecimal(b.quantity).lte(0) && !usedToday.has(b.key) && !named.includes(b.key)) continue;
+    if (toDecimal(b.quantity).lte(0) && !named.includes(b.key)) continue;
     out.set(b.key, { ...b, free: isFreeAuto(b.key, b.costPrice) });
-  }
-  for (const a of usedToday.values()) {
-    if (out.has(a.key)) continue;
-    out.set(a.key, {
-      key: a.key,
-      seq: a.seq,
-      quantity: "0",
-      costPrice: a.costPrice,
-      salePrice: a.salePrice,
-      free: isFreeAuto(a.key, a.costPrice),
-    });
   }
   return [...out.values()].sort((a, b) => a.seq - b.seq);
 }
@@ -136,16 +113,6 @@ export function ourStaffOn(records: StaffRecord[]) {
  */
 export function srsOn(records: StaffRecord[]) {
   return records.filter((s) => s.employer === "supplier");
-}
-
-/**
- * Net pieces that leave saleable stock for a line (D47): issued − returned. Firot returns to
- * মজুদ; damaged pieces stay inside delivered and do not reduce stock by themselves.
- */
-function netOf(line: LineDraft, size: string): ReturnType<typeof toDecimal> {
-  const issued = toBaseQuantity(whole(line.issuedCartons), whole(line.issuedPieces), size);
-  const returned = toBaseQuantity(whole(line.returnedCartons), whole(line.returnedPieces), size);
-  return toDecimal(issued).sub(toDecimal(returned));
 }
 
 /**
@@ -243,8 +210,7 @@ function requestOf(
       return `${d.dsrStaffName} · ${product.productName}: ${t("validation.daily.duplicateProduct")}`;
     }
     seen.add(key);
-    const salePrice =
-      !includePrices || d.salePrice === undefined ? undefined : clean(d.salePrice);
+    const salePrice = !includePrices || d.salePrice === undefined ? undefined : clean(d.salePrice);
     const costPrice =
       !includePrices || d.costPrice === undefined || !view.canSeeCost
         ? undefined
@@ -274,6 +240,26 @@ function requestOf(
     });
   }
   return { ...base, cashHandedOver: handed || null, lines };
+}
+
+/** Refuse a save/post when any named batch would end below zero after the draft. */
+function stockOverflowMessage(
+  draft: SheetDraft,
+  view: DayView,
+  baselineLines: readonly LineDraft[],
+): string | undefined {
+  const seen = new Set<string>();
+  for (const d of draft.lines) {
+    const key = `${d.productId}|${d.batchKey}`;
+    if (!d.batchKey || seen.has(key)) continue;
+    seen.add(key);
+    const rem = batchStockRemaining(view, draft.lines, baselineLines, d.productId, d.batchKey);
+    if (toDecimal(rem).lt(0)) {
+      const product = view.products.find((p) => p.productId === d.productId);
+      return `${product?.productName ?? d.productId}: ${t("validation.exceedsAvailable")}`;
+    }
+  }
+  return undefined;
 }
 
 /** The sale price a line uses: its own, else its batch's, else the product's. */
@@ -317,24 +303,6 @@ function previewSales(lines: DsrDaySaveRequest["lines"], view: DayView): string 
 }
 
 /**
- * বিক্রি (টাকা), per product: samari − firot only (D92) — issued − returned pieces × price, with
- * damage and commission left out. Every other figure on this page keeps the full calculation.
- */
-function salariFirotAmounts(lines: DsrDaySaveRequest["lines"], view: DayView): Map<string, string> {
-  const byProduct = new Map<string, string[]>();
-  for (const l of lines) {
-    const sold = toDecimal(l.issued).sub(toDecimal(l.returned));
-    const amount = sold.mul(toDecimal(saleOf(l, view))).toString();
-    const amts = byProduct.get(l.productId) ?? [];
-    amts.push(amount);
-    byProduct.set(l.productId, amts);
-  }
-  return new Map(
-    [...byProduct].map(([productId, amts]) => [productId, sumAmounts(["0", ...amts])]),
-  );
-}
-
-/**
  * One SR sheet's money figures from the entries entered on it (D79, D122). Only posted rows with
  * this `sheetStaffId` count, so two SR sheets of one date never share a due, advance or খরচ.
  * Field visits own the SR's own due; office rows cover the other DSRs. One owner for the sheet's
@@ -356,7 +324,9 @@ function sheetMoneyFigures(
   const srMove = (kind: "srLoan" | "srRepayment") =>
     sumAmounts([
       "0",
-      ...srRows.filter((e) => e.kind === kind && e.srLoanType !== "commission").map((e) => e.amount),
+      ...srRows
+        .filter((e) => e.kind === kind && e.srLoanType !== "commission")
+        .map((e) => e.amount),
     ]);
   // D79: SR অগ্রিম ও শর্ট on the open SR; DSR/staff advance and short for the others on the sheet.
   const srMoney = toDecimal(sum("staffRepayment", srRows))
@@ -528,26 +498,26 @@ function SheetEditor({
   // হাতে জমা is entered on a posted sheet; keep that field open until submit even when
   // the সামারি table is locked for Manager.
   const canTypeHandover =
-    posted &&
-    sheet?.handoverStatus === "none" &&
-    permissions.includes("sale.handover_submit");
+    posted && sheet?.handoverStatus === "none" && permissions.includes("sale.handover_submit");
   const handoverAmountLocked = canTypeHandover ? false : locked || handoverLocked;
   const base = { date, staffId: staff.id, version: sheet?.version ?? 0 };
   const includePrices = permissions.includes("sale.price_override");
-  const built = requestOf(draft, view, base, includePrices);
+  /** Posted lines already in day-view stock; empty while the sheet is still a draft. */
+  const baselineLines = posted ? draftOf(sheet).lines : [];
+  const stockError = stockOverflowMessage(draft, view, baselineLines);
+  const built = stockError ?? requestOf(draft, view, base, includePrices);
   const dirty =
     typeof built === "string" ||
-    JSON.stringify(built) !==
-      JSON.stringify(requestOf(draftOf(sheet), view, base, includePrices));
+    JSON.stringify(built) !== JSON.stringify(requestOf(draftOf(sheet), view, base, includePrices));
   const pending = save.isPending || command.isPending;
   // D122: engine persons are line DSRs, not the SR sheet owner.
   const sheetDsrIds = new Set(
-    (typeof built === "string" ? draft.lines.map((l) => l.dsrStaffId) : built.lines.map((l) => l.dsrStaffId)),
+    typeof built === "string"
+      ? draft.lines.map((l) => l.dsrStaffId)
+      : built.lines.map((l) => l.dsrStaffId),
   );
   const amounts = new Map(
-    view.persons
-      .filter((p) => sheetDsrIds.has(p.staffId))
-      .map((p) => [p.productId, p.amount]),
+    view.persons.filter((p) => sheetDsrIds.has(p.staffId)).map((p) => [p.productId, p.amount]),
   );
   const entered = typeof built === "string" ? [] : built.lines;
   const fieldDay = useDsrFieldDay(
@@ -652,10 +622,13 @@ function SheetEditor({
         setError(built);
         return;
       }
-      await action.run(async () => {
-        await save.mutateAsync(built);
-        setDraft((d) => markLinesActive(d));
-      }, { confirm: "dsr.sheet.correctConfirm" });
+      await action.run(
+        async () => {
+          await save.mutateAsync(built);
+          setDraft((d) => markLinesActive(d));
+        },
+        { confirm: "dsr.sheet.correctConfirm" },
+      );
       return;
     }
     if (kind === "save" || kind === "post") {
@@ -728,6 +701,7 @@ function SheetEditor({
       <TableSummary label={t("table.summary")} items={sheetSummary} />
       <DsrSheetEntry
         draft={draft}
+        baselineLines={baselineLines}
         view={view}
         dsrs={dsrChoices}
         sheetStaffId={staff.id}
@@ -1070,7 +1044,7 @@ function DaySalesTotals({ columns }: { columns: SummaryItem[] }) {
               <th
                 key={c.label}
                 scope="col"
-                className={`${thNum}${c.emphasis ? " bg-brand/8 text-brand" : ""}`}
+                className={`${thNum}${c.emphasis ? "bg-brand/8 text-brand" : ""}`}
               >
                 {c.label}
               </th>
@@ -1082,7 +1056,7 @@ function DaySalesTotals({ columns }: { columns: SummaryItem[] }) {
             {columns.map((c) => (
               <td
                 key={c.label}
-                className={`${tdNum}${c.emphasis ? " bg-brand/8 font-semibold" : " font-semibold"}`}
+                className={`${tdNum}${c.emphasis ? "bg-brand/8 font-semibold" : "font-semibold"}`}
               >
                 {c.value}
               </td>
@@ -1177,10 +1151,7 @@ function DsrList({
               </Button>
             </div>
             {sheet ? (
-              <TableSummary
-                label={`${dsr.name} ${t("table.summary")}`}
-                items={items(dsr)}
-              />
+              <TableSummary label={`${dsr.name} ${t("table.summary")}`} items={items(dsr)} />
             ) : null}
           </li>
         );

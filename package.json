@@ -23,6 +23,7 @@
     "db:load-cartons": "pnpm --filter @bsd/application load-cartons",
     "db:seed-demo": "pnpm --filter @bsd/application seed-demo",
     "db:zero-staff-balances": "pnpm --filter @bsd/application zero-staff-balances",
+    "db:fix-rso-batch-stock": "pnpm --filter @bsd/application fix-rso-batch-stock",
     "db:wipe-companies": "pnpm --filter @bsd/application wipe-companies",
     "check": "pnpm format:check && pnpm lint && pnpm check:types && pnpm test"
   },

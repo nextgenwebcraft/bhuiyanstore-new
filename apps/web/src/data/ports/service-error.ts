@@ -25,10 +25,13 @@ export type DescribedError = { fields: Partial<Record<string, string>>; form?: s
 /** "Drinko 250ml: 9 Oct −24 pcs; …" for a refused posting. */
 function shortageText(shortages: readonly StockShortage[]): string {
   return shortages
-    .map(
-      (s) =>
-        `${s.productName} — ${formatBusinessDate(s.date)}: ${formatAmount(s.stock)} ${t("common.pieces")}`,
-    )
+    .map((s) => {
+      const batch =
+        s.batchSeq !== undefined
+          ? ` · ${t("dsr.sheet.batch")} ${formatAmount(String(s.batchSeq))}`
+          : "";
+      return `${s.productName}${batch} — ${formatBusinessDate(s.date)}: ${formatAmount(s.stock)} ${t("common.pieces")}`;
+    })
     .join("; ");
 }
 

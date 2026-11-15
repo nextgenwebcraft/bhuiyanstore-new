@@ -52,7 +52,7 @@ export function CompanyForm({ company, onClose }: { company?: Company; onClose: 
           name: name.trim(),
           theme: { primary, primaryForeground: foreground },
           modules,
-          blockNegativeStock: company.blockNegativeStock,
+          blockNegativeStock: true,
         });
         onClose();
       } else {
@@ -60,7 +60,7 @@ export function CompanyForm({ company, onClose }: { company?: Company; onClose: 
           name: name.trim(),
           theme: { primary, primaryForeground: foreground },
           modules,
-          blockNegativeStock: false,
+          blockNegativeStock: true,
           starterData: true,
         });
         onClose();

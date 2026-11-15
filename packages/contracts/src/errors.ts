@@ -1,12 +1,14 @@
 import { z } from "zod";
 import { errorCodes } from "./definitions/error-codes";
 
-/** The first day a product would go below zero; `stock` is that day's (negative) pieces. */
+/** The first day a product or named batch would go below zero; `stock` is that day's (negative) pieces. */
 export const stockShortageSchema = z.object({
   productId: z.string(),
   productName: z.string(),
   date: z.string(),
   stock: z.string(),
+  /** Set when a specific batch (not the product total) would go below zero. */
+  batchSeq: z.number().int().positive().optional(),
 });
 
 export type StockShortage = z.infer<typeof stockShortageSchema>;
