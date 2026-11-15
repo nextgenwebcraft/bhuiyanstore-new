@@ -34,13 +34,15 @@ type Row = StaffAccounts["rows"][number];
  * are entered on that SR's day sheet (D79), not here.
  */
 function SrAccounts() {
-  const { company, permissions } = useCurrentWorkspace();
+  const { company, permissions, loginRoleKind } = useCurrentWorkspace();
   const [date, setDate] = useWorkingDate();
   const accounts = useStaffAccounts(company.id, "sr", date);
   const records = useStaffRecords(company.id);
   const roles = useConfigList("staffRoles");
   const [person, setPerson] = useState<PersonDraft | null>(null);
   const canManage = permissions.includes("staff.manage");
+  /** D112: Manager may edit SR rows but must not delete (Super Admin only). */
+  const canDelete = canManage && loginRoleKind === null;
   const srRoles = (roles.data ?? []).filter((role) => role.kind === "sr");
   const srRoleId = srRoles.find((role) => role.active)?.id ?? srRoles[0]?.id;
   const rows = accounts.data?.rows ?? [];
@@ -100,12 +102,14 @@ function SrAccounts() {
                         >
                           {t("common.edit")}
                         </Button>
-                        <StaffDeleteButton
-                          companyId={company.id}
-                          staffId={record.id}
-                          name={record.name}
-                          variant="sr"
-                        />
+                        {canDelete ? (
+                          <StaffDeleteButton
+                            companyId={company.id}
+                            staffId={record.id}
+                            name={record.name}
+                            variant="sr"
+                          />
+                        ) : null}
                       </div>
                     ) : null}
                   </td>

@@ -51,7 +51,7 @@ export function MonthlySalesChart({ year }: { year: string }) {
         })) ?? []);
 
   return (
-    <section className="flex h-full min-w-0 flex-col rounded-xl border border-border bg-surface p-4 print:break-inside-avoid">
+    <section className="flex min-w-0 flex-col rounded-xl border border-border bg-surface p-4 print:break-inside-avoid">
       <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold tracking-tight">{t("dashboard.chart.title")}</h2>
@@ -90,9 +90,9 @@ export function MonthlySalesChart({ year }: { year: string }) {
           })}
         </div>
       </div>
-      <div className="min-h-0 flex-1">
+      <div>
         {active.isPending ? (
-          <Skeleton className="h-56 w-full lg:h-full lg:min-h-56" />
+          <Skeleton className="h-44 w-full sm:h-52" />
         ) : active.isError ? (
           <QueryError error={active.error} onRetry={() => void active.refetch()} />
         ) : (
@@ -116,11 +116,11 @@ function BarChart({
   const values = points.map((row) => Number(row.totalSales) || 0);
   const max = Math.max(...values, 1);
   const width = 640;
-  const height = 220;
+  const height = 180;
   const padLeft = 36;
   const padRight = 12;
-  const padTop = 28;
-  const padBottom = 36;
+  const padTop = 24;
+  const padBottom = 32;
   const chartW = width - padLeft - padRight;
   const chartH = height - padTop - padBottom;
   const gap = 8;
@@ -134,7 +134,7 @@ function BarChart({
     <div className="relative w-full overflow-x-auto">
       <svg
         viewBox={`0 0 ${width} ${height}`}
-        className="h-56 w-full min-w-[20rem] lg:h-full lg:min-h-56"
+        className="h-44 w-full min-w-[20rem] sm:h-52"
         role="img"
         aria-label={t("dashboard.chart.title")}
         onMouseLeave={() => setHover(null)}

@@ -42,6 +42,7 @@ import type {
   StaffUpsertRequest,
   ShopUpsertRequest,
   StockEntryPostRequest,
+  OrderPaymentCorrectRequest,
   UserCreateRequest,
   UserPasswordResetRequest,
   UserUpdateRequest,
@@ -257,6 +258,16 @@ export function useReverseStockEntry(companyId: string) {
   const service = useService();
   return usePostingMutation(companyId, "stock", (entryId: string) =>
     service.reverseStockEntry(companyId, entryId),
+  );
+}
+
+export function useCorrectOrderPayment(companyId: string) {
+  const service = useService();
+  return usePostingMutation(
+    companyId,
+    "stock",
+    (input: { entryId: string; body: OrderPaymentCorrectRequest }) =>
+      service.correctOrderPayment(companyId, input.entryId, input.body),
   );
 }
 

@@ -271,6 +271,12 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
         `${company(companyId)}/stock-entries/${id(entryId)}/reverse`,
         write("POST", {}),
       ),
+    correctOrderPayment: (companyId, entryId, input) =>
+      request(
+        z.array(stockEntrySchema),
+        `${company(companyId)}/stock-entries/${id(entryId)}/correct-payment`,
+        write("POST", input),
+      ),
     approvePendingOrders: (companyId, date) =>
       request(
         z.array(stockEntrySchema),

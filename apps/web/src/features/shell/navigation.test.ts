@@ -226,6 +226,7 @@ describe("hubs", () => {
     const tsmPaths = pathsOf("tsm");
     expect(tsmPaths.sort()).toEqual([
       "",
+      "inventory/floor-damage",
       "inventory/stock",
       "inventory/undelivered",
       "purchases/orders",

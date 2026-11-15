@@ -27,7 +27,7 @@ export function stockEntryAmount(entry: StockEntryDisplayInput): string {
     if (entry.costPrice === null) return "0";
     return roundSettlement(toDecimal(entry.pieces).mul(entry.costPrice));
   }
-  if (entry.kind === "damageDeposit") {
+  if (entry.kind === "damageDeposit" || entry.kind === "floorDamageDeposit") {
     if (entry.unitPrice === null) return "0";
     return roundSettlement(toDecimal(entry.pieces).mul(entry.unitPrice));
   }

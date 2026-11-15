@@ -95,6 +95,7 @@ import type {
   StaffUpsertRequest,
   StockEntry,
   StockEntryPostRequest,
+  OrderPaymentCorrectRequest,
   User,
   UserCreateRequest,
   UserPasswordResetRequest,
@@ -172,6 +173,12 @@ export interface DistributionService {
   postStockEntries(companyId: string, input: StockEntryPostRequest): Promise<StockEntry[]>;
   /** Requires `purchase.reverse`. */
   reverseStockEntry(companyId: string, entryId: string): Promise<StockEntry>;
+  /** D130: Super Admin corrects নগদ ↔ চেক on a posted order group (no stock reverse). */
+  correctOrderPayment(
+    companyId: string,
+    entryId: string,
+    input: OrderPaymentCorrectRequest,
+  ): Promise<StockEntry[]>;
   /** Requires `purchase.approve`: posts all pending TSM orders for the date. */
   approvePendingOrders(companyId: string, date: string): Promise<StockEntry[]>;
   /** Discard a pending TSM order line. */

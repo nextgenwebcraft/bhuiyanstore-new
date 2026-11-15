@@ -1,0 +1,28 @@
+id: 2026-11-15-floor-damage-order-payment
+reason: >-
+  Owner 2026-11-15 — (1) dashboard মোট বিক্রি chart height; (2) history stock ZodError companyCheckId;
+  (3) Manager hides SR delete, keeps edit; (4) Super Admin edits posted order নগদ↔চেক from History
+  (D130); (5) Floor stock damage page under অর্ডার ও মজুদ (D131).
+owners: [domain, contracts, application, web, i18n, docs]
+changes:
+  - apps/web — dashboard chart sizing; SR delete gate; history order payment edit dialog + API client;
+    inventory/floor-damage page + nav + TSM allowlist
+  - packages/contracts — orderPaymentCorrectRequestSchema; stockEntryKinds floorDamageDeposit
+  - packages/domain — ProductDayInput.batchDamageDeposits; compute-month takeFromBatch + damage balance;
+    stockEntryAmount for floorDamageDeposit
+  - packages/application — history companyCheckId map; correctOrderPayment; floorDamageDeposit post/ledger;
+    TSM damage.report + inventory.cost_view
+  - packages/i18n — history.orderPayment.* + floorDamage.* + nav.inventory.floorDamage
+  - docs — D130, D131
+affectedActionIds: []
+financialImpact: >-
+  D130: flipping payment moves the order bill between companyPayable (নগদ / কোম্পানিতে জমা) and
+  CompanyCheck charges; stock and undelivered unchanged. D131: floorDamageDeposit lowers saleable
+  batch stock and raises company damageBalance (like damageDeposit money), without damage lots or
+  godownDamaged cost/profit charge.
+backfill: none
+tests:
+  - pnpm check (format/lint/types/unit) — domain D131 test included
+  - pnpm test:integration when TEST_DATABASE_URL available (optional for D130)
+rollout: deploy; ensureFixedLoginRoles syncs TSM permissions on next boot/login
+recovery: revert the commit; TSM loses floor-damage path and damage.report/cost_view

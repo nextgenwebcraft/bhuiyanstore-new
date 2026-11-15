@@ -174,6 +174,18 @@ export type ProductDayInput = {
    * unchanged.
    */
   companyRefunds?: readonly { quantity: DecimalInput; unitCost: DecimalInput; ref?: string }[];
+  /**
+   * D131: saleable floor stock returned to the company as money from a named batch. Pieces leave
+   * that batch; quantity × unitCost raises the damage balance (same money effect as companyRefunds)
+   * without touching damaged lots or charging godown damage cost.
+   */
+  batchDamageDeposits?: readonly {
+    key: string;
+    seq: number;
+    quantity: DecimalInput;
+    unitCost: DecimalInput;
+    ref?: string;
+  }[];
   /** A price present here changes it from this day on (carry-forward). */
   orderPrice?: DecimalInput;
   costPrice?: DecimalInput;

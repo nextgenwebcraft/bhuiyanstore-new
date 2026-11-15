@@ -36,13 +36,17 @@ export type StockEntryStatus = (typeof stockEntryStatuses)[number];
 
 /** Excel `C` Due Quantity (order), `G` Receive (receipt) and `N` DAMAGE PRODUCT (damage). */
 /** `incentive`: free goods from the company (D16), stock without a bill or payable. */
-/** `damageDeposit` (D63): damaged pieces returned to the company as money at a rate per piece. */
+/**
+ * `damageDeposit` (D63): damaged lots returned to the company as money at a rate per piece.
+ * `floorDamageDeposit` (D131): saleable floor stock returned the same way, from a named batch.
+ */
 export const stockEntryKinds = [
   "order",
   "receipt",
   "damage",
   "incentive",
   "damageDeposit",
+  "floorDamageDeposit",
 ] as const;
 export type StockEntryKind = (typeof stockEntryKinds)[number];
 
@@ -63,14 +67,14 @@ export const stockEntrySchema = z.object({
   freePieces: wholePiecesSchema.nullable(),
   cartonRate: decimalStringSchema.nullable(),
   piecesPerCarton: z.number().int().positive().nullable(),
-  /** D63, damage deposits only: taka per piece. */
+  /** D63/D131: damage deposits — taka per piece returned to the company. */
   unitPrice: decimalStringSchema.nullable(),
   /** D63, orders only: the balance parts named to pay it, and the group posted together. */
   fundFrom: z.array(z.enum(orderFunds)),
   orderGroup: z.string().nullable(),
   /** D129: cheque that received this order's bill (null = cash / company payable). */
   companyCheckId: idSchema.nullable(),
-  /** D68: the batch of an order (its paid and free pieces) or of a receipt. */
+  /** D68/D131: order/receipt batch, or the saleable batch a floor damage deposit takes from. */
   batchId: idSchema.nullable(),
   batchSeq: z.number().int().positive().nullable(),
   /** D68: per-piece prices (an order's batch prices, a receipt's own); cost null without cost view. */
@@ -109,8 +113,8 @@ export const stockEntryLineRequestSchema = z
       ctx.addIssue({ code: "custom", path: [path], message });
     const paid = line.pieces !== "0";
     const free = line.freePieces !== undefined && line.freePieces !== "0";
-    if (line.kind === "damageDeposit") {
-      if (line.unitPrice === undefined) issue("unitPrice", "validation.daily.rateRequired");
+    if (line.kind === "damageDeposit" || line.kind === "floorDamageDeposit") {
+      if (line.unitPrice === undefined) issue("unitPrice", "validation.damage.unitCostRequired");
     } else if (line.unitPrice !== undefined) {
       issue("unitPrice", "validation.daily.orderOnly");
     }
@@ -118,6 +122,15 @@ export const stockEntryLineRequestSchema = z
       if (line.batchId === undefined) issue("batchId", "validation.daily.batchRequired");
       if (!paid && !free) issue("pieces", "validation.quantityPositive");
       if (line.cartonRate !== undefined) issue("cartonRate", "validation.daily.orderOnly");
+      return;
+    }
+    if (line.kind === "floorDamageDeposit") {
+      if (line.batchId === undefined) issue("batchId", "validation.daily.batchRequired");
+      if (!paid) issue("pieces", "validation.quantityPositive");
+      if (line.freePieces !== undefined) issue("freePieces", "validation.daily.orderOnly");
+      if (line.cartonRate !== undefined) issue("cartonRate", "validation.daily.orderOnly");
+      if (line.costPrice !== undefined) issue("costPrice", "validation.daily.orderOnly");
+      if (line.salePrice !== undefined) issue("salePrice", "validation.daily.orderOnly");
       return;
     }
     if (line.batchId !== undefined) issue("batchId", "validation.daily.orderOnly");
@@ -186,6 +199,34 @@ export const stockEntryPostRequestSchema = z
   });
 
 export type StockEntryPostRequest = z.input<typeof stockEntryPostRequestSchema>;
+
+/**
+ * D130: Super Admin corrects payment on a posted order group (নগদ ↔ চেক) without reversing
+ * stock. Pass any line id from the group; all posted order lines that share its orderGroup update.
+ */
+export const orderPaymentCorrectRequestSchema = z
+  .object({
+    paymentMethod: z.enum(orderPaymentMethods),
+    companyCheckId: idSchema.optional(),
+  })
+  .superRefine((v, ctx) => {
+    if (v.paymentMethod === "check" && !v.companyCheckId) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["companyCheckId"],
+        message: "validation.companyCheck.required",
+      });
+    }
+    if (v.paymentMethod === "cash" && v.companyCheckId) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["companyCheckId"],
+        message: "validation.companyCheck.cashOnly",
+      });
+    }
+  });
+
+export type OrderPaymentCorrectRequest = z.input<typeof orderPaymentCorrectRequestSchema>;
 
 // ---------------------------------------------------------------- DSR day sheet (D03)
 

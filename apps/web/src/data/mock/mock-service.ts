@@ -217,6 +217,7 @@ export function createMockService(
     listStockEntries: demoReadOnly,
     postStockEntries: demoReadOnly,
     reverseStockEntry: demoReadOnly,
+    correctOrderPayment: demoReadOnly,
     approvePendingOrders: demoReadOnly,
     discardPendingOrder: demoReadOnly,
     listDsrDays: demoReadOnly,

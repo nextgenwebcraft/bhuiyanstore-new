@@ -83,6 +83,7 @@ export const navigation: readonly NavSection[] = [
     items: [
       item("inventory/stock", "nav.inventory.stock", "inventory.view"),
       item("inventory/undelivered", "nav.inventory.undelivered", "inventory.view"),
+      item("inventory/floor-damage", "nav.inventory.floorDamage", "damage.report"),
     ],
   },
   {
@@ -164,6 +165,7 @@ const hubDefinitions: readonly Omit<Hub, "shortcut">[] = [
       { path: "purchases/receipts", labelKey: "nav.flow.receipts" },
       { path: "inventory/stock" },
       { path: "inventory/undelivered" },
+      { path: "inventory/floor-damage" },
     ],
   },
   {
@@ -299,12 +301,13 @@ const MANAGER_HIDDEN_HUBS: ReadonlySet<HubId> = new Set(["money", "ledgers", "hi
  */
 const DSR_ALLOWED_PATHS: ReadonlySet<string> = new Set(["", "sales/daily-summaries"]);
 
-/** TSM only sees dashboard + অর্ডার ও মজুদ (orders / stock / undelivered — not মাল গ্রহণ). */
+/** TSM: dashboard + অর্ডার ও মজুদ (orders / stock / undelivered / floor damage — not মাল গ্রহণ). */
 const TSM_ALLOWED_PATHS: ReadonlySet<string> = new Set([
   "",
   "purchases/orders",
   "inventory/stock",
   "inventory/undelivered",
+  "inventory/floor-damage",
 ]);
 
 /** The hubs with at least one screen this person may open in this company, tabs cut down too. */

@@ -62,8 +62,8 @@ import { ReceiptForm } from "./receipt-form";
 import { OrderFunding } from "./order-funding";
 import { OrderPaymentMethod as OrderPaymentMethodControl } from "./order-payment-method";
 
-/** D63: damage deposits are entered on the company deposit page, not here. */
-type GodownKind = Exclude<StockEntryKind, "damageDeposit">;
+/** D63/D131: damage deposits (lot or floor) are entered on their own pages, not here. */
+type GodownKind = Exclude<StockEntryKind, "damageDeposit" | "floorDamageDeposit">;
 /** Godown damage and company free goods: plain quantities, no batch or price (D68). */
 type PlainKind = Exclude<GodownKind, "order" | "receipt">;
 

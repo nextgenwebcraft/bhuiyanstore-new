@@ -44,7 +44,7 @@ const ENGINE_PRICE: Record<string, PriceKind> = {
 
 /** D53: godown damage is its own engine input (stock and cost fall, no sales), not product-level damaged. */
 const STOCK_FIELD: Record<
-  Exclude<StockEntryKind, "damageDeposit">,
+  Exclude<StockEntryKind, "damageDeposit" | "floorDamageDeposit">,
   "ordered" | "received" | "godownDamaged" | "incentiveReceived"
 > = {
   order: "ordered",
@@ -326,6 +326,21 @@ async function rangeInput(
       target.companyRefunds = [
         ...(target.companyRefunds ?? []),
         { quantity: pieces, unitCost: plain(entry.unitPrice) ?? "0", ref: entry.id },
+      ];
+      continue;
+    }
+    if (entry.kind === "floorDamageDeposit" && entry.batchId && entry.batch) {
+      // D131: saleable floor stock returned to the company as money from a named batch.
+      const target = dayProduct(fromDbDate(entry.date), entry.productId);
+      target.batchDamageDeposits = [
+        ...(target.batchDamageDeposits ?? []),
+        {
+          key: entry.batchId,
+          seq: entry.batch.seq,
+          quantity: plain(entry.pieces),
+          unitCost: plain(entry.unitPrice) ?? "0",
+          ref: entry.id,
+        },
       ];
       continue;
     }
