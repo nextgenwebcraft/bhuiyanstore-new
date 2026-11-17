@@ -20,6 +20,7 @@ const files = [
   "packages/contracts/src/reporting.test.ts",
   "apps/web/src/features/dashboard/dashboard-cards.test.ts",
   "apps/web/src/features/daily/dsrs-on.test.ts",
+  "apps/web/src/features/daily/daily-sheet-locks.test.ts",
 ];
 
 console.log("predeploy-check: vitest");

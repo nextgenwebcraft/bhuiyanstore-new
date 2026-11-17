@@ -43,6 +43,9 @@ import {
   CellInput,
   DateBar,
   DayGate,
+  canCorrectDsrSheet,
+  dsrHandoverAmountLocked,
+  dsrSheetBodyLocked,
   isFreeAuto,
   SectionTitle,
   clean,
@@ -487,31 +490,31 @@ function SheetEditor({
   const action = useAsyncAction();
   const shownError = error ?? action.error;
   const posted = sheet?.status === "posted";
+  // Status flag for money cards / banners (Manager locks; Super Admin still edits — D114/D135).
   const handoverLocked =
     sheet?.handoverStatus === "pending" || sheet?.handoverStatus === "approved";
   const isDsrLogin = loginRoleKind === "dsr";
   const isManagerLogin = loginRoleKind === "manager";
-  // D56/D126: Super Admin alone may correct a posted sheet. Manager edits while draft only;
-  // after post the sheet locks (হাতে জমা amount still open until submit). DSR never corrects.
-  const canCorrect =
-    !handoverLocked &&
-    loginRoleKind === null &&
-    permissions.includes("sale.create") &&
-    permissions.includes("sale.post") &&
-    permissions.includes("sale.reverse");
-  const locked =
-    handoverLocked ||
-    !permissions.includes("sale.create") ||
-    (posted && !canCorrect) ||
-    (isDsrLogin && posted);
+  // D56/D135: Super Admin always corrects posted sheets (incl. after হাতে জমা). D126: Manager never.
+  const canCorrect = canCorrectDsrSheet(loginRoleKind, permissions);
+  const locked = dsrSheetBodyLocked({
+    loginRoleKind,
+    permissions,
+    posted,
+    handoverActive: handoverLocked,
+  });
   const issuedLocked = locked || isDsrLogin;
   const priceLocked =
     locked || isManagerLogin || isDsrLogin || !permissions.includes("sale.price_override");
-  // হাতে জমা is entered on a posted sheet; keep that field open until submit even when
-  // the সামারি table is locked for Manager.
+  // হাতে জমা: Manager/DSR until submit; Super Admin always (D135).
   const canTypeHandover =
     posted && sheet?.handoverStatus === "none" && permissions.includes("sale.handover_submit");
-  const handoverAmountLocked = canTypeHandover ? false : locked || handoverLocked;
+  const handoverAmountLocked = dsrHandoverAmountLocked({
+    loginRoleKind,
+    canTypeHandover,
+    bodyLocked: locked,
+    handoverActive: handoverLocked,
+  });
   const base = { date, staffId: staff.id, version: sheet?.version ?? 0 };
   const includePrices = permissions.includes("sale.price_override");
   /** Posted lines already in day-view stock; empty while the sheet is still a draft. */
@@ -833,7 +836,9 @@ function SheetEditor({
             {command.isPending ? t("common.posting") : t("common.post")}
           </Button>
         ) : null}
-        {sheet?.status === "draft" && permissions.includes("sale.create") && !handoverLocked ? (
+        {sheet?.status === "draft" &&
+        permissions.includes("sale.create") &&
+        (!handoverLocked || loginRoleKind === null) ? (
           <Button disabled={pending} onClick={() => void run("discard")}>
             {t("dsr.sheet.discard")}
           </Button>
