@@ -428,8 +428,24 @@ describe("Phase D: opening balances (save = live, D43)", () => {
     expect((await getOpening(ctx, snacks)).balances).toEqual([]);
   });
 
-  it("fixes the cutoff once a daily record exists and locks after a month close", async () => {
+  it("lets Super Admin change cutoff always; others stay locked after daily use / month close (D132)", async () => {
     const ctx = contextFor(db, admin);
+    const openerRole = await createRole(ctx, {
+      name: "Opening editor",
+      permissions: ["company.view", "opening.prepare", "purchase.create"],
+    });
+    const opener = await createUser(ctx, {
+      name: "Opener",
+      email: "opener.d@example.test",
+      password: "temporary-Password-1",
+      memberships: [{ companyId: bakery, roleIds: [openerRole.id] }],
+    });
+    const openerCtx = contextFor(db, {
+      userId: opener.id,
+      tenantId: admin.tenantId,
+      isSuperAdmin: false,
+    });
+
     let view = await getOpening(ctx, bakery);
     view = await saveOpeningCutoff(ctx, bakery, {
       version: view.version,
@@ -450,13 +466,27 @@ describe("Phase D: opening balances (save = live, D43)", () => {
       date: "2026-09-02",
       lines: [{ kind: "incentive", productId: bakeryProduct, pieces: "1" }],
     });
+    // Super Admin keeps cutoff editable after daily records (D132).
     view = await getOpening(ctx, bakery);
-    expect(view.cutoffEditable).toBe(false);
+    expect(view.cutoffEditable).toBe(true);
+    view = await saveOpeningCutoff(ctx, bakery, {
+      version: view.version,
+      cutoffDate: "2026-09-02",
+    });
+    expect(view.cutoffDate).toBe("2026-09-02");
+
+    // Non–super-admin cannot change cutoff once daily records exist.
+    const openerView = await getOpening(openerCtx, bakery);
+    expect(openerView.cutoffEditable).toBe(false);
     await expectField(
-      saveOpeningCutoff(ctx, bakery, { version: view.version, cutoffDate: "2026-09-02" }),
+      saveOpeningCutoff(openerCtx, bakery, {
+        version: openerView.version,
+        cutoffDate: "2026-09-03",
+      }),
       "cutoffDate",
       "validation.opening.cutoffInUse",
     );
+
     // Sections still save while no month is closed.
     view = await saveBalances(ctx, bakery, view, "company", [line("company_payable", "100")]);
 
@@ -470,18 +500,27 @@ describe("Phase D: opening balances (save = live, D43)", () => {
       },
     });
     view = await getOpening(ctx, bakery);
-    expect(view).toMatchObject({ locked: true, cutoffEditable: false });
+    expect(view).toMatchObject({ locked: true, cutoffEditable: true });
     await expectField(
       saveBalances(ctx, bakery, view, "company", []),
       "",
       "validation.opening.locked",
     );
+    // Super Admin may still change cutoff while the opening is locked (D132).
+    view = await saveOpeningCutoff(ctx, bakery, {
+      version: view.version,
+      cutoffDate: "2026-09-01",
+    });
+    expect(view.cutoffDate).toBe("2026-09-01");
     await expectField(
-      saveOpeningCutoff(ctx, bakery, { version: view.version, cutoffDate: "2026-09-01" }),
+      saveOpeningCutoff(openerCtx, bakery, {
+        version: view.version,
+        cutoffDate: "2026-09-04",
+      }),
       "",
       "validation.opening.locked",
     );
-    // Reopening every month unlocks it again.
+    // Reopening every month unlocks sections again.
     await db.monthClose.delete({ where: { id: closed.id } });
     view = await getOpening(ctx, bakery);
     expect(view.locked).toBe(false);

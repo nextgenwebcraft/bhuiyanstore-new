@@ -44,7 +44,7 @@ export async function getSetupStatus(ctx: AppContext, companyId: string): Promis
   const access = await requirePermission(ctx, companyId, "company.view");
   const today = todayBusinessDate();
   const [view, products, assignments, shops] = await Promise.all([
-    openingView(ctx.db, access),
+    openingView(ctx.db, access, ctx.actor.isSuperAdmin),
     ctx.db.product.findMany({
       where: { companyId, status: "active" },
       select: { id: true, packs: { select: { piecesPerCarton: true } } },

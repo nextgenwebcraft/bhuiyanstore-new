@@ -1,0 +1,22 @@
+id: 2026-11-17-super-admin-cutoff-always
+reason: >-
+  Owner 2026-11-17: no need to lock চালুর তারিখ for Super Admin — they may always
+  change the go-live cutoff. Amends D43 daily-record / month-close cutoff freeze (D132).
+owners: [application, contracts, web, docs]
+changes:
+  - packages/application opening.ts — cutoffEditable always for Super Admin; saveOpeningCutoff
+    skips cutoffInUse and month-lock for Super Admin only
+  - packages/application setup.ts — pass isSuperAdmin into openingView
+  - packages/contracts opening.ts — cutoffEditable comment (D132)
+  - apps/web opening-page CutoffSection — edit when cutoffEditable (ignore section lock)
+  - docs/decisions.md D132; phase-d integration test updated
+affectedActionIds: [opening.prepare]
+financialImpact: >-
+  Changing cutoff after daily posts retargets opening prices at the new date; historical
+  daily facts are not rewritten. Use carefully.
+backfill: none
+tests: >-
+  packages/application phase-d.integration.ts (Super Admin cutoff after daily + locked;
+  non–super-admin still refused)
+rollout: deploy
+recovery: revert commit
