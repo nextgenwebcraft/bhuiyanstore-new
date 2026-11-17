@@ -276,13 +276,15 @@ export function SectionTitle({ children }: { children: React.ReactNode }) {
 
 // ---------------------------------------------------------------- daily money edit (D114)
 
+export type DailyLoginRole = "manager" | "dsr" | "tsm" | null;
+
 /**
  * Who may see the Edit control on দৈনিক বিক্রয় হিসাব money rows (D114): Super Admin always;
  * Manager until হাতে জমা; DSR never. Pass `handoverLocked` only from the day sheet — when
  * omitted (other surfaces), Edit stays hidden.
  */
 export function canEditDailyMoney(
-  loginRoleKind: "manager" | "dsr" | "tsm" | null,
+  loginRoleKind: DailyLoginRole,
   handoverLocked: boolean | undefined,
 ): boolean {
   if (handoverLocked === undefined) return false;
@@ -296,9 +298,57 @@ export function canEditDailyMoney(
  * When `handoverLocked` is omitted, posting is unchanged for other surfaces.
  */
 export function canPostDailyMoney(
-  loginRoleKind: "manager" | "dsr" | "tsm" | null,
+  loginRoleKind: DailyLoginRole,
   handoverLocked: boolean | undefined,
 ): boolean {
   if (handoverLocked === undefined) return true;
   return !(handoverLocked && loginRoleKind !== null);
+}
+
+/**
+ * D56 / D135: Super Admin may correct a posted দৈনিক বিক্রয় হিসাব sheet even after হাতে জমা.
+ * Manager never (D126). Needs sale.create + sale.post + sale.reverse.
+ */
+export function canCorrectDsrSheet(
+  loginRoleKind: DailyLoginRole,
+  permissions: readonly string[],
+): boolean {
+  return (
+    loginRoleKind === null &&
+    permissions.includes("sale.create") &&
+    permissions.includes("sale.post") &&
+    permissions.includes("sale.reverse")
+  );
+}
+
+/**
+ * Whether the সামারি / sheet body is read-only. Super Admin is never locked by হাতে জমা (D135);
+ * Manager locks after post or handover; DSR locks after post (and cannot edit issued).
+ */
+export function dsrSheetBodyLocked(input: {
+  loginRoleKind: DailyLoginRole;
+  permissions: readonly string[];
+  posted: boolean;
+  /** pending | approved for Manager/DSR; ignored for Super Admin. */
+  handoverActive: boolean;
+}): boolean {
+  const { loginRoleKind, permissions, posted, handoverActive } = input;
+  const isSuperAdmin = loginRoleKind === null;
+  if (!permissions.includes("sale.create")) return true;
+  if (!isSuperAdmin && handoverActive) return true;
+  if (posted && !canCorrectDsrSheet(loginRoleKind, permissions)) return true;
+  if (loginRoleKind === "dsr" && posted) return true;
+  return false;
+}
+
+/** হাতে জমা amount field: open for submit, or always for Super Admin (D135). */
+export function dsrHandoverAmountLocked(input: {
+  loginRoleKind: DailyLoginRole;
+  canTypeHandover: boolean;
+  bodyLocked: boolean;
+  handoverActive: boolean;
+}): boolean {
+  if (input.canTypeHandover) return false;
+  if (input.loginRoleKind === null) return false;
+  return input.bodyLocked || input.handoverActive;
 }

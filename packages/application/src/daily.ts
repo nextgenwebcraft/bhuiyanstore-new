@@ -1031,10 +1031,8 @@ export async function saveDsrDayIn(
   if ((live?.version ?? 0) !== request.version) {
     throw invalid("version", "validation.daily.stale");
   }
-  // D56: saving a posted sheet corrects it; the posted one is reversed with all it owns and
-  // the edited sheet is posted in its place, in this transaction.
-  // D126 / D112: only Super Admin may correct a posted sheet (sale.post + sale.reverse).
-  // Manager edits drafts only; after post the sheet is locked for them. DSR never.
+  // D56 / D135: saving a posted sheet corrects it (Super Admin always, incl. after হাতে জমা).
+  // D126: Manager edits drafts only; after post locked. DSR never.
   const corrected = live?.status === "posted" ? await loadDsrDay(tx, companyId, live.id) : null;
   if (corrected) {
     const adminOk =
@@ -1215,7 +1213,7 @@ function stockTakenOut(row: DsrRow, to: "posted" | "reversed"): string[] {
     .map((line) => line.productId);
 }
 
-/** D112: after Manager submits handover, only Super Admin may change the sheet. */
+/** D112 / D135: after হাতে জমা, only Super Admin may change the sheet (always, even when approved). */
 function assertHandoverEditable(ctx: AppContext, status: string | null | undefined) {
   if (status === "pending" || status === "approved") {
     if (!ctx.actor.isSuperAdmin) {
