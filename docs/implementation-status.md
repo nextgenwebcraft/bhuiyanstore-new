@@ -6,6 +6,8 @@ Evidence-based progress. Mark an item done only with evidence.
 
 The canonical plan is now [PLAN.md](PLAN.md). The owner approved backend integration (D30).
 
+**2026-11-18** ([manifest](../changes/2026-11-18-draft-stock-block.yaml)): Draft দৈনিক বিক্রয় হিসাব save refuses oversold product/batch stock (D136); post path unchanged.
+
 **2026-11-18** ([manifest](../changes/2026-11-18-super-admin-dsr-sheet-always.yaml)): Super Admin always edits দৈনিক বিক্রয় হিসাব (incl. after হাতে জমা); Manager/DSR locks unchanged (D135).
 
 **2026-11-17** ([manifest](../changes/2026-11-17-arice-batch1-deficit.yaml)): Pusti A.Rice ব্যাচ ১ −৭ deficit cleared onto ব্যাচ ২ (split 14 Nov line); INSUFFICIENT_STOCK copy notes other-batch deficits can block.
