@@ -44,10 +44,12 @@ import {
 } from "./daily-kit";
 
 /**
- * The company order (D57, D68): per product the paid cartons + pieces, the purchase and sale
+ * The company order (D57, D68, D134): per product the paid cartons + pieces, the purchase and sale
  * price (per carton or per piece, each filling the other) and the free goods the company gives
- * with it. The prices start at the product's latest batch; changed purchase/sale or a free mix
- * that changes effective piece cost makes a new batch. Free goods stay on that order's batch.
+ * with it. কার্টুন রেট stays the nominal rate; free goods only lower the batch's per-piece cost
+ * for that lot until it sells out. The next order prefills from the last order's nominal carton
+ * rate (`orderPrice`) and last sale — not from the diluted batch cost. A free mix that changes
+ * effective piece cost still opens a new batch (D68).
  */
 type Row = {
   cartons: string;
@@ -67,14 +69,15 @@ const unitPrice = /^\d+(\.\d{1,6})?$/;
 
 type Product = DayView["products"][number];
 
-/** The product's latest batch: the prices the next order starts from. */
+/** The product's latest batch (FIFO / join check); sale prefills from its sale price. */
 const latestLot = (product: Product) => product.lots.at(-1);
 
+/**
+ * D134: buy prefills from nominal order price (last carton rate ÷ ppc), never from the latest
+ * batch's effective cost (that was diluted by free goods and rewrote the carton field).
+ */
 const defaultBuy = (product: Product) =>
-  pairOf(
-    latestLot(product)?.costPrice ?? product.orderPrice ?? product.costPrice,
-    product.piecesPerCarton,
-  );
+  pairOf(product.orderPrice ?? product.costPrice, product.piecesPerCarton);
 
 const defaultSale = (product: Product) =>
   pairOf(latestLot(product)?.salePrice ?? product.salePrice, product.piecesPerCarton);
@@ -433,6 +436,7 @@ export function OrderForm({
                       }
                       onChange={(piece) =>
                         set(product.productId, {
+                          // Never write effective (free-diluted) cost back into the carton pair.
                           buy: pairFromPiece(piece, product.piecesPerCarton),
                         })
                       }
@@ -441,6 +445,11 @@ export function OrderForm({
                       mode="decimal"
                       width="w-24"
                     />
+                    {preview?.hasFree ? (
+                      <p className="mt-0.5 text-[10.5px] text-text-muted">
+                        {t("godown.order.effectivePieceHint")}
+                      </p>
+                    ) : null}
                   </td>
                   <PriceCells
                     label={`${label} ${t("godown.order.saleGroup")}`}

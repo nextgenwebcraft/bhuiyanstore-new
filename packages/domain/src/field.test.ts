@@ -119,4 +119,36 @@ describe("DSR cash handover (D39)", () => {
       }),
     ).toEqual({ expected: "4700.00", handedOver: "4700.00", difference: "0.00" });
   });
+
+  it("keeps পার্থক্য when handed is the integer part of expected (owner paisa case)", () => {
+    // UI parseAmountInput("104630.") → "104630"; difference must not vanish.
+    expect(
+      dsrCashSettlement({
+        sales: "143772.96",
+        damage: "0",
+        dueGiven: "42364.00",
+        dueCollected: "3332.00",
+        expenses: "0",
+        operatingCost: "0",
+        staffMoney: "-110",
+        handedOver: "104630",
+      }),
+    ).toEqual({
+      expected: "104630.96",
+      handedOver: "104630.00",
+      difference: "-0.96",
+    });
+    expect(
+      dsrCashSettlement({
+        sales: "143772.96",
+        damage: "0",
+        dueGiven: "42364.00",
+        dueCollected: "3332.00",
+        expenses: "0",
+        operatingCost: "0",
+        staffMoney: "-110",
+        handedOver: "104630.96",
+      }).difference,
+    ).toBe("0.00");
+  });
 });

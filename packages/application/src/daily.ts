@@ -43,6 +43,7 @@ import {
   sumAmounts,
   sumQuantities,
   summarizeDay,
+  dashboardDamageTotal,
   dashboardTotals,
   srCost as srCostOf,
   orderBatchCostPrice,
@@ -994,11 +995,12 @@ export async function saveDsrDayIn(
   });
   assertHandoverEditable(ctx, existingForLock?.handoverStatus);
   assertDsrSaveAllowed(access, request, existingForLock?.lines ?? []);
-  // D79: the day sheet opens for everyone on এসআর হিসাব (supplier-employed), and a DSR
-  // sheet already saved still saves. A distributor who is neither stays refused.
+  // D79: the day sheet opens for everyone on এসআর হিসাব (supplier-employed), even when their
+  // dated SR assignment has not started yet or has ended; a DSR/SR role on the date also
+  // qualifies. A distributor who is neither stays refused.
   const role = await roleOn(tx, companyId, request.staffId, request.date);
   const employer = await staffEmployer(tx, request.staffId);
-  if (role !== "sr" && role !== "dsr" && !(employer === "supplier" && role !== null)) {
+  if (role !== "sr" && role !== "dsr" && employer !== "supplier") {
     throw invalid("staffId", "validation.daily.dsrOnly");
   }
   // D122: every line names a selling DSR. Migration backfilled dsr_staff_id from the SR day
@@ -2370,11 +2372,17 @@ export async function dashboardOf(
     salesProfit,
   });
 
+  const damageLots = damageLotsOf(run, range.to, productName);
   const summary = dashboardSummarySchema.parse({
     from: range.from,
     to: range.to,
     cutoffDate: active?.cutoffDate ?? null,
     damageSaleValue: total((s) => s.damageSaleValue),
+    // D133: card = held lots + deposits; cash still uses damageSaleValue above.
+    damageTotal: dashboardDamageTotal({
+      lots: damageLots,
+      depositValue: run?.output.month.companyPayable.damageRefunds ?? "0",
+    }),
     netSales: total((s) => s.netSales),
     salesCash: total((s) => s.salesCash),
     oldDuesCollected: total((s) => s.oldDuesCollected),
@@ -2402,7 +2410,7 @@ export async function dashboardOf(
     postedSummaryCount: sheets,
     postedReceiptCount: receipts,
     byDsr,
-    damageLots: damageLotsOf(run, range.to, productName),
+    damageLots,
     ...(canSeeProfit && run
       ? {
           grossProfit: total((s) => s.grossProfit),

@@ -1,0 +1,30 @@
+id: 2026-11-17-dashboard-damage-total
+reason: >-
+  Owner 2026-11-17: মোট ড্যামেজ must show every kind of damage (opening held lots,
+  sheet/godown while held, company damage/floor deposits), not only sheet sale damage.
+  Amends D107 card display / D119 (D133). Cash chain হাতে জমা still subtracts sheet
+  damageSaleValue only.
+owners: [domain, contracts, application, web, docs]
+changes:
+  - >-
+    packages/domain sales-profit.ts — heldDamageValue, dashboardDamageTotal; cash
+    dashboardTotals unchanged
+  - packages/contracts reporting.ts — DashboardSummary.damageTotal
+  - >-
+    packages/application daily.ts dashboardOf — damageTotal from end-of-range lots +
+    companyPayable.damageRefunds; master-panel sums damageTotal
+  - >-
+    apps/web dashboard-page — মোট ড্যামেজ (`damageTotal`) in summaryCards; cash chain
+    minus is শিট ড্যামেজ (`damageSaleValue`) so হাতে জমা still reconciles
+  - packages/i18n — dashboard.card.sheetDamage
+  - docs/decisions.md D133; implementation-status
+affectedActionIds: []
+financialImpact: >-
+  Display only. হাতে জমা, sheet মোট বিক্রি, and profit are unchanged (still sheet
+  damageSaleValue / existing rules). Chain arithmetic matches cashInHand again.
+backfill: none
+tests: >-
+  packages/domain staff-cost.test.ts; apps/web dashboard-cards.test.ts;
+  pnpm test:predeploy
+rollout: deploy
+recovery: revert commit

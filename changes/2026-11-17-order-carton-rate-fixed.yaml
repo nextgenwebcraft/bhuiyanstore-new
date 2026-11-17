@@ -1,0 +1,24 @@
+id: 2026-11-17-order-carton-rate-fixed
+reason: >-
+  Owner 2026-11-17: free মাল on কোম্পানিতে অর্ডার was making carton and piece rates both
+  look wrong on the next order because buy prefills used the latest batch's effective
+  cost (bill÷(paid+free)) converted back to carton. Carton rate must stay the nominal
+  rate; only that batch's piece cost changes with free goods until the batch sells out.
+  Next order prices follow the previous carton rate (ক্রয় + বিক্রয়). D134.
+owners: [web, i18n, docs]
+changes:
+  - >-
+    apps/web order-form.tsx — defaultBuy from product.orderPrice (nominal), not
+    latestLot.costPrice; hint under piece when free lowers effective cost
+  - packages/i18n — godown.order.effectivePieceHint
+  - docs/decisions.md D134; implementation-status
+affectedActionIds: []
+financialImpact: >-
+  Display/prefill only. Posted bills still use cartonRate (D57). Batch COGS still uses
+  effective piece cost when free goods are present (D68). No stock_entry.carton_rate
+  backfill — DB already matched first/latest order carton rates (29/29).
+backfill: none
+tests: manual — open order after a free-goods line; carton shows last carton rate, not
+  effective×ppc; piece shows effective only while free > 0 on the current row
+rollout: deploy
+recovery: revert commit

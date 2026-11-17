@@ -72,8 +72,13 @@ export const dashboardSummarySchema = z.object({
   staffCost: decimalStringSchema.optional(),
   /** D67 (amended 2026-10-22, domain `srCost`): one day's SR loan change, or what the SRs owe at the end of a longer range; requires `finance.view`. */
   srCost: decimalStringSchema.optional(),
-  /** D67: DSR-damaged pieces at the sale price. */
+  /** D67 / D119: DSR-damaged pieces at ড্যামেজ দর (else sale); cash chain uses this (D107). */
   damageSaleValue: decimalStringSchema,
+  /**
+   * D133 মোট ড্যামেজ card: held damage lots at range end + damageDeposit / floorDamageDeposit
+   * money in the range. Not used for হাতে জমা (that still subtracts `damageSaleValue`).
+   */
+  damageTotal: decimalStringSchema,
   /**
    * Cash handed over below the expected cash, summed over the range (D81). Display only: it is
    * not taken off cash, a staff balance, or profit.

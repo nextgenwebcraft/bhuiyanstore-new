@@ -94,7 +94,9 @@ export {
 export { companyStatement, type CompanyStatementLine } from "./month/company-statement";
 export { srCost, summarizeDay, type DaySummary, type DsrDaySummary } from "./month/day-summary";
 export {
+  dashboardDamageTotal,
   dashboardTotals,
+  heldDamageValue,
   profitLinesOf,
   salesProfit,
   type ProfitLine,

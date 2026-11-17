@@ -15,6 +15,7 @@
     "check:types": "pnpm -r --parallel typecheck",
     "test": "vitest run",
     "test:domain": "vitest run packages/domain",
+    "test:predeploy": "node scripts/predeploy-check.mjs",
     "verify:workbook": "vitest run --config vitest.workbook.config.ts",
     "test:integration": "node scripts/test-integration.mjs",
     "benchmark:sql": "node scripts/test-integration.mjs --benchmark",
