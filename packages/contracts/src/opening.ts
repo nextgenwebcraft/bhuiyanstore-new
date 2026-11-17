@@ -162,9 +162,12 @@ export const openingSchema = z.object({
   issues: z.array(openingIssueSchema),
   totals: openingTotalsSchema,
   sections: z.array(openingSectionSummarySchema),
-  /** True once any month is closed: the opening can no longer change (D43). */
+  /** True once any month is closed: opening sections can no longer change (D43). */
   locked: z.boolean(),
-  /** The go-live date can change only while no daily record exists and the opening is unlocked. */
+  /**
+   * Go-live date editable: Super Admin always (D132); others only while unlocked and no daily
+   * records (D43).
+   */
   cutoffEditable: z.boolean(),
 });
 

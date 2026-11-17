@@ -914,6 +914,8 @@ function Sheets({
 type SheetCash = {
   issued: string;
   returned: string;
+  /** সামারি − ফেরত (display only; মোট টাকা still uses issued/returned separately). */
+  sold: string;
   damage: string;
   commission: string;
   dueGiven: string;
@@ -928,6 +930,7 @@ type SheetCash = {
 const CASH_KEYS = [
   "issued",
   "returned",
+  "sold",
   "damage",
   "commission",
   "dueGiven",
@@ -948,6 +951,7 @@ function cashItems(cash: SheetCash | null): SummaryItem[] {
   return [
     { label: t("dashboard.card.issued"), value: value("issued") },
     { label: `− ${t("dashboard.card.returned")}`, value: value("returned") },
+    { label: `= ${t("dashboard.card.totalSales")}`, value: value("sold") },
     { label: `− ${t("dashboard.card.damage")}`, value: value("damage") },
     { label: `− ${t("dashboard.card.commission")}`, value: value("commission") },
     { label: `− ${t("dsr.cash.dueGiven")}`, value: value("dueGiven") },
@@ -1000,6 +1004,7 @@ function SheetsOverview({
     return {
       issued: parts.issuedValue,
       returned: parts.returnValue,
+      sold: roundSettlement(toDecimal(parts.issuedValue).sub(toDecimal(parts.returnValue))),
       damage: parts.damageValue,
       commission: parts.commission,
       dueGiven: figures.dueGiven,

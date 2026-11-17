@@ -135,12 +135,13 @@ async function hasDailyRecords(db: Db, companyId: string): Promise<boolean> {
   return found.some((row) => row !== null);
 }
 
-async function flagsOf(db: Db, companyId: string): Promise<Flags> {
+async function flagsOf(db: Db, companyId: string, isSuperAdmin: boolean): Promise<Flags> {
   const [locked, used] = await Promise.all([
     isLocked(db, companyId),
     hasDailyRecords(db, companyId),
   ]);
-  return { locked, cutoffEditable: !locked && !used };
+  // D132: Super Admin may always change the go-live date; others keep D43 locks.
+  return { locked, cutoffEditable: isSuperAdmin || (!locked && !used) };
 }
 
 function toView(
@@ -245,19 +246,23 @@ function foldCash(
   ];
 }
 
-export async function openingView(db: Db, access: CompanyAccess): Promise<Opening> {
+export async function openingView(
+  db: Db,
+  access: CompanyAccess,
+  isSuperAdmin = false,
+): Promise<Opening> {
   const session = await findSession(db, access.company.id);
   const cutoff = session?.cutoffDate ? fromDbDate(session.cutoffDate) : null;
   const [catalog, flags] = await Promise.all([
     loadCatalog(db, access, cutoff),
-    flagsOf(db, access.company.id),
+    flagsOf(db, access.company.id, isSuperAdmin),
   ]);
   return toView(access.company.id, session, catalog, flags);
 }
 
 export async function getOpening(ctx: AppContext, companyId: string): Promise<Opening> {
   const access = await requirePermission(ctx, companyId, "opening.prepare");
-  return openingView(ctx.db, access);
+  return openingView(ctx.db, access, ctx.actor.isSuperAdmin);
 }
 
 // ---------------------------------------------------------------- writing
@@ -282,8 +287,11 @@ async function claimVersion(
   session: { id: string },
   version: number,
   data: Prisma.OpeningSessionUpdateManyMutationInput = {},
+  opts: { allowWhenLocked?: boolean } = {},
 ) {
-  if (await isLocked(tx, companyId)) throw invalid("", "validation.opening.locked");
+  if (!opts.allowWhenLocked && (await isLocked(tx, companyId))) {
+    throw invalid("", "validation.opening.locked");
+  }
   const claimed = await tx.openingSession.updateMany({
     where: { id: session.id, version },
     data: { ...data, version: { increment: 1 } },
@@ -462,7 +470,10 @@ export async function writeSeededOpening(
   await syncOpeningBatches(tx, { tenantId: company.tenantId, companyId: company.id });
   return { sessionId: session.id, pricesSet };
 }
-/** Saves the go-live date. It cannot change once a daily record exists (D43). */
+/**
+ * Saves the go-live date. Non–super-admin cannot change it once a daily record exists or the
+ * opening is locked (D43). Super Admin may always change it (D132).
+ */
 export async function saveOpeningCutoff(
   ctx: AppContext,
   companyId: string,
@@ -471,6 +482,7 @@ export async function saveOpeningCutoff(
 ): Promise<Opening> {
   const access = await requirePermission(ctx, companyId, "opening.prepare", { write: true });
   const data = parseInput(openingCutoffRequestSchema, input);
+  const isSuperAdmin = ctx.actor.isSuperAdmin;
   return runIdempotent(
     ctx,
     { scope: companyId, action: "opening.cutoff", requestKey },
@@ -479,10 +491,15 @@ export async function saveOpeningCutoff(
       await lockCompany(tx, companyId);
       const session = await ensureSession(tx, access);
       const before = session.cutoffDate ? fromDbDate(session.cutoffDate) : null;
-      await claimVersion(tx, companyId, session, data.version, {
-        cutoffDate: toDbDate(data.cutoffDate),
-      });
-      if (before !== data.cutoffDate && (await hasDailyRecords(tx, companyId))) {
+      await claimVersion(
+        tx,
+        companyId,
+        session,
+        data.version,
+        { cutoffDate: toDbDate(data.cutoffDate) },
+        { allowWhenLocked: isSuperAdmin },
+      );
+      if (before !== data.cutoffDate && !isSuperAdmin && (await hasDailyRecords(tx, companyId))) {
         throw invalid("cutoffDate", "validation.opening.cutoffInUse");
       }
       const prices = await writeOpeningPrices(tx, companyId, session.id, data.cutoffDate);
@@ -494,7 +511,7 @@ export async function saveOpeningCutoff(
         before: { cutoffDate: before },
         after: { cutoffDate: data.cutoffDate, pricesSet: prices },
       });
-      return openingView(tx, access);
+      return openingView(tx, access, isSuperAdmin);
     },
   );
 }
@@ -683,7 +700,7 @@ export async function saveOpeningSection(
         resourceId: session.id,
         after: { ...data, ...(prices === undefined ? {} : { pricesSet: prices }) },
       });
-      return openingView(tx, access);
+      return openingView(tx, access, ctx.actor.isSuperAdmin);
     },
   );
 }

@@ -322,12 +322,10 @@ function EntryFormPanel({
     setRow(emptyEntryRow());
   }
 
-  const details =
-    product && batch
-      ? `${product.sku} · ${product.productName} · ${t("batch.available")} ${stockCartonPiece(batch.quantity, product.piecesPerCarton)}`
-      : product
-        ? `${product.sku} · ${product.productName}`
-        : null;
+  // Product-level stock (all batches combined); the batch dropdown still shows per-batch qty.
+  const details = product
+    ? `${product.sku} · ${product.productName} · ${t("batch.available")} ${stockCartonPiece(product.stock, product.piecesPerCarton)}`
+    : null;
 
   return (
     <form

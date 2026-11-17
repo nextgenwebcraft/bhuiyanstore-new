@@ -111,12 +111,13 @@ function CutoffSection({ opening, companyId }: { opening: Opening; companyId: st
     }
   }
 
-  const locked = opening.locked || !opening.cutoffEditable;
+  // D132: Super Admin always gets cutoffEditable; section lock does not hide the date picker.
+  const editable = opening.cutoffEditable;
 
   return (
     <section className="rounded-xl border border-border bg-surface p-4">
       <h2 className="mb-3 text-base font-semibold">{t("opening.cutoff.label")}</h2>
-      {locked ? (
+      {!editable ? (
         <p className="text-sm">{opening.cutoffDate ? formatShortDate(opening.cutoffDate) : "—"}</p>
       ) : (
         <div className="flex flex-wrap items-start gap-3">
@@ -723,7 +724,12 @@ function BalanceSection({
 
   function addLine() {
     const defaultKind = kinds[0] ?? "market_due";
-    setLines((prev) => [...prev, emptyLine(defaultKind)]);
+    const next = emptyLine(defaultKind);
+    // D72: cash opening always sits on the company's single cash account.
+    if (section === "cash" && opening.cashAccountId) {
+      next.cashAccountId = opening.cashAccountId;
+    }
+    setLines((prev) => [...prev, next]);
   }
 
   function removeLine(index: number) {
@@ -821,7 +827,7 @@ function BalanceSection({
             </div>
           ) : null}
 
-          {!opening.locked && !isCompany && !isCash && (
+          {!opening.locked && (
             <button
               type="button"
               className="mt-2 text-sm text-brand hover:underline"
