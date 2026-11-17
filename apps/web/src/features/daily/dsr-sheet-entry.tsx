@@ -107,10 +107,34 @@ export function lineNetPieces(line: LineDraft, piecesPerCarton: string): string 
   return toDecimal(issued).sub(toDecimal(returned)).toString();
 }
 
+/** Other SRs' same-date draft lines (D137 soft reservation). */
+export type PeerDraftTake = {
+  productId: string;
+  batchKey: string;
+  issued: string;
+  returned: string;
+};
+
+/** Sum of max(0, issued − returned) for a product/batch across peer draft takes. */
+export function peerDraftReservedNet(
+  peers: readonly PeerDraftTake[],
+  productId: string,
+  batchKey: string,
+): string {
+  return peers
+    .filter((l) => l.productId === productId && l.batchKey === batchKey)
+    .reduce((sum, l) => {
+      const net = toDecimal(l.issued).sub(toDecimal(l.returned));
+      return net.gt(0) ? sum.add(net) : sum;
+    }, toDecimal("0"))
+    .toString();
+}
+
 /**
  * Remaining pieces on a batch after the sheet's current lines. `baselineLines` are the posted
  * sheet's lines already reflected in the day-view batch qty (empty while the sheet is still a
  * draft); adding them back then subtracting the draft nets keeps the figure live while editing.
+ * D137: also subtract other SRs' same-date draft nets (`peerDraftTakes`).
  */
 export function batchStockRemaining(
   view: DayView,
@@ -118,6 +142,7 @@ export function batchStockRemaining(
   baselineLines: readonly LineDraft[],
   productId: string,
   batchKey: string,
+  peerDraftTakes: readonly PeerDraftTake[] = [],
 ): string {
   const product = view.products.find((p) => p.productId === productId);
   const batch = product?.batches.find((b) => b.key === batchKey);
@@ -129,6 +154,7 @@ export function batchStockRemaining(
   return toDecimal(batch?.quantity ?? "0")
     .add(netOf(baselineLines))
     .sub(netOf(draftLines))
+    .sub(peerDraftReservedNet(peerDraftTakes, productId, batchKey))
     .toString();
 }
 
@@ -595,6 +621,7 @@ function ReadOnlyLinesTable({
   lines,
   allDraftLines,
   baselineLines,
+  peerDraftTakes,
   view,
   locked,
   canEdit,
@@ -608,6 +635,7 @@ function ReadOnlyLinesTable({
   /** Full sheet draft — remaining stock sums nets across every DSR line on the batch. */
   allDraftLines: readonly LineDraft[];
   baselineLines: readonly LineDraft[];
+  peerDraftTakes: readonly PeerDraftTake[];
   view: DayView;
   locked: boolean;
   canEdit: boolean;
@@ -653,6 +681,7 @@ function ReadOnlyLinesTable({
         baselineLines,
         nextLine.productId,
         nextLine.batchKey,
+        peerDraftTakes,
       );
       if (toDecimal(rem).lt(0)) return;
     }
@@ -747,6 +776,7 @@ function ReadOnlyLinesTable({
                 baselineLines,
                 line.productId,
                 line.batchKey,
+                peerDraftTakes,
               );
               return (
                 <tr key={line.id} className="border-t border-border">
@@ -974,6 +1004,7 @@ function lineMatchesSearch(line: LineDraft, view: DayView, q: string): boolean {
 export function DsrSheetEntry({
   draft,
   baselineLines = [],
+  peerDraftTakes = [],
   view,
   dsrs,
   sheetStaffId,
@@ -989,6 +1020,8 @@ export function DsrSheetEntry({
   draft: SheetDraft;
   /** Posted sheet lines already in the day-view batch qty; empty for a new draft. */
   baselineLines?: readonly LineDraft[];
+  /** Other SRs' same-date draft nets (D137 soft reservation). */
+  peerDraftTakes?: readonly PeerDraftTake[];
   view: DayView;
   dsrs: readonly DsrChoice[];
   /** Open SR for this day sheet — never shown as a DSR group table (D122). */
@@ -1069,6 +1102,7 @@ export function DsrSheetEntry({
         baselineLines,
         input.productId,
         input.batchKey,
+        peerDraftTakes,
       );
       if (toDecimal(rem).lt(0)) return t("validation.exceedsAvailable");
     }
@@ -1137,6 +1171,7 @@ export function DsrSheetEntry({
           lines={group.lines}
           allDraftLines={draft.lines}
           baselineLines={baselineLines}
+          peerDraftTakes={peerDraftTakes}
           view={view}
           locked={locked}
           canEdit={!locked}
@@ -1157,6 +1192,7 @@ export function DsrSheetEntry({
           lines={filteredAll}
           allDraftLines={draft.lines}
           baselineLines={baselineLines}
+          peerDraftTakes={peerDraftTakes}
           view={view}
           locked={locked || byDsr.length > 0}
           canEdit={!locked && byDsr.length === 0}

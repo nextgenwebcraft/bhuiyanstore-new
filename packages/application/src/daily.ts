@@ -1043,7 +1043,7 @@ export async function saveDsrDayIn(
     // A correction re-posts the same sheet, so the money entered on it stays.
     await moveDsrDay(tx, ctx, access, corrected, "reversed", { keepSheetMoney: true });
   } else {
-    // D136: draft save also blocks when issued−returned would overdraw product/batch stock.
+    // D136 / D137: draft save blocks when this sheet + other SRs' draft reservations overdraw.
     await ensureDraftSalesCover(
       tx,
       access,
@@ -1054,6 +1054,7 @@ export async function saveDsrDayIn(
         issued: line.issued,
         returned: line.returned,
       })),
+      { excludeStaffId: request.staffId, excludeDate: request.date },
     );
   }
   const data = {

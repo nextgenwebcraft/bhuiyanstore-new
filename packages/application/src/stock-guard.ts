@@ -1,8 +1,10 @@
 import { toDecimal, todayBusinessDate } from "@bsd/domain";
 import type { CompanyAccess } from "./access";
 import type { Tx } from "./context";
+import { toDbDate } from "./dates";
 import { AppError, type StockShortage } from "./errors";
 import { rangeRun } from "./ledger";
+import { plain } from "./numeric";
 
 export type DraftStockTake = {
   productId: string;
@@ -145,21 +147,59 @@ export async function ensureStockCovers(
 }
 
 /**
- * D136: draft দৈনিক বিক্রয় হিসাব save also refuses when the sheet's issued−returned would take a
- * product or named batch below zero from the sheet date through today (drafts are not in the
- * ledger, so we subtract the draft take from posted balances).
+ * D137: live draft lines for other SRs (soft reservation). Excludes the sheet being saved
+ * (`staffId` + `date`); every other `status: draft` in the company counts.
+ */
+export async function peerDraftStockTakes(
+  tx: Tx,
+  companyId: string,
+  exclude: { staffId: string; date: string },
+): Promise<DraftStockTake[]> {
+  const date = toDbDate(exclude.date);
+  const drafts = await tx.dsrDay.findMany({
+    where: {
+      companyId,
+      status: "draft",
+      OR: [{ staffId: { not: exclude.staffId } }, { date: { not: date } }],
+    },
+    select: {
+      lines: { select: { productId: true, batchKey: true, issued: true, returned: true } },
+    },
+  });
+  return drafts.flatMap((d) =>
+    d.lines.map((l) => ({
+      productId: l.productId,
+      batchKey: l.batchKey,
+      issued: plain(l.issued),
+      returned: plain(l.returned),
+    })),
+  );
+}
+
+/**
+ * D136 / D137: draft দৈনিক বিক্রয় হিসাব save refuses when this sheet's issued−returned plus other
+ * SRs' draft reservations would take a product or named batch below zero from the sheet date
+ * through today (drafts are not in the ledger).
  */
 export async function ensureDraftSalesCover(
   tx: Tx,
   access: CompanyAccess,
   from: string,
   lines: readonly DraftStockTake[],
+  peers?: { excludeStaffId: string; excludeDate: string },
 ): Promise<void> {
-  const { byProduct } = draftStockTakes(lines);
+  const peerLines = peers
+    ? await peerDraftStockTakes(tx, access.company.id, {
+        staffId: peers.excludeStaffId,
+        date: peers.excludeDate,
+      })
+    : [];
+  const combined = [...peerLines, ...lines];
+  const { byProduct } = draftStockTakes(combined);
   if (byProduct.size === 0) return;
   const run = await rangeRun(tx, access, from, todayBusinessDate());
   if (!run) return;
-  const shortages = draftStockShortages(run.output.days, lines);
+  const shortages = draftStockShortages(run.output.days, combined);
   if (shortages.length === 0) return;
   await throwInsufficient(tx, shortages);
 }

@@ -67,6 +67,7 @@ import {
   lineKeyOf,
   markLinesActive,
   type LineDraft,
+  type PeerDraftTake,
   type SheetDraft,
 } from "./dsr-sheet-entry";
 
@@ -254,18 +255,40 @@ function requestOf(
   return { ...base, cashHandedOver: handed || null, lines };
 }
 
+/** Other SRs' draft takes on this date (D137 soft reservation). */
+function peerDraftTakesOf(sheets: readonly DsrDay[], excludeStaffId: string): PeerDraftTake[] {
+  return sheets
+    .filter((s) => s.status === "draft" && s.staffId !== excludeStaffId)
+    .flatMap((s) =>
+      s.lines.map((l) => ({
+        productId: l.productId,
+        batchKey: l.batchKey,
+        issued: l.issued,
+        returned: l.returned,
+      })),
+    );
+}
+
 /** Refuse a save/post when any named batch would end below zero after the draft. */
 function stockOverflowMessage(
   draft: SheetDraft,
   view: DayView,
   baselineLines: readonly LineDraft[],
+  peerDraftTakes: readonly PeerDraftTake[] = [],
 ): string | undefined {
   const seen = new Set<string>();
   for (const d of draft.lines) {
     const key = `${d.productId}|${d.batchKey}`;
     if (!d.batchKey || seen.has(key)) continue;
     seen.add(key);
-    const rem = batchStockRemaining(view, draft.lines, baselineLines, d.productId, d.batchKey);
+    const rem = batchStockRemaining(
+      view,
+      draft.lines,
+      baselineLines,
+      d.productId,
+      d.batchKey,
+      peerDraftTakes,
+    );
     if (toDecimal(rem).lt(0)) {
       const product = view.products.find((p) => p.productId === d.productId);
       return `${product?.productName ?? d.productId}: ${t("validation.exceedsAvailable")}`;
@@ -509,6 +532,7 @@ function SheetEditor({
   sheet,
   history,
   view,
+  peerDraftTakes,
 }: {
   companyId: string;
   date: string;
@@ -516,6 +540,7 @@ function SheetEditor({
   sheet: DsrDay | undefined;
   history: DsrDay[];
   view: DayView;
+  peerDraftTakes: readonly PeerDraftTake[];
 }) {
   const { permissions, loginRoleKind } = useCurrentWorkspace();
   const save = useSaveDsrDay(companyId);
@@ -559,7 +584,7 @@ function SheetEditor({
   const includePrices = permissions.includes("sale.price_override");
   /** Posted lines already in day-view stock; empty while the sheet is still a draft. */
   const baselineLines = posted ? draftOf(sheet).lines : [];
-  const stockError = stockOverflowMessage(draft, view, baselineLines);
+  const stockError = stockOverflowMessage(draft, view, baselineLines, peerDraftTakes);
   const built = stockError ?? requestOf(draft, view, base, includePrices);
   const buildError = typeof built === "string" ? built : undefined;
   const dirty =
@@ -769,6 +794,7 @@ function SheetEditor({
       <DsrSheetEntry
         draft={draft}
         baselineLines={baselineLines}
+        peerDraftTakes={peerDraftTakes}
         view={view}
         dsrs={dsrChoices}
         sheetStaffId={staff.id}
@@ -962,6 +988,7 @@ function Sheets({
         sheet={sheet}
         history={sheets.data.filter((s) => s.staffId === selected.id && s.status === "reversed")}
         view={view}
+        peerDraftTakes={peerDraftTakesOf(sheets.data, selected.id)}
       />
     );
   }

@@ -22,6 +22,7 @@ const files = [
   "apps/web/src/features/daily/dsrs-on.test.ts",
   "apps/web/src/features/daily/daily-sheet-locks.test.ts",
   "apps/web/src/features/daily/dsr-summary-lines.test.ts",
+  "apps/web/src/features/daily/peer-draft-stock.test.ts",
   "packages/application/src/stock-guard.test.ts",
 ];
 

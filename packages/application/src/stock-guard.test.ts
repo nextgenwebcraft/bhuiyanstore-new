@@ -62,4 +62,32 @@ describe("draft stock guard (D136)", () => {
       ),
     ).toEqual([]);
   });
+
+  it("D137: two drafts on the same batch together overdraw even when each alone fits", () => {
+    const days = [
+      {
+        date: "2026-11-17",
+        products: [
+          {
+            productId: "p1",
+            stock: "100",
+            batches: [{ key: "b1", quantity: "100", seq: 1 }],
+          },
+        ],
+      },
+    ];
+    const thisSheet = [{ productId: "p1", batchKey: "b1", issued: "60", returned: "0" }];
+    const peer = [{ productId: "p1", batchKey: "b1", issued: "50", returned: "0" }];
+    expect(draftStockShortages(days, thisSheet)).toEqual([]);
+    expect(draftStockShortages(days, peer)).toEqual([]);
+    expect(draftStockShortages(days, [...peer, ...thisSheet])).toEqual([
+      {
+        productId: "p1",
+        productName: "",
+        date: "2026-11-17",
+        stock: "-10",
+        batchSeq: 1,
+      },
+    ]);
+  });
 });
