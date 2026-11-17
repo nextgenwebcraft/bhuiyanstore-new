@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { srCost } from "./day-summary";
-import { dashboardTotals, salesProfit } from "./sales-profit";
+import {
+  dashboardDamageTotal,
+  dashboardTotals,
+  heldDamageValue,
+  salesProfit,
+} from "./sales-profit";
 import { MONEY_KIND_EFFECTS, staffCost } from "./money-kinds";
 import { cashPay, proposeRecovery, salaryAfterAbsence } from "./payroll";
 
@@ -84,6 +89,56 @@ describe("staff cost (D67)", () => {
       cashInHand: "555.00",
       netProfit: "-1150.00",
     });
+  });
+
+  it("sums held damage lots and deposits for the মোট ড্যামেজ card (D133)", () => {
+    expect(
+      heldDamageValue([
+        { rate: "30.92", pieces: "8" },
+        { rate: "15.37", pieces: "11", amount: "169.07" },
+      ]),
+    ).toBe("416.43");
+    // Opening-only: held > 0, sheet damage 0 — cash chain unchanged when damageSaleValue is 0.
+    expect(
+      dashboardDamageTotal({
+        lots: [{ rate: "12", pieces: "10" }],
+        depositValue: "0",
+      }),
+    ).toBe("120.00");
+    expect(
+      dashboardDamageTotal({
+        lots: [{ rate: "12", pieces: "5" }],
+        depositValue: "60",
+      }),
+    ).toBe("120.00");
+    expect(
+      dashboardTotals({
+        issuedValue: "0",
+        returnValue: "0",
+        damageSaleValue: "0",
+        commission: "0",
+        expenses: "0",
+        staffCost: "0",
+        marketDueCreated: "0",
+        oldDuesCollected: "0",
+      }).cashInHand,
+    ).toBe("0.00");
+    // Held/deposit damage must not change হাতে জমা when sheet damage is unchanged (D107).
+    const sales = dashboardTotals({
+      issuedValue: "10000",
+      returnValue: "0",
+      damageSaleValue: "250",
+      commission: "0",
+      expenses: "0",
+      staffCost: "0",
+      marketDueCreated: "0",
+      oldDuesCollected: "0",
+    });
+    expect(sales.cashInHand).toBe("9750.00");
+    expect(dashboardDamageTotal({ lots: [{ rate: "50", pieces: "10" }], depositValue: "100" })).toBe(
+      "600.00",
+    );
+    expect(sales.cashInHand).toBe("9750.00");
   });
 
   it("counts a single day's SR loan change, a longer range's SR loan at its end", () => {

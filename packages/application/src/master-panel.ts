@@ -48,6 +48,7 @@ const SUMMED = [
   "returnValue",
   "commission",
   "damageSaleValue",
+  "damageTotal",
   "handoverShort",
   "totalSales",
 ] as const;

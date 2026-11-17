@@ -113,16 +113,16 @@ type Card = {
 };
 
 /**
- * D107, in formula order: মোট বিক্রি = মোট সামারি − মোট ফেরত; হাতে জমা = মোট বিক্রি − মোট ড্যামেজ −
- * মোট কমিশন − অপারেটিং খরচ − ডিএসআর খরচ − নতুন বকেয়া + বকেয়া জমা (domain `dashboardTotals`).
- * A card without permission is left out.
+ * D107 cash chain (formula order). The minus for damage is sheet `damageSaleValue` so
+ * মোট বিক্রি − … = হাতে জমা still adds up. D133: all-kinds `damageTotal` lives on মোট ড্যামেজ in
+ * `summaryCards`, not in this arithmetic chain.
  */
 export function chainCards(d: DashboardSummary): Card[] {
   return [
     { label: "dashboard.card.issued", value: d.issuedValue, tone: "info" },
     { label: "dashboard.card.returned", value: d.returnValue, op: "minus" },
     { label: "dashboard.card.totalSales", value: d.totalSales, op: "equals", tone: "result" },
-    { label: "dashboard.card.damage", value: d.damageSaleValue, op: "minus" },
+    { label: "dashboard.card.sheetDamage", value: d.damageSaleValue, op: "minus" },
     { label: "dashboard.card.commission", value: d.commission, op: "minus" },
     { label: "dashboard.card.operating", value: d.expenses, op: "minus" },
     { label: "dashboard.card.staffCost", value: d.staffCost, op: "minus" },
@@ -133,11 +133,12 @@ export function chainCards(d: DashboardSummary): Card[] {
 }
 
 /**
- * Cards outside the cash chain. মোট প্রফিট − অপারেটিং − ডিএসআর খরচ = নিট প্রফিট (D69). The position
- * cards are dues, goods and what the SRs owe (D60, D67). Their figures are unchanged.
+ * Cards outside the cash chain. D133 মোট ড্যামেজ = held lots + deposits (`damageTotal`). মোট প্রফিট −
+ * অপারেটিং − ডিএসআর খরচ = নিট প্রফিট (D69). Position cards: dues, goods, SR cost (D60, D67).
  */
 export function summaryCards(d: DashboardSummary, singleDay: boolean): Card[] {
   return [
+    { label: "dashboard.card.damage", value: d.damageTotal, tone: "warning" },
     { label: "dashboard.card.salesProfit", value: d.salesProfit, tone: "result" },
     { label: "dashboard.card.profitCost", value: d.profitCost, op: "minus", tone: "error" },
     { label: "dashboard.card.netProfit", value: d.netProfit, op: "equals", tone: "result" },

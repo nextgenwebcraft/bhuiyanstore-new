@@ -12,7 +12,7 @@ import {
   toDecimal,
 } from "@bsd/domain";
 import { useAsyncAction } from "@/lib/async-action";
-import { formatDateTime, t } from "@bsd/i18n";
+import { formatDateTime, parseAmountInput, t } from "@bsd/i18n";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/button";
@@ -69,7 +69,7 @@ import {
 
 const PATH = "sales/daily-summaries";
 
-const isAmount = (value: string) => /^\d+(\.\d{1,2})?$/.test(value);
+const isAmount = (value: string) => parseAmountInput(value) !== null;
 const isUnitPrice = (value: string) => /^\d+(\.\d{1,6})?$/.test(value);
 
 type Product = DayView["products"][number];
@@ -97,9 +97,18 @@ function batchOptions(product: Product, _view: DayView, named: readonly string[]
   return [...out.values()].sort((a, b) => a.seq - b.seq);
 }
 
-/** Every DSR, always (D65: DSRs are global staff of the master company; any DSR assignment counts). */
-export function dsrsOn(records: StaffRecord[]) {
-  return records.filter((s) => s.assignments.some((a) => a.roleKind === "dsr"));
+/**
+ * DSRs (D65: global master-company staff). When `date` is set, only assignments covering that
+ * day are included — a future hire must not appear on earlier sheets.
+ */
+export function dsrsOn(records: StaffRecord[], date?: string) {
+  return records.filter((s) =>
+    s.assignments.some(
+      (a) =>
+        a.roleKind === "dsr" &&
+        (date === undefined || (a.from <= date && (a.to === null || a.to >= date))),
+    ),
+  );
 }
 
 /** আমাদের স্টাফ: distributor-employed people (DSR, manager, driver), not the SR list (D79). */
@@ -190,8 +199,8 @@ function requestOf(
   /** D112: only Super Admin (sale.price_override) may send sale/cost overrides. */
   includePrices = false,
 ): DsrDaySaveRequest | string {
-  const handed = clean(draft.handedOver);
-  if (handed && !isAmount(handed)) return t("validation.opening.amount");
+  const handed = parseAmountInput(draft.handedOver) ?? "";
+  if (clean(draft.handedOver) && !handed) return t("validation.opening.amount");
   const lines: DsrDaySaveRequest["lines"] = [];
   const seen = new Set<string>();
   for (const d of draft.lines) {
@@ -383,7 +392,7 @@ function CashCheck({
   locked: boolean;
   onHandedOver: (value: string) => void;
 }) {
-  const handed = clean(handedOver);
+  const handed = parseAmountInput(handedOver);
   const settlement = dsrCashSettlement({
     sales,
     damage,
@@ -392,7 +401,7 @@ function CashCheck({
     expenses,
     operatingCost,
     staffMoney,
-    handedOver: handed && /^\d+(\.\d{1,2})?$/.test(handed) ? handed : null,
+    handedOver: handed,
   });
   const diff = settlement.difference;
   return (
@@ -429,6 +438,7 @@ function CashCheck({
               disabled={locked}
               mode="decimal"
               width="w-28"
+              placeholder={settlement.expected}
             />
           </dd>
         </div>
@@ -468,6 +478,8 @@ function SheetEditor({
   const save = useSaveDsrDay(companyId);
   const command = useDsrDayCommand(companyId);
   const [draft, setDraft] = useState(() => draftOf(sheet));
+  /** Once the user edits হাতে জমা, stop syncing it from জমা হওয়ার কথা. */
+  const [handedTouched, setHandedTouched] = useState(() => Boolean(sheet?.cashHandedOver));
   const [error, setError] = useState<string | undefined>();
   const [reverseOpen, setReverseOpen] = useState(false);
   const [reversePending, setReversePending] = useState(false);
@@ -527,7 +539,10 @@ function SheetEditor({
     staff.assignments.some((a) => a.roleKind === "dsr"),
   );
   const records = useStaffRecords(companyId);
-  const dsrChoices = dsrsOn(records.data ?? []).map((dsr) => ({ id: dsr.id, name: dsr.name }));
+  const dsrChoices = dsrsOn(records.data ?? [], date).map((dsr) => ({
+    id: dsr.id,
+    name: dsr.name,
+  }));
   const staffChoices = ourStaffOn(records.data ?? []).map((person) => ({
     id: person.id,
     name: person.name,
@@ -557,6 +572,21 @@ function SheetEditor({
       };
     }),
   );
+  // Until the user edits হাতে জমা, show জমা হওয়ার কথা (avoids missing .paisa / trailing-dot flicker).
+  const cashExpected = dsrCashSettlement({
+    sales: cashCheckSales(parts.netSales, parts.damageValue),
+    damage: parts.damageValue,
+    dueGiven: cash.dueGiven,
+    dueCollected: cash.dueCollected,
+    expenses: cash.expenses,
+    operatingCost: cash.operatingCost,
+    staffMoney: cash.staffMoney,
+    handedOver: null,
+  }).expected;
+  const handedDisplay =
+    handoverAmountLocked || handedTouched || clean(draft.handedOver)
+      ? draft.handedOver
+      : cashExpected;
   const pieces = (value: string) => `${quantity(value)} ${t("common.pieces")}`;
   const sheetSummary: SummaryItem[] = [
     {
@@ -658,7 +688,10 @@ function SheetEditor({
     await action.run(
       async () => {
         await command.mutateAsync({ action: kind, dayId: sheet.id, version: sheet.version });
-        if (kind === "discard") setDraft(draftOf(undefined));
+        if (kind === "discard") {
+          setDraft(draftOf(undefined));
+          setHandedTouched(false);
+        }
       },
       { confirm: "dsr.sheet.discardConfirm" },
     );
@@ -779,9 +812,12 @@ function SheetEditor({
           {...cash}
           sales={cashCheckSales(parts.netSales, parts.damageValue)}
           damage={parts.damageValue}
-          handedOver={draft.handedOver}
+          handedOver={handedDisplay}
           locked={handoverAmountLocked}
-          onHandedOver={(handedOver) => setDraft((d) => ({ ...d, handedOver }))}
+          onHandedOver={(handedOver) => {
+            setHandedTouched(true);
+            setDraft((d) => ({ ...d, handedOver }));
+          }}
         />
       ) : null}
       {sheet?.handoverStatus === "pending" ? (
@@ -817,13 +853,13 @@ function SheetEditor({
         permissions.includes("sale.handover_submit") ? (
           <Button
             variant="primary"
-            disabled={pending || !clean(draft.handedOver)}
+            disabled={pending || parseAmountInput(handedDisplay) === null}
             onClick={() =>
               void command.mutateAsync({
                 action: "handover-submit",
                 dayId: sheet.id,
                 version: sheet.version,
-                cashHandedOver: clean(draft.handedOver),
+                cashHandedOver: parseAmountInput(handedDisplay) ?? clean(handedDisplay),
               })
             }
           >

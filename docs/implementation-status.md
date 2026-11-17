@@ -6,6 +6,14 @@ Evidence-based progress. Mark an item done only with evidence.
 
 The canonical plan is now [PLAN.md](PLAN.md). The owner approved backend integration (D30).
 
+**2026-11-17** ([manifest](../changes/2026-11-17-arice-batch1-deficit.yaml)): Pusti A.Rice ব্যাচ ১ −৭ deficit cleared onto ব্যাচ ২ (split 14 Nov line); INSUFFICIENT_STOCK copy notes other-batch deficits can block.
+
+**2026-11-17** ([manifest](../changes/2026-11-17-order-carton-rate-fixed.yaml)): Order form prefills ক্রয় from nominal `orderPrice` (last carton rate), not diluted batch cost; free মাল only changes batch piece cost (D134).
+
+**2026-11-17** ([manifest](../changes/2026-11-17-dashboard-damage-total.yaml)): Dashboard মোট ড্যামেজ = held damage lots + period damage/floor deposits (D133); cash chain minus is শিট ড্যামেজ (`damageSaleValue`); হাতে জমা unchanged.
+
+**2026-11-17** ([manifest](../changes/2026-11-17-cash-handover-amount-parse.yaml)): দিনশেষে নগদ মিলানো — trailing-dot / Bengali amount parse; হাতে জমা prefills জমা হওয়ার কথা until edited.
+
 **2026-11-17** ([manifest](../changes/2026-11-17-super-admin-cutoff-always.yaml)): Super Admin may always change চালুর তারিখ (go-live cutoff) even after daily records or month lock (D132); other roles keep D43 freeze; opening sections stay locked after month close.
 
 **2026-11-15** ([manifest](../changes/2026-11-15-always-stock-block-batch-fix.yaml)): D34 always-on stock block (product + named batch; switch removed); দৈনিক বিক্রয় মজুদ column; hide qty≤0 batches; one-off `pnpm db:fix-rso-batch-stock` for RSO batch rebalance. Migration `20261115010000_always_block_negative_stock`.

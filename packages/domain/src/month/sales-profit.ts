@@ -110,10 +110,42 @@ export function profitLinesOf(day: DayResult): ProfitLine[] {
 }
 
 /**
+ * D133: value of damaged pieces still held (product × rate lots). Uses `amount` when present,
+ * otherwise pieces × rate.
+ */
+export function heldDamageValue(
+  lots: readonly { rate: DecimalInput; pieces: DecimalInput; amount?: DecimalInput }[],
+): string {
+  return roundSettlement(
+    lots.reduce((total, lot) => {
+      const line =
+        lot.amount !== undefined && lot.amount !== ""
+          ? toDecimal(lot.amount)
+          : toDecimal(lot.pieces).mul(toDecimal(lot.rate));
+      return total.add(line);
+    }, ZERO),
+  );
+}
+
+/**
+ * D133 মোট ড্যামেজ card: held lots at range end + damage/floor deposits in the range.
+ * হাতে জমা still subtracts only sheet `damageSaleValue` (D107).
+ */
+export function dashboardDamageTotal(input: {
+  lots: readonly { rate: DecimalInput; pieces: DecimalInput; amount?: DecimalInput }[];
+  /** Σ damageDeposit + floorDamageDeposit money in the range (`companyPayable.damageRefunds`). */
+  depositValue: DecimalInput;
+}): string {
+  return roundSettlement(toDecimal(heldDamageValue(input.lots)).add(toDecimal(input.depositValue)));
+}
+
+/**
  * D69 (amended D106, D107): the dashboard. মোট খরচ = কমিশন + অপারেটিং খরচ + ডিএসআর খরচ (বেতনসহ)
  * (shown only); profitCost = অপারেটিং খরচ + ডিএসআর খরচ; নিট প্রফিট = মোট প্রফিট − profitCost (ফেরত
  * and কমিশন are already in the profit). D107 মোট বিক্রি = মোট সামারি − মোট ফেরত. হাতে জমা = মোট বিক্রি
  * − মোট ড্যামেজ − মোট কমিশন − অপারেটিং খরচ − ডিএসআর খরচ − নতুন বকেয়া + বকেয়া জমা (দোকানের আদায়).
+ * D133: the মোট ড্যামেজ *card* may show `dashboardDamageTotal` (held + deposits); cash still uses
+ * `damageSaleValue` here.
  */
 export function dashboardTotals(input: {
   issuedValue: DecimalInput;

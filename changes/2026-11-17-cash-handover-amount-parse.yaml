@@ -1,0 +1,24 @@
+id: 2026-11-17-cash-handover-amount-parse
+reason: >-
+  Owner 2026-11-17: on দিনশেষে নগদ মিলানো, typing হাতে জমা without a decimal showed
+  পার্থক্য, but typing a trailing dot (e.g. 104630.) cleared পার্থক্য because the
+  amount parse rejected incomplete decimals and treated handed as empty. Also
+  prefilling from জমা হওয়ার কথা until edit avoids missing paisa (e.g. .96).
+owners: [i18n, web]
+changes:
+  - >-
+    packages/i18n — normalizeMoneyInput + parseAmountInput (trailing `.`, Bengali
+    danda); digits tests
+  - >-
+    apps/web dsr-days-page CashCheck — parseAmountInput for live diff and save;
+    prefill হাতে জমা from expected until user edits; placeholder
+affectedActionIds: []
+financialImpact: >-
+  Display/parse only for the live পার্থক্য and draft field. Saved cashHandedOver
+  still goes through the same settlement formula (D39/D62). No ledger rewrite.
+backfill: none
+tests: >-
+  pnpm test:predeploy (digits + field settlement paisa case); manual — type
+  104630. while expected has .96; পার্থক্য stays; field prefills expected until edit
+rollout: deploy
+recovery: revert commit

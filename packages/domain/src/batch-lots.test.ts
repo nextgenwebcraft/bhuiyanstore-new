@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   batchDueParts,
+  cartonFromPiece,
   orderBatchCostPrice,
   orderJoinsLatestBatch,
   pieceFromCarton,
@@ -26,6 +27,22 @@ describe("orderBatchCostPrice (D68)", () => {
     expect(
       orderBatchCostPrice({ paid: "0", free: "12", cartonRate: "420", piecesPerCarton: ppc }),
     ).toBeNull();
+  });
+
+  it("keeps nominal carton rate when free goods dilute only the batch piece cost (D134)", () => {
+    const carton = "480";
+    const nominalPiece = pieceFromCarton(carton, ppc);
+    const effective = orderBatchCostPrice({
+      paid: "240",
+      free: "24",
+      cartonRate: carton,
+      piecesPerCarton: ppc,
+    });
+    expect(effective).toBe("18.181818");
+    // Next-order prefill must use nominal carton (orderPrice path), not effective×ppc.
+    expect(Number(cartonFromPiece(nominalPiece, ppc))).toBe(480);
+    expect(Number(cartonFromPiece(effective!, ppc))).toBeCloseTo(436.36, 2);
+    expect(Number(cartonFromPiece(effective!, ppc))).not.toBe(480);
   });
 });
 

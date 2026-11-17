@@ -1,0 +1,23 @@
+id: 2026-11-17-arice-batch1-deficit
+reason: >-
+  Owner 2026-11-17: posting দৈনিক বিক্রয় failed with A.Rice ব্যাচ ১ −৭ even though the
+  sheet line named ব্যাচ ২. Batch 1 was already negative from earlier posted lines that
+  kept drawing ব্যাচ ১ after ব্যাচ ২ received stock (2026-11-09). Cleared the 7-piece
+  deficit by splitting the 2026-11-14 batch-1 line (issued 33 → 26 on b1 + 7 on b2).
+owners: [application, i18n, docs]
+changes:
+  - >-
+    one-off DB fix (Pusti A.Rice 1kg): split dsr_line cmwgm5g7w000m08jphbgu65ad —
+    move 7 issued pcs to batch 2; engine now b2=349, b1 gone, stock 349
+  - >-
+    packages/i18n error.INSUFFICIENT_STOCK — clarify that another batch's earlier
+    deficit can block a post
+affectedActionIds: []
+financialImpact: >-
+  Reattributes 7 issued pieces from batch 1 (cost 194) to batch 2 (cost 192) on
+  2026-11-14. Product total stock unchanged (349). COGS for those 7 pcs uses batch 2
+  cost going forward in ledger recalculation.
+backfill: applied to production/public via script 2026-11-17
+tests: getDayView 2026-11-17 A.Rice batches qty non-negative after apply
+rollout: already applied; deploy i18n message
+recovery: rekey the split line back if needed
