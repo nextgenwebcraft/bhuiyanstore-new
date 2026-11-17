@@ -67,6 +67,7 @@ import {
   lineKeyOf,
   markLinesActive,
   type LineDraft,
+  type PeerDraftTake,
   type SheetDraft,
 } from "./dsr-sheet-entry";
 
@@ -254,18 +255,40 @@ function requestOf(
   return { ...base, cashHandedOver: handed || null, lines };
 }
 
+/** Other SRs' draft takes on this date (D137 soft reservation). */
+function peerDraftTakesOf(sheets: readonly DsrDay[], excludeStaffId: string): PeerDraftTake[] {
+  return sheets
+    .filter((s) => s.status === "draft" && s.staffId !== excludeStaffId)
+    .flatMap((s) =>
+      s.lines.map((l) => ({
+        productId: l.productId,
+        batchKey: l.batchKey,
+        issued: l.issued,
+        returned: l.returned,
+      })),
+    );
+}
+
 /** Refuse a save/post when any named batch would end below zero after the draft. */
 function stockOverflowMessage(
   draft: SheetDraft,
   view: DayView,
   baselineLines: readonly LineDraft[],
+  peerDraftTakes: readonly PeerDraftTake[] = [],
 ): string | undefined {
   const seen = new Set<string>();
   for (const d of draft.lines) {
     const key = `${d.productId}|${d.batchKey}`;
     if (!d.batchKey || seen.has(key)) continue;
     seen.add(key);
-    const rem = batchStockRemaining(view, draft.lines, baselineLines, d.productId, d.batchKey);
+    const rem = batchStockRemaining(
+      view,
+      draft.lines,
+      baselineLines,
+      d.productId,
+      d.batchKey,
+      peerDraftTakes,
+    );
     if (toDecimal(rem).lt(0)) {
       const product = view.products.find((p) => p.productId === d.productId);
       return `${product?.productName ?? d.productId}: ${t("validation.exceedsAvailable")}`;
@@ -312,6 +335,46 @@ function lineAmount(l: DsrDaySaveRequest["lines"][number], view: DayView): strin
 /** Pieces sold × the line's price − commission, before posting (the engine owns the posted figure). */
 function previewSales(lines: DsrDaySaveRequest["lines"], view: DayView): string {
   return sumAmounts(["0", ...lines.map((l) => lineAmount(l, view))]);
+}
+
+/**
+ * Live table-summary lines from the draft on screen. Unlike `requestOf`, a single bad/overflow
+ * line must not wipe the whole strip to ০ (that made সামারি/মোট বিক্রি look empty while the
+ * table still showed quantities).
+ */
+function profitLinesOfDraft(draft: SheetDraft, view: DayView) {
+  const lines: {
+    issued: string;
+    returned: string;
+    damaged: string;
+    commission: string;
+    salePrice: string;
+    costPrice: string;
+    damageRate?: string;
+  }[] = [];
+  for (const d of draft.lines) {
+    const product = view.products.find((p) => p.productId === d.productId);
+    if (!product) continue;
+    const pieces = piecesOf(d, product.piecesPerCarton);
+    if (!pieces) continue;
+    const commission = clean(d.commission) || "0";
+    if (!isAmount(commission)) continue;
+    if (pieces.issued === "0" && pieces.returned === "0" && pieces.damaged === "0") {
+      if (toDecimal(commission).isZero()) continue;
+    }
+    const salePrice = saleOf(d, view);
+    const damageRate = clean(d.damageRate ?? "");
+    lines.push({
+      issued: pieces.issued,
+      returned: pieces.returned,
+      damaged: pieces.damaged,
+      commission,
+      salePrice,
+      costPrice: costOf(d, view),
+      ...(damageRate && isUnitPrice(damageRate) ? { damageRate } : {}),
+    });
+  }
+  return lines;
 }
 
 /**
@@ -469,6 +532,7 @@ function SheetEditor({
   sheet,
   history,
   view,
+  peerDraftTakes,
 }: {
   companyId: string;
   date: string;
@@ -476,6 +540,7 @@ function SheetEditor({
   sheet: DsrDay | undefined;
   history: DsrDay[];
   view: DayView;
+  peerDraftTakes: readonly PeerDraftTake[];
 }) {
   const { permissions, loginRoleKind } = useCurrentWorkspace();
   const save = useSaveDsrDay(companyId);
@@ -519,8 +584,9 @@ function SheetEditor({
   const includePrices = permissions.includes("sale.price_override");
   /** Posted lines already in day-view stock; empty while the sheet is still a draft. */
   const baselineLines = posted ? draftOf(sheet).lines : [];
-  const stockError = stockOverflowMessage(draft, view, baselineLines);
+  const stockError = stockOverflowMessage(draft, view, baselineLines, peerDraftTakes);
   const built = stockError ?? requestOf(draft, view, base, includePrices);
+  const buildError = typeof built === "string" ? built : undefined;
   const dirty =
     typeof built === "string" ||
     JSON.stringify(built) !== JSON.stringify(requestOf(draftOf(sheet), view, base, includePrices));
@@ -554,27 +620,17 @@ function SheetEditor({
   // must not count another SR's entries of the same date.
   const entries = useMoneyEntries(companyId, { from: date, to: date, sheetStaffId: staff.id });
   const field = fieldDay.data && fieldDay.data.visits.length > 0 ? fieldDay.data : null;
+  // D69: summary from the draft on screen — never blank the strip when save validation fails.
+  const parts = salesProfit(profitLinesOfDraft(draft, view));
   const cash = {
-    sales: posted && !dirty ? sumAmounts(["0", ...amounts.values()]) : previewSales(entered, view),
+    sales:
+      posted && !dirty
+        ? sumAmounts(["0", ...amounts.values()])
+        : entered.length > 0
+          ? previewSales(entered, view)
+          : cashCheckSales(parts.netSales, parts.damageValue),
     ...sheetMoneyFigures(entries.data ?? [], staff.id, sheet, field ? field.totals : null),
   };
-
-  // D69: the table's amounts as the profit's parts (domain `salesProfit`), pieces underneath.
-  const parts = salesProfit(
-    entered.map((l) => {
-      const salePrice = saleOf(l, view);
-      const damageRate = clean(l.damageRate ?? "");
-      return {
-        issued: l.issued,
-        returned: l.returned,
-        damaged: l.damaged,
-        commission: l.commission ?? "0",
-        salePrice,
-        costPrice: costOf(l, view),
-        ...(damageRate && isUnitPrice(damageRate) ? { damageRate } : {}),
-      };
-    }),
-  );
   // Until the user edits হাতে জমা, show জমা হওয়ার কথা (avoids missing .paisa / trailing-dot flicker).
   const cashExpected = dsrCashSettlement({
     sales: cashCheckSales(parts.netSales, parts.damageValue),
@@ -738,6 +794,7 @@ function SheetEditor({
       <DsrSheetEntry
         draft={draft}
         baselineLines={baselineLines}
+        peerDraftTakes={peerDraftTakes}
         view={view}
         dsrs={dsrChoices}
         sheetStaffId={staff.id}
@@ -829,7 +886,9 @@ function SheetEditor({
       {sheet?.handoverStatus === "approved" ? (
         <StatePanel compact title={t("dsr.handover.approvedBanner")} />
       ) : null}
-      {shownError ? <StatePanel tone="error" title={shownError} /> : null}
+      {shownError || buildError ? (
+        <StatePanel tone="error" title={shownError ?? buildError ?? ""} />
+      ) : null}
       <div className="flex flex-wrap gap-2">
         {!posted && !isDsrLogin && permissions.includes("sale.post") ? (
           <Button variant="primary" disabled={pending} onClick={() => void run("post")}>
@@ -929,6 +988,7 @@ function Sheets({
         sheet={sheet}
         history={sheets.data.filter((s) => s.staffId === selected.id && s.status === "reversed")}
         view={view}
+        peerDraftTakes={peerDraftTakesOf(sheets.data, selected.id)}
       />
     );
   }

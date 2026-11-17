@@ -70,7 +70,7 @@ import { insertShop } from "./shop-rows";
 import { packOn } from "./products";
 
 const isZero = (amount: string) => toDecimal(amount).isZero();
-import { ensureStockCovers } from "./stock-guard";
+import { ensureDraftSalesCover, ensureStockCovers } from "./stock-guard";
 import {
   batchOf,
   dsrLineBatch,
@@ -1042,6 +1042,20 @@ export async function saveDsrDayIn(
     if (!adminOk) throw new AppError("FORBIDDEN");
     // A correction re-posts the same sheet, so the money entered on it stays.
     await moveDsrDay(tx, ctx, access, corrected, "reversed", { keepSheetMoney: true });
+  } else {
+    // D136 / D137: draft save blocks when this sheet + other SRs' draft reservations overdraw.
+    await ensureDraftSalesCover(
+      tx,
+      access,
+      request.date,
+      lines.map(({ line }) => ({
+        productId: line.productId,
+        batchKey: line.batchKey,
+        issued: line.issued,
+        returned: line.returned,
+      })),
+      { excludeStaffId: request.staffId, excludeDate: request.date },
+    );
   }
   const data = {
     ...(request.marketDueNew === undefined ? {} : { marketDueNew: request.marketDueNew }),
