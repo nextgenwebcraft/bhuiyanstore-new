@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { draftStockShortages, draftStockTakes } from "./stock-guard";
+import {
+  competingPeerDraftTakes,
+  draftStockShortages,
+  draftStockTakes,
+} from "./stock-guard";
 
 describe("draft stock guard (D136)", () => {
   it("nets issued − returned per product and batch", () => {
@@ -89,5 +93,41 @@ describe("draft stock guard (D136)", () => {
         batchSeq: 1,
       },
     ]);
+  });
+
+  it("D138: peer takes on another product are ignored for this sheet's soft-reserve", () => {
+    const thisSheet = [{ productId: "gear", batchKey: "b1", issued: "24", returned: "0" }];
+    const peers = [
+      { productId: "googly", batchKey: "b1", issued: "500", returned: "0" },
+      { productId: "gear", batchKey: "b1", issued: "10", returned: "0" },
+      { productId: "gear", batchKey: "b2", issued: "99", returned: "0" },
+    ];
+    expect(competingPeerDraftTakes(thisSheet, peers)).toEqual([
+      { productId: "gear", batchKey: "b1", issued: "10", returned: "0" },
+    ]);
+  });
+
+  it("D138: unrelated peer oversell does not appear in this sheet's shortage", () => {
+    const days = [
+      {
+        date: "2026-11-16",
+        products: [
+          {
+            productId: "gear",
+            stock: "100",
+            batches: [{ key: "b1", quantity: "100", seq: 1 }],
+          },
+          {
+            productId: "googly",
+            stock: "-286",
+            batches: [{ key: "b1", quantity: "-286", seq: 1 }],
+          },
+        ],
+      },
+    ];
+    const thisSheet = [{ productId: "gear", batchKey: "b1", issued: "24", returned: "0" }];
+    const peers = [{ productId: "googly", batchKey: "b1", issued: "48", returned: "0" }];
+    const combined = [...competingPeerDraftTakes(thisSheet, peers), ...thisSheet];
+    expect(draftStockShortages(days, combined)).toEqual([]);
   });
 });

@@ -1,0 +1,24 @@
+id: 2026-11-18-inactive-batch-stock
+reason: >-
+  Owner 2026-11-18: saving Fresh Gear failed with Fresh googly −286 because D137 merged
+  every peer draft product into the stock check. Also: qty≤0 batches are history/inactive —
+  do not list them for new entry and do not let sibling deficits block other batches (D138).
+owners: [application, apps/web, i18n, docs]
+changes:
+  - >-
+    packages/application stock-guard — competingPeerDraftTakes; ensureDraftSalesCover
+    only merges same productId|batchKey peers; ensureStockCovers only checks touched
+    batches / product-level takes
+  - packages/application daily — stockTakenOut returns batchKey; damage stockOut uses batchId
+  - apps/web dsr-sheet-entry — add picker uses remaining after peer soft-reserve
+  - packages/i18n error.INSUFFICIENT_STOCK copy (selected batch/product only)
+  - docs/decisions.md D34 note + D137 amend + D138; implementation-status
+affectedActionIds: [sale.create, sale.post, purchase.post, damage.report]
+financialImpact: >-
+  No ledger rewrite. Historical ≤0 batch balances remain; they no longer block draft/post
+  of other products or other batches of the same product. Soft-reserve still prevents two
+  SRs from draft-overselling the same batch.
+backfill: none
+tests: packages/application stock-guard.test.ts; pnpm test:predeploy
+rollout: deploy
+recovery: revert commit

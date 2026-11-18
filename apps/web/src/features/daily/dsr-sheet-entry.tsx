@@ -84,10 +84,38 @@ const ENTRY_KINDS: readonly EntryKind[] = ["samari", "firot", "damage", "commiss
 function productBatches(product: Product, _view: DayView, named: readonly string[]): BatchOption[] {
   const out = new Map<string, BatchOption>();
   for (const b of product.batches) {
-    // D34: only batches with pieces left appear in pickers; keep a named empty batch so an
-    // already-chosen line can still display its selection.
+    // D34 / D138: ≤0 batches are inactive; keep a named empty batch so an already-chosen
+    // line can still display its selection.
     if (toDecimal(b.quantity).lte(0) && !named.includes(b.key)) continue;
     out.set(b.key, b);
+  }
+  return [...out.values()].sort((a, b) => a.seq - b.seq);
+}
+
+/**
+ * D138: add-entry picker — only batches with remaining &gt; 0 after this sheet + peer draft nets.
+ * `named` keeps the current selection visible if it later hits zero while editing the form.
+ */
+function productBatchesForAdd(
+  product: Product,
+  view: DayView,
+  named: readonly string[],
+  draftLines: readonly LineDraft[],
+  baselineLines: readonly LineDraft[],
+  peerDraftTakes: readonly PeerDraftTake[],
+): BatchOption[] {
+  const out = new Map<string, BatchOption>();
+  for (const b of product.batches) {
+    const rem = batchStockRemaining(
+      view,
+      draftLines,
+      baselineLines,
+      product.productId,
+      b.key,
+      peerDraftTakes,
+    );
+    if (toDecimal(rem).lte(0) && !named.includes(b.key)) continue;
+    out.set(b.key, { ...b, quantity: rem });
   }
   return [...out.values()].sort((a, b) => a.seq - b.seq);
 }
@@ -293,12 +321,18 @@ function EntryFormPanel({
   view,
   dsr,
   canEditPrices,
+  draftLines,
+  baselineLines,
+  peerDraftTakes,
   onAdd,
 }: {
   kind: EntryKind;
   view: DayView;
   dsr: DsrChoice | undefined;
   canEditPrices: boolean;
+  draftLines: readonly LineDraft[];
+  baselineLines: readonly LineDraft[];
+  peerDraftTakes: readonly PeerDraftTake[];
   onAdd: (input: EntryPatch) => string | undefined;
 }) {
   const id = useId();
@@ -317,7 +351,16 @@ function EntryFormPanel({
   );
 
   const product = view.products.find((p) => p.productId === row.productId);
-  const batches = product ? productBatches(product, view, row.batchKey ? [row.batchKey] : []) : [];
+  const batches = product
+    ? productBatchesForAdd(
+        product,
+        view,
+        row.batchKey ? [row.batchKey] : [],
+        draftLines,
+        baselineLines,
+        peerDraftTakes,
+      )
+    : [];
   const batch = batches.find((b) => b.key === row.batchKey) ?? batches[0];
 
   function patch(next: Partial<EntryRowDraft>) {
@@ -1150,6 +1193,9 @@ export function DsrSheetEntry({
             view={view}
             dsr={selectedDsr}
             canEditPrices={canEditPrices}
+            draftLines={draft.lines}
+            baselineLines={baselineLines}
+            peerDraftTakes={peerDraftTakes}
             onAdd={(input) => addPatch(entry, input)}
           />
         </div>

@@ -15,6 +15,15 @@ export type DraftStockTake = {
 };
 
 /**
+ * A product/batch this posting touches (D138). Named `batchKey` → only that batch is checked;
+ * omit / empty → product-level stock only (sibling ≤0 batches ignored).
+ */
+export type StockCoverTouch = {
+  productId: string;
+  batchKey?: string;
+};
+
+/**
  * Net pieces a draft/post would take from each product and named batch (D34 / D136).
  * Negative nets (more return than issue) count as zero take.
  */
@@ -41,6 +50,16 @@ export function draftStockTakes(
       [...byBatch].map(([key, v]) => [key, { productId: v.productId, net: v.net.toFixed() }]),
     ),
   };
+}
+
+/** D138: peer soft-reserve only competes on the same productId|batchKey as this sheet. */
+export function competingPeerDraftTakes(
+  sheetLines: readonly DraftStockTake[],
+  peerLines: readonly DraftStockTake[],
+): DraftStockTake[] {
+  const keys = new Set(draftStockTakes(sheetLines).byBatch.keys());
+  if (keys.size === 0) return [];
+  return peerLines.filter((l) => l.batchKey && keys.has(`${l.productId}|${l.batchKey}`));
 }
 
 type LedgerDay = {
@@ -100,44 +119,75 @@ export function draftStockShortages(
   return [...worst.values()];
 }
 
+function normalizeTouches(touches: Iterable<string | StockCoverTouch>): {
+  productOnly: Set<string>;
+  namedBatches: Map<string, { productId: string; batchKey: string }>;
+} {
+  const productOnly = new Set<string>();
+  const namedBatches = new Map<string, { productId: string; batchKey: string }>();
+  for (const t of touches) {
+    if (typeof t === "string") {
+      productOnly.add(t);
+      continue;
+    }
+    if (t.batchKey) {
+      namedBatches.set(`${t.productId}|${t.batchKey}`, {
+        productId: t.productId,
+        batchKey: t.batchKey,
+      });
+    } else {
+      productOnly.add(t.productId);
+    }
+  }
+  return { productOnly, namedBatches };
+}
+
 /**
- * D34 (always on): a posting that takes pieces out of the godown is refused when any product it
- * touches would end a day below zero, or any of that product's batches would, from the posting
- * date to today. Runs inside the posting's transaction, after the write. Receipts are never
- * checked here.
+ * D34 / D138: after a write that takes stock, refuse when a **touched** named batch ends below
+ * zero, or product stock ends below zero for a product-level take. Pre-existing ≤0 sibling
+ * batches (inactive / history) do not block. Receipts are never checked here.
  */
 export async function ensureStockCovers(
   tx: Tx,
   access: CompanyAccess,
   from: string,
-  productIds: Iterable<string>,
+  touches: Iterable<string | StockCoverTouch>,
 ): Promise<void> {
-  const ids = new Set(productIds);
-  if (ids.size === 0) return;
+  const { productOnly, namedBatches } = normalizeTouches(touches);
+  if (productOnly.size === 0 && namedBatches.size === 0) return;
   const run = await rangeRun(tx, access, from, todayBusinessDate());
   if (!run) return;
-  /** The first day each product (or one of its batches) goes below zero. */
+  const productIds = new Set<string>([
+    ...productOnly,
+    ...[...namedBatches.values()].map((b) => b.productId),
+  ]);
   const worst = new Map<string, StockShortage>();
   for (const day of run.output.days) {
     for (const p of day.products) {
-      if (!ids.has(p.productId) || worst.has(p.productId)) continue;
-      if (p.stock.startsWith("-")) {
+      if (!productIds.has(p.productId) || worst.has(p.productId)) continue;
+      let batchHit = false;
+      for (const [, touch] of namedBatches) {
+        if (touch.productId !== p.productId) continue;
+        const batch = p.batches.find((b) => b.key === touch.batchKey);
+        if (batch && batch.quantity.startsWith("-")) {
+          worst.set(p.productId, {
+            productId: p.productId,
+            productName: "",
+            date: day.date,
+            stock: batch.quantity,
+            batchSeq: batch.seq,
+          });
+          batchHit = true;
+          break;
+        }
+      }
+      if (batchHit) continue;
+      if (productOnly.has(p.productId) && p.stock.startsWith("-")) {
         worst.set(p.productId, {
           productId: p.productId,
           productName: "",
           date: day.date,
           stock: p.stock,
-        });
-        continue;
-      }
-      const negBatch = p.batches.find((b) => b.quantity.startsWith("-"));
-      if (negBatch) {
-        worst.set(p.productId, {
-          productId: p.productId,
-          productName: "",
-          date: day.date,
-          stock: negBatch.quantity,
-          batchSeq: negBatch.seq,
         });
       }
     }
@@ -177,9 +227,9 @@ export async function peerDraftStockTakes(
 }
 
 /**
- * D136 / D137: draft দৈনিক বিক্রয় হিসাব save refuses when this sheet's issued−returned plus other
- * SRs' draft reservations would take a product or named batch below zero from the sheet date
- * through today (drafts are not in the ledger).
+ * D136 / D137 / D138: draft save refuses when this sheet's issued−returned plus **competing**
+ * peer draft reservations (same productId|batchKey only) would overdraw from the sheet date
+ * through today.
  */
 export async function ensureDraftSalesCover(
   tx: Tx,
@@ -194,7 +244,8 @@ export async function ensureDraftSalesCover(
         date: peers.excludeDate,
       })
     : [];
-  const combined = [...peerLines, ...lines];
+  const competing = competingPeerDraftTakes(lines, peerLines);
+  const combined = [...competing, ...lines];
   const { byProduct } = draftStockTakes(combined);
   if (byProduct.size === 0) return;
   const run = await rangeRun(tx, access, from, todayBusinessDate());
