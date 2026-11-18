@@ -1,0 +1,21 @@
+id: 2026-11-18-stock-tracking-page
+reason: >-
+  Owner 2026-11-18: Atta 1kg stock (Pusti T.K. Group) looked wrong vs physical count
+  (system 102c+14p vs claimed 68c). Need a day-by-day trail opening → order → মজুদ →
+  সামারি, and a stock-tracking page so any product's movements are visible.
+owners: [application, contracts, apps/web, i18n, docs]
+changes:
+  - packages/contracts stock-tracking DTOs (product cards + date-wise day rows)
+  - packages/application stock-tracking — listStockTrackingProducts / getStockTrackingProduct via runLedger
+  - apps/web API /stock-tracking (+ /:productId), http/mock ports, queries, history/stock-tracking page
+  - nav history hub (after মজুদ); Bangla keys for stock tracking
+  - docs/implementation-status
+affectedActionIds: [inventory.view]
+financialImpact: >-
+  Read-only. No ledger rewrite. Engine figures only (opening + receipts + free/replacement
+  − (samari − firot) − godown/replaced). For Atta 1kg: opening 80c+18p + receipt 100c − net
+  samari 78c+4p = 102c+14p; batch 2 (100c) still untouched; opening due 40c still open.
+backfill: none
+tests: apps/web navigation.test.ts; pnpm check (types/lint as available)
+rollout: deploy
+recovery: revert commit

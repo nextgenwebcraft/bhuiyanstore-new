@@ -53,6 +53,34 @@ export const queryKeys = {
     [...companyResource(actorId, companyId, resourceIds.fieldDay), date] as const,
   dayView: (actorId: string, companyId: string, date: string) =>
     [...companyResource(actorId, companyId, resourceIds.ledger), "day", date] as const,
+  stockTrackingProducts: (
+    actorId: string,
+    companyId: string,
+    page: number,
+    pageSize: number,
+    q: string,
+  ) =>
+    [
+      ...companyResource(actorId, companyId, resourceIds.ledger),
+      "stock-tracking",
+      page,
+      pageSize,
+      q,
+    ] as const,
+  stockTrackingProduct: (
+    actorId: string,
+    companyId: string,
+    productId: string,
+    page: number,
+    pageSize: number,
+  ) =>
+    [
+      ...companyResource(actorId, companyId, resourceIds.ledger),
+      "stock-tracking",
+      productId,
+      page,
+      pageSize,
+    ] as const,
   stockEntries: (actorId: string, companyId: string, date: string) =>
     [...companyResource(actorId, companyId, resourceIds.stockEntry), date] as const,
   dsrDays: (actorId: string, companyId: string, date: string) =>

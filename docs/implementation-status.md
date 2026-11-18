@@ -6,6 +6,10 @@ Evidence-based progress. Mark an item done only with evidence.
 
 The canonical plan is now [PLAN.md](PLAN.md). The owner approved backend integration (D30).
 
+**2026-11-18** ([manifest](../changes/2026-11-18-opening-due-carton-piece.yaml)): Opening «কোম্পানি থেকে পাওনা» = পাওনা কার্টুন + পাওনা পিস (same join/split as মজুদ).
+
+**2026-11-18** ([manifest](../changes/2026-11-18-stock-tracking-page.yaml)): Stock tracking page (product cards → date-wise opening/order/মজুদ/সামারি); Atta 1kg Pusti T.K. Group books to 102c+14p (opening 80c+18p + 100c receipt − 78c+4p net samari); batch 2 still full; opening due 40c open.
+
 **2026-11-18** ([manifest](../changes/2026-11-18-inactive-batch-stock.yaml)): Inactive ≤0 batches; peer soft-reserve only same batch; sibling/history deficits no longer block other takes (D138).
 
 **2026-11-18** ([manifest](../changes/2026-11-18-draft-stock-soft-reserve.yaml)): Draft soft-reservation — peer drafts reduce available stock on save + UI মজুদ (D137); ledger stays posted-only.

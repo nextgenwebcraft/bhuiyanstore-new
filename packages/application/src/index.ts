@@ -124,6 +124,7 @@ export {
   updateStaffLogin,
 } from "./field";
 export { getSetupStatus } from "./setup";
+export { getStockTrackingProduct, listStockTrackingProducts } from "./stock-tracking";
 export { createShop, deleteShop, getShopStatement, listShops, updateShop } from "./shops";
 export {
   STANDARD_CASH_ACCOUNTS,

@@ -51,6 +51,8 @@ import {
   staffRoleSchema,
   staffStatementSchema,
   stockEntrySchema,
+  stockTrackingProductDetailSchema,
+  stockTrackingProductListSchema,
   userSchema,
   type Me,
   type PasswordChangeRequest,
@@ -253,6 +255,29 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
 
     getDayView: (companyId, date, options) =>
       request(dayViewSchema, `${company(companyId)}/days/${id(date)}`, options),
+    listStockTrackingProducts: (companyId, query, options) => {
+      const params = new URLSearchParams();
+      if (query?.page) params.set("page", String(query.page));
+      if (query?.pageSize) params.set("pageSize", String(query.pageSize));
+      if (query?.q) params.set("q", query.q);
+      const qs = params.toString();
+      return request(
+        stockTrackingProductListSchema,
+        `${company(companyId)}/stock-tracking${qs ? `?${qs}` : ""}`,
+        options,
+      );
+    },
+    getStockTrackingProduct: (companyId, productId, query, options) => {
+      const params = new URLSearchParams();
+      if (query?.page) params.set("page", String(query.page));
+      if (query?.pageSize) params.set("pageSize", String(query.pageSize));
+      const qs = params.toString();
+      return request(
+        stockTrackingProductDetailSchema,
+        `${company(companyId)}/stock-tracking/${id(productId)}${qs ? `?${qs}` : ""}`,
+        options,
+      );
+    },
     listStockEntries: (companyId, date, options) =>
       request(
         z.array(stockEntrySchema),

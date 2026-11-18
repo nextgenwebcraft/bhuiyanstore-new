@@ -237,6 +237,40 @@ export function useDayView(companyId: string, date: string, enabled = true) {
   });
 }
 
+export function useStockTrackingProducts(
+  companyId: string,
+  page: number,
+  pageSize: number,
+  q = "",
+  enabled = true,
+) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.stockTrackingProducts(actorId, companyId, page, pageSize, q),
+    queryFn: ({ signal }) =>
+      service.listStockTrackingProducts(companyId, { page, pageSize, q }, { signal }),
+    enabled: enabled && companyId !== "",
+  });
+}
+
+export function useStockTrackingProduct(
+  companyId: string,
+  productId: string,
+  page: number,
+  pageSize: number,
+  enabled = true,
+) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.stockTrackingProduct(actorId, companyId, productId, page, pageSize),
+    queryFn: ({ signal }) =>
+      service.getStockTrackingProduct(companyId, productId, { page, pageSize }, { signal }),
+    enabled: enabled && companyId !== "" && productId !== "",
+  });
+}
+
 export function useStockEntries(companyId: string, date: string, enabled = true) {
   const service = useService();
   const actorId = useActorId();

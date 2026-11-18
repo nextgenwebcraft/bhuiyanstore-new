@@ -1,0 +1,17 @@
+id: 2026-11-18-opening-due-carton-piece
+reason: >-
+  Owner 2026-11-18: প্রারম্ভিক মজুদ «কোম্পানি থেকে পাওনা» should be entered as
+  carton + piece (like stock qty), not one pieces-only field.
+owners: [apps/web, i18n, docs]
+changes:
+  - apps/web opening StockSection — dueCartons + duePieces; join/split via toBaseQuantity
+  - packages/i18n opening.stock.dueCartons / duePieces
+  - docs/implementation-status
+affectedActionIds: [opening.prepare]
+financialImpact: >-
+  UI only. Saved value remains total pieces on opening_stock_line.due_from_company;
+  blank both fields still means unknown/null.
+backfill: none
+tests: none (UI wiring); pnpm --filter @bsd/web typecheck
+rollout: deploy
+recovery: revert commit
