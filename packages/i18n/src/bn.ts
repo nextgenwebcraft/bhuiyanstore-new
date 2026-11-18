@@ -438,7 +438,8 @@ export const bn = {
   "validation.previousDue.reduceAmount": "কাটার টাকা শূন্যের বেশি হতে হবে",
   "validation.previousDue.exceedsRemaining": "কাটার টাকা বাকির চেয়ে বেশি হতে পারে না",
   "dashboard.chart.title": "মোট বিক্রি",
-  "dashboard.chart.subtitle.days": "গতশেষ ১২ দিনের মোট বিক্রি",
+  "dashboard.chart.subtitle.days":
+    "নির্বাচিত মাসের প্রতি দিনের মোট বিক্রি — দুই দিকে স্লাইড করে সব দিন দেখুন",
   "dashboard.chart.subtitle.months": "নির্বাচিত বছরের প্রতি মাসের মোট বিক্রি",
   "dashboard.chart.tab.days": "দিন ভিত্তিক",
   "dashboard.chart.tab.months": "মাস ভিত্তিক",

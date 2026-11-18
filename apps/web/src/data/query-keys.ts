@@ -28,8 +28,12 @@ export const queryKeys = {
       "monthly",
       year,
     ] as const,
-  dashboardDaily: (actorId: string, companyId: string) =>
-    [...companyResource(actorId, companyId, resourceIds.dashboardSummary), "daily"] as const,
+  dashboardDaily: (actorId: string, companyId: string, month: string) =>
+    [
+      ...companyResource(actorId, companyId, resourceIds.dashboardSummary),
+      "daily",
+      month,
+    ] as const,
   productHistory: (actorId: string, companyId: string, productId: string) =>
     [...companyResource(actorId, companyId, resourceIds.productHistory), productId] as const,
   staffRecords: (actorId: string, companyId: string) =>

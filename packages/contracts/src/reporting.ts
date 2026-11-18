@@ -147,8 +147,8 @@ export const dashboardMonthlySchema = z.object({
 export type DashboardMonthly = z.infer<typeof dashboardMonthlySchema>;
 
 /**
- * Last 12 business days of মোট বিক্রি for the company dashboard chart (D128 day tab).
- * `salesProfit` is omitted without the same permissions as the monthly series.
+ * Day-wise মোট বিক্রি for the company dashboard chart (D128/D140 day tab): every day of the
+ * selected calendar month through today. `salesProfit` needs the same permissions as monthly.
  */
 export const dashboardDailySchema = z.object({
   from: businessDateSchema,

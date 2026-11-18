@@ -250,8 +250,12 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
         `${company(companyId)}/dashboard-monthly?${new URLSearchParams({ year }).toString()}`,
         options,
       ),
-    getDashboardDaily: (companyId, options) =>
-      request(dashboardDailySchema, `${company(companyId)}/dashboard-daily`, options),
+    getDashboardDaily: (companyId, month, options) =>
+      request(
+        dashboardDailySchema,
+        `${company(companyId)}/dashboard-daily?${new URLSearchParams({ month }).toString()}`,
+        options,
+      ),
 
     getDayView: (companyId, date, options) =>
       request(dayViewSchema, `${company(companyId)}/days/${id(date)}`, options),

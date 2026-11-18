@@ -39,7 +39,6 @@ import {
   firstOfMonth,
   lastOfMonth,
   monthOf,
-  shiftBusinessDate,
   sumAmounts,
   sumQuantities,
   summarizeDay,
@@ -2272,16 +2271,23 @@ export async function getDashboardMonthly(
 }
 
 /**
- * Last 12 calendar days of মোট বিক্রি for the dashboard chart day tab (D128). One ledger run
- * over the window; days with no activity are zero.
+ * Day-wise মোট বিক্রি for the dashboard chart day tab (D128/D140): every day of the selected
+ * calendar month (through today when that month is current). One ledger run; quiet days are zero.
  */
 export async function getDashboardDaily(
   ctx: AppContext,
   companyId: string,
+  monthInput?: unknown,
 ): Promise<DashboardDaily> {
   const access = await requirePermission(ctx, companyId, "company.view");
-  const to = todayBusinessDate();
-  const from = shiftBusinessDate(to, -11);
+  const today = todayBusinessDate();
+  const month =
+    typeof monthInput === "string" && /^\d{4}-\d{2}$/.test(monthInput)
+      ? monthInput
+      : monthOf(today);
+  const from = firstOfMonth(month);
+  const monthEnd = lastOfMonth(month);
+  const to = monthEnd > today ? today : monthEnd;
   const labels = datesBetween(from, to);
   const canSeeProfit =
     access.permissions.includes("inventory.cost_view") &&

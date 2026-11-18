@@ -158,8 +158,12 @@ export interface DistributionService {
     year: string,
     options?: RequestOptions,
   ): Promise<DashboardMonthly>;
-  /** Last 12 days of মোট বিক্রি for the dashboard chart day tab (D128). */
-  getDashboardDaily(companyId: string, options?: RequestOptions): Promise<DashboardDaily>;
+  /** Day-wise মোট বিক্রি for the selected month (D128/D140 dashboard chart day tab). */
+  getDashboardDaily(
+    companyId: string,
+    month: string,
+    options?: RequestOptions,
+  ): Promise<DashboardDaily>;
 
   // Daily entry (PLAN §9 Phase E). Posted documents are corrected by reversal, never edited.
 
