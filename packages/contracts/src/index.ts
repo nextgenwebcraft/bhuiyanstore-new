@@ -128,6 +128,16 @@ export {
   type StockEntryPostRequest,
 } from "./daily";
 export {
+  stockTrackingDaySchema,
+  stockTrackingProductDetailSchema,
+  stockTrackingProductListSchema,
+  stockTrackingProductSchema,
+  type StockTrackingDay,
+  type StockTrackingProduct,
+  type StockTrackingProductDetail,
+  type StockTrackingProductList,
+} from "./stock-tracking";
+export {
   companyCheckBulkCreateRequestSchema,
   companyCheckCreateRowSchema,
   companyCheckHistoryItemSchema,

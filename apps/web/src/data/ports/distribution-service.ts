@@ -95,6 +95,8 @@ import type {
   StaffUpsertRequest,
   StockEntry,
   StockEntryPostRequest,
+  StockTrackingProductDetail,
+  StockTrackingProductList,
   OrderPaymentCorrectRequest,
   User,
   UserCreateRequest,
@@ -163,6 +165,19 @@ export interface DistributionService {
 
   /** The engine's day block (PLAN §6); cost and profit are null without their permissions. */
   getDayView(companyId: string, date: string, options?: RequestOptions): Promise<DayView>;
+  /** Requires `inventory.view`: product cards with current engine stock. */
+  listStockTrackingProducts(
+    companyId: string,
+    query?: { page?: number; pageSize?: number; q?: string },
+    options?: RequestOptions,
+  ): Promise<StockTrackingProductList>;
+  /** Requires `inventory.view`: date-wise opening → order → মজুদ → সামারি trail for one product. */
+  getStockTrackingProduct(
+    companyId: string,
+    productId: string,
+    query?: { page?: number; pageSize?: number },
+    options?: RequestOptions,
+  ): Promise<StockTrackingProductDetail>;
   /** Requires `purchase.view`: the date's godown entries, reversed ones included. */
   listStockEntries(
     companyId: string,

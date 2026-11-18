@@ -86,17 +86,12 @@ describe("hubs", () => {
       "purchases/receipts",
       "inventory/stock",
       "inventory/undelivered",
+      "inventory/floor-damage",
     ]);
-    expect(paths("shops")).toEqual(["sales/shops"]);
-    expect(paths("money")).toEqual([
-      "finance/supplier-deposits",
-      "finance/company-account",
-      "finance/company-checks",
-    ]);
-    expect(paths("ledgers")).toEqual(["finance/cash-book", "dsr/salary-recovery"]);
     expect(paths("history")).toEqual([
       "history/orders",
       "history/stock",
+      "history/stock-tracking",
       "history/damage",
       "history/shop-dues",
       "history/staff-cash",
@@ -105,6 +100,13 @@ describe("hubs", () => {
       "history/company-checks",
       "history/dsr-sheets",
     ]);
+    expect(paths("shops")).toEqual(["sales/shops"]);
+    expect(paths("money")).toEqual([
+      "finance/supplier-deposits",
+      "finance/company-account",
+      "finance/company-checks",
+    ]);
+    expect(paths("ledgers")).toEqual(["finance/cash-book", "dsr/salary-recovery"]);
   });
 
   it("has no entry for the removed statement, receivable, payable and opening screens (D73)", () => {

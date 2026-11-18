@@ -58,6 +58,7 @@ export const navigation: readonly NavSection[] = [
     items: [
       item("history/orders", "nav.history.orders", "purchase.view"),
       item("history/stock", "nav.history.stock", "purchase.view"),
+      item("history/stock-tracking", "nav.history.stockTracking", "inventory.view"),
       item("history/damage", "nav.history.damage", "purchase.view"),
       item("history/shop-dues", "nav.history.shopDues", "sale.view"),
       item("history/staff-cash", "nav.history.staffCash", "finance.view"),
@@ -200,6 +201,7 @@ const hubDefinitions: readonly Omit<Hub, "shortcut">[] = [
     tabs: [
       { path: "history/orders" },
       { path: "history/stock" },
+      { path: "history/stock-tracking" },
       { path: "history/damage" },
       { path: "history/shop-dues" },
       { path: "history/staff-cash" },

@@ -149,7 +149,8 @@ type StockRow = {
   pieces: string;
   unitCost: string;
   salePrice: string;
-  dueFromCompany: string;
+  dueCartons: string;
+  duePieces: string;
   note: string;
 };
 
@@ -157,6 +158,7 @@ function buildStockDraft(stock: Opening["stock"]): Record<string, StockRow> {
   return Object.fromEntries(
     stock.map((line) => {
       const qty = splitPieces(line.pieces, line.piecesPerCarton);
+      const due = splitPieces(line.dueFromCompany, line.piecesPerCarton);
       return [
         line.productId,
         {
@@ -164,7 +166,8 @@ function buildStockDraft(stock: Opening["stock"]): Record<string, StockRow> {
           pieces: qty.pieces,
           unitCost: line.unitCost ?? "",
           salePrice: line.salePrice ?? "",
-          dueFromCompany: line.dueFromCompany ?? "",
+          dueCartons: due.cartons,
+          duePieces: due.pieces,
           note: line.note,
         },
       ];
@@ -196,7 +199,8 @@ function StockSection({ opening, companyId }: { opening: Opening; companyId: str
         pieces: "",
         unitCost: "",
         salePrice: "",
-        dueFromCompany: "",
+        dueCartons: "",
+        duePieces: "",
         note: "",
       };
       return { ...prev, [productId]: { ...existing, [field]: value } };
@@ -216,7 +220,11 @@ function StockSection({ opening, companyId }: { opening: Opening; companyId: str
             pieces: joinPieces(row?.cartons ?? "", row?.pieces ?? "", line.piecesPerCarton),
             unitCost: row?.unitCost || null,
             salePrice: row?.salePrice || null,
-            dueFromCompany: row?.dueFromCompany || null,
+            dueFromCompany: joinPieces(
+              row?.dueCartons ?? "",
+              row?.duePieces ?? "",
+              line.piecesPerCarton,
+            ),
             note: row?.note ?? "",
           };
         }),
@@ -257,7 +265,8 @@ function StockSection({ opening, companyId }: { opening: Opening; companyId: str
               <th className={`${tdClass} text-right`}>{t("opening.stock.pieces")}</th>
               <th className={`${tdClass} text-right`}>{t("opening.stock.unitCost")}</th>
               <th className={`${tdClass} text-right`}>{t("opening.stock.salePrice")}</th>
-              <th className={`${tdClass} text-right`}>{t("opening.stock.dueFromCompany")}</th>
+              <th className={`${tdClass} text-right`}>{t("opening.stock.dueCartons")}</th>
+              <th className={`${tdClass} text-right`}>{t("opening.stock.duePieces")}</th>
             </tr>
           </thead>
           <tbody>
@@ -267,7 +276,8 @@ function StockSection({ opening, companyId }: { opening: Opening; companyId: str
                 pieces: "",
                 unitCost: "",
                 salePrice: "",
-                dueFromCompany: "",
+                dueCartons: "",
+                duePieces: "",
                 note: "",
               };
               const disabled = opening.locked;
@@ -327,10 +337,23 @@ function StockSection({ opening, companyId }: { opening: Opening; companyId: str
                       type="text"
                       inputMode="numeric"
                       className={inputSm}
-                      value={row.dueFromCompany}
+                      value={row.dueCartons}
                       disabled={disabled}
                       placeholder="০"
-                      onChange={(e) => set(line.productId, "dueFromCompany", e.target.value)}
+                      aria-label={t("opening.stock.dueCartons")}
+                      onChange={(e) => set(line.productId, "dueCartons", e.target.value)}
+                    />
+                  </td>
+                  <td className={tdClass}>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      className={inputSm}
+                      value={row.duePieces}
+                      disabled={disabled}
+                      placeholder="০"
+                      aria-label={t("opening.stock.duePieces")}
+                      onChange={(e) => set(line.productId, "duePieces", e.target.value)}
                     />
                   </td>
                 </tr>

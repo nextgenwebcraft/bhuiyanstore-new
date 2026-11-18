@@ -214,6 +214,8 @@ export function createMockService(
     getDashboardMonthly: demoReadOnly,
     getDashboardDaily: demoReadOnly,
     getDayView: demoReadOnly,
+    listStockTrackingProducts: demoReadOnly,
+    getStockTrackingProduct: demoReadOnly,
     listStockEntries: demoReadOnly,
     postStockEntries: demoReadOnly,
     reverseStockEntry: demoReadOnly,
