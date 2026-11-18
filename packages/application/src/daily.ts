@@ -70,7 +70,11 @@ import { insertShop } from "./shop-rows";
 import { packOn } from "./products";
 
 const isZero = (amount: string) => toDecimal(amount).isZero();
-import { ensureDraftSalesCover, ensureStockCovers } from "./stock-guard";
+import {
+  ensureDraftSalesCover,
+  ensureStockCovers,
+  type StockCoverTouch,
+} from "./stock-guard";
 import {
   batchOf,
   dsrLineBatch,
@@ -500,9 +504,13 @@ export async function postStockEntries(
         });
       }
       // D53/D131: godown damage and floor damage deposits leave saleable stock.
+      // D138: named batchId (= batchKey) so sibling ≤0 batches do not block.
       const stockOut = request.lines
         .filter((l) => l.kind === "damage" || l.kind === "floorDamageDeposit")
-        .map((l) => l.productId);
+        .map((l) => ({
+          productId: l.productId,
+          ...(l.batchId ? { batchKey: l.batchId } : {}),
+        }));
       await ensureStockCovers(tx, access, request.date, stockOut);
       const before: Record<string, string> = {};
       const explicit = new Set(request.prices.map((p) => `${p.productId}|${p.kind}`));
@@ -1123,7 +1131,8 @@ export async function saveDsrDayIn(
     const draft = await loadDsrDay(tx, companyId, id);
     await moveDsrDay(tx, ctx, access, draft, "posted");
     await ensureStockCovers(tx, access, request.date, [
-      ...new Set([...stockTakenOut(corrected, "reversed"), ...stockTakenOut(draft, "posted")]),
+      ...stockTakenOut(corrected, "reversed"),
+      ...stockTakenOut(draft, "posted"),
     ]);
   }
   await recordAudit(tx, ctx, {
@@ -1217,14 +1226,20 @@ async function moveDsrDay(
   }
 }
 
-/** Products whose stock a move takes out: posting takes issued − returned, reversing gives it back. */
-function stockTakenOut(row: DsrRow, to: "posted" | "reversed"): string[] {
+/**
+ * Batches whose stock a move takes out (D138): posting takes issued − returned; reversing
+ * gives it back. Named batchKey so sibling ≤0 batches do not block.
+ */
+function stockTakenOut(row: DsrRow, to: "posted" | "reversed"): StockCoverTouch[] {
   return row.lines
     .filter((line) => {
       const net = toDecimal(line.issued).sub(toDecimal(line.returned));
       return to === "posted" ? net.gt(0) : net.lt(0);
     })
-    .map((line) => line.productId);
+    .map((line) => ({
+      productId: line.productId,
+      ...(line.batchKey ? { batchKey: line.batchKey } : {}),
+    }));
 }
 
 /** D112 / D135: after হাতে জমা, only Super Admin may change the sheet (always, even when approved). */
