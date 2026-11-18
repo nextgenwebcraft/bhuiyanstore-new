@@ -6,6 +6,8 @@ Evidence-based progress. Mark an item done only with evidence.
 
 The canonical plan is now [PLAN.md](PLAN.md). The owner approved backend integration (D30).
 
+**2026-11-18** ([manifest](../changes/2026-11-18-dsr-correct-empty-batch.yaml)): D139 — correct stock-check only qty-changed সামারি/ফেরত/ড্যামেজ; edit shows today's remaining beside batch (no batch dropdown); empty batch locks সামারি/ফেরত/ড্যামেজ/দর + toast, commission editable; Atta 1kg −802 moved onto batch 2 (total unchanged).
+
 **2026-11-18** ([manifest](../changes/2026-11-18-opening-due-carton-piece.yaml)): Opening «কোম্পানি থেকে পাওনা» = পাওনা কার্টুন + পাওনা পিস (same join/split as মজুদ).
 
 **2026-11-18** ([manifest](../changes/2026-11-18-stock-tracking-page.yaml)): Stock tracking page (product cards → date-wise opening/order/মজুদ/সামারি); Atta 1kg Pusti T.K. Group books to 102c+14p (opening 80c+18p + 100c receipt − 78c+4p net samari); batch 2 still full; opening due 40c open.

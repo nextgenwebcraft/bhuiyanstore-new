@@ -13,6 +13,7 @@
     "seed-demo": "node --max-old-space-size=8192 --import tsx src/scripts/seed-demo.ts",
     "zero-staff-balances": "tsx src/scripts/zero-staff-balances.ts",
     "fix-rso-batch-stock": "tsx src/scripts/fix-rso-batch-stock.ts",
+    "fix-negative-batch-stock": "tsx src/scripts/fix-negative-batch-stock.ts",
     "wipe-companies": "tsx src/scripts/wipe-companies.ts"
   },
   "dependencies": {

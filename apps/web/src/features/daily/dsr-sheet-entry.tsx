@@ -3,7 +3,7 @@
 import type { DayView } from "@bsd/contracts";
 import { sumAmounts, sumQuantities, toBaseQuantity, toCartonDisplay, toDecimal } from "@bsd/domain";
 import { formatCount, formatRate, t } from "@bsd/i18n";
-import { useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { Button } from "@/components/button";
 import { Combobox, type ComboboxOption } from "@/components/combobox";
 import {
@@ -22,7 +22,10 @@ import {
 import { Field, inputClass } from "@/components/field";
 import { StatePanel } from "@/components/state-panel";
 import { TableScroller } from "@/components/table-scroller";
+import { useDayView } from "@/data/queries";
 import { DsrSelect, type DsrChoice } from "@/features/daily/dsr-select";
+import { useCurrentWorkspace } from "@/features/shell/workspace-context";
+import { useToday } from "@/lib/today";
 import { batchName, CellInput, clean } from "./daily-kit";
 
 type Product = DayView["products"][number];
@@ -351,15 +354,22 @@ function EntryFormPanel({
   );
 
   const product = view.products.find((p) => p.productId === row.productId);
+  // Commission may attach to an empty/history batch; qty/দর entry only lists batches with stock.
   const batches = product
-    ? productBatchesForAdd(
-        product,
-        view,
-        row.batchKey ? [row.batchKey] : [],
-        draftLines,
-        baselineLines,
-        peerDraftTakes,
-      )
+    ? kind === "commission"
+      ? productBatches(
+          product,
+          view,
+          product.batches.map((b) => b.key),
+        )
+      : productBatchesForAdd(
+          product,
+          view,
+          row.batchKey ? [row.batchKey] : [],
+          draftLines,
+          baselineLines,
+          peerDraftTakes,
+        )
     : [];
   const batch = batches.find((b) => b.key === row.batchKey) ?? batches[0];
 
@@ -372,7 +382,9 @@ function EntryFormPanel({
     if (!dsr) return setError(t("validation.daily.lineDsrOnly"));
     if (!product) return setError(t("validation.daily.unknownProduct"));
     const key = batch?.key ?? "";
-    if (!key && kind !== "damage") return setError(t("dsr.sheet.noStock"));
+    if (kind !== "commission" && (!key || !toDecimal(batch?.quantity ?? "0").gt(0))) {
+      return setError(t("dsr.sheet.batchGoneToast"));
+    }
     const sale = canEditPrices ? clean(row.salePrice) : "";
     const cost = canEditPrices ? clean(row.costPrice) : "";
     const msg = onAdd({
@@ -659,6 +671,17 @@ function mergeLinesByProductBatch(lines: readonly LineDraft[]): LineDraft[] {
   return [...map.values()];
 }
 
+/** Today's pieces left on a named batch (engine closing for today). */
+function liveBatchPieces(
+  liveView: DayView | undefined,
+  productId: string,
+  batchKey: string,
+): string {
+  const product = liveView?.products.find((p) => p.productId === productId);
+  const batch = product?.batches.find((b) => b.key === batchKey);
+  return batch?.quantity ?? "0";
+}
+
 function ReadOnlyLinesTable({
   title,
   lines,
@@ -666,6 +689,7 @@ function ReadOnlyLinesTable({
   baselineLines,
   peerDraftTakes,
   view,
+  liveView,
   locked,
   canEdit,
   canEditPrices,
@@ -680,6 +704,8 @@ function ReadOnlyLinesTable({
   baselineLines: readonly LineDraft[];
   peerDraftTakes: readonly PeerDraftTake[];
   view: DayView;
+  /** Today's day view — gates সামারি/ফেরত/ড্যামেজ/দর when the batch is empty now. */
+  liveView: DayView | undefined;
   locked: boolean;
   canEdit: boolean;
   canEditPrices: boolean;
@@ -689,6 +715,12 @@ function ReadOnlyLinesTable({
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [edit, setEdit] = useState<Partial<LineDraft>>({});
+  const [toast, setToast] = useState<string | null>(null);
+  useEffect(() => {
+    if (!toast) return;
+    const id = window.setTimeout(() => setToast(null), 4000);
+    return () => window.clearTimeout(id);
+  }, [toast]);
   if (lines.length === 0) return null;
   const productOf = (id: string) => view.products.find((p) => p.productId === id);
   const sorted = sortLinesBySku(lines, view);
@@ -698,7 +730,18 @@ function ReadOnlyLinesTable({
     return { ...line, ...edit };
   });
 
+  function batchGoneNow(productId: string, batchKey: string): boolean {
+    // Do not lock while today's view is still loading (unknown ≠ empty).
+    if (!liveView) return false;
+    return !toDecimal(liveBatchPieces(liveView, productId, batchKey)).gt(0);
+  }
+
+  function warnBatchGone() {
+    setToast(t("dsr.sheet.batchGoneToast"));
+  }
+
   function startEdit(line: LineDraft) {
+    if (batchGoneNow(line.productId, line.batchKey)) warnBatchGone();
     setEditingId(line.id);
     setEdit({
       issuedCartons: line.issuedCartons,
@@ -715,19 +758,38 @@ function ReadOnlyLinesTable({
 
   function saveEdit(id: string) {
     const line = lines.find((l) => l.id === id);
-    if (line) {
-      const nextLine = { ...line, ...edit };
-      const stockDraft = allDraftLines.map((l) => (l.id === id ? nextLine : l));
-      const rem = batchStockRemaining(
-        view,
-        stockDraft,
-        baselineLines,
-        nextLine.productId,
-        nextLine.batchKey,
-        peerDraftTakes,
-      );
-      if (toDecimal(rem).lt(0)) return;
+    if (!line) return;
+    const gone = batchGoneNow(line.productId, line.batchKey);
+    const nextLine = { ...line, ...edit };
+    if (gone) {
+      const qtyOrRateChanged =
+        (edit.issuedCartons !== undefined && edit.issuedCartons !== line.issuedCartons) ||
+        (edit.issuedPieces !== undefined && edit.issuedPieces !== line.issuedPieces) ||
+        (edit.returnedCartons !== undefined && edit.returnedCartons !== line.returnedCartons) ||
+        (edit.returnedPieces !== undefined && edit.returnedPieces !== line.returnedPieces) ||
+        (edit.damaged !== undefined && edit.damaged !== line.damaged) ||
+        (edit.damageRate !== undefined && edit.damageRate !== (line.damageRate ?? "")) ||
+        (edit.salePrice !== undefined && edit.salePrice !== (line.salePrice ?? "")) ||
+        (edit.costPrice !== undefined && edit.costPrice !== (line.costPrice ?? ""));
+      if (qtyOrRateChanged) {
+        warnBatchGone();
+        return;
+      }
+      onUpdate(id, { commission: edit.commission ?? line.commission });
+      setEditingId(null);
+      setEdit({});
+      return;
     }
+    const stockDraft = allDraftLines.map((l) => (l.id === id ? nextLine : l));
+    const rem = batchStockRemaining(
+      view,
+      stockDraft,
+      baselineLines,
+      nextLine.productId,
+      nextLine.batchKey,
+      peerDraftTakes,
+    );
+    if (toDecimal(rem).lt(0)) return;
     onUpdate(id, edit);
     setEditingId(null);
     setEdit({});
@@ -736,6 +798,7 @@ function ReadOnlyLinesTable({
   return (
     <section className="flex flex-col gap-2">
       <h3 className="font-semibold">{title}</h3>
+      {toast ? <StatePanel compact tone="error" title={toast} /> : null}
       <TableScroller>
         <table className={tableClass}>
           <thead className={theadClass}>
@@ -821,15 +884,24 @@ function ReadOnlyLinesTable({
                 line.batchKey,
                 peerDraftTakes,
               );
+              const livePieces = liveView
+                ? liveBatchPieces(liveView, line.productId, line.batchKey)
+                : remaining;
+              const qtyLocked = batchGoneNow(line.productId, line.batchKey);
               return (
                 <tr key={line.id} className="border-t border-border">
                   <th scope="row" className={`${tdClass} ${stickyCell} text-left font-medium`}>
                     <div>{product?.productName ?? line.productId}</div>
                     <div className="text-xs font-normal text-text-muted">{product?.sku}</div>
                   </th>
-                  <td className={tdClass}>{batchName({ key: line.batchKey, seq })}</td>
+                  <td className={tdClass}>
+                    <div>{batchName({ key: line.batchKey, seq })}</div>
+                    <div className="text-xs text-text-muted">
+                      {t("batch.available")} {stockCartonPiece(livePieces, size)}
+                    </div>
+                  </td>
                   <td className={tdNum}>
-                    {editing && !issuedLocked ? (
+                    {editing && !issuedLocked && !qtyLocked ? (
                       <span className="inline-flex gap-1">
                         <CellInput
                           label={t("dsr.sheet.issued")}
@@ -849,7 +921,7 @@ function ReadOnlyLinesTable({
                     )}
                   </td>
                   <td className={tdNum}>
-                    {editing ? (
+                    {editing && !qtyLocked ? (
                       <span className="inline-flex gap-1">
                         <CellInput
                           label={t("dsr.sheet.returned")}
@@ -871,7 +943,7 @@ function ReadOnlyLinesTable({
                     )}
                   </td>
                   <td className={tdNum}>
-                    {editing ? (
+                    {editing && !qtyLocked ? (
                       <CellInput
                         label={t("dsr.sheet.damaged")}
                         value={edit.damaged ?? ""}
@@ -883,7 +955,7 @@ function ReadOnlyLinesTable({
                     )}
                   </td>
                   <td className={tdNum}>
-                    {editing ? (
+                    {editing && !qtyLocked ? (
                       <CellInput
                         label={t("dsr.sheet.damageRate")}
                         value={edit.damageRate ?? ""}
@@ -911,7 +983,7 @@ function ReadOnlyLinesTable({
                     )}
                   </td>
                   <td className={tdNum}>
-                    {editing && canEditPrices ? (
+                    {editing && canEditPrices && !qtyLocked ? (
                       <CellInput
                         label={t("dsr.sheet.batchSalePrice")}
                         value={edit.salePrice ?? ""}
@@ -927,7 +999,7 @@ function ReadOnlyLinesTable({
                   </td>
                   {view.canSeeCost ? (
                     <td className={tdNum}>
-                      {editing && canEditPrices ? (
+                      {editing && canEditPrices && !qtyLocked ? (
                         <CellInput
                           label={t("dsr.sheet.costPrice")}
                           value={edit.costPrice ?? ""}
@@ -1079,6 +1151,10 @@ export function DsrSheetEntry({
   saveDisabled?: boolean;
   savePending?: boolean;
 }) {
+  const { company } = useCurrentWorkspace();
+  const today = useToday();
+  const liveDay = useDayView(company.id, today);
+  const liveView = liveDay.data;
   const dsrFieldId = useId();
   const searchId = useId();
   const [entry, setEntry] = useState<EntryKind | null>(null);
@@ -1219,6 +1295,7 @@ export function DsrSheetEntry({
           baselineLines={baselineLines}
           peerDraftTakes={peerDraftTakes}
           view={view}
+          liveView={liveView}
           locked={locked}
           canEdit={!locked}
           canEditPrices={canEditPrices}
@@ -1240,6 +1317,7 @@ export function DsrSheetEntry({
           baselineLines={baselineLines}
           peerDraftTakes={peerDraftTakes}
           view={view}
+          liveView={liveView}
           locked={locked || byDsr.length > 0}
           canEdit={!locked && byDsr.length === 0}
           canEditPrices={canEditPrices}

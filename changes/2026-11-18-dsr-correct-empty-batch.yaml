@@ -1,0 +1,31 @@
+id: 2026-11-18-dsr-correct-empty-batch
+reason: >-
+  Owner 2026-11-18: Nov 5 commission-only re-post failed INSUFFICIENT_STOCK on Atta
+  batch 1 (empty today / sibling deficit). Also: correction should not re-check
+  stock for lines whose সামারি/ফেরত/ড্যামেজ qty did not change; edit UI must not
+  offer a batch dropdown, must show remaining beside batch, and must lock
+  সামারি/ফেরত/ড্যামেজ/দর (toast) when the batch is empty today while leaving
+  commission editable (D139). One-off: move Atta 1kg batch1 −802 onto batch2
+  (product total unchanged).
+owners: [application, apps/web, i18n, docs]
+changes:
+  - >-
+    packages/application daily — stockQtyTouches; correct path ensureStockCovers
+    only for qty-changed product/batch
+  - >-
+    packages/application scripts/fix-negative-batch-stock + pnpm
+    db:fix-negative-batch-stock (Atta 1kg −802 → batch 2 applied)
+  - >-
+    apps/web dsr-sheet-entry — live today remaining beside batch; empty-batch
+    locks qty/দর + toast; commission still editable; no batch dropdown on edit
+  - packages/i18n dsr.sheet.batchGoneToast
+  - docs/decisions.md D139; implementation-status
+affectedActionIds: [sale.create, sale.post]
+financialImpact: >-
+  Atta 1kg (Pusti): reattributes 802 issued pieces from batch 1 onto batch 2 so
+  neither batch is negative; product total stock unchanged. Commission-only
+  corrections no longer fail on empty/sibling batches.
+backfill: applied via pnpm db:fix-negative-batch-stock (Atta)
+tests: pnpm check
+rollout: deploy; Atta fix already applied
+recovery: revert commit; reverse Atta batch rekey if needed
