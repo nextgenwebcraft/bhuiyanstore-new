@@ -438,7 +438,8 @@ export const bn = {
   "validation.previousDue.reduceAmount": "কাটার টাকা শূন্যের বেশি হতে হবে",
   "validation.previousDue.exceedsRemaining": "কাটার টাকা বাকির চেয়ে বেশি হতে পারে না",
   "dashboard.chart.title": "মোট বিক্রি",
-  "dashboard.chart.subtitle.days": "গতশেষ ১২ দিনের মোট বিক্রি",
+  "dashboard.chart.subtitle.days":
+    "নির্বাচিত মাসের প্রতি দিনের মোট বিক্রি — দুই দিকে স্লাইড করে সব দিন দেখুন",
   "dashboard.chart.subtitle.months": "নির্বাচিত বছরের প্রতি মাসের মোট বিক্রি",
   "dashboard.chart.tab.days": "দিন ভিত্তিক",
   "dashboard.chart.tab.months": "মাস ভিত্তিক",
@@ -1906,7 +1907,8 @@ export const bn = {
   "godown.order.batch": "ব্যাচ",
   "godown.order.newBatch": "নতুন ব্যাচ",
   "godown.order.priceMissing": "ক্রয় ও বিক্রয় মূল্য দিন",
-  "godown.order.effectivePieceHint": "ফ্রি মালে এই ব্যাচের প্রতি পিস ক্রয় (কার্টুন রেট অপরিবর্তিত)",
+  "godown.order.effectivePieceHint":
+    "ফ্রি মালে এই ব্যাচের প্রতি পিস ক্রয় (কার্টুন রেট অপরিবর্তিত)",
   "godown.order.batchHint":
     "আগের অর্ডারের কার্টুন রেট ও বিক্রয় দাম আগে থেকে বসে। কার্টুন দাম দিলে পিস দাম নিজে বসে, পিস দাম দিলে কার্টুন দাম। ফ্রি মাল দিলে কার্টুন রেট একই থাকে; শুধু এই ব্যাচের প্রতি পিস ক্রয় কমে (বিল ÷ পেইড+ফ্রি) এবং সেই দামেই ব্যাচ শেষ না হওয়া পর্যন্ত বিক্রি হয়। ক্রয়/বিক্রয় বা ফ্রি মিশ্রণ বদলালে নতুন ব্যাচ; না হলে আগের ব্যাচেই যোগ। ফ্রি মাল আলাদা ব্যাচ হয় না।",
   "godown.receipt.batch": "ব্যাচ",
@@ -1925,6 +1927,8 @@ export const bn = {
   "batch.available": "মজুদ",
   "dsr.sheet.batch": "ব্যাচ",
   "dsr.sheet.noStock": "পণ্য মজুদ করুন",
+  "dsr.sheet.batchGoneToast":
+    "এই ব্যাচে এখন মজুদ নেই। সামারি, ফেরত, ড্যামেজ বা দর বদলানো যাবে না; শুধু কমিশন ঠিক করা যাবে।",
   "dsr.sheet.addBatch": "+ আরেক ব্যাচ",
   "dsr.sheet.removeBatch": "এই ব্যাচের লাইন সরান",
   "dsr.sheet.costPrice": "ক্রয় দাম (পিস)",

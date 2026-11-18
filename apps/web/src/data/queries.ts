@@ -164,12 +164,12 @@ export function useDashboardMonthly(companyId: string, year: string, enabled = t
   });
 }
 
-export function useDashboardDaily(companyId: string, enabled = true) {
+export function useDashboardDaily(companyId: string, month: string, enabled = true) {
   const service = useService();
   const actorId = useActorId();
   return useQuery({
-    queryKey: queryKeys.dashboardDaily(actorId, companyId),
-    queryFn: ({ signal }) => service.getDashboardDaily(companyId, { signal }),
+    queryKey: queryKeys.dashboardDaily(actorId, companyId, month),
+    queryFn: ({ signal }) => service.getDashboardDaily(companyId, month, { signal }),
     placeholderData: keepPreviousData,
     enabled,
   });

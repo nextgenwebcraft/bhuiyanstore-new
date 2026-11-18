@@ -39,7 +39,6 @@ import {
   firstOfMonth,
   lastOfMonth,
   monthOf,
-  shiftBusinessDate,
   sumAmounts,
   sumQuantities,
   summarizeDay,
@@ -70,11 +69,7 @@ import { insertShop } from "./shop-rows";
 import { packOn } from "./products";
 
 const isZero = (amount: string) => toDecimal(amount).isZero();
-import {
-  ensureDraftSalesCover,
-  ensureStockCovers,
-  type StockCoverTouch,
-} from "./stock-guard";
+import { ensureDraftSalesCover, ensureStockCovers, type StockCoverTouch } from "./stock-guard";
 import {
   batchOf,
   dsrLineBatch,
@@ -767,7 +762,8 @@ export async function correctOrderPayment(
         : [seed];
       if (rows.length === 0) throw invalid("", "validation.daily.notFound");
 
-      const nextCheckId = request.paymentMethod === "check" ? (request.companyCheckId ?? null) : null;
+      const nextCheckId =
+        request.paymentMethod === "check" ? (request.companyCheckId ?? null) : null;
       if (nextCheckId) await assertCheckUsable(tx, companyId, nextCheckId);
 
       for (const row of rows) {
@@ -1130,10 +1126,8 @@ export async function saveDsrDayIn(
   if (corrected) {
     const draft = await loadDsrDay(tx, companyId, id);
     await moveDsrDay(tx, ctx, access, draft, "posted");
-    await ensureStockCovers(tx, access, request.date, [
-      ...stockTakenOut(corrected, "reversed"),
-      ...stockTakenOut(draft, "posted"),
-    ]);
+    // Only re-check stock for lines whose qty (সামারি/ফেরত/ড্যামেজ) actually changed.
+    await ensureStockCovers(tx, access, request.date, stockQtyTouches(corrected, draft));
   }
   await recordAudit(tx, ctx, {
     companyId,
@@ -1240,6 +1234,43 @@ function stockTakenOut(row: DsrRow, to: "posted" | "reversed"): StockCoverTouch[
       productId: line.productId,
       ...(line.batchKey ? { batchKey: line.batchKey } : {}),
     }));
+}
+
+function lineStockKey(line: { dsrStaffId: string; productId: string; batchKey: string }): string {
+  return `${line.dsrStaffId}|${line.productId}|${line.batchKey}`;
+}
+
+/**
+ * Correction: only products/batches whose সামারি / ফেরত / ড্যামেজ qty changed. Commission or
+ * দর-only edits do not re-check unrelated (or already-negative sibling) stock.
+ */
+function stockQtyTouches(before: DsrRow, after: DsrRow): StockCoverTouch[] {
+  const beforeMap = new Map(before.lines.map((l) => [lineStockKey(l), l]));
+  const afterMap = new Map(after.lines.map((l) => [lineStockKey(l), l]));
+  const keys = new Set([...beforeMap.keys(), ...afterMap.keys()]);
+  const touches: StockCoverTouch[] = [];
+  const seen = new Set<string>();
+  for (const key of keys) {
+    const prev = beforeMap.get(key);
+    const next = afterMap.get(key);
+    const sameQty =
+      prev &&
+      next &&
+      toDecimal(plain(prev.issued)).eq(toDecimal(plain(next.issued))) &&
+      toDecimal(plain(prev.returned)).eq(toDecimal(plain(next.returned))) &&
+      toDecimal(plain(prev.damaged)).eq(toDecimal(plain(next.damaged)));
+    if (sameQty) continue;
+    const line = next ?? prev;
+    if (!line) continue;
+    const touchKey = `${line.productId}|${line.batchKey}`;
+    if (seen.has(touchKey)) continue;
+    seen.add(touchKey);
+    touches.push({
+      productId: line.productId,
+      ...(line.batchKey ? { batchKey: line.batchKey } : {}),
+    });
+  }
+  return touches;
 }
 
 /** D112 / D135: after হাতে জমা, only Super Admin may change the sheet (always, even when approved). */
@@ -2240,16 +2271,23 @@ export async function getDashboardMonthly(
 }
 
 /**
- * Last 12 calendar days of মোট বিক্রি for the dashboard chart day tab (D128). One ledger run
- * over the window; days with no activity are zero.
+ * Day-wise মোট বিক্রি for the dashboard chart day tab (D128/D140): every day of the selected
+ * calendar month (through today when that month is current). One ledger run; quiet days are zero.
  */
 export async function getDashboardDaily(
   ctx: AppContext,
   companyId: string,
+  monthInput?: unknown,
 ): Promise<DashboardDaily> {
   const access = await requirePermission(ctx, companyId, "company.view");
-  const to = todayBusinessDate();
-  const from = shiftBusinessDate(to, -11);
+  const today = todayBusinessDate();
+  const month =
+    typeof monthInput === "string" && /^\d{4}-\d{2}$/.test(monthInput)
+      ? monthInput
+      : monthOf(today);
+  const from = firstOfMonth(month);
+  const monthEnd = lastOfMonth(month);
+  const to = monthEnd > today ? today : monthEnd;
   const labels = datesBetween(from, to);
   const canSeeProfit =
     access.permissions.includes("inventory.cost_view") &&

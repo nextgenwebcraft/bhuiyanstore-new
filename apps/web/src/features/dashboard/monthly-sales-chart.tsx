@@ -1,13 +1,18 @@
 "use client";
 
 import { formatMoney, monthNames, t, toBengaliDigits } from "@bsd/i18n";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { QueryError } from "@/components/query-error";
 import { Skeleton } from "@/components/skeleton";
 import { useDashboardDaily, useDashboardMonthly } from "@/data/queries";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
 
 const shortMonths = monthNames("short");
+
+/** ~12 bars fit the viewport; full-month series scrolls horizontally (D140). */
+const VISIBLE_DAY_BARS = 12;
+const DAY_BAR_MIN_W = 28;
+const DAY_BAR_GAP = 8;
 
 type ChartTab = "days" | "months";
 
@@ -23,17 +28,14 @@ function compactLabel(value: string): string {
 }
 
 function dayAxisLabel(date: string): string {
-  const day = toBengaliDigits(String(Number(date.slice(8, 10))));
-  const monthIndex = Number(date.slice(5, 7)) - 1;
-  const month = shortMonths[monthIndex] ?? date.slice(5, 7);
-  return `${day} ${month}`;
+  return toBengaliDigits(String(Number(date.slice(8, 10))));
 }
 
-/** মোট বিক্রি chart: day-wise (last 12 days, default) or month-wise (D128). */
-export function MonthlySalesChart({ year }: { year: string }) {
+/** মোট বিক্রি chart: day-wise (full selected month, scrollable) or month-wise (D128/D140). */
+export function MonthlySalesChart({ year, month }: { year: string; month: string }) {
   const { company } = useCurrentWorkspace();
   const [tab, setTab] = useState<ChartTab>("days");
-  const daily = useDashboardDaily(company.id, tab === "days");
+  const daily = useDashboardDaily(company.id, month, tab === "days");
   const monthly = useDashboardMonthly(company.id, year, tab === "months");
   const active = tab === "days" ? daily : monthly;
 
@@ -96,7 +98,7 @@ export function MonthlySalesChart({ year }: { year: string }) {
         ) : active.isError ? (
           <QueryError error={active.error} onRetry={() => void active.refetch()} />
         ) : (
-          <BarChart points={points} />
+          <BarChart points={points} scrollable={tab === "days"} />
         )}
       </div>
     </section>
@@ -105,9 +107,12 @@ export function MonthlySalesChart({ year }: { year: string }) {
 
 function BarChart({
   points,
+  scrollable = false,
 }: {
   points: readonly { key: string; label: string; totalSales: string }[];
+  scrollable?: boolean;
 }) {
+  const scrollerRef = useRef<HTMLDivElement>(null);
   const [hover, setHover] = useState<{
     index: number;
     x: number;
@@ -115,26 +120,44 @@ function BarChart({
   } | null>(null);
   const values = points.map((row) => Number(row.totalSales) || 0);
   const max = Math.max(...values, 1);
-  const width = 640;
   const height = 180;
   const padLeft = 36;
   const padRight = 12;
   const padTop = 24;
   const padBottom = 32;
-  const chartW = width - padLeft - padRight;
+  const viewportW = 640;
+  const gap = scrollable ? DAY_BAR_GAP : 8;
   const chartH = height - padTop - padBottom;
-  const gap = 8;
-  const barW = points.length > 0 ? (chartW - gap * (points.length - 1)) / points.length : chartW;
+  const fittedBarW =
+    points.length > 0
+      ? (viewportW - padLeft - padRight - gap * (points.length - 1)) / points.length
+      : viewportW - padLeft - padRight;
+  const scrollBarW = Math.max(
+    DAY_BAR_MIN_W,
+    (viewportW - padLeft - padRight - gap * (VISIBLE_DAY_BARS - 1)) / VISIBLE_DAY_BARS,
+  );
+  const barW = scrollable && points.length > VISIBLE_DAY_BARS ? scrollBarW : fittedBarW;
+  const chartW =
+    points.length > 0 ? points.length * barW + Math.max(points.length - 1, 0) * gap : fittedBarW;
+  const width = padLeft + chartW + padRight;
   const axisColor = "var(--color-border)";
   const barColor = "var(--color-brand)";
   const labelColor = "var(--color-text-muted)";
   const hovered = hover ? points[hover.index] : null;
 
+  useEffect(() => {
+    if (!scrollable) return;
+    const el = scrollerRef.current;
+    if (!el) return;
+    el.scrollLeft = el.scrollWidth;
+  }, [scrollable, points]);
+
   return (
-    <div className="relative w-full overflow-x-auto">
+    <div ref={scrollerRef} className="relative w-full overflow-x-auto">
       <svg
         viewBox={`0 0 ${width} ${height}`}
-        className="h-44 w-full min-w-[20rem] sm:h-52"
+        style={scrollable ? { width, minWidth: width } : undefined}
+        className={scrollable ? "h-44 sm:h-52" : "h-44 w-full min-w-[20rem] sm:h-52"}
         role="img"
         aria-label={t("dashboard.chart.title")}
         onMouseLeave={() => setHover(null)}
@@ -187,12 +210,14 @@ function BarChart({
                 className="cursor-pointer"
                 onMouseEnter={(event) => {
                   const svg = event.currentTarget.ownerSVGElement;
-                  if (!svg) return;
-                  const rect = svg.getBoundingClientRect();
+                  const scroller = scrollerRef.current;
+                  if (!svg || !scroller) return;
+                  const svgRect = svg.getBoundingClientRect();
+                  const box = scroller.getBoundingClientRect();
                   setHover({
                     index,
-                    x: ((x + barW / 2) / width) * rect.width,
-                    y: (Math.min(y, padTop + 24) / height) * rect.height,
+                    x: svgRect.left - box.left + ((x + barW / 2) / width) * svgRect.width,
+                    y: (Math.min(y, padTop + 24) / height) * svgRect.height,
                   });
                 }}
               >

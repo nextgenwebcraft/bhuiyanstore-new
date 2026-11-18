@@ -1,0 +1,18 @@
+id: 2026-11-19-dashboard-daily-month-scroll
+reason: >-
+  Owner 2026-11-19: dashboard day-wise মোট বিক্রি chart showed only the last 12
+  days; they want the full selected month with horizontal scroll both ways (D140).
+owners: [application, contracts, apps/web, i18n, docs]
+changes:
+  - >-
+    packages/application getDashboardDaily — month query (YYYY-MM), days from
+    month start through today (past months: full month)
+  - apps/web API/query/http — ?month=; chart scrollable day bars (~12 visible)
+  - packages/i18n dashboard.chart.subtitle.days
+  - docs/decisions.md D140 (+ D128 note); implementation-status
+affectedActionIds: []
+financialImpact: none — display-only chart series window
+backfill: none
+tests: pnpm check:types; pnpm test
+rollout: deploy
+recovery: revert commit

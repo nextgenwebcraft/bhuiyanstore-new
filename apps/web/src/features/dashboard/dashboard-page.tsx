@@ -702,7 +702,7 @@ export function DashboardPage() {
       <RangeHeading range={range} isToday={period.kind === "today"} />
       {dsrLimited ? null : (
         <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,22rem)] lg:items-start">
-          <MonthlySalesChart year={range.to.slice(0, 4)} />
+          <MonthlySalesChart year={range.to.slice(0, 4)} month={range.to.slice(0, 7)} />
           <DashboardTargetStrip layout="column" />
         </div>
       )}
