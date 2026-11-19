@@ -1932,6 +1932,8 @@ export const bn = {
   "batch.available": "মজুদ",
   "dsr.sheet.batch": "ব্যাচ",
   "dsr.sheet.noStock": "পণ্য মজুদ করুন",
+  /** Damage may still be added with no live batch layer (attaches without a named batch). */
+  "dsr.sheet.noBatchDamage": "ব্যাচ নেই (ড্যামেজ তালিকায় যাবে)",
   "dsr.sheet.batchGoneToast":
     "এই ব্যাচে এখন মজুদ নেই। সামারি, ফেরত বা দর বদলানো যাবে না; ড্যামেজ ও কমিশন ঠিক করা যাবে।",
   "dsr.sheet.addBatch": "+ আরেক ব্যাচ",

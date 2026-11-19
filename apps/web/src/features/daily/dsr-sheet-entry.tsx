@@ -123,6 +123,34 @@ function productBatchesForAdd(
   return [...out.values()].sort((a, b) => a.seq - b.seq);
 }
 
+/**
+ * D142: ড্যামেজ / কমিশন — day-view batches (incl. 0) plus stored lots, so মজুদ ০ products still
+ * have a batch to attach to when layers were pruned from the live view.
+ */
+function productBatchesForDamageOrCommission(product: Product): BatchOption[] {
+  const out = new Map<string, BatchOption>();
+  for (const b of product.batches) {
+    out.set(b.key, {
+      key: b.key,
+      seq: b.seq,
+      quantity: b.quantity,
+      costPrice: b.costPrice,
+      salePrice: b.salePrice,
+    });
+  }
+  for (const lot of product.lots) {
+    if (out.has(lot.id)) continue;
+    out.set(lot.id, {
+      key: lot.id,
+      seq: lot.seq,
+      quantity: "0",
+      costPrice: lot.costPrice,
+      salePrice: lot.salePrice,
+    });
+  }
+  return [...out.values()].sort((a, b) => a.seq - b.seq);
+}
+
 /** Net pieces a draft line takes from its batch (issued − returned). */
 export function lineNetPieces(line: LineDraft, piecesPerCarton: string): string {
   const issued = toBaseQuantity(
@@ -357,11 +385,7 @@ function EntryFormPanel({
   // Commission and damage may attach to an empty/history batch (D142); সামারি/ফেরত need stock.
   const batches = product
     ? kind === "commission" || kind === "damage"
-      ? productBatches(
-          product,
-          view,
-          product.batches.map((b) => b.key),
-        )
+      ? productBatchesForDamageOrCommission(product)
       : productBatchesForAdd(
           product,
           view,
@@ -382,10 +406,13 @@ function EntryFormPanel({
     if (!dsr) return setError(t("validation.daily.lineDsrOnly"));
     if (!product) return setError(t("validation.daily.unknownProduct"));
     const key = batch?.key ?? "";
-    if (kind === "commission" || kind === "damage") {
-      if (!key) return setError(t("dsr.sheet.noStock"));
-    } else if (!key || !toDecimal(batch?.quantity ?? "0").gt(0)) {
-      return setError(t("dsr.sheet.batchGoneToast"));
+    if (kind === "samari" || kind === "firot") {
+      if (!key || !toDecimal(batch?.quantity ?? "0").gt(0)) {
+        return setError(t("dsr.sheet.batchGoneToast"));
+      }
+    } else if (kind === "commission" && !key) {
+      // Commission needs a line identity; damage may use '' when no lot/batch exists (D142).
+      return setError(t("dsr.sheet.noStock"));
     }
     const sale = canEditPrices ? clean(row.salePrice) : "";
     const cost = canEditPrices ? clean(row.costPrice) : "";
@@ -524,7 +551,9 @@ function EntryFormPanel({
           >
             {!product ? <option value="">{t("dsr.entry.item")}</option> : null}
             {product && batches.length === 0 ? (
-              <option value="">{t("dsr.sheet.noStock")}</option>
+              <option value="">
+                {kind === "damage" ? t("dsr.sheet.noBatchDamage") : t("dsr.sheet.noStock")}
+              </option>
             ) : null}
             {product
               ? batches.map((o) => (

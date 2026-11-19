@@ -6,7 +6,8 @@ owners: [apps/web, application, domain, i18n, docs]
 changes:
   - >-
     apps/web dsr-sheet-entry — empty-batch edit keeps ড্যামেজ + দর + কমিশন;
-    damage add may pick empty/history batches
+    damage/commission picker uses day batches + lots (মজুদ ০); damage may add
+    with no named batch instead of «পণ্য মজুদ করুন»
   - >-
     packages/application stockQtyTouches — ignore damage-only qty on correct
     (saleable take = issued − returned only)

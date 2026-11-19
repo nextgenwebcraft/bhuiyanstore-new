@@ -6,7 +6,7 @@ Evidence-based progress. Mark an item done only with evidence.
 
 The canonical plan is now [PLAN.md](PLAN.md). The owner approved backend integration (D30).
 
-**2026-11-19** ([manifest](../changes/2026-11-19-empty-batch-damage-allowed.yaml)): D142 — empty-batch still allows ড্যামেজ (→ damage list); সামারি/ফেরত/দর stay locked; correct ignores damage-only stock re-check.
+**2026-11-19** ([manifest](../changes/2026-11-19-empty-batch-damage-allowed.yaml)): D142 — empty-batch still allows ড্যামেজ (→ damage list); picker uses lots when মজুদ ০ / no live batch; সামারি/ফেরত/দর stay locked; correct ignores damage-only stock re-check.
 
 **2026-11-19** ([manifest](../changes/2026-11-19-daily-summaries-date-url.yaml)): দৈনিক বিক্রয় হিসাব — selected date in `?date=` so refresh keeps the day (with `?sr=`).
 
