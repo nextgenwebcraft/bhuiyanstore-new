@@ -32,6 +32,28 @@ describe("damage lots by rate (D109)", () => {
     expect(out.days[0]?.products[0]).toMatchObject({ damaged: "3", sales: "110" });
   });
 
+  it("records damage-only lines into damage lots without taking saleable stock (D142)", () => {
+    const out = run([
+      {
+        date: "2026-11-01",
+        dsrLines: [
+          {
+            staffId: "d1",
+            productId: "A",
+            issued: "0",
+            returned: "0",
+            damaged: "3",
+            damageRate: "9",
+            batch: { key: "b1", seq: 1, costPrice: "8", salePrice: "10" },
+          },
+        ],
+      },
+    ]);
+    expect(out.days[0]?.products[0]?.damageLots).toEqual([{ rate: "9.000000", pieces: "3" }]);
+    expect(out.days[0]?.products[0]?.stock).toBe("100");
+    expect(out.closing.products.A?.stock).toBe("100");
+  });
+
   it("merges the same rate and lets a deposit take only that rate", () => {
     const out = run([
       {

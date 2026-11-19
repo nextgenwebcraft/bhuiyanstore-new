@@ -1241,8 +1241,9 @@ function lineStockKey(line: { dsrStaffId: string; productId: string; batchKey: s
 }
 
 /**
- * Correction: only products/batches whose সামারি / ফেরত / ড্যামেজ qty changed. Commission or
- * দর-only edits do not re-check unrelated (or already-negative sibling) stock.
+ * Correction: only products/batches whose সামারি / ফেরত (saleable take) changed. ড্যামেজ /
+ * commission / দর-only edits do not re-check stock — damage does not leave saleable godown
+ * stock (D142; amends D139).
  */
 function stockQtyTouches(before: DsrRow, after: DsrRow): StockCoverTouch[] {
   const beforeMap = new Map(before.lines.map((l) => [lineStockKey(l), l]));
@@ -1253,13 +1254,12 @@ function stockQtyTouches(before: DsrRow, after: DsrRow): StockCoverTouch[] {
   for (const key of keys) {
     const prev = beforeMap.get(key);
     const next = afterMap.get(key);
-    const sameQty =
+    const sameSaleableQty =
       prev &&
       next &&
       toDecimal(plain(prev.issued)).eq(toDecimal(plain(next.issued))) &&
-      toDecimal(plain(prev.returned)).eq(toDecimal(plain(next.returned))) &&
-      toDecimal(plain(prev.damaged)).eq(toDecimal(plain(next.damaged)));
-    if (sameQty) continue;
+      toDecimal(plain(prev.returned)).eq(toDecimal(plain(next.returned)));
+    if (sameSaleableQty) continue;
     const line = next ?? prev;
     if (!line) continue;
     const touchKey = `${line.productId}|${line.batchKey}`;

@@ -1,0 +1,23 @@
+id: 2026-11-19-empty-batch-damage-allowed
+reason: >-
+  Owner 2026-11-19: when a batch has no মজুদ, সামারি/ফেরত/দর stay locked but
+  ড্যামেজ must still be enterable and join the damage list (D142; amends D139).
+owners: [apps/web, application, domain, i18n, docs]
+changes:
+  - >-
+    apps/web dsr-sheet-entry — empty-batch edit keeps ড্যামেজ + দর + কমিশন;
+    damage add may pick empty/history batches
+  - >-
+    packages/application stockQtyTouches — ignore damage-only qty on correct
+    (saleable take = issued − returned only)
+  - packages/domain damage-lots.test — damage-only line does not cut stock
+  - packages/i18n dsr.sheet.batchGoneToast
+  - docs/decisions.md D142 (+ D34/D139 notes); implementation-status
+affectedActionIds: [sale.create, sale.post]
+financialImpact: >-
+  none beyond allowing sheet damage on empty batches; saleable stock unchanged
+  (damage already out of issued−returned take)
+backfill: none
+tests: pnpm --filter @bsd/domain test -- damage-lots
+rollout: deploy
+recovery: revert commit
