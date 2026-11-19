@@ -354,9 +354,9 @@ function EntryFormPanel({
   );
 
   const product = view.products.find((p) => p.productId === row.productId);
-  // Commission may attach to an empty/history batch; qty/দর entry only lists batches with stock.
+  // Commission and damage may attach to an empty/history batch (D142); সামারি/ফেরত need stock.
   const batches = product
-    ? kind === "commission"
+    ? kind === "commission" || kind === "damage"
       ? productBatches(
           product,
           view,
@@ -382,7 +382,9 @@ function EntryFormPanel({
     if (!dsr) return setError(t("validation.daily.lineDsrOnly"));
     if (!product) return setError(t("validation.daily.unknownProduct"));
     const key = batch?.key ?? "";
-    if (kind !== "commission" && (!key || !toDecimal(batch?.quantity ?? "0").gt(0))) {
+    if (kind === "commission" || kind === "damage") {
+      if (!key) return setError(t("dsr.sheet.noStock"));
+    } else if (!key || !toDecimal(batch?.quantity ?? "0").gt(0)) {
       return setError(t("dsr.sheet.batchGoneToast"));
     }
     const sale = canEditPrices ? clean(row.salePrice) : "";
@@ -704,7 +706,7 @@ function ReadOnlyLinesTable({
   baselineLines: readonly LineDraft[];
   peerDraftTakes: readonly PeerDraftTake[];
   view: DayView;
-  /** Today's day view — gates সামারি/ফেরত/ড্যামেজ/দর when the batch is empty now. */
+  /** Today's day view — gates সামারি/ফেরত/দর when the batch is empty now (damage stays open, D142). */
   liveView: DayView | undefined;
   locked: boolean;
   canEdit: boolean;
@@ -762,20 +764,23 @@ function ReadOnlyLinesTable({
     const gone = batchGoneNow(line.productId, line.batchKey);
     const nextLine = { ...line, ...edit };
     if (gone) {
-      const qtyOrRateChanged =
+      // D142: empty batch still accepts ড্যামেজ / ড্যামেজ দর / কমিশন (damage does not take saleable stock).
+      const stockOrPriceChanged =
         (edit.issuedCartons !== undefined && edit.issuedCartons !== line.issuedCartons) ||
         (edit.issuedPieces !== undefined && edit.issuedPieces !== line.issuedPieces) ||
         (edit.returnedCartons !== undefined && edit.returnedCartons !== line.returnedCartons) ||
         (edit.returnedPieces !== undefined && edit.returnedPieces !== line.returnedPieces) ||
-        (edit.damaged !== undefined && edit.damaged !== line.damaged) ||
-        (edit.damageRate !== undefined && edit.damageRate !== (line.damageRate ?? "")) ||
         (edit.salePrice !== undefined && edit.salePrice !== (line.salePrice ?? "")) ||
         (edit.costPrice !== undefined && edit.costPrice !== (line.costPrice ?? ""));
-      if (qtyOrRateChanged) {
+      if (stockOrPriceChanged) {
         warnBatchGone();
         return;
       }
-      onUpdate(id, { commission: edit.commission ?? line.commission });
+      onUpdate(id, {
+        damaged: edit.damaged ?? line.damaged,
+        damageRate: edit.damageRate ?? line.damageRate,
+        commission: edit.commission ?? line.commission,
+      });
       setEditingId(null);
       setEdit({});
       return;
@@ -943,7 +948,7 @@ function ReadOnlyLinesTable({
                     )}
                   </td>
                   <td className={tdNum}>
-                    {editing && !qtyLocked ? (
+                    {editing ? (
                       <CellInput
                         label={t("dsr.sheet.damaged")}
                         value={edit.damaged ?? ""}
@@ -955,7 +960,7 @@ function ReadOnlyLinesTable({
                     )}
                   </td>
                   <td className={tdNum}>
-                    {editing && !qtyLocked ? (
+                    {editing ? (
                       <CellInput
                         label={t("dsr.sheet.damageRate")}
                         value={edit.damageRate ?? ""}
