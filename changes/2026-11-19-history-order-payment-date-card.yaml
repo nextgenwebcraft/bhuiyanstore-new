@@ -1,0 +1,21 @@
+id: 2026-11-19-history-order-payment-date-card
+reason: >-
+  Owner 2026-11-19: History → Orders put পেমেন্ট বদলান on each product; it belongs on
+  the date card. Cards must show নগদ (green amount) vs চেক (red + চেক বাকি when due,
+  green «চেক» when paid) (D141).
+owners: [contracts, application, apps/web, i18n, docs]
+changes:
+  - >-
+    packages/contracts historyStockDateSummary — paymentMethod, checkDue,
+    paymentEntryIds, companyCheckId
+  - packages/application listHistoryStockDateSummaries — orders payment + cheque due
+  - >-
+    apps/web history-page — date-card payment chip/colours + edit; remove per-row
+    payment edit
+  - packages/i18n history.orderPayment.mixed; docs D141 + status
+affectedActionIds: []
+financialImpact: none — display/edit placement only; correctOrderPayment unchanged
+backfill: none
+tests: pnpm check:types
+rollout: deploy
+recovery: revert commit

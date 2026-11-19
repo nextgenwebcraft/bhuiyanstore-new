@@ -11,9 +11,9 @@ import type {
   OrderPaymentMethod,
 } from "@bsd/contracts";
 import { historyStatusFilters, historyStockDateCardGroups } from "@bsd/contracts";
-import { sumQuantities } from "@bsd/domain";
+import { sumQuantities, toDecimal } from "@bsd/domain";
 import { formatShortDate, t, toBengaliDigits, type TranslationKey } from "@bsd/i18n";
-import { useState } from "react";
+import { useState, type MouseEvent } from "react";
 import { Button } from "@/components/button";
 import {
   cartonText,
@@ -265,28 +265,37 @@ function DeleteAction({
   );
 }
 
-/** D130: Super Admin edits নগদ ↔ চেক on a posted order (whole orderGroup). */
+/**
+ * D130/D141: Super Admin edits নগদ ↔ চেক on the date card (every orderGroup that day).
+ * `entryIds` are one seed line per orderGroup.
+ */
 function OrderPaymentEditAction({
   companyId,
-  entry,
+  dateLabel,
+  entryIds,
+  initialMethod,
+  initialCheckId,
   onSaved,
 }: {
   companyId: string;
-  entry: HistoryStockLine;
+  dateLabel: string;
+  entryIds: readonly string[];
+  initialMethod: OrderPaymentMethod;
+  initialCheckId: string;
   onSaved: () => void;
 }) {
   const correct = useCorrectOrderPayment(companyId);
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | undefined>();
-  const [method, setMethod] = useState<OrderPaymentMethod>(
-    entry.companyCheckId ? "check" : "cash",
-  );
-  const [companyCheckId, setCompanyCheckId] = useState(entry.companyCheckId ?? "");
+  const [method, setMethod] = useState<OrderPaymentMethod>(initialMethod);
+  const [companyCheckId, setCompanyCheckId] = useState(initialCheckId);
 
-  function openDialog() {
-    setMethod(entry.companyCheckId ? "check" : "cash");
-    setCompanyCheckId(entry.companyCheckId ?? "");
+  function openDialog(event?: MouseEvent) {
+    event?.stopPropagation();
+    event?.preventDefault();
+    setMethod(initialMethod);
+    setCompanyCheckId(initialCheckId);
     setError(undefined);
     setOpen(true);
   }
@@ -296,16 +305,17 @@ function OrderPaymentEditAction({
       setError(t("validation.companyCheck.required"));
       return;
     }
+    if (entryIds.length === 0) return;
     setPending(true);
     setError(undefined);
     try {
-      await correct.mutateAsync({
-        entryId: entry.id,
-        body:
-          method === "check"
-            ? { paymentMethod: "check", companyCheckId }
-            : { paymentMethod: "cash" },
-      });
+      const body =
+        method === "check"
+          ? { paymentMethod: "check" as const, companyCheckId }
+          : { paymentMethod: "cash" as const };
+      for (const entryId of entryIds) {
+        await correct.mutateAsync({ entryId, body });
+      }
       setOpen(false);
       onSaved();
     } catch (e) {
@@ -317,10 +327,12 @@ function OrderPaymentEditAction({
 
   return (
     <>
-      <Button onClick={openDialog}>{t("common.edit")}</Button>
+      <Button className="px-2.5 py-1 text-xs" onClick={(event) => openDialog(event)}>
+        {t("history.orderPayment.edit")}
+      </Button>
       <FormDialog
         open={open}
-        title={`${t("history.orderPayment.edit")}: ${entry.sku}`}
+        title={`${t("history.orderPayment.edit")}: ${dateLabel}`}
         error={error}
         pending={pending}
         submitLabel={t("common.save")}
@@ -343,6 +355,15 @@ function OrderPaymentEditAction({
       </FormDialog>
     </>
   );
+}
+
+/** D141: amount + নগদ/চেক chip colours on the orders date card. */
+function orderPaymentTone(item: HistoryStockDateSummary): "success" | "error" | "muted" {
+  if (item.paymentMethod === "cash") return "success";
+  if (item.paymentMethod === "check") {
+    return item.checkDue && toDecimal(item.checkDue).gt(0) ? "error" : "success";
+  }
+  return "muted";
 }
 
 function DateCardsSkeleton({ count = 6 }: { count?: number }) {
@@ -368,66 +389,116 @@ function DateCardsSkeleton({ count = 6 }: { count?: number }) {
 }
 
 function DateSummaryCards({
+  companyId,
   items,
   onOpen,
+  canEditPayment,
+  onPaymentSaved,
 }: {
+  companyId: string;
   items: HistoryStockDateSummary[];
   onOpen: (date: string) => void;
+  canEditPayment?: boolean;
+  onPaymentSaved?: () => void;
 }) {
   return (
     <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      {items.map((item) => (
-        <li key={item.date}>
-          <button
-            type="button"
-            onClick={() => onOpen(item.date)}
-            className="flex w-full flex-col gap-2 rounded-xl border border-border bg-surface p-4 text-left shadow-card transition-[border-color,background-color,box-shadow] hover:border-border-strong hover:bg-surface-hover"
-          >
-            <span className="text-base font-semibold">{formatShortDate(item.date)}</span>
-            <span className="text-xs text-text-muted">
-              {t("table.summary.rows")}: {toBengaliDigits(String(item.count))}
-            </span>
-            <dl className="mt-1 grid grid-cols-3 gap-2 text-sm">
-              <div>
-                <dt className="text-[11px] text-text-muted">{t("common.cartons")}</dt>
-                <dd className="font-semibold tabular-nums">{toBengaliDigits(item.cartons)}</dd>
-              </div>
-              <div>
-                <dt className="text-[11px] text-text-muted">{t("common.pieces")}</dt>
-                <dd className="font-semibold tabular-nums">{toBengaliDigits(item.pieces)}</dd>
-              </div>
-              <div>
-                <dt className="text-[11px] text-text-muted">{t("common.amount")}</dt>
-                <dd className="font-semibold tabular-nums">{money(item.amount)}</dd>
-              </div>
-            </dl>
-          </button>
-        </li>
-      ))}
+      {items.map((item) => {
+        const tone = orderPaymentTone(item);
+        const amountClass =
+          tone === "success" ? "text-success" : tone === "error" ? "text-error" : "text-text";
+        const checkDueOpen =
+          item.paymentMethod === "check" &&
+          item.checkDue !== undefined &&
+          toDecimal(item.checkDue).gt(0);
+        const paymentLabel =
+          item.paymentMethod === "cash"
+            ? t("companyCheck.method.cash")
+            : item.paymentMethod === "check"
+              ? checkDueOpen
+                ? `${t("companyCheck.method.check")} · ${t("companyCheck.due")} ${money(item.checkDue ?? "0")}`
+                : t("companyCheck.method.check")
+              : item.paymentMethod === "mixed"
+                ? t("history.orderPayment.mixed")
+                : null;
+        const initialMethod: OrderPaymentMethod = item.paymentMethod === "check" ? "check" : "cash";
+        return (
+          <li key={item.date}>
+            <div className="flex flex-col gap-2 rounded-xl border border-border bg-surface p-4 shadow-card transition-[border-color,background-color,box-shadow] hover:border-border-strong hover:bg-surface-hover">
+              <button
+                type="button"
+                onClick={() => onOpen(item.date)}
+                className="flex w-full flex-col gap-2 text-left"
+              >
+                <span className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-base font-semibold">{formatShortDate(item.date)}</span>
+                  {paymentLabel ? (
+                    <span
+                      className={`text-xs font-semibold ${
+                        tone === "success"
+                          ? "text-success"
+                          : tone === "error"
+                            ? "text-error"
+                            : "text-text-muted"
+                      }`}
+                    >
+                      {paymentLabel}
+                    </span>
+                  ) : null}
+                </span>
+                <span className="text-xs text-text-muted">
+                  {t("table.summary.rows")}: {toBengaliDigits(String(item.count))}
+                </span>
+                <dl className="mt-1 grid grid-cols-3 gap-2 text-sm">
+                  <div>
+                    <dt className="text-[11px] text-text-muted">{t("common.cartons")}</dt>
+                    <dd className="font-semibold tabular-nums">{toBengaliDigits(item.cartons)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-[11px] text-text-muted">{t("common.pieces")}</dt>
+                    <dd className="font-semibold tabular-nums">{toBengaliDigits(item.pieces)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-[11px] text-text-muted">{t("common.amount")}</dt>
+                    <dd className={`font-semibold tabular-nums ${amountClass}`}>
+                      {money(item.amount)}
+                    </dd>
+                  </div>
+                </dl>
+              </button>
+              {canEditPayment && item.paymentEntryIds && item.paymentEntryIds.length > 0 ? (
+                <div className="flex justify-end border-t border-border pt-2">
+                  <OrderPaymentEditAction
+                    companyId={companyId}
+                    dateLabel={formatShortDate(item.date)}
+                    entryIds={item.paymentEntryIds}
+                    initialMethod={initialMethod}
+                    initialCheckId={item.companyCheckId ?? ""}
+                    onSaved={() => onPaymentSaved?.()}
+                  />
+                </div>
+              ) : null}
+            </div>
+          </li>
+        );
+      })}
     </ul>
   );
 }
 
 function StockEntryTable({
-  companyId,
   items,
   showDateColumn,
   showFree,
   canDelete,
-  canEditPayment,
   onDelete,
-  onPaymentSaved,
 }: {
-  companyId: string;
   items: HistoryStockLine[];
   showDateColumn: boolean;
   /** Orders and stock (receipt) history: free pieces as their own column (D118). */
   showFree: boolean;
   canDelete: boolean;
-  /** D130: Super Admin may edit নগদ/চেক on posted order lines. */
-  canEditPayment?: boolean;
   onDelete: (id: string) => Promise<unknown>;
-  onPaymentSaved?: () => void;
 }) {
   return (
     <TableScroller>
@@ -494,13 +565,6 @@ function StockEntryTable({
               </td>
               <td className={tdClass}>
                 <div className="flex flex-wrap justify-end gap-2">
-                  {canEditPayment && entry.kind === "order" && entry.status === "posted" ? (
-                    <OrderPaymentEditAction
-                      companyId={companyId}
-                      entry={entry}
-                      onSaved={() => onPaymentSaved?.()}
-                    />
-                  ) : null}
                   <DeleteAction
                     label={`${entry.sku} ${formatShortDate(entry.date)}`}
                     canDelete={canDelete && entry.status === "posted"}
@@ -567,7 +631,13 @@ function StockDateCardHistory({
         ) : dates.data.items.length === 0 ? (
           <EmptyListNote textKey="history.empty" />
         ) : (
-          <DateSummaryCards items={dates.data.items} onOpen={openDate} />
+          <DateSummaryCards
+            companyId={companyId}
+            items={dates.data.items}
+            onOpen={openDate}
+            canEditPayment={canEditPayment}
+            onPaymentSaved={() => void dates.refetch()}
+          />
         )}
       </div>
     );
@@ -622,17 +692,11 @@ function StockDateCardHistory({
             <EmptyListNote textKey="history.empty" />
           ) : (
             <StockEntryTable
-              companyId={companyId}
               items={list.data.items}
               showDateColumn={false}
               showFree
               canDelete={canDelete}
-              canEditPayment={canEditPayment}
               onDelete={(id) => reverse.mutateAsync(id)}
-              onPaymentSaved={() => {
-                void list.refetch();
-                void dates.refetch();
-              }}
             />
           )}
           <Pager page={page} pageSize={pageSize} total={list.data.total} onPage={setPage} />
@@ -673,7 +737,6 @@ function StockFlatHistory({
         <EmptyListNote textKey="history.empty" />
       ) : (
         <StockEntryTable
-          companyId={companyId}
           items={list.data.items}
           showDateColumn
           showFree={false}

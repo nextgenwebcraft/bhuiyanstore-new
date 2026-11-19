@@ -6,6 +6,8 @@ Evidence-based progress. Mark an item done only with evidence.
 
 The canonical plan is now [PLAN.md](PLAN.md). The owner approved backend integration (D30).
 
+**2026-11-19** ([manifest](../changes/2026-11-19-history-order-payment-date-card.yaml)): D141 — History → Orders: পেমেন্ট বদলান on date card; নগদ green / চেক due red+বাকি / paid চেক green.
+
 **2026-11-19** ([manifest](../changes/2026-11-19-dashboard-daily-month-scroll.yaml)): D140 — dashboard day chart = selected month (scroll both ways; ~12 days visible), not last 12 days only.
 
 **2026-11-18** ([manifest](../changes/2026-11-18-dsr-correct-empty-batch.yaml)): D139 — correct stock-check only qty-changed সামারি/ফেরত/ড্যামেজ; edit shows today's remaining beside batch (no batch dropdown); empty batch locks সামারি/ফেরত/ড্যামেজ/দর + toast, commission editable; Atta 1kg −802 moved onto batch 2 (total unchanged).
