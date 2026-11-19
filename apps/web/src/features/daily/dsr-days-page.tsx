@@ -1291,21 +1291,47 @@ function OpenDsr({
   );
 }
 
+/** `?date=YYYY-MM-DD` on this page; anything else is ignored. */
+function dateFromSearch(raw: string | null): string | null {
+  return raw && /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : null;
+}
+
 export function DsrDaysPage() {
   const { company } = useCurrentWorkspace();
-  const [date, setDate] = useWorkingDate();
+  const [workingDate, setWorkingDate] = useWorkingDate();
   const router = useRouter();
   const pathname = usePathname();
   const search = useSearchParams();
-  // The open DSR lives in the address (?dsr=), so a reload keeps the sheet and Back returns to the list.
+  // Date and open SR both live in the address so a reload keeps the day and the sheet.
+  const dateParam = dateFromSearch(search.get("date"));
+  const date = dateParam ?? workingDate;
   const open = search.get("sr");
-  const setOpen = (staffId: string | null) => {
+
+  useEffect(() => {
+    if (dateParam && dateParam !== workingDate) setWorkingDate(dateParam);
+  }, [dateParam, workingDate]);
+
+  const hrefWith = (patch: { date?: string; sr?: string | null }) => {
     const query = new URLSearchParams(search.toString());
-    if (staffId) query.set("sr", staffId);
-    else query.delete("sr");
+    const nextDate = patch.date ?? date;
+    query.set("date", nextDate);
+    if (patch.sr !== undefined) {
+      if (patch.sr) query.set("sr", patch.sr);
+      else query.delete("sr");
+    }
     const text = query.toString();
-    router.push(text ? `${pathname}?${text}` : pathname, { scroll: true });
+    return text ? `${pathname}?${text}` : pathname;
   };
+
+  const setDate = (next: string) => {
+    setWorkingDate(next);
+    router.replace(hrefWith({ date: next }), { scroll: false });
+  };
+
+  const setOpen = (staffId: string | null) => {
+    router.push(hrefWith({ sr: staffId }), { scroll: true });
+  };
+
   useEffect(() => {
     // Opening or leaving a sheet starts the page at its top.
     window.scrollTo({ top: 0 });

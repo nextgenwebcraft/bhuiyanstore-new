@@ -1,0 +1,16 @@
+id: 2026-11-19-daily-summaries-date-url
+reason: >-
+  Owner 2026-11-19: দৈনিক বিক্রয় হিসাব date selection should survive refresh
+  via URL (?date=YYYY-MM-DD), same idea as existing ?sr=.
+owners: [apps/web, docs]
+changes:
+  - >-
+    apps/web DsrDaysPage — read/write ?date= with DateBar; keep date when
+    opening/closing ?sr=; sync into useWorkingDate for other daily screens
+  - docs/implementation-status.md
+affectedActionIds: []
+financialImpact: none — URL state only
+backfill: none
+tests: none (UI URL sync)
+rollout: deploy
+recovery: revert commit

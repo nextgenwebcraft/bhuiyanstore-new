@@ -6,6 +6,8 @@ Evidence-based progress. Mark an item done only with evidence.
 
 The canonical plan is now [PLAN.md](PLAN.md). The owner approved backend integration (D30).
 
+**2026-11-19** ([manifest](../changes/2026-11-19-daily-summaries-date-url.yaml)): দৈনিক বিক্রয় হিসাব — selected date in `?date=` so refresh keeps the day (with `?sr=`).
+
 **2026-11-19** ([manifest](../changes/2026-11-19-history-order-payment-date-card.yaml)): D141 — History → Orders: পেমেন্ট বদলান on date card; নগদ green / চেক due red+বাকি / paid চেক green.
 
 **2026-11-19** ([manifest](../changes/2026-11-19-dashboard-daily-month-scroll.yaml)): D140 — dashboard day chart = selected month (scroll both ways; ~12 days visible), not last 12 days only.
