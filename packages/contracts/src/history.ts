@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { dsrDaySchema, moneyEntrySchema, stockEntryKinds, stockEntrySchema } from "./daily";
-import { businessDateSchema, decimalStringSchema } from "./primitives";
+import { businessDateSchema, decimalStringSchema, idSchema } from "./primitives";
 
 /** Status filter on History lists. `all` = no status filter. */
 export const historyStatusFilters = ["all", "posted", "reversed"] as const;
@@ -77,6 +77,7 @@ export type HistoryDsrPage = z.infer<typeof historyDsrPageSchema>;
 /**
  * One date that has stock entries, with totals for the History date-card list.
  * `cartons` and `pieces` (খুচরা) are summed separately — cartons are never converted to pieces.
+ * Orders (D141): paymentMethod / checkDue / paymentEntryIds for the date card.
  */
 export const historyStockDateSummarySchema = z.object({
   date: businessDateSchema,
@@ -85,6 +86,14 @@ export const historyStockDateSummarySchema = z.object({
   pieces: decimalStringSchema,
   cartons: decimalStringSchema,
   amount: decimalStringSchema,
+  /** Orders only: নগদ / চেক / mixed when that date has both. */
+  paymentMethod: z.enum(["cash", "check", "mixed"]).optional(),
+  /** Orders only: remaining due on linked cheque(s); "0.00" when চেক is fully paid. */
+  checkDue: decimalStringSchema.optional(),
+  /** Orders only: one seed stock-entry id per orderGroup for D130 payment correct. */
+  paymentEntryIds: z.array(idSchema).optional(),
+  /** Orders only: cheque id when every order that day uses the same cheque. */
+  companyCheckId: idSchema.nullable().optional(),
 });
 export type HistoryStockDateSummary = z.infer<typeof historyStockDateSummarySchema>;
 

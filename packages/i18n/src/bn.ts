@@ -404,6 +404,7 @@ export const bn = {
   "history.next": "পরে",
   "history.of": "মোট",
   "history.orderPayment.edit": "পেমেন্ট বদলান",
+  "history.orderPayment.mixed": "মিশ্র",
   "history.orderPayment.hint":
     "শুধু নগদ বা চেক বদলাবে। অর্ডারের মাল ও পরিমাণ অপরিবর্তিত থাকবে; চেক হলে ওই চেকের বিলে যাবে, নগদ হলে কোম্পানিতে জমায় ফিরে আসবে।",
   "validation.history.pageSize": "পৃষ্ঠার আকার ২৫, ৫০ বা ১০০ হতে হবে",
@@ -665,6 +666,10 @@ export const bn = {
   "companyCheck.method.check": "চেক",
   "companyCheck.picker": "চেক বেছে নিন",
   "companyCheck.pickerEmpty": "কোনো খোলা চেক নেই — আগে চেক যোগ করুন",
+  "companyCheck.pickerEmptyCreate": "কোনো খোলা চেক নেই। এখানেই নতুন চেক যোগ করুন।",
+  "companyCheck.pickerCreate": "নতুন চেক যোগ",
+  "companyCheck.pickerCreateHint": "নতুন চেকের ব্যাংক ও নম্বর লিখুন।",
+  "companyCheck.pickerCreateSubmit": "চেক যোগ করুন",
   "companyCheck.pickerPlaceholder": "ব্যাংক বা নম্বর খুঁজুন",
   "companyCheck.historyDescription": "যেসব চেকের বাকি শূন্য হয়েছে তাদের বিবরণ।",
   "companyCheck.historyEmpty": "সম্পূর্ণ পরিশোধিত চেক নেই",

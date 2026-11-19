@@ -16,18 +16,21 @@ import {
 } from "@bsd/contracts";
 import type { Prisma } from "@bsd/database";
 import {
+  checkDueRemaining,
+  roundSettlement,
   stockEntryAmount,
   stockEntryCartonParts,
   sumAmounts,
   sumCartons,
   sumQuantities,
+  toDecimal,
 } from "@bsd/domain";
 import { requirePermission } from "./access";
 import type { AppContext } from "./context";
 import { fromDbDate, toDbDate } from "./dates";
 import { invalid, parseInput } from "./errors";
 import { allocationOf } from "./ledger";
-import { plain } from "./numeric";
+import { plain, type DecimalLike } from "./numeric";
 import { packOn } from "./products";
 
 function pageQuery(input: unknown): HistoryPageQuery & { skip: number } {
@@ -216,33 +219,106 @@ export async function listHistoryStockDateSummaries(
   });
   const byDate = new Map<
     string,
-    { count: number; loosePieces: string[]; cartons: string[]; amounts: string[] }
+    {
+      count: number;
+      loosePieces: string[];
+      cartons: string[];
+      amounts: string[];
+      /** orderGroup key → seed entry id + cheque id (orders tab only). */
+      groups: Map<string, { entryId: string; companyCheckId: string | null }>;
+    }
   >();
   for (const row of rows) {
     const date = fromDbDate(row.date);
     const metrics = lineMetrics(row, canSeeCost);
     const bucket = byDate.get(date) ?? {
       count: 0,
-      loosePieces: [],
-      cartons: [],
-      amounts: [],
+      loosePieces: [] as string[],
+      cartons: [] as string[],
+      amounts: [] as string[],
+      groups: new Map<string, { entryId: string; companyCheckId: string | null }>(),
     };
     bucket.count += 1;
     bucket.loosePieces.push(metrics.loosePieces);
     bucket.cartons.push(metrics.cartons);
     bucket.amounts.push(metrics.amount);
+    if (group === "orders" && row.kind === "order") {
+      const groupKey = row.orderGroup ?? row.id;
+      if (!bucket.groups.has(groupKey)) {
+        bucket.groups.set(groupKey, {
+          entryId: row.id,
+          companyCheckId: row.companyCheckId,
+        });
+      }
+    }
     byDate.set(date, bucket);
   }
+
+  const checkIds = new Set<string>();
+  for (const bucket of byDate.values()) {
+    for (const g of bucket.groups.values()) {
+      if (g.companyCheckId) checkIds.add(g.companyCheckId);
+    }
+  }
+  const checkDueById = new Map<string, string>();
+  if (checkIds.size > 0) {
+    const checks = await ctx.db.companyCheck.findMany({
+      where: { companyId, id: { in: [...checkIds] } },
+      include: {
+        charges: { select: { amount: true, status: true } },
+        payments: { select: { amount: true, status: true } },
+      },
+    });
+    for (const check of checks) {
+      const chargeAmounts = check.charges
+        .filter((c) => c.status === "posted")
+        .map((c) => plain(c.amount as DecimalLike));
+      const paymentAmounts = check.payments
+        .filter((p) => p.status === "posted")
+        .map((p) => plain(p.amount as DecimalLike));
+      checkDueById.set(check.id, roundSettlement(checkDueRemaining(chargeAmounts, paymentAmounts)));
+    }
+  }
+
   const items = [...byDate.entries()]
     .sort(([a], [b]) => (a < b ? 1 : a > b ? -1 : 0))
-    .map(([date, bucket]) => ({
-      date,
-      count: bucket.count,
-      // Loose pieces only — do not convert cartons into this total.
-      pieces: sumQuantities(bucket.loosePieces),
-      cartons: sumCartons(bucket.cartons),
-      amount: sumAmounts(bucket.amounts),
-    }));
+    .map(([date, bucket]) => {
+      const base = {
+        date,
+        count: bucket.count,
+        // Loose pieces only — do not convert cartons into this total.
+        pieces: sumQuantities(bucket.loosePieces),
+        cartons: sumCartons(bucket.cartons),
+        amount: sumAmounts(bucket.amounts),
+      };
+      if (group !== "orders" || bucket.groups.size === 0) return base;
+
+      const groups = [...bucket.groups.values()];
+      const methods = new Set(groups.map((g) => (g.companyCheckId ? "check" : "cash")));
+      const paymentMethod =
+        methods.size > 1
+          ? ("mixed" as const)
+          : methods.has("check")
+            ? ("check" as const)
+            : ("cash" as const);
+      const checkIdsOnDay = [
+        ...new Set(groups.map((g) => g.companyCheckId).filter((id): id is string => Boolean(id))),
+      ];
+      const checkDues = checkIdsOnDay.map((id) => checkDueById.get(id) ?? "0.00");
+      const checkDue =
+        paymentMethod === "check" || paymentMethod === "mixed"
+          ? roundSettlement(sumAmounts(checkDues.length ? checkDues : ["0.00"]))
+          : undefined;
+      const companyCheckId = checkIdsOnDay.length === 1 ? (checkIdsOnDay[0] ?? null) : null;
+
+      return {
+        ...base,
+        paymentMethod,
+        ...(checkDue !== undefined ? { checkDue } : {}),
+        paymentEntryIds: groups.map((g) => g.entryId),
+        companyCheckId,
+      };
+    });
   return historyStockDateSummariesSchema.parse({ items });
 }
 
