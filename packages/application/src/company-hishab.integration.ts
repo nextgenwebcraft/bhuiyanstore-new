@@ -3,13 +3,17 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createCompany } from "./companies";
 import {
   applyPreviousDueReduction,
+  cancelPartnerPayout,
   createPreviousDue,
   createShareholder,
   deletePreviousDue,
   getCompanyHishabYear,
   getMasterHishabYear,
+  getPartnerPayoutHistory,
+  getPartnerPayoutMonth,
   listPreviousDues,
   listShareholders,
+  payPartners,
   saveInvestments,
   updatePreviousDue,
   updateShareholder,
@@ -241,5 +245,103 @@ describe("company hishab (shareholder invest, replacing D76/D77 units)", () => {
 
     await deletePreviousDue(admin, masterId, created.id);
     expect((await listPreviousDues(admin, masterId)).items).toEqual([]);
+  });
+
+  it("pays partners for a month as a snapshot, keeps history, and cancels (D143)", async () => {
+    const month = await getPartnerPayoutMonth(admin, masterId, "2026-03");
+    expect(month.state).toBe("closed");
+    expect(month.companies.map((company) => company.companyName)).toEqual(["Drinko"]);
+    const karim = month.partners.find((partner) => partner.name === "Karim");
+    expect(karim).toMatchObject({ invest: "200000.00", amount: "0.00", payout: null });
+    expect(karim?.lines).toEqual([
+      { companyId: drinkoId, companyName: "Drinko", invest: "200000.00", amount: "0.00" },
+    ]);
+    // Idle is closed and never paid, so it is not listed.
+    expect(month.partners.some((partner) => partner.name === "Idle")).toBe(false);
+    expect(month.summary.paidCount).toBe(0);
+    const karimId = karim?.shareholderId ?? "";
+
+    // The amount the admin saw must still be the live figure.
+    await expect(
+      payPartners(
+        admin,
+        masterId,
+        { month: "2026-03", entries: [{ shareholderId: karimId, amount: "1.00" }] },
+        "pay-stale",
+      ),
+    ).rejects.toSatisfy((error) => fieldError(error, "entries", "validation.payout.stale"));
+    await expect(
+      payPartners(
+        admin,
+        masterId,
+        { month: "2030-01", entries: [{ shareholderId: karimId, amount: "0.00" }] },
+        "pay-future",
+      ),
+    ).rejects.toSatisfy((error) => fieldError(error, "month", "validation.payout.futureMonth"));
+
+    expect(
+      await payPartners(
+        admin,
+        masterId,
+        {
+          month: "2026-03",
+          entries: [{ shareholderId: karimId, amount: "0.00" }],
+          note: "Cash",
+        },
+        "pay-karim-mar",
+      ),
+    ).toEqual({ paid: 1 });
+    await expect(
+      payPartners(
+        admin,
+        masterId,
+        { month: "2026-03", entries: [{ shareholderId: karimId, amount: "0.00" }] },
+        "pay-karim-mar-again",
+      ),
+    ).rejects.toSatisfy((error) => fieldError(error, "entries", "validation.payout.alreadyPaid"));
+
+    const paid = await getPartnerPayoutMonth(admin, masterId, "2026-03");
+    const paidKarim = paid.partners.find((partner) => partner.shareholderId === karimId);
+    expect(paidKarim?.payout).toMatchObject({
+      month: "2026-03",
+      amount: "0.00",
+      note: "Cash",
+      paidByName: "Admin",
+      lines: [{ companyId: drinkoId, companyName: "Drinko", invest: "200000.00", amount: "0.00" }],
+    });
+    expect(paidKarim?.changed).toBe(false);
+    expect(paid.summary.paidCount).toBe(1);
+
+    const history = await getPartnerPayoutHistory(admin, masterId, "2026");
+    expect(history.payments).toHaveLength(1);
+    expect(history.companies).toEqual([{ companyId: drinkoId, companyName: "Drinko" }]);
+    const row = history.byShareholder.find((entry) => entry.shareholderId === karimId);
+    expect(row?.months[2]).toBe("0.00");
+    expect(row?.months[3]).toBeNull();
+    expect(history.byCompany).toEqual([{ companyId: drinkoId, amount: "0.00" }]);
+    const onlyRahim = await getPartnerPayoutHistory(
+      admin,
+      masterId,
+      "2026",
+      paid.partners.find((partner) => partner.name === "Rahim")?.shareholderId,
+    );
+    expect(onlyRahim.payments).toEqual([]);
+
+    await cancelPartnerPayout(admin, masterId, paidKarim?.payout?.id ?? "");
+    const cancelled = await getPartnerPayoutMonth(admin, masterId, "2026-03");
+    expect(cancelled.partners.find((partner) => partner.shareholderId === karimId)?.payout).toBe(
+      null,
+    );
+    expect((await getPartnerPayoutHistory(admin, masterId, "2026")).payments).toEqual([]);
+
+    const member = contextFor(db, { ...admin.actor, isSuperAdmin: false });
+    await expect(
+      payPartners(
+        member,
+        masterId,
+        { month: "2026-03", entries: [{ shareholderId: karimId, amount: "0.00" }] },
+        "pay-member",
+      ),
+    ).rejects.toSatisfy((error) => error instanceof AppError && error.code === "FORBIDDEN");
   });
 });

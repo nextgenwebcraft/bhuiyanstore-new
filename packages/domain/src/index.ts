@@ -108,10 +108,16 @@ export {
   danOf,
   distributableProfit,
   investShare,
+  partnerShares,
   previousDueOpenTotal,
   profitPerLakh,
+  splitEqually,
   type CompanyFigures,
   type CompanyHishabRow,
+  type PartnerInvest,
+  type PartnerShareLine,
+  type PartnerSharesInput,
+  type PartnerSharesResult,
 } from "./company-hishab";
 export { checkDueRemaining, checkIsCompleted } from "./company-check";
 export {

@@ -128,6 +128,7 @@ describe("hubs", () => {
       "dashboard",
       "shares",
       "shareholders",
+      "partnerPayments",
       "previousDue",
       "staff",
       "companies",
@@ -135,6 +136,11 @@ describe("hubs", () => {
     expect(paths("companies")).toEqual(["master/companies"]);
     expect(paths("shares")).toEqual(["master/company-hishab"]);
     expect(paths("shareholders")).toEqual(["master/shareholders"]);
+    expect(paths("partnerPayments")).toEqual([
+      "master/partner-payments",
+      "master/partner-payments/history",
+    ]);
+    expect(hubOfPath("master/partner-payments/history", true)?.id).toBe("partnerPayments");
     expect(paths("previousDue")).toEqual(["master/previous-due"]);
     expect(paths("staff")).toEqual(["masters/staff"]);
     expect(hubOfPath("master/companies", true)?.id).toBe("companies");

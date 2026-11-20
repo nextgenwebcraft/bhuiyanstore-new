@@ -30,15 +30,18 @@ export { MASTER_COMPANY_NAME, ensureMasterCompany } from "./master";
 export { closeMonthAll, getMasterMonth, getMasterSummary, reopenMonthAll } from "./master-panel";
 export {
   applyPreviousDueReduction,
+  cancelPartnerPayout,
   createPreviousDue,
   createShareholder,
   deletePreviousDue,
   getCompanyHishabYear,
   getMasterHishabYear,
+  getPartnerPayoutHistory,
+  getPartnerPayoutMonth,
   listPreviousDues,
   listShareholders,
+  payPartners,
   saveInvestments,
-  setShareholderPayout,
   updatePreviousDue,
   updateShareholder,
 } from "./company-hishab";

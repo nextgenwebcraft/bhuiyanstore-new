@@ -29,11 +29,7 @@ export const queryKeys = {
       year,
     ] as const,
   dashboardDaily: (actorId: string, companyId: string, month: string) =>
-    [
-      ...companyResource(actorId, companyId, resourceIds.dashboardSummary),
-      "daily",
-      month,
-    ] as const,
+    [...companyResource(actorId, companyId, resourceIds.dashboardSummary), "daily", month] as const,
   productHistory: (actorId: string, companyId: string, productId: string) =>
     [...companyResource(actorId, companyId, resourceIds.productHistory), productId] as const,
   staffRecords: (actorId: string, companyId: string) =>
@@ -212,6 +208,15 @@ export const queryKeys = {
     [
       ...companyResource(actorId, companyId, resourceIds.shareMonth),
       "master",
+      year,
+      shareholderId,
+    ] as const,
+  partnerPayoutMonth: (actorId: string, companyId: string, month: string) =>
+    [...companyResource(actorId, companyId, resourceIds.shareMonth), "payout", month] as const,
+  partnerPayoutHistory: (actorId: string, companyId: string, year: string, shareholderId: string) =>
+    [
+      ...companyResource(actorId, companyId, resourceIds.shareMonth),
+      "payoutHistory",
       year,
       shareholderId,
     ] as const,

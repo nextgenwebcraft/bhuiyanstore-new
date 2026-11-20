@@ -4,8 +4,10 @@ import {
   danOf,
   distributableProfit,
   investShare,
+  partnerShares,
   previousDueOpenTotal,
   profitPerLakh,
+  splitEqually,
 } from "./company-hishab";
 
 const company = (profit: string, khoroch: string) => ({
@@ -97,5 +99,85 @@ describe("distributableProfit", () => {
     expect(pool).toBe("80000.00");
     expect(investShare(pool, "100000", "500000")).toBe("16000.00");
     expect(profitPerLakh(pool, "500000")).toBe("16000.00");
+  });
+});
+
+describe("splitEqually (D143)", () => {
+  it("splits a lakh-round amount evenly", () => {
+    expect(splitEqually("300000", 3)).toEqual(["100000.00", "100000.00", "100000.00"]);
+  });
+
+  it("puts leftover paisa on the first parts so the parts add back exactly", () => {
+    expect(splitEqually("100000", 3)).toEqual(["33333.34", "33333.33", "33333.33"]);
+    expect(splitEqually("0.05", 3)).toEqual(["0.02", "0.02", "0.01"]);
+  });
+
+  it("returns nothing for no parts", () => {
+    expect(splitEqually("100", 0)).toEqual([]);
+  });
+});
+
+describe("partnerShares (D143, per-company split)", () => {
+  const companies = [
+    { companyId: "fresh", totalProfit: "90000.00" },
+    { companyId: "pusti", totalProfit: "30000.00" },
+  ];
+
+  it("splits each company among its own investors and sums one amount per partner", () => {
+    const result = partnerShares({
+      companies,
+      previousDueTotal: "0",
+      partners: [
+        { shareholderId: "ali", invest: { fresh: "100000", pusti: "100000" } },
+        { shareholderId: "mustafiz", invest: { fresh: "200000" } },
+      ],
+    });
+    const ali = result.partners.find((p) => p.shareholderId === "ali");
+    const mustafiz = result.partners.find((p) => p.shareholderId === "mustafiz");
+    // Fresh 90,000 split 1:2; Pusti 30,000 all to Ali (only investor there).
+    expect(ali?.lines).toEqual([
+      { companyId: "fresh", invest: "100000.00", amount: "30000.00" },
+      { companyId: "pusti", invest: "100000.00", amount: "30000.00" },
+    ]);
+    expect(ali?.amount).toBe("60000.00");
+    expect(ali?.invest).toBe("200000.00");
+    expect(mustafiz?.amount).toBe("60000.00");
+    expect(result.allocated).toBe("120000.00");
+    expect(result.unallocated).toBe("0.00");
+  });
+
+  it("leaves a company nobody invested in unallocated", () => {
+    const result = partnerShares({
+      companies,
+      previousDueTotal: "0",
+      partners: [{ shareholderId: "ali", invest: { fresh: "70000" } }],
+    });
+    expect(result.partners[0]?.amount).toBe("90000.00");
+    expect(result.companies.find((c) => c.companyId === "pusti")?.invest).toBe("0.00");
+    expect(result.unallocated).toBe("30000.00");
+  });
+
+  it("spreads a Previous Due cut over companies in proportion to profit", () => {
+    const result = partnerShares({
+      companies,
+      previousDueTotal: "60000",
+      partners: [{ shareholderId: "ali", invest: { fresh: "1", pusti: "1" } }],
+    });
+    expect(result.distributableProfit).toBe("60000.00");
+    expect(result.companies.map((c) => c.distributableProfit)).toEqual(["45000.00", "15000.00"]);
+    expect(result.partners[0]?.amount).toBe("60000.00");
+  });
+
+  it("passes a company loss to that company's investors and leaves a total loss alone", () => {
+    const result = partnerShares({
+      companies: [
+        { companyId: "fresh", totalProfit: "-6260.24" },
+        { companyId: "pusti", totalProfit: "-1000.00" },
+      ],
+      previousDueTotal: "5000",
+      partners: [{ shareholderId: "ali", invest: { fresh: "100", pusti: "100" } }],
+    });
+    expect(result.distributableProfit).toBe("-7260.24");
+    expect(result.partners[0]?.amount).toBe("-7260.24");
   });
 });

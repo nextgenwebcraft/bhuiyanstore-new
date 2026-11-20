@@ -99,3 +99,128 @@ export function distributableProfit(
   const remaining = profit.sub(toDecimal(previousDueTotal));
   return roundSettlement(remaining.gt(0) ? remaining : toDecimal("0"));
 }
+
+/**
+ * Splits an amount equally across `count` parts, in paisa (D143). Leftover paisa go one each to
+ * the first parts, so the parts always add back to the amount exactly. Used by the শেয়ারহোল্ডার
+ * screen's "same amount in every company" field.
+ */
+export function splitEqually(amount: DecimalInput, count: number): string[] {
+  if (!Number.isInteger(count) || count <= 0) return [];
+  const paisa = toDecimal(roundSettlement(amount)).mul(100);
+  const base = paisa.divToInt(count);
+  const leftover = paisa.sub(base.mul(count)).toNumber();
+  return Array.from({ length: count }, (_, index) =>
+    roundSettlement(base.add(index < leftover ? 1 : 0).div(100)),
+  );
+}
+
+export type PartnerInvest = {
+  shareholderId: string;
+  /** Invest in force for the month, keyed by company id; a missing company is zero. */
+  invest: Readonly<Record<string, DecimalInput>>;
+};
+
+export type PartnerSharesInput = {
+  /** Each company's totalProfit for the month (profit − khoroch − দান). */
+  companies: readonly { companyId: string; totalProfit: DecimalInput }[];
+  /** Previous Due applied against this month (D128). */
+  previousDueTotal: DecimalInput;
+  /** Active partners only; closed partners get no share and add no invest. */
+  partners: readonly PartnerInvest[];
+};
+
+export type PartnerShareLine = { companyId: string; invest: string; amount: string };
+
+export type PartnerSharesResult = {
+  totalProfit: string;
+  distributableProfit: string;
+  companies: {
+    companyId: string;
+    totalProfit: string;
+    /** This company's part of the distributable pool after the Previous Due cut. */
+    distributableProfit: string;
+    /** Every active partner's invest in this company. */
+    invest: string;
+  }[];
+  partners: {
+    shareholderId: string;
+    invest: string;
+    /** The partner's share from every company, summed: the one amount they are paid. */
+    amount: string;
+    lines: PartnerShareLine[];
+  }[];
+  /** Sum of every partner's amount. */
+  allocated: string;
+  /** distributableProfit − allocated: companies nobody invested in, plus paisa rounding. */
+  unallocated: string;
+};
+
+/**
+ * A month's partner profit, company by company (D143, replaces the D88 pooled split): each
+ * company's distributable profit is split among the partners who invested in that company, in
+ * proportion to their invest there; a partner's amount is the sum over every company. The D128
+ * Previous Due cut is spread over the companies in proportion to their totalProfit (one factor =
+ * distributable ÷ totalProfit), so the per-company parts still add up to the distributable pool.
+ * A company with no invest has nobody to receive its profit; that stays in `unallocated`.
+ */
+export function partnerShares(input: PartnerSharesInput): PartnerSharesResult {
+  const total = input.companies.reduce(
+    (sum, company) => sum.add(toDecimal(company.totalProfit)),
+    toDecimal("0"),
+  );
+  const pool = distributableProfit(total, input.previousDueTotal);
+  const factor = total.gt(0) ? toDecimal(pool).div(total) : toDecimal("1");
+  const investOf = (partner: PartnerInvest, companyId: string) =>
+    toDecimal(roundSettlement(partner.invest[companyId] ?? "0"));
+
+  const companies = input.companies.map((company) => {
+    const share = toDecimal(company.totalProfit).mul(factor);
+    const invest = input.partners.reduce(
+      (sum, partner) => sum.add(investOf(partner, company.companyId)),
+      toDecimal("0"),
+    );
+    return { companyId: company.companyId, share, invest };
+  });
+
+  const partners = input.partners.map((partner) => {
+    const lines = companies.map((company) => {
+      const invest = investOf(partner, company.companyId);
+      return {
+        companyId: company.companyId,
+        invest: roundSettlement(invest),
+        amount: investShare(company.share, invest, company.invest),
+      };
+    });
+    return {
+      shareholderId: partner.shareholderId,
+      invest: roundSettlement(
+        lines.reduce((sum, line) => sum.add(toDecimal(line.invest)), toDecimal("0")),
+      ),
+      amount: roundSettlement(
+        lines.reduce((sum, line) => sum.add(toDecimal(line.amount)), toDecimal("0")),
+      ),
+      lines,
+    };
+  });
+
+  const allocated = partners.reduce(
+    (sum, partner) => sum.add(toDecimal(partner.amount)),
+    toDecimal("0"),
+  );
+  return {
+    totalProfit: roundSettlement(total),
+    distributableProfit: pool,
+    companies: companies.map((company) => ({
+      companyId: company.companyId,
+      totalProfit: roundSettlement(
+        input.companies.find((row) => row.companyId === company.companyId)?.totalProfit ?? "0",
+      ),
+      distributableProfit: roundSettlement(company.share),
+      invest: roundSettlement(company.invest),
+    })),
+    partners,
+    allocated: roundSettlement(allocated),
+    unallocated: roundSettlement(toDecimal(pool).sub(allocated)),
+  };
+}

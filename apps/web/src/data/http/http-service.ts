@@ -25,6 +25,9 @@ import {
   masterSummarySchema,
   companyHishabYearSchema,
   masterHishabYearSchema,
+  partnerPayoutHistorySchema,
+  partnerPayoutMonthSchema,
+  partnerPayResultSchema,
   previousDueListSchema,
   previousDueSchema,
   companyCheckHistoryListSchema,
@@ -624,12 +627,29 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
         `${company(companyId)}/shareholders/${id(shareholderId)}/investments`,
         write("PUT", input),
       ),
-    setShareholderPayout: (companyId, input) =>
+    getPartnerPayoutMonth: (companyId, month, options) =>
       request(
-        z.undefined(),
-        `${company(companyId)}/master-shareholder-payouts`,
-        write("PUT", input),
+        partnerPayoutMonthSchema,
+        `${company(companyId)}/partner-payouts/months/${id(month)}`,
+        options,
       ),
+    payPartners: (companyId, input) =>
+      request(
+        partnerPayResultSchema,
+        `${company(companyId)}/partner-payouts`,
+        write("POST", input),
+      ),
+    cancelPartnerPayout: (companyId, payoutId) =>
+      request(z.undefined(), `${company(companyId)}/partner-payouts/${id(payoutId)}`, remove()),
+    getPartnerPayoutHistory: (companyId, year, shareholderId, options) => {
+      const params = new URLSearchParams({ year });
+      if (shareholderId) params.set("shareholderId", shareholderId);
+      return request(
+        partnerPayoutHistorySchema,
+        `${company(companyId)}/partner-payouts/history?${params.toString()}`,
+        options,
+      );
+    },
     listPreviousDues: (companyId, options) =>
       request(previousDueListSchema, `${company(companyId)}/previous-dues`, options),
     createPreviousDue: (companyId, input) =>
@@ -653,11 +673,7 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
     listCompanyCheckPicker: (companyId, options) =>
       request(companyCheckPickerListSchema, `${company(companyId)}/company-checks/picker`, options),
     bulkCreateCompanyChecks: (companyId, input) =>
-      request(
-        companyCheckListSchema,
-        `${company(companyId)}/company-checks`,
-        write("POST", input),
-      ),
+      request(companyCheckListSchema, `${company(companyId)}/company-checks`, write("POST", input)),
     postCompanyCheckPayment: (companyId, input) =>
       request(
         companyCheckPaymentSchema,
