@@ -24,13 +24,13 @@ import type {
   ReportId,
   ReportRange,
   InvestmentsRequest,
+  PartnerPayRequest,
   PreviousDueCreateRequest,
   PreviousDueReduceRequest,
   PreviousDueUpdateRequest,
   CompanyCheckBulkCreateRequest,
   CompanyCheckPaymentRequest,
   ShareholderCreateRequest,
-  ShareholderPayoutRequest,
   ShareholderUpdateRequest,
   RoleUpsertRequest,
   StaffAccountKind,
@@ -662,10 +662,38 @@ export function useSaveInvestments(companyId: string) {
   );
 }
 
-export function useSetShareholderPayout(companyId: string) {
+export function usePartnerPayoutMonth(companyId: string, month: string) {
   const service = useService();
-  return useMasterMutation([resourceIds.shareMonth], (input: ShareholderPayoutRequest) =>
-    service.setShareholderPayout(companyId, input),
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.partnerPayoutMonth(actorId, companyId, month),
+    queryFn: ({ signal }) => service.getPartnerPayoutMonth(companyId, month, { signal }),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function usePartnerPayoutHistory(companyId: string, year: string, shareholderId: string) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.partnerPayoutHistory(actorId, companyId, year, shareholderId),
+    queryFn: ({ signal }) =>
+      service.getPartnerPayoutHistory(companyId, year, shareholderId || undefined, { signal }),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function usePayPartners(companyId: string) {
+  const service = useService();
+  return useMasterMutation([resourceIds.shareMonth], (input: PartnerPayRequest) =>
+    service.payPartners(companyId, input),
+  );
+}
+
+export function useCancelPartnerPayout(companyId: string) {
+  const service = useService();
+  return useMasterMutation([resourceIds.shareMonth], (payoutId: string) =>
+    service.cancelPartnerPayout(companyId, payoutId),
   );
 }
 

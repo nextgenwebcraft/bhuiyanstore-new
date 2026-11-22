@@ -34,6 +34,10 @@ import type {
   MasterSummary,
   CompanyHishabYear,
   MasterHishabYear,
+  PartnerPayoutHistory,
+  PartnerPayoutMonth,
+  PartnerPayRequest,
+  PartnerPayResult,
   InvestmentsRequest,
   PreviousDueCreateRequest,
   PreviousDueList,
@@ -48,7 +52,6 @@ import type {
   CompanyCheckPickerList,
   ShareholderCreateRequest,
   ShareholderList,
-  ShareholderPayoutRequest,
   ShareholderRecord,
   ShareholderUpdateRequest,
   HistoryDsrPage,
@@ -377,8 +380,23 @@ export interface DistributionService {
     shareholderId: string,
     input: InvestmentsRequest,
   ): Promise<ShareholderRecord>;
-  /** D94: marks or unmarks one shareholder's one month as paid on the master panel. */
-  setShareholderPayout(companyId: string, input: ShareholderPayoutRequest): Promise<void>;
+  /** D143: one month of partner payments (live shares + recorded payments). */
+  getPartnerPayoutMonth(
+    companyId: string,
+    month: string,
+    options?: RequestOptions,
+  ): Promise<PartnerPayoutMonth>;
+  /** D143: pays one or more partners for a month. */
+  payPartners(companyId: string, input: PartnerPayRequest): Promise<PartnerPayResult>;
+  /** D143: cancels one recorded partner payment. */
+  cancelPartnerPayout(companyId: string, payoutId: string): Promise<void>;
+  /** D143: partner payment history for a year. */
+  getPartnerPayoutHistory(
+    companyId: string,
+    year: string,
+    shareholderId?: string,
+    options?: RequestOptions,
+  ): Promise<PartnerPayoutHistory>;
   /** D128: master Previous Due list (reason + amount). */
   listPreviousDues(companyId: string, options?: RequestOptions): Promise<PreviousDueList>;
   createPreviousDue(companyId: string, input: PreviousDueCreateRequest): Promise<PreviousDueRecord>;

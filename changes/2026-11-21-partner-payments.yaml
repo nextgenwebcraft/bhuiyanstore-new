@@ -1,0 +1,43 @@
+id: 2026-11-21-partner-payments
+reason: >-
+  Owner 2026-11-21 (D143) — partners invest per company; add one amount that splits equally over
+  every company; profit comes from each company by that company's invest and sums to one amount
+  per partner; replace the paid-checkbox table with a proper অংশীদারদের পেমেন্ট page (settle the
+  month for everyone, stored as paid) plus history by partner, month and company.
+owners: [domain, contracts, application, database, web, i18n, docs]
+changes:
+  - packages/domain company-hishab.ts — splitEqually (paisa remainder on first parts) and
+    partnerShares (per-company split, Previous Due spread by profit, unallocated); unit tests
+  - packages/contracts — partner payout month / pay / history schemas; masterHishabYear drops
+    perShareholder; shareholder list adds totalInvest; shareholderPayoutRequest removed
+  - packages/database — shareholder_payout.amount (NOT NULL) + note + month index;
+    shareholder_payout_line; migration 20261121010000_partner_payout_amounts
+  - packages/application — getMasterHishabYear on partnerShares; getPartnerPayoutMonth,
+    payPartners (stale / already-paid / future refusals, idempotent), cancelPartnerPayout,
+    getPartnerPayoutHistory; setShareholderPayout removed; integration test
+  - apps/web — API partner-payouts (POST, months/[month], history, [payoutId] DELETE); old
+    master-shareholder-payouts route removed; master hub অংশীদারদের পেমেন্ট (মাসিক পরিশোধ,
+    পেমেন্ট ইতিহাস); master dashboard links there; Previous Due apply moved to the payment month;
+    শেয়ারহোল্ডার equal-split field + মোট ইনভেস্ট column
+  - packages/i18n — payout.* keys; share.paid.* removed
+  - docs — D143
+affectedActionIds: []
+financialImpact: >-
+  Month engine, company dashboards, Company Hishab Reports, দান and cash are unchanged. The master
+  partner split changes from one pooled rate (D88) to per-company: a partner now earns only from
+  companies they invested in, and a company with no partner invest is unallocated. On 2026-11-21
+  all invest is in Fresh Group, so Drinko group and Pusti T.K. Group profit is unallocated until
+  invest is entered there. Payments are now snapshots and do not move when figures change later.
+backfill: none (production had 0 shareholder_payout rows; the migration fails loudly if any exist)
+tests:
+  - pnpm test (396 passed) incl. domain splitEqually / partnerShares
+  - pnpm check:types (all packages)
+  - prettier + eslint on changed files (one pre-existing lint error in apps/web/src/data/queries.ts)
+  - pnpm test:integration company-hishab (8 passed, schema test)
+  - not run: full pnpm format:check (fails on pre-existing files), browser walk-through
+rollout: >-
+  apply migration 20261121010000_partner_payout_amounts (pnpm db:migrate), deploy; then enter
+  invest for Drinko group / Pusti T.K. Group on অংশীদার if their profit should be shared
+recovery: >-
+  revert the commit; drop shareholder_payout_line and the amount/note columns if rolling back the
+  migration (recorded payments are lost)

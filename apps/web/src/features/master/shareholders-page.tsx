@@ -1,8 +1,8 @@
 "use client";
 
 import type { ShareholderList } from "@bsd/contracts";
-import { monthOf } from "@bsd/domain";
-import { normalizeDigits, t } from "@bsd/i18n";
+import { monthOf, splitEqually } from "@bsd/domain";
+import { formatMoney, normalizeDigits, t } from "@bsd/i18n";
 import { useState } from "react";
 import { Button } from "@/components/button";
 import {
@@ -39,7 +39,7 @@ export function ShareholdersPage() {
 
   return (
     <NavGate path="master/shareholders">
-      <PageHeader title={t("nav.master.shareholders")} description={t("share.holders")} />
+      <PageHeader title={t("nav.master.shareholders")} description={t("share.page.description")} />
       <div className="mb-4 print:hidden">
         <MonthPicker
           id="shareholder-month"
@@ -76,8 +76,19 @@ function Roster({
   const [editing, setEditing] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
   const [draftAmounts, setDraftAmounts] = useState<Record<string, string>>({});
+  const [newTotal, setNewTotal] = useState("");
+  const [draftTotal, setDraftTotal] = useState("");
   const [error, setError] = useState<string | undefined>();
   const busy = create.isPending || update.isPending || saveInvestments.isPending;
+
+  /** D143: one amount spread equally over every company (paisa remainder on the first ones). */
+  const spread = (total: string): Record<string, string> | null => {
+    if (!/^\d+(\.\d{1,2})?$/.test(total)) return null;
+    const parts = splitEqually(total, view.companies.length);
+    return Object.fromEntries(
+      view.companies.map((company, index) => [company.companyId, parts[index] ?? "0.00"]),
+    );
+  };
 
   const run = async (action: () => Promise<unknown>) => {
     setError(undefined);
@@ -96,7 +107,7 @@ function Roster({
 
       <section className="flex flex-col gap-3">
         <form
-          className="flex flex-wrap items-end gap-2 print:hidden"
+          className="flex flex-col gap-4 rounded-xl border border-border bg-surface p-4 shadow-card print:hidden"
           onSubmit={(event) => {
             event.preventDefault();
             const next = name.trim();
@@ -104,10 +115,7 @@ function Roster({
             void run(async () => {
               const created = await create.mutateAsync({ name: next });
               const entries = view.companies
-                .filter((company) => {
-                  const value = (newAmounts[company.companyId] ?? "").trim();
-                  return value !== "" && Number(value) !== 0;
-                })
+                .filter((company) => /[1-9]/.test(newAmounts[company.companyId] ?? ""))
                 .map((company) => ({
                   targetCompanyId: company.companyId,
                   fromMonth: month,
@@ -120,40 +128,68 @@ function Roster({
                 });
               }
               setName("");
+              setNewTotal("");
               setNewAmounts({});
             });
           }}
         >
-          <Field id="share-new-name" label={t("share.name")} className="w-64">
-            <input
-              id="share-new-name"
-              className={inputClass}
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-            />
-          </Field>
-          {view.companies.map((company) => (
+          <h2 className="text-base font-semibold tracking-tight">{t("share.add")}</h2>
+          <div className="flex flex-wrap items-start gap-3">
+            <Field id="share-new-name" label={t("share.name")} className="w-64">
+              <input
+                id="share-new-name"
+                className={inputClass}
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+              />
+            </Field>
             <Field
-              key={company.companyId}
-              id={`share-new-amount-${company.companyId}`}
-              label={company.companyName}
-              className="w-32"
+              id="share-new-total"
+              label={t("share.equalSplit")}
+              className="max-w-md min-w-64 flex-1"
             >
               <input
-                id={`share-new-amount-${company.companyId}`}
+                id="share-new-total"
                 className={`${inputClass} text-right`}
                 inputMode="decimal"
-                value={newAmounts[company.companyId] ?? ""}
+                value={newTotal}
                 onChange={(event) => {
-                  const nextValue = normalizeDigits(event.target.value);
-                  setNewAmounts((prev) => ({ ...prev, [company.companyId]: nextValue }));
+                  const nextValue = normalizeDigits(event.target.value).trim();
+                  setNewTotal(nextValue);
+                  if (nextValue === "") setNewAmounts({});
+                  else {
+                    const parts = spread(nextValue);
+                    if (parts) setNewAmounts(parts);
+                  }
                 }}
               />
             </Field>
-          ))}
-          <Button variant="primary" type="submit" disabled={busy || name.trim() === ""}>
-            {t("share.add")}
-          </Button>
+          </div>
+          <div className="flex flex-wrap items-end gap-3">
+            {view.companies.map((company) => (
+              <Field
+                key={company.companyId}
+                id={`share-new-amount-${company.companyId}`}
+                label={company.companyName}
+                className="w-40"
+              >
+                <input
+                  id={`share-new-amount-${company.companyId}`}
+                  className={`${inputClass} text-right`}
+                  inputMode="decimal"
+                  value={newAmounts[company.companyId] ?? ""}
+                  onChange={(event) => {
+                    const nextValue = normalizeDigits(event.target.value);
+                    setNewTotal("");
+                    setNewAmounts((prev) => ({ ...prev, [company.companyId]: nextValue }));
+                  }}
+                />
+              </Field>
+            ))}
+            <Button variant="primary" type="submit" disabled={busy || name.trim() === ""}>
+              {t("share.add")}
+            </Button>
+          </div>
         </form>
         <TableScroller>
           <table className={tableClass}>
@@ -165,6 +201,7 @@ function Roster({
                 {view.companies.map((company) => (
                   <ColumnHead key={company.companyId} label={company.companyName} quantity />
                 ))}
+                <ColumnHead label={t("share.totalInvest")} quantity />
                 <th scope="col" className={`${thClass} print:hidden`}>
                   {t("common.edit")}
                 </th>
@@ -204,15 +241,37 @@ function Roster({
                             disabled={busy}
                             onChange={(event) => {
                               const next = normalizeDigits(event.target.value);
+                              setDraftTotal("");
                               setDraftAmounts((prev) => ({ ...prev, [company.companyId]: next }));
                             }}
                           />
                         ) : (
-                          amount
+                          formatMoney(amount)
                         )}
                       </td>
                     );
                   })}
+                  <td className={`${tdNum} font-semibold`}>
+                    {editing === holder.shareholderId ? (
+                      <input
+                        className={`${inputClass} w-36 text-right`}
+                        inputMode="decimal"
+                        aria-label={`${holder.name} ${t("share.equalSplitAria")}`}
+                        title={t("share.equalSplitHint")}
+                        placeholder={t("share.totalInvest")}
+                        value={draftTotal}
+                        disabled={busy}
+                        onChange={(event) => {
+                          const next = normalizeDigits(event.target.value).trim();
+                          setDraftTotal(next);
+                          const parts = spread(next);
+                          if (parts) setDraftAmounts(parts);
+                        }}
+                      />
+                    ) : (
+                      formatMoney(holder.totalInvest)
+                    )}
+                  </td>
                   <td className={`${tdClass} print:hidden`}>
                     <div className="flex flex-wrap gap-2">
                       {editing === holder.shareholderId ? (
@@ -261,6 +320,7 @@ function Roster({
                           onClick={() => {
                             setEditing(holder.shareholderId);
                             setDraftName(holder.name);
+                            setDraftTotal(holder.totalInvest);
                             const amounts: Record<string, string> = {};
                             view.companies.forEach((company) => {
                               amounts[company.companyId] =

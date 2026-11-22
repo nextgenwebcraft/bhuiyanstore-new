@@ -38,6 +38,8 @@ export const navigation: readonly NavSection[] = [
       item("", "nav.dashboard", "company.view"),
       item("master/company-hishab", "nav.master.companyHishab", "company.view"),
       item("master/shareholders", "nav.master.shareholders", "company.view"),
+      item("master/partner-payments", "nav.master.partnerPayments.month", "company.view"),
+      item("master/partner-payments/history", "nav.master.partnerPayments.history", "company.view"),
       item("master/previous-due", "nav.master.previousDue", "company.view"),
       item("master/companies", "nav.master.companies", "company.view"),
     ],
@@ -132,6 +134,7 @@ export type HubId =
   | "companies"
   | "shares"
   | "shareholders"
+  | "partnerPayments"
   | "previousDue";
 
 type HubTab = {
@@ -242,6 +245,15 @@ const masterHubDefinitions: readonly Omit<Hub, "shortcut">[] = [
     labelKey: "nav.master.shareholders",
     icon: "srAccounts",
     tabs: [{ path: "master/shareholders", labelKey: "nav.master.shareholders" }],
+  },
+  {
+    id: "partnerPayments",
+    labelKey: "nav.master.partnerPayments",
+    icon: "finance",
+    tabs: [
+      { path: "master/partner-payments", labelKey: "nav.master.partnerPayments.month" },
+      { path: "master/partner-payments/history", labelKey: "nav.master.partnerPayments.history" },
+    ],
   },
   {
     id: "previousDue",

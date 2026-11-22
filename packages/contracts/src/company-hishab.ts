@@ -52,6 +52,8 @@ export const shareholderInvestmentsSchema = z.object({
   name: z.string(),
   active: z.boolean(),
   investments: z.array(z.object({ companyId: idSchema, amount: decimalStringSchema })),
+  /** Sum of the invest across every active company (D143). */
+  totalInvest: decimalStringSchema,
 });
 export type ShareholderInvestments = z.infer<typeof shareholderInvestmentsSchema>;
 
@@ -100,10 +102,10 @@ export type CompanyHishabYear = z.infer<typeof companyHishabYearSchema>;
 /**
  * The master panel: every active company's totalProfit side by side, one year, filterable by
  * shareholder. totalDan is 2% of the combined totalProfit (not a sum of the per-company দান).
- * previousDueTotal (D128) on each month is the sum of reductions applied to that month;
- * shareholderProfit and profitPerLakh use distributableProfit (totalProfit after those
- * reductions). openPreviousDueTotal is the remaining open dues for the apply form. perShareholder
- * (D94) is every **active** shareholder's share (closed partners omitted).
+ * previousDueTotal (D128) on each month is the sum of reductions applied to that month.
+ * shareholderProfit (D143) is the selected partner's per-company share summed, or every active
+ * partner's when none is selected; profitPerLakh is that shareholderProfit per lakh of the same
+ * selection's invest. openPreviousDueTotal is the remaining open dues for the apply form.
  */
 export const masterHishabYearSchema = z.object({
   year: hishabYearSchema,
@@ -127,9 +129,6 @@ export const masterHishabYearSchema = z.object({
       invest: decimalStringSchema,
       shareholderProfit: decimalStringSchema,
       profitPerLakh: decimalStringSchema,
-      perShareholder: z.array(
-        z.object({ shareholderId: idSchema, profit: decimalStringSchema, paid: z.boolean() }),
-      ),
     }),
   ),
 });
@@ -178,10 +177,122 @@ export const previousDueReduceRequestSchema = z.object({
 });
 export type PreviousDueReduceRequest = z.input<typeof previousDueReduceRequestSchema>;
 
-/** D94: marks (or unmarks) one shareholder's one month as paid on the master panel. */
-export const shareholderPayoutRequestSchema = z.object({
-  shareholderId: idSchema,
-  month: monthSchema,
-  paid: z.boolean(),
+/** One company's part of a partner's monthly share (D143). */
+export const partnerShareLineSchema = z.object({
+  companyId: idSchema,
+  companyName: z.string(),
+  invest: decimalStringSchema,
+  amount: decimalStringSchema,
 });
-export type ShareholderPayoutRequest = z.input<typeof shareholderPayoutRequestSchema>;
+export type PartnerShareLine = z.infer<typeof partnerShareLineSchema>;
+
+/** A recorded payment: the amount and company parts as they were when paid (snapshot). */
+export const partnerPayoutSchema = z.object({
+  id: idSchema,
+  month: monthSchema,
+  shareholderId: idSchema,
+  shareholderName: z.string(),
+  amount: decimalStringSchema,
+  note: z.string().nullable(),
+  paidAt: z.string(),
+  paidByName: z.string().nullable(),
+  lines: z.array(partnerShareLineSchema),
+});
+export type PartnerPayout = z.infer<typeof partnerPayoutSchema>;
+
+/**
+ * "future" is after the current month (nothing earned, cannot pay); "current" is still running
+ * (payable, but figures can still move); "closed" is finished.
+ */
+export const payoutMonthStateSchema = z.enum(["future", "current", "closed"]);
+export type PayoutMonthState = z.infer<typeof payoutMonthStateSchema>;
+
+/**
+ * অংশীদারদের পেমেন্ট for one month (D143): each company's profit, every active partner's
+ * per-company share and total, and the payment if already made. A paid partner whose live figure
+ * no longer matches the snapshot is flagged "changed". Totals are computed on the server.
+ */
+export const partnerPayoutMonthSchema = z.object({
+  month: monthSchema,
+  state: payoutMonthStateSchema,
+  companies: z.array(
+    z.object({
+      companyId: idSchema,
+      companyName: z.string(),
+      totalProfit: decimalStringSchema,
+      distributableProfit: decimalStringSchema,
+      invest: decimalStringSchema,
+    }),
+  ),
+  totalProfit: decimalStringSchema,
+  previousDueTotal: decimalStringSchema,
+  distributableProfit: decimalStringSchema,
+  /** Profit of companies with no partner invest (plus paisa rounding): nobody receives it. */
+  unallocated: decimalStringSchema,
+  partners: z.array(
+    z.object({
+      shareholderId: idSchema,
+      name: z.string(),
+      active: z.boolean(),
+      invest: decimalStringSchema,
+      amount: decimalStringSchema,
+      lines: z.array(partnerShareLineSchema),
+      payout: partnerPayoutSchema.nullable(),
+      changed: z.boolean(),
+    }),
+  ),
+  summary: z.object({
+    /** Every active partner's live amount. */
+    payable: decimalStringSchema,
+    /** Sum of recorded payments. */
+    paid: decimalStringSchema,
+    /** Live amount of active partners not yet paid. */
+    unpaid: decimalStringSchema,
+    paidCount: z.number().int(),
+    partnerCount: z.number().int(),
+  }),
+});
+export type PartnerPayoutMonth = z.infer<typeof partnerPayoutMonthSchema>;
+
+/**
+ * Pay one or more partners for a month (D143). Each entry carries the amount the admin saw; the
+ * server refuses when the live figure no longer matches, so nobody is paid a figure they did not
+ * review.
+ */
+export const partnerPayRequestSchema = z.object({
+  month: monthSchema,
+  entries: z
+    .array(z.object({ shareholderId: idSchema, amount: decimalStringSchema }))
+    .min(1, { message: "validation.payout.none" }),
+  note: z.string().trim().max(200, { message: "validation.payout.note" }).optional(),
+});
+export type PartnerPayRequest = z.input<typeof partnerPayRequestSchema>;
+
+export const partnerPayResultSchema = z.object({ paid: z.number().int() });
+export type PartnerPayResult = z.infer<typeof partnerPayResultSchema>;
+
+/** Payment history for a year (D143): every payment plus totals by partner, month and company. */
+export const partnerPayoutHistorySchema = z.object({
+  year: hishabYearSchema,
+  shareholderId: idSchema.nullable(),
+  shareholders: z.array(
+    z.object({ shareholderId: idSchema, name: z.string(), active: z.boolean() }),
+  ),
+  companies: z.array(z.object({ companyId: idSchema, companyName: z.string() })),
+  payments: z.array(partnerPayoutSchema),
+  byShareholder: z.array(
+    z.object({
+      shareholderId: idSchema,
+      name: z.string(),
+      total: decimalStringSchema,
+      /** Twelve entries, January first; null when that month is not paid. */
+      months: z.array(decimalStringSchema.nullable()),
+      byCompany: z.array(z.object({ companyId: idSchema, amount: decimalStringSchema })),
+    }),
+  ),
+  /** Twelve totals, January first. */
+  byMonth: z.array(decimalStringSchema),
+  byCompany: z.array(z.object({ companyId: idSchema, amount: decimalStringSchema })),
+  total: decimalStringSchema,
+});
+export type PartnerPayoutHistory = z.infer<typeof partnerPayoutHistorySchema>;

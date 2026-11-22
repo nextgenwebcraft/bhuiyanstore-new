@@ -64,6 +64,7 @@ const TABLES = [
   "role",
   "company_module",
   "shareholder_investment",
+  "shareholder_payout_line",
   "shareholder_payout",
   "shareholder",
   "previous_due_reduction",

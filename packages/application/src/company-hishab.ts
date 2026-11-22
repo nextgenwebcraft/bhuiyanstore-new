@@ -4,6 +4,10 @@ import {
   investmentsRequestSchema,
   masterHishabYearSchema,
   monthSchema,
+  partnerPayoutHistorySchema,
+  partnerPayoutMonthSchema,
+  partnerPayRequestSchema,
+  partnerPayResultSchema,
   previousDueCreateRequestSchema,
   previousDueListSchema,
   previousDueReduceRequestSchema,
@@ -11,11 +15,14 @@ import {
   previousDueUpdateRequestSchema,
   shareholderCreateRequestSchema,
   shareholderListSchema,
-  shareholderPayoutRequestSchema,
   shareholderSchema,
   shareholderUpdateRequestSchema,
   type CompanyHishabYear,
   type MasterHishabYear,
+  type PartnerPayout,
+  type PartnerPayoutHistory,
+  type PartnerPayoutMonth,
+  type PartnerPayResult,
   type PreviousDueList,
   type PreviousDueRecord,
   type PreviousDueReduceRequest,
@@ -25,11 +32,11 @@ import {
 import {
   companyHishabMonth,
   danOf,
-  distributableProfit,
   firstOfMonth,
   investShare,
   lastOfMonth,
   monthOf,
+  partnerShares,
   previousDueOpenTotal,
   profitPerLakh,
   roundSettlement,
@@ -151,18 +158,22 @@ export async function listShareholders(
     companies: companies.map((company) => ({ companyId: company.id, companyName: company.name })),
     shareholders: people
       .filter((person) => person.active || hasInvestment(person, () => true))
-      .map((person) => ({
-        shareholderId: person.id,
-        name: person.name,
-        active: person.active,
-        investments: companies.map((company) => ({
+      .map((person) => {
+        const investments = companies.map((company) => ({
           companyId: company.id,
           amount: investmentOn(
             person.investments.filter((investment) => investment.companyId === company.id),
             month,
           ),
-        })),
-      })),
+        }));
+        return {
+          shareholderId: person.id,
+          name: person.name,
+          active: person.active,
+          investments,
+          totalInvest: sumAmounts(investments.map((investment) => investment.amount)),
+        };
+      }),
   });
 }
 
@@ -385,6 +396,82 @@ export async function getCompanyHishabYear(
   });
 }
 
+type InvestmentRow = {
+  shareholderId: string;
+  companyId: string;
+  fromMonth: string;
+  amount: DecimalLike;
+};
+
+/**
+ * One month of partner profit (D143): every active company's figures, then the per-company split
+ * among the given (active) partners after the month's Previous Due cut. Shared by the master year
+ * grid, the payment month and the pay action so all three always agree.
+ */
+async function partnerMonthOf(
+  ctx: AppContext,
+  input: {
+    companies: readonly { id: string; name: string }[];
+    partners: readonly { id: string }[];
+    investments: readonly InvestmentRow[];
+    dueApplied: string;
+    month: string;
+    today: string;
+  },
+) {
+  const { companies, partners, investments, dueApplied, month, today } = input;
+  const figures = await Promise.all(
+    companies.map(async (company) => ({
+      company,
+      ...(await todayCappedFigures(ctx, company.id, month, today)),
+    })),
+  );
+  const rows = companyHishabMonth(
+    figures.map((entry) => ({
+      companyId: entry.company.id,
+      companyName: entry.company.name,
+      profit: entry.profit,
+      khoroch: entry.khoroch,
+    })),
+  );
+  const atMonth = investments.filter((investment) => investment.fromMonth <= month);
+  const shares = partnerShares({
+    companies: rows.map((row) => ({ companyId: row.companyId, totalProfit: row.totalProfit })),
+    previousDueTotal: dueApplied,
+    partners: partners.map((person) => ({
+      shareholderId: person.id,
+      invest: Object.fromEntries(
+        companies.map((company) => [
+          company.id,
+          investmentOn(
+            atMonth.filter(
+              (investment) =>
+                investment.shareholderId === person.id && investment.companyId === company.id,
+            ),
+            month,
+          ),
+        ]),
+      ),
+    })),
+  });
+  return { rows, shares };
+}
+
+async function investmentsOf(ctx: AppContext): Promise<InvestmentRow[]> {
+  return ctx.db.shareholderInvestment.findMany({
+    where: { shareholder: { tenantId: ctx.actor.tenantId } },
+    select: { shareholderId: true, companyId: true, fromMonth: true, amount: true },
+  });
+}
+
+async function dueAppliedOf(ctx: AppContext, month: string): Promise<string> {
+  const rows = await ctx.db.previousDueReduction.findMany({
+    where: { tenantId: ctx.actor.tenantId, month },
+    select: { amount: true },
+  });
+  return sumAmounts(rows.map((row) => plain(row.amount)));
+}
+
 /** The master panel: every active company's total side by side, one year. */
 export async function getMasterHishabYear(
   ctx: AppContext,
@@ -399,17 +486,10 @@ export async function getMasterHishabYear(
       ? shareholderIdInput
       : null;
 
-  const [companies, people, investments, payouts, dueRows, reductions] = await Promise.all([
+  const [companies, people, investments, dueRows, reductions] = await Promise.all([
     companiesOf(ctx),
     peopleOf(ctx),
-    ctx.db.shareholderInvestment.findMany({
-      where: { shareholder: { tenantId: ctx.actor.tenantId } },
-      select: { shareholderId: true, companyId: true, fromMonth: true, amount: true },
-    }),
-    ctx.db.shareholderPayout.findMany({
-      where: { shareholder: { tenantId: ctx.actor.tenantId }, month: { startsWith: year } },
-      select: { shareholderId: true, month: true },
-    }),
+    investmentsOf(ctx),
     ctx.db.previousDue.findMany({
       where: { tenantId: ctx.actor.tenantId },
       select: { amount: true },
@@ -419,6 +499,8 @@ export async function getMasterHishabYear(
       select: { month: true, amount: true },
     }),
   ]);
+  // Closed (inactive) shareholders get no share and their invest stays out of every company's
+  // pool, so the open partners split the full distributable profit of the companies they are in.
   const listedPeople = people.filter((person) => person.active);
   if (shareholderId && !listedPeople.some((person) => person.id === shareholderId)) {
     throw invalid("shareholderId", "validation.share.unknown");
@@ -431,60 +513,34 @@ export async function getMasterHishabYear(
     appliedByMonth.set(row.month, sumAmounts([prev, plain(row.amount)]));
   }
   const today = monthOf(todayBusinessDate());
-  const labels = monthsOfYear(year);
-  // Closed (inactive) shareholders are omitted from the payment table and get no share; their
-  // invest is also left out of totalInvest so the open partners split the full distributable pool.
-  const shareholderIds = listedPeople.map((person) => person.id);
-  const paidSet = new Set(payouts.map((p) => `${p.shareholderId}|${p.month}`));
   const months = await Promise.all(
-    labels.map(async (month) => {
-      const figures = await Promise.all(
-        companies.map(async (company) => ({
-          company,
-          ...(await todayCappedFigures(ctx, company.id, month, today)),
-        })),
-      );
-      const rows = companyHishabMonth(
-        figures.map((entry) => ({
-          companyId: entry.company.id,
-          companyName: entry.company.name,
-          profit: entry.profit,
-          khoroch: entry.khoroch,
-        })),
-      );
-      const totalProfit = sumAmounts(rows.map((row) => row.totalProfit));
+    monthsOfYear(year).map(async (month) => {
       const dueApplied = appliedByMonth.get(month) ?? "0.00";
-      const pool = distributableProfit(totalProfit, dueApplied);
-      const atMonth = investments.filter((investment) => investment.fromMonth <= month);
-      const investOf = (id: string) =>
-        sumAmounts(
-          companies.map((company) =>
-            investmentOn(
-              atMonth.filter(
-                (investment) =>
-                  investment.shareholderId === id && investment.companyId === company.id,
-              ),
-              month,
-            ),
-          ),
-        );
-      const totalInvest = sumAmounts(shareholderIds.map(investOf));
-      const invest = shareholderId ? investOf(shareholderId) : totalInvest;
+      const { rows, shares } = await partnerMonthOf(ctx, {
+        companies,
+        partners: listedPeople,
+        investments,
+        dueApplied,
+        month,
+        today,
+      });
+      const selected = shareholderId
+        ? shares.partners.find((partner) => partner.shareholderId === shareholderId)
+        : undefined;
+      const invest = selected
+        ? selected.invest
+        : sumAmounts(shares.partners.map((partner) => partner.invest));
+      const shareholderProfit = selected ? selected.amount : shares.allocated;
       return {
         month,
         companies: rows.map((row) => ({ companyId: row.companyId, totalProfit: row.totalProfit })),
-        totalProfit,
+        totalProfit: shares.totalProfit,
         previousDueTotal: roundSettlement(dueApplied),
-        distributableProfit: pool,
-        totalDan: danOf(totalProfit),
+        distributableProfit: shares.distributableProfit,
+        totalDan: danOf(shares.totalProfit),
         invest,
-        shareholderProfit: shareholderId ? investShare(pool, invest, totalInvest) : pool,
-        profitPerLakh: profitPerLakh(pool, totalInvest),
-        perShareholder: listedPeople.map((person) => ({
-          shareholderId: person.id,
-          profit: investShare(pool, investOf(person.id), totalInvest),
-          paid: paidSet.has(`${person.id}|${month}`),
-        })),
+        shareholderProfit,
+        profitPerLakh: profitPerLakh(shareholderProfit, invest),
       };
     }),
   );
@@ -682,40 +738,363 @@ export async function applyPreviousDueReduction(
   );
 }
 
+const payoutInclude = {
+  lines: true,
+  shareholder: { select: { name: true } },
+} as const;
+
+type PayoutRow = {
+  id: string;
+  month: string;
+  shareholderId: string;
+  amount: DecimalLike;
+  note: string | null;
+  paidAt: Date;
+  paidById: string;
+  shareholder: { name: string };
+  lines: { companyId: string; companyName: string; invest: DecimalLike; amount: DecimalLike }[];
+};
+
+async function userNamesOf(ctx: AppContext, ids: readonly string[]) {
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) return new Map<string, string>();
+  const users = await ctx.db.user.findMany({
+    where: { id: { in: unique } },
+    select: { id: true, name: true },
+  });
+  return new Map(users.map((user) => [user.id, user.name]));
+}
+
+function payoutOf(row: PayoutRow, names: Map<string, string>): PartnerPayout {
+  return {
+    id: row.id,
+    month: row.month,
+    shareholderId: row.shareholderId,
+    shareholderName: row.shareholder.name,
+    amount: roundSettlement(plain(row.amount)),
+    note: row.note,
+    paidAt: row.paidAt.toISOString(),
+    paidByName: names.get(row.paidById) ?? null,
+    lines: [...row.lines]
+      .sort((a, b) => a.companyName.localeCompare(b.companyName))
+      .map((line) => ({
+        companyId: line.companyId,
+        companyName: line.companyName,
+        invest: roundSettlement(plain(line.invest)),
+        amount: roundSettlement(plain(line.amount)),
+      })),
+  };
+}
+
+function monthStateOf(month: string, today: string) {
+  if (month > today) return "future" as const;
+  return month === today ? ("current" as const) : ("closed" as const);
+}
+
+/** Everything one payment month needs: live shares for the active partners (D143). */
+async function payoutBasisOf(ctx: AppContext, month: string) {
+  const [companies, people, investments, dueApplied] = await Promise.all([
+    companiesOf(ctx),
+    peopleOf(ctx),
+    investmentsOf(ctx),
+    dueAppliedOf(ctx, month),
+  ]);
+  const today = monthOf(todayBusinessDate());
+  const active = people.filter((person) => person.active);
+  const { shares } = await partnerMonthOf(ctx, {
+    companies,
+    partners: active,
+    investments,
+    dueApplied,
+    month,
+    today,
+  });
+  const companyName = new Map(companies.map((company) => [company.id, company.name]));
+  const linesOf = (shareholderId: string) =>
+    (shares.partners.find((partner) => partner.shareholderId === shareholderId)?.lines ?? []).map(
+      (line) => ({ ...line, companyName: companyName.get(line.companyId) ?? "" }),
+    );
+  return { companies, people, active, shares, dueApplied, today, linesOf };
+}
+
 /**
- * D94: marks (or unmarks) one shareholder's one month as paid on the master panel. Existence of
- * the row is the only fact; the amount is always the computed শেয়ারহোল্ডারের প্রফিট, never stored.
+ * অংশীদারদের পেমেন্ট for one month (D143): each active partner's per-company share and total,
+ * with the recorded payment (a snapshot) when already paid.
  */
-export async function setShareholderPayout(
+export async function getPartnerPayoutMonth(
+  ctx: AppContext,
+  companyId: string,
+  monthInput: unknown,
+): Promise<PartnerPayoutMonth> {
+  await requireMaster(ctx, companyId);
+  const month = parseMonth(monthInput);
+  const [basis, payouts] = await Promise.all([
+    payoutBasisOf(ctx, month),
+    ctx.db.shareholderPayout.findMany({
+      where: { shareholder: { tenantId: ctx.actor.tenantId }, month },
+      include: payoutInclude,
+    }),
+  ]);
+  const names = await userNamesOf(
+    ctx,
+    payouts.map((payout) => payout.paidById),
+  );
+  const payoutBy = new Map(
+    payouts.map((payout) => [payout.shareholderId, payoutOf(payout, names)]),
+  );
+  const { shares } = basis;
+
+  const activeRows = basis.active.map((person) => {
+    const share = shares.partners.find((partner) => partner.shareholderId === person.id);
+    const amount = share?.amount ?? "0.00";
+    const payout = payoutBy.get(person.id) ?? null;
+    return {
+      shareholderId: person.id,
+      name: person.name,
+      active: true,
+      invest: share?.invest ?? "0.00",
+      amount,
+      lines: basis.linesOf(person.id),
+      payout,
+      changed: payout !== null && !toDecimal(payout.amount).eq(toDecimal(amount)),
+    };
+  });
+  // A partner closed after being paid keeps their payment on screen, with no live share.
+  const closedRows = basis.people
+    .filter((person) => !person.active && payoutBy.has(person.id))
+    .map((person) => ({
+      shareholderId: person.id,
+      name: person.name,
+      active: false,
+      invest: "0.00",
+      amount: "0.00",
+      lines: [],
+      payout: payoutBy.get(person.id) ?? null,
+      changed: false,
+    }));
+
+  return partnerPayoutMonthSchema.parse({
+    month,
+    state: monthStateOf(month, basis.today),
+    companies: shares.companies.map((row) => ({
+      ...row,
+      companyName: basis.companies.find((company) => company.id === row.companyId)?.name ?? "",
+    })),
+    totalProfit: shares.totalProfit,
+    previousDueTotal: roundSettlement(basis.dueApplied),
+    distributableProfit: shares.distributableProfit,
+    unallocated: shares.unallocated,
+    partners: [...activeRows, ...closedRows],
+    summary: {
+      payable: shares.allocated,
+      paid: sumAmounts(payouts.map((payout) => plain(payout.amount))),
+      unpaid: sumAmounts(activeRows.filter((row) => !row.payout).map((row) => row.amount)),
+      paidCount: activeRows.filter((row) => row.payout).length,
+      partnerCount: activeRows.length,
+    },
+  });
+}
+
+/**
+ * Pays one or more partners for a month (D143): stores each partner's live amount and its
+ * per-company parts as a snapshot. Refuses a future month, a partner already paid, and an amount
+ * that no longer matches the live figure the admin reviewed.
+ */
+export async function payPartners(
   ctx: AppContext,
   companyId: string,
   input: unknown,
+  requestKey?: string,
+): Promise<PartnerPayResult> {
+  await requireMaster(ctx, companyId, true);
+  const request = parseInput(partnerPayRequestSchema, input);
+  const ids = request.entries.map((entry) => entry.shareholderId);
+  if (new Set(ids).size !== ids.length) throw invalid("entries", "validation.payout.duplicate");
+  const basis = await payoutBasisOf(ctx, request.month);
+  if (request.month > basis.today) throw invalid("month", "validation.payout.futureMonth");
+
+  return runIdempotent(
+    ctx,
+    { scope: companyId, action: `partner.pay:${request.month}`, requestKey },
+    request,
+    async (tx) => {
+      for (const entry of request.entries) {
+        const share = basis.shares.partners.find(
+          (partner) => partner.shareholderId === entry.shareholderId,
+        );
+        if (!share) throw invalid("entries", "validation.payout.notPartner");
+        if (!toDecimal(share.amount).eq(toDecimal(entry.amount))) {
+          throw invalid("entries", "validation.payout.stale");
+        }
+        const existing = await tx.shareholderPayout.findUnique({
+          where: {
+            shareholderId_month: { shareholderId: entry.shareholderId, month: request.month },
+          },
+          select: { id: true },
+        });
+        if (existing) throw invalid("entries", "validation.payout.alreadyPaid");
+        const lines = basis
+          .linesOf(entry.shareholderId)
+          .filter((line) => toDecimal(line.invest).gt(0) || !toDecimal(line.amount).isZero());
+        const created = await tx.shareholderPayout.create({
+          data: {
+            shareholderId: entry.shareholderId,
+            month: request.month,
+            amount: share.amount,
+            note: request.note ? request.note : null,
+            paidById: ctx.actor.userId,
+            lines: {
+              create: lines.map((line) => ({
+                companyId: line.companyId,
+                companyName: line.companyName,
+                invest: line.invest,
+                amount: line.amount,
+              })),
+            },
+          },
+        });
+        await recordAudit(tx, ctx, {
+          companyId,
+          action: "shareholder.payout",
+          resourceType: "shareholder",
+          resourceId: entry.shareholderId,
+          after: {
+            payoutId: created.id,
+            month: request.month,
+            amount: share.amount,
+            lines: lines.map((line) => ({ companyId: line.companyId, amount: line.amount })),
+          },
+        });
+      }
+      return partnerPayResultSchema.parse({ paid: request.entries.length });
+    },
+  );
+}
+
+/** Cancels one recorded payment (D143); the audit log keeps what was cancelled. */
+export async function cancelPartnerPayout(
+  ctx: AppContext,
+  companyId: string,
+  payoutId: string,
 ): Promise<void> {
   await requireMaster(ctx, companyId, true);
-  const request = parseInput(shareholderPayoutRequestSchema, input);
-  // Upsert-or-delete-by-unique-key is already idempotent on retry; no requestKey/idempotency
-  // record needed (same convention as deleteCompany/deleteProduct's other void-returning writes).
   await ctx.db.$transaction(async (tx) => {
-    const person = await personOf(tx, ctx.actor.tenantId, request.shareholderId);
-    if (request.paid) {
-      await tx.shareholderPayout.upsert({
-        where: {
-          shareholderId_month: { shareholderId: person.id, month: request.month },
-        },
-        create: { shareholderId: person.id, month: request.month, paidById: ctx.actor.userId },
-        update: {},
-      });
-    } else {
-      await tx.shareholderPayout.deleteMany({
-        where: { shareholderId: person.id, month: request.month },
-      });
-    }
+    const payout = await tx.shareholderPayout.findFirst({
+      where: { id: payoutId, shareholder: { tenantId: ctx.actor.tenantId } },
+      include: { lines: true },
+    });
+    if (!payout) throw invalid("payoutId", "validation.payout.unknown");
+    await tx.shareholderPayout.delete({ where: { id: payout.id } });
     await recordAudit(tx, ctx, {
       companyId,
-      action: "shareholder.payout",
+      action: "shareholder.payout.cancel",
       resourceType: "shareholder",
-      resourceId: person.id,
-      after: { month: request.month, paid: request.paid },
+      resourceId: payout.shareholderId,
+      before: {
+        payoutId: payout.id,
+        month: payout.month,
+        amount: plain(payout.amount),
+        lines: payout.lines.map((line) => ({
+          companyId: line.companyId,
+          amount: plain(line.amount),
+        })),
+      },
     });
+  });
+}
+
+/**
+ * Payment history for a year (D143): every recorded payment, newest first, plus what each partner
+ * received per month and per company, the month totals and the company totals.
+ */
+export async function getPartnerPayoutHistory(
+  ctx: AppContext,
+  companyId: string,
+  yearInput: unknown,
+  shareholderIdInput?: unknown,
+): Promise<PartnerPayoutHistory> {
+  await requireMaster(ctx, companyId);
+  const year = parseYear(yearInput);
+  const shareholderId =
+    typeof shareholderIdInput === "string" && shareholderIdInput.length > 0
+      ? shareholderIdInput
+      : null;
+  const [people, activeCompanies, payouts] = await Promise.all([
+    peopleOf(ctx),
+    companiesOf(ctx),
+    ctx.db.shareholderPayout.findMany({
+      where: {
+        shareholder: { tenantId: ctx.actor.tenantId },
+        month: { startsWith: year },
+        ...(shareholderId ? { shareholderId } : {}),
+      },
+      include: payoutInclude,
+      orderBy: [{ month: "desc" }, { paidAt: "desc" }],
+    }),
+  ]);
+  if (shareholderId && !people.some((person) => person.id === shareholderId)) {
+    throw invalid("shareholderId", "validation.share.unknown");
+  }
+  const names = await userNamesOf(
+    ctx,
+    payouts.map((payout) => payout.paidById),
+  );
+  const payments = payouts.map((payout) => payoutOf(payout, names));
+
+  // Columns: every active company, plus any company that only appears in older payments.
+  const companyNames = new Map(activeCompanies.map((company) => [company.id, company.name]));
+  for (const payment of payments) {
+    for (const line of payment.lines) {
+      if (!companyNames.has(line.companyId)) companyNames.set(line.companyId, line.companyName);
+    }
+  }
+  const companies = [...companyNames.entries()]
+    .map(([id, name]) => ({ companyId: id, companyName: name }))
+    .sort((a, b) => a.companyName.localeCompare(b.companyName));
+  const labels = monthsOfYear(year);
+  const companyTotal = (rows: readonly PartnerPayout[], id: string) =>
+    sumAmounts(
+      rows.flatMap((row) =>
+        row.lines.filter((line) => line.companyId === id).map((line) => line.amount),
+      ),
+    );
+
+  const paidPeople = people.filter((person) =>
+    payments.some((payment) => payment.shareholderId === person.id),
+  );
+  return partnerPayoutHistorySchema.parse({
+    year,
+    shareholderId,
+    shareholders: people
+      .filter((person) => person.active || paidPeople.includes(person))
+      .map((person) => ({ shareholderId: person.id, name: person.name, active: person.active })),
+    companies,
+    payments,
+    byShareholder: paidPeople.map((person) => {
+      const own = payments.filter((payment) => payment.shareholderId === person.id);
+      return {
+        shareholderId: person.id,
+        name: person.name,
+        total: sumAmounts(own.map((payment) => payment.amount)),
+        months: labels.map((month) => {
+          const paid = own.filter((payment) => payment.month === month);
+          return paid.length > 0 ? sumAmounts(paid.map((payment) => payment.amount)) : null;
+        }),
+        byCompany: companies.map((company) => ({
+          companyId: company.companyId,
+          amount: companyTotal(own, company.companyId),
+        })),
+      };
+    }),
+    byMonth: labels.map((month) =>
+      sumAmounts(
+        payments.filter((payment) => payment.month === month).map((payment) => payment.amount),
+      ),
+    ),
+    byCompany: companies.map((company) => ({
+      companyId: company.companyId,
+      amount: companyTotal(payments, company.companyId),
+    })),
+    total: sumAmounts(payments.map((payment) => payment.amount)),
   });
 }

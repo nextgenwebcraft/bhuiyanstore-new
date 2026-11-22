@@ -1105,17 +1105,38 @@ model ShareholderInvestment {
   @@map("shareholder_investment")
 }
 
-/// D94: a shareholder marked paid for one month on the master panel; a missing row = not paid.
+/// D143 (amends D94): a partner paid for one month on the master panel; a missing row = not paid.
+/// `amount` is the snapshot of the computed share when paid, so later corrections never rewrite
+/// what was actually handed over; the per-company parts are in ShareholderPayoutLine.
 model ShareholderPayout {
-  id            String      @id @default(cuid())
-  shareholderId String      @map("shareholder_id")
+  id            String                  @id @default(cuid())
+  shareholderId String                  @map("shareholder_id")
   month         String
-  paidAt        DateTime    @default(now()) @map("paid_at")
-  paidById      String      @map("paid_by_id")
-  shareholder   Shareholder @relation(fields: [shareholderId], references: [id], onDelete: Cascade)
+  amount        Decimal                 @db.Decimal(14, 2)
+  note          String?
+  paidAt        DateTime                @default(now()) @map("paid_at")
+  paidById      String                  @map("paid_by_id")
+  shareholder   Shareholder             @relation(fields: [shareholderId], references: [id], onDelete: Cascade)
+  lines         ShareholderPayoutLine[]
 
   @@unique([shareholderId, month])
+  @@index([month])
   @@map("shareholder_payout")
+}
+
+/// D143: one company's part of a partner payout. The company is a snapshot (id + name, no foreign
+/// key) so payment history survives a company being renamed or deleted.
+model ShareholderPayoutLine {
+  id          String            @id @default(cuid())
+  payoutId    String            @map("payout_id")
+  companyId   String            @map("company_id")
+  companyName String            @map("company_name")
+  invest      Decimal           @db.Decimal(14, 2)
+  amount      Decimal           @db.Decimal(14, 2)
+  payout      ShareholderPayout @relation(fields: [payoutId], references: [id], onDelete: Cascade)
+
+  @@unique([payoutId, companyId])
+  @@map("shareholder_payout_line")
 }
 
 /// D128: tenant-wide Previous Due (reason + remaining amount). Amount 0 is settled.
