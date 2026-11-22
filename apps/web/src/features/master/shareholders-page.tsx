@@ -2,7 +2,7 @@
 
 import type { ShareholderList } from "@bsd/contracts";
 import { monthOf, splitEqually } from "@bsd/domain";
-import { formatCount, formatMoney, normalizeDigits, t } from "@bsd/i18n";
+import { formatMoney, normalizeDigits, t } from "@bsd/i18n";
 import { useState } from "react";
 import { Button } from "@/components/button";
 import {
@@ -146,7 +146,6 @@ function Roster({
             <Field
               id="share-new-total"
               label={t("share.equalSplit")}
-              hint={`${formatCount(view.companies.length)} ${t("nav.master.companies")} · ${t("share.equalSplitHint")}`}
               className="max-w-md min-w-64 flex-1"
             >
               <input
