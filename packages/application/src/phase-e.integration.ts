@@ -18,6 +18,7 @@ import { createCompany } from "./companies";
 import { expenseCategories, staffRoles } from "./configuration";
 import type { AppContext } from "./context";
 import {
+  getCompanyCapitalYear,
   getDashboardSummary,
   getDayView,
   listDsrDays,
@@ -668,6 +669,30 @@ describe("Phase E: daily entry", () => {
     await expect(listMoneyEntries(viewerCtx, company, { from: "2026-08-30" })).rejects.toSatisfy(
       (e) => e instanceof AppError && e.code === "FORBIDDEN",
     );
+    // D146: History → সারাংশ needs cost visibility.
+    await expect(getCompanyCapitalYear(viewerCtx, company, "2026")).rejects.toSatisfy(
+      (e) => e instanceof AppError && e.code === "FORBIDDEN",
+    );
+  });
+
+  it("D146: History summary is the dashboard's month-end undelivered + stock + market due", async () => {
+    const capital = await getCompanyCapitalYear(ctx, company, "2026");
+    const august = must(capital.months.find((row) => row.month === "2026-08"));
+    expect(august.to).toBe("2026-08-31");
+    const summary = await getDashboardSummary(ctx, company, {
+      from: "2026-08-01",
+      to: "2026-08-31",
+    });
+    expect(august.undelivered).toBe(toDecimal(summary.undeliveredValue ?? "0").toFixed(2));
+    expect(august.stock).toBe(toDecimal(summary.stockValue ?? "0").toFixed(2));
+    expect(august.marketDue).toBe(toDecimal(summary.marketDueOutstanding).toFixed(2));
+    expect(august.total).toBe(
+      toDecimal(august.undelivered).add(august.stock).add(august.marketDue).toFixed(2),
+    );
+    expect(toDecimal(august.stock).gt(0)).toBe(true);
+    // Newest month first; a month before the opening reads zero.
+    expect((capital.months[0]?.month ?? "") >= "2026-08").toBe(true);
+    expect(capital.months.find((row) => row.month === "2026-01")?.total).toBe("0.00");
   });
 
   it("corrects by reversal, replays idempotent posts and protects posted sheets", async () => {

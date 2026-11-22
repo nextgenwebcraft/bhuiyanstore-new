@@ -7,7 +7,24 @@ import {
   positiveAmountStringSchema,
 } from "./primitives";
 
-/** D129: registered company cheque (no face value). */
+/**
+ * One dated record on a cheque (D129; D145 adds the running balance): an order bill charged to it
+ * or a cash repayment. Lines are oldest first; `balance` is the cheque due after this line.
+ */
+export const companyCheckHistoryLineSchema = z.object({
+  kind: z.enum(["charge", "payment"]),
+  id: idSchema,
+  date: businessDateSchema,
+  amount: decimalStringSchema,
+  note: z.string(),
+  balance: decimalStringSchema,
+});
+export type CompanyCheckHistoryLine = z.infer<typeof companyCheckHistoryLineSchema>;
+
+/**
+ * D129: registered company cheque (no face value). D145: the active page lists every cheque with
+ * an open due (never one that has no order bill yet) with its dated records.
+ */
 export const companyCheckSchema = z.object({
   id: idSchema,
   bankName: z.string(),
@@ -19,6 +36,8 @@ export const companyCheckSchema = z.object({
   /** chargedTotal − paidTotal (floored at 0). */
   due: decimalStringSchema,
   createdAt: z.string(),
+  /** D145: every posted charge and payment, oldest first, with the running due. */
+  lines: z.array(companyCheckHistoryLineSchema),
 });
 export type CompanyCheckRecord = z.infer<typeof companyCheckSchema>;
 
@@ -81,14 +100,6 @@ export const companyCheckPaymentSchema = z.object({
 });
 export type CompanyCheckPaymentRecord = z.infer<typeof companyCheckPaymentSchema>;
 
-export const companyCheckHistoryLineSchema = z.object({
-  kind: z.enum(["charge", "payment"]),
-  id: idSchema,
-  date: businessDateSchema,
-  amount: decimalStringSchema,
-  note: z.string(),
-});
-
 /** Completed cheques (due 0 after charges) for History. */
 export const companyCheckHistoryItemSchema = z.object({
   id: idSchema,
@@ -96,7 +107,11 @@ export const companyCheckHistoryItemSchema = z.object({
   checkNumber: z.string(),
   chargedTotal: decimalStringSchema,
   paidTotal: decimalStringSchema,
+  /** D145: when the cheque was registered. */
+  createdAt: z.string(),
   completedAt: z.string(),
+  /** D145: business date of the record that brought the due to zero. */
+  completedDate: businessDateSchema,
   lines: z.array(companyCheckHistoryLineSchema),
 });
 export type CompanyCheckHistoryItem = z.infer<typeof companyCheckHistoryItemSchema>;

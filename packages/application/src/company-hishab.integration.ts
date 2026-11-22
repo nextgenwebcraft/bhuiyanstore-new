@@ -129,8 +129,34 @@ describe("company hishab (shareholder invest, replacing D76/D77 units)", () => {
     const list = await listShareholders(admin, masterId, "2026-03");
     expect(list.companies.map((company) => company.companyName)).toEqual(["Drinko"]);
     const karim = list.shareholders.find((person) => person.name === "Karim");
-    expect(karim?.investments).toEqual([{ companyId: drinkoId, amount: "200000.00" }]);
+    expect(karim?.investments).toEqual([
+      { companyId: drinkoId, amount: "200000.00", fromMonth: "2026-03" },
+    ]);
+    expect(karim?.changedThisMonth).toBe(true);
     expect(list.shareholders.some((person) => person.name === "Rahim")).toBe(true);
+    // D144 summary cards: active shareholders' invest for the month, total and per company.
+    expect(list.totals).toEqual({
+      totalInvest: "200000.00",
+      byCompany: [{ companyId: drinkoId, amount: "200000.00" }],
+      partnerCount: 2,
+      changedCount: 1,
+    });
+    // D144 change log: one row per month record, newest first, carrying the in-force amounts.
+    expect(
+      list.changes
+        .filter((change) => change.name === "Karim")
+        .map((change) => [change.month, change.total, change.changedCompanyIds]),
+    ).toEqual([
+      ["2026-03", "200000.00", [drinkoId]],
+      ["2026-01", "500000.00", [drinkoId]],
+    ]);
+
+    // A later month carries March's record forward and is not a change month.
+    const april = await listShareholders(admin, masterId, "2026-04");
+    const aprilKarim = april.shareholders.find((person) => person.name === "Karim");
+    expect(aprilKarim?.investments[0]?.fromMonth).toBe("2026-03");
+    expect(aprilKarim?.changedThisMonth).toBe(false);
+    expect(april.totals.changedCount).toBe(0);
   });
 
   it("refuses a duplicate name, an unknown target company, and a non-admin", async () => {
@@ -178,7 +204,7 @@ describe("company hishab (shareholder invest, replacing D76/D77 units)", () => {
     ).rejects.toSatisfy((error) => fieldError(error, "companyId", "validation.share.notCompany"));
     const list = await listShareholders(admin, masterId, "2026-05");
     const after = list.shareholders.find((person) => person.name === "Rahim");
-    expect(after?.investments).toEqual([{ companyId: drinkoId, amount: "0.00" }]);
+    expect(after?.investments).toEqual([{ companyId: drinkoId, amount: "0.00", fromMonth: null }]);
   });
 
   it("lays the master panel out as one row per month with every company's total profit", async () => {
@@ -319,6 +345,12 @@ describe("company hishab (shareholder invest, replacing D76/D77 units)", () => {
     expect(row?.months[2]).toBe("0.00");
     expect(row?.months[3]).toBeNull();
     expect(history.byCompany).toEqual([{ companyId: drinkoId, amount: "0.00" }]);
+    // D144: a payment keeps the invest it was made on, and history lists payments only.
+    expect(history.payments[0]).toMatchObject({
+      month: "2026-03",
+      invest: "200000.00",
+      amount: "0.00",
+    });
     const onlyRahim = await getPartnerPayoutHistory(
       admin,
       masterId,

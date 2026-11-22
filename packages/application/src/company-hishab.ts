@@ -119,6 +119,17 @@ function investmentOn(
   return row ? roundSettlement(plain(row.amount)) : "0.00";
 }
 
+/** D144: the month of the record in force at `month` (latest on or before it), else null. */
+function recordMonthOn(records: readonly { fromMonth: string }[], month: string): string | null {
+  return records.reduce<string | null>(
+    (latest, record) =>
+      record.fromMonth <= month && (latest === null || record.fromMonth > latest)
+        ? record.fromMonth
+        : latest,
+    null,
+  );
+}
+
 async function peopleOf(ctx: AppContext) {
   return ctx.db.shareholder.findMany({
     where: { tenantId: ctx.actor.tenantId },
@@ -153,27 +164,79 @@ export async function listShareholders(
   await requireMaster(ctx, companyId);
   const month = monthInput === undefined ? monthOf(todayBusinessDate()) : parseMonth(monthInput);
   const [companies, people] = await Promise.all([companiesOf(ctx), peopleOf(ctx)]);
-  return shareholderListSchema.parse({
-    month,
-    companies: companies.map((company) => ({ companyId: company.id, companyName: company.name })),
-    shareholders: people
-      .filter((person) => person.active || hasInvestment(person, () => true))
-      .map((person) => {
-        const investments = companies.map((company) => ({
+  const companyIds = new Set(companies.map((company) => company.id));
+  const listed = people.filter((person) => person.active || hasInvestment(person, () => true));
+  const shareholders = listed.map((person) => {
+    const investments = companies.map((company) => {
+      const own = person.investments.filter((investment) => investment.companyId === company.id);
+      return {
+        companyId: company.id,
+        amount: investmentOn(own, month),
+        fromMonth: recordMonthOn(own, month),
+      };
+    });
+    return {
+      shareholderId: person.id,
+      name: person.name,
+      active: person.active,
+      investments,
+      totalInvest: sumAmounts(investments.map((investment) => investment.amount)),
+      changedThisMonth: person.investments.some(
+        (investment) => investment.fromMonth === month && companyIds.has(investment.companyId),
+      ),
+    };
+  });
+  const active = shareholders.filter((holder) => holder.active);
+
+  // D144 change log: one row per shareholder per month that holds an invest record.
+  const changes = listed
+    .flatMap((person) => {
+      const own = person.investments.filter((investment) => companyIds.has(investment.companyId));
+      const months = [...new Set(own.map((investment) => investment.fromMonth))];
+      return months.map((changeMonth) => {
+        const amounts = companies.map((company) => ({
           companyId: company.id,
           amount: investmentOn(
-            person.investments.filter((investment) => investment.companyId === company.id),
-            month,
+            own.filter((investment) => investment.companyId === company.id),
+            changeMonth,
           ),
         }));
         return {
           shareholderId: person.id,
           name: person.name,
-          active: person.active,
-          investments,
-          totalInvest: sumAmounts(investments.map((investment) => investment.amount)),
+          month: changeMonth,
+          amounts,
+          changedCompanyIds: own
+            .filter((investment) => investment.fromMonth === changeMonth)
+            .map((investment) => investment.companyId),
+          total: sumAmounts(amounts.map((entry) => entry.amount)),
         };
-      }),
+      });
+    })
+    .sort((a, b) =>
+      a.month === b.month ? a.name.localeCompare(b.name) : a.month < b.month ? 1 : -1,
+    );
+
+  return shareholderListSchema.parse({
+    month,
+    companies: companies.map((company) => ({ companyId: company.id, companyName: company.name })),
+    shareholders,
+    totals: {
+      totalInvest: sumAmounts(active.map((holder) => holder.totalInvest)),
+      byCompany: companies.map((company) => ({
+        companyId: company.id,
+        amount: sumAmounts(
+          active.map(
+            (holder) =>
+              holder.investments.find((investment) => investment.companyId === company.id)
+                ?.amount ?? "0.00",
+          ),
+        ),
+      })),
+      partnerCount: active.length,
+      changedCount: active.filter((holder) => holder.changedThisMonth).length,
+    },
+    changes,
   });
 }
 
@@ -772,6 +835,8 @@ function payoutOf(row: PayoutRow, names: Map<string, string>): PartnerPayout {
     shareholderId: row.shareholderId,
     shareholderName: row.shareholder.name,
     amount: roundSettlement(plain(row.amount)),
+    // D144: the invest the payment was made on (the snapshot lines summed).
+    invest: sumAmounts(row.lines.map((line) => plain(line.invest))),
     note: row.note,
     paidAt: row.paidAt.toISOString(),
     paidByName: names.get(row.paidById) ?? null,
@@ -1062,6 +1127,7 @@ export async function getPartnerPayoutHistory(
   const paidPeople = people.filter((person) =>
     payments.some((payment) => payment.shareholderId === person.id),
   );
+
   return partnerPayoutHistorySchema.parse({
     year,
     shareholderId,

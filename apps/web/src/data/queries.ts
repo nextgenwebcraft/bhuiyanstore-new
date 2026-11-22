@@ -164,6 +164,17 @@ export function useDashboardMonthly(companyId: string, year: string, enabled = t
   });
 }
 
+/** D146 History → সারাংশ. */
+export function useCompanyCapitalYear(companyId: string, year: string) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.companyCapitalYear(actorId, companyId, year),
+    queryFn: ({ signal }) => service.getCompanyCapitalYear(companyId, year, { signal }),
+    placeholderData: keepPreviousData,
+  });
+}
+
 export function useDashboardDaily(companyId: string, month: string, enabled = true) {
   const service = useService();
   const actorId = useActorId();
@@ -754,6 +765,8 @@ export function useCompanyCheckPicker(companyId: string, enabled = true) {
   return useQuery({
     queryKey: queryKeys.companyCheckPicker(actorId, companyId),
     queryFn: ({ signal }) => service.listCompanyCheckPicker(companyId, { signal }),
+    // Always fresh: a cheque added on the cheque page must be pickable at once.
+    staleTime: 0,
     enabled,
   });
 }

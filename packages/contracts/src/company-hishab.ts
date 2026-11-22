@@ -51,17 +51,52 @@ export const shareholderInvestmentsSchema = z.object({
   shareholderId: idSchema,
   name: z.string(),
   active: z.boolean(),
-  investments: z.array(z.object({ companyId: idSchema, amount: decimalStringSchema })),
+  investments: z.array(
+    z.object({
+      companyId: idSchema,
+      amount: decimalStringSchema,
+      /** D144: the month this amount took effect (its record), null when never entered. */
+      fromMonth: monthSchema.nullable(),
+    }),
+  ),
   /** Sum of the invest across every active company (D143). */
   totalInvest: decimalStringSchema,
+  /** D144: true when this month holds this shareholder's own invest change (any company). */
+  changedThisMonth: z.boolean(),
 });
 export type ShareholderInvestments = z.infer<typeof shareholderInvestmentsSchema>;
+
+/**
+ * D144: one invest change — a shareholder's month record. `amounts` is every company's invest in
+ * force from that month (after the change); `changedCompanyIds` are the companies changed then.
+ */
+export const shareholderInvestChangeSchema = z.object({
+  shareholderId: idSchema,
+  name: z.string(),
+  month: monthSchema,
+  amounts: z.array(z.object({ companyId: idSchema, amount: decimalStringSchema })),
+  changedCompanyIds: z.array(idSchema),
+  total: decimalStringSchema,
+});
+export type ShareholderInvestChange = z.infer<typeof shareholderInvestChangeSchema>;
 
 /** The new শেয়ারহোল্ডার module: every shareholder and their invest, for one month. */
 export const shareholderListSchema = z.object({
   month: monthSchema,
   companies: z.array(z.object({ companyId: idSchema, companyName: z.string() })),
   shareholders: z.array(shareholderInvestmentsSchema),
+  /**
+   * D144 summary cards: the month's invest of the active shareholders (the same pool the profit
+   * split uses), in total and per company.
+   */
+  totals: z.object({
+    totalInvest: decimalStringSchema,
+    byCompany: z.array(z.object({ companyId: idSchema, amount: decimalStringSchema })),
+    partnerCount: z.number().int(),
+    changedCount: z.number().int(),
+  }),
+  /** D144: every invest change (month record), newest month first. */
+  changes: z.array(shareholderInvestChangeSchema),
 });
 export type ShareholderList = z.infer<typeof shareholderListSchema>;
 
@@ -193,6 +228,8 @@ export const partnerPayoutSchema = z.object({
   shareholderId: idSchema,
   shareholderName: z.string(),
   amount: decimalStringSchema,
+  /** D144: the invest the payment was made on (snapshot company invest summed). */
+  invest: decimalStringSchema,
   note: z.string().nullable(),
   paidAt: z.string(),
   paidByName: z.string().nullable(),

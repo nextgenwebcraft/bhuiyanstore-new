@@ -61,6 +61,7 @@ export {
   deleteMoneyEntry,
   discardDsrDay,
   getDashboardDaily,
+  getCompanyCapitalYear,
   getDashboardMonthly,
   getDashboardSummary,
   getDayView,

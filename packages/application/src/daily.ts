@@ -1,4 +1,5 @@
 import {
+  companyCapitalYearSchema,
   dashboardDailySchema,
   dashboardMonthlySchema,
   dashboardSummarySchema,
@@ -20,6 +21,7 @@ import {
   stockEntryPostRequestSchema,
   stockEntrySchema,
   type DashboardDaily,
+  type CompanyCapitalYear,
   type DashboardMonthly,
   type DashboardSummary,
   type DayView,
@@ -48,6 +50,7 @@ import {
   orderBatchCostPrice,
   pieceFromCarton,
   toDecimal,
+  roundSettlement,
   todayBusinessDate,
   damageRateKey,
   type MonthOutput,
@@ -2268,6 +2271,57 @@ export async function getDashboardMonthly(
     }),
   );
   return dashboardMonthlySchema.parse({ year, months });
+}
+
+/**
+ * D146 History → সারাংশ: money held in the company (অপ্রাপ্ত মাল + মজুদ মাল + বাজার বাকি) as of
+ * today and at each month end of a year. Each figure is the dashboard's own closing value for
+ * that range (`dashboardOf`), so it always matches the dashboard; the running month stops at
+ * today and later months are left out.
+ */
+export async function getCompanyCapitalYear(
+  ctx: AppContext,
+  companyId: string,
+  yearInput: unknown,
+): Promise<CompanyCapitalYear> {
+  const access = await requirePermission(ctx, companyId, "inventory.cost_view");
+  const todayDate = todayBusinessDate();
+  const year =
+    typeof yearInput === "string" && /^\d{4}$/.test(yearInput) ? yearInput : todayDate.slice(0, 4);
+  const today = monthOf(todayDate);
+  const figuresAt = async (month: string) => {
+    const monthEnd = lastOfMonth(month);
+    const to = monthEnd > todayDate ? todayDate : monthEnd;
+    const { summary } = await dashboardOf(ctx, access, { from: firstOfMonth(month), to });
+    const undelivered = summary.undeliveredValue ?? "0.00";
+    const stock = summary.stockValue ?? "0.00";
+    const marketDue = summary.marketDueOutstanding;
+    return {
+      month,
+      to,
+      undelivered: roundSettlement(undelivered),
+      stock: roundSettlement(stock),
+      marketDue: roundSettlement(marketDue),
+      total: sumAmounts([undelivered, stock, marketDue]),
+    };
+  };
+  const labels = Array.from(
+    { length: 12 },
+    (_, index) => `${year}-${String(index + 1).padStart(2, "0")}`,
+  ).filter((month) => month <= today);
+  const months = await Promise.all(labels.map(figuresAt));
+  const running = months.find((row) => row.month === today) ?? (await figuresAt(today));
+  return companyCapitalYearSchema.parse({
+    year,
+    asOf: running.to,
+    current: {
+      undelivered: running.undelivered,
+      stock: running.stock,
+      marketDue: running.marketDue,
+      total: running.total,
+    },
+    months: [...months].reverse(),
+  });
 }
 
 /**
