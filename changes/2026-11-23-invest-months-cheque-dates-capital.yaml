@@ -1,0 +1,44 @@
+id: 2026-11-23-invest-months-cheque-dates-capital
+reason: >-
+  Owner 2026-11-23 change request. Master panel: partner invest may change once per month (D144),
+  summary cards above the invest table, and payment history showing each partner's invest and
+  profit with payment status month by month. Company panel: cheques show every record by date and
+  keep only active cheques on the page (D145); History gets a সারাংশ of the money held in the
+  company — undelivered goods + stock + market dues — today and per month (D146).
+owners: [domain, contracts, application, web, i18n, docs]
+changes:
+  - packages/domain company-check.ts — checkLedger (dated records, running due floored at 0); unit tests
+  - >-
+    packages/contracts — shareholder list: investments[].fromMonth, changedThisMonth, totals,
+    changes; partner payout: invest (snapshot); company cheque: lines with balance on the active
+    record, createdAt + completedDate on History; companyCapitalYearSchema (reporting)
+  - >-
+    packages/application — listShareholders (record month, change flag, totals, change log);
+    payout rows carry the invest snapshot;
+    listCompanyCheckDues lists cheques with an open due, with dated lines;
+    listCompanyCheckHistory uses the same lines, sorted by completion; getCompanyCapitalYear
+    (dashboardOf per month, capped at today; inventory.cost_view)
+  - >-
+    apps/web — শেয়ারহোল্ডার: month hint, summary tiles, «এই মাসে বদলেছে», per-cell «মাস থেকে»; new tab
+    ইনভেস্ট পরিবর্তনের ইতিহাস (master/shareholders/history; year, month — current by default — and partner filters); পেমেন্ট ইতিহাস:
+    payments-only list (year / month / partner filters; invest, profit received, paid date); কোম্পানি চেক:
+    one card per active cheque with dated records and a repay date picker; History চেক: completion
+    date + running due; new History → সারাংশ page (history/summary) and API capital-years
+  - packages/i18n — share.*, companyCheck.*, capital.*, nav.history.summary
+  - docs — D144, D145, D146
+affectedActionIds: []
+financialImpact: >-
+  None posted. Month engine, cash, stock, company payable, cheque charges/payments and partner
+  payout snapshots are unchanged. Invest storage was already month-scoped (fromMonth); only the UI
+  and read models changed. Cheque repayments may now be dated in the past (same posting guard as
+  before). History সারাংশ figures are read from the dashboard (dashboardOf) for each month end.
+backfill: none
+tests:
+  - pnpm test (398 passed) incl. domain checkLedger
+  - pnpm check:types (all packages)
+  - pnpm test:integration company-hishab (8 passed) — totals, change log, fromMonth, ledger
+  - pnpm test:integration phase-e (11 passed) — capital year matches the dashboard month end; FORBIDDEN without cost view
+  - prettier + eslint on changed files (pre-existing lint errors in apps/web/src/data/queries.ts and packages/application/src/daily.ts, not in changed lines)
+  - not run: integration test for cheque lines (no cheque integration suite exists), browser walk-through
+rollout: deploy (no migration)
+recovery: revert the commit

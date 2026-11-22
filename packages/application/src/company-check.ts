@@ -17,6 +17,7 @@ import {
 import {
   checkDueRemaining,
   checkIsCompleted,
+  checkLedger,
   roundSettlement,
   stockEntryAmount,
   sumAmounts,
@@ -34,13 +35,55 @@ function amountsOf(rows: { amount: DecimalLike; status: string }[]): string[] {
   return rows.filter((row) => row.status === "posted").map((row) => plain(row.amount));
 }
 
+type ChargeRow = {
+  id: string;
+  amount: DecimalLike;
+  status: string;
+  createdAt: Date;
+  stockEntry: { date: Date };
+};
+type PaymentRow = { id: string; amount: DecimalLike; status: string; createdAt: Date; date: Date };
+
+/** D145: posted charges and payments, oldest first, with the running due after each. */
+function linesOf(charges: readonly ChargeRow[], payments: readonly PaymentRow[]) {
+  return checkLedger([
+    ...charges
+      .filter((charge) => charge.status === "posted")
+      .map((charge) => ({
+        kind: "charge" as const,
+        id: charge.id,
+        date: fromDbDate(charge.stockEntry.date),
+        order: charge.createdAt.getTime(),
+        amount: plain(charge.amount),
+        note: "order",
+      })),
+    ...payments
+      .filter((payment) => payment.status === "posted")
+      .map((payment) => ({
+        kind: "payment" as const,
+        id: payment.id,
+        date: fromDbDate(payment.date),
+        order: payment.createdAt.getTime(),
+        amount: plain(payment.amount),
+        note: "payment",
+      })),
+  ]).map((line) => ({
+    kind: line.kind,
+    id: line.id,
+    date: line.date,
+    amount: line.amount,
+    note: line.note,
+    balance: line.balance,
+  }));
+}
+
 function recordOf(row: {
   id: string;
   bankName: string;
   checkNumber: string;
   createdAt: Date;
-  charges: { amount: DecimalLike; status: string }[];
-  payments: { amount: DecimalLike; status: string }[];
+  charges: ChargeRow[];
+  payments: PaymentRow[];
 }): CompanyCheckRecord {
   const charges = amountsOf(row.charges);
   const payments = amountsOf(row.payments);
@@ -52,6 +95,7 @@ function recordOf(row: {
     paidTotal: roundSettlement(sumAmounts(payments.length ? payments : ["0"])),
     due: checkDueRemaining(charges, payments),
     createdAt: row.createdAt.toISOString(),
+    lines: linesOf(row.charges, row.payments),
   });
 }
 
@@ -60,7 +104,28 @@ const checkInclude = {
   payments: { select: { amount: true, status: true } },
 } as const;
 
-/** Active due cheques (due > 0) for the company-checks page. */
+/** D145: everything a dated cheque record needs. */
+const checkLinesInclude = {
+  charges: {
+    select: {
+      id: true,
+      amount: true,
+      status: true,
+      createdAt: true,
+      stockEntry: { select: { date: true } },
+    },
+  },
+  payments: {
+    select: { id: true, amount: true, status: true, createdAt: true, date: true },
+  },
+} as const;
+
+/**
+ * Active cheques for the company-checks page (D145, amends D129): every cheque with an open
+ * due (an order bill charged to it and not fully repaid), with its dated records. A cheque not
+ * used on any order yet is not listed here (it only appears in the order picker); one whose due
+ * reached zero after charges moves to History.
+ */
 export async function listCompanyCheckDues(
   ctx: AppContext,
   companyId: string,
@@ -68,8 +133,8 @@ export async function listCompanyCheckDues(
   await requirePermission(ctx, companyId, "finance.view");
   const rows = await ctx.db.companyCheck.findMany({
     where: { companyId },
-    include: checkInclude,
-    orderBy: [{ bankName: "asc" }, { checkNumber: "asc" }],
+    include: checkLinesInclude,
+    orderBy: [{ createdAt: "desc" }, { bankName: "asc" }, { checkNumber: "asc" }],
   });
   const items = rows.map(recordOf).filter((row) => /[1-9]/.test(row.due));
   return companyCheckListSchema.parse({ items });
@@ -145,7 +210,7 @@ export async function bulkCreateCompanyChecks(
             bankName,
             checkNumber,
           },
-          include: checkInclude,
+          include: checkLinesInclude,
         });
         created.push(recordOf(check));
       }
@@ -240,56 +305,38 @@ export async function listCompanyCheckHistory(
   await requirePermission(ctx, companyId, "finance.view");
   const rows = await ctx.db.companyCheck.findMany({
     where: { companyId },
-    include: {
-      charges: {
-        where: { status: "posted" },
-        include: { stockEntry: { select: { date: true } } },
-        orderBy: { createdAt: "asc" },
-      },
-      payments: {
-        where: { status: "posted" },
-        orderBy: [{ date: "asc" }, { createdAt: "asc" }],
-      },
-    },
-    orderBy: [{ updatedAt: "desc" }],
+    include: checkLinesInclude,
   });
   const items = rows
     .map((row) => {
-      const chargeAmounts = row.charges.map((c) => plain(c.amount));
-      const paymentAmounts = row.payments.map((p) => plain(p.amount));
+      const chargeAmounts = amountsOf(row.charges);
+      const paymentAmounts = amountsOf(row.payments);
       if (!checkIsCompleted(chargeAmounts, paymentAmounts)) return null;
-      const lastPayment = row.payments[row.payments.length - 1];
-      const lastCharge = row.charges[row.charges.length - 1];
-      const completedAt =
-        lastPayment?.createdAt.toISOString() ??
-        lastCharge?.createdAt.toISOString() ??
-        row.updatedAt.toISOString();
+      const lines = linesOf(row.charges, row.payments);
+      const lastCreated = [...row.charges, ...row.payments]
+        .filter((record) => record.status === "posted")
+        .reduce<Date>(
+          (latest, record) => (record.createdAt > latest ? record.createdAt : latest),
+          row.createdAt,
+        );
       return {
         id: row.id,
         bankName: row.bankName,
         checkNumber: row.checkNumber,
         chargedTotal: roundSettlement(sumAmounts(chargeAmounts)),
         paidTotal: roundSettlement(sumAmounts(paymentAmounts)),
-        completedAt,
-        lines: [
-          ...row.charges.map((c) => ({
-            kind: "charge" as const,
-            id: c.id,
-            date: fromDbDate(c.stockEntry.date),
-            amount: plain(c.amount),
-            note: "order",
-          })),
-          ...row.payments.map((p) => ({
-            kind: "payment" as const,
-            id: p.id,
-            date: fromDbDate(p.date),
-            amount: plain(p.amount),
-            note: "payment",
-          })),
-        ],
+        createdAt: row.createdAt.toISOString(),
+        completedAt: lastCreated.toISOString(),
+        completedDate: lines.at(-1)?.date ?? fromDbDate(row.createdAt),
+        lines,
       };
     })
-    .filter((row): row is NonNullable<typeof row> => row !== null);
+    .filter((row): row is NonNullable<typeof row> => row !== null)
+    .sort(
+      (a, b) =>
+        b.completedDate.localeCompare(a.completedDate) ||
+        b.completedAt.localeCompare(a.completedAt),
+    );
   return companyCheckHistoryListSchema.parse({ items });
 }
 

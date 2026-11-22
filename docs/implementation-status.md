@@ -6,6 +6,8 @@ Evidence-based progress. Mark an item done only with evidence.
 
 The canonical plan is now [PLAN.md](PLAN.md). The owner approved backend integration (D30).
 
+**2026-11-23** ([manifest](../changes/2026-11-23-invest-months-cheque-dates-capital.yaml)): D144 — invest changes once per month (record per month, «এই মাসে বদলেছে», change log), summary cards above the invest table, পেমেন্ট ইতিহাস = paid partners only (year/month filters; invest, profit received, paid date); D145 — কোম্পানি চেক shows only cheques with an open due (unused cheques not listed) with dated records + running due, repay date picker, completed → History with completion date; D146 — History → সারাংশ (আনডেলিভারি + মজুদ + বাজারের বাকি, today and per month end). No migration.
+
 **2026-11-21** ([manifest](../changes/2026-11-21-partner-payments.yaml)): D143 — partner profit per company (each company split by its own invest, summed to one amount); শেয়ারহোল্ডার «সব কোম্পানিতে সমান ভাগ» field; new master hub অংশীদারদের পেমেন্ট (মাসিক পরিশোধ: pay one/all with snapshot + note, cancel; পেমেন্ট ইতিহাস: partner × month / company + every payment). Migration `20261121010000_partner_payout_amounts` (apply before deploy).
 
 **2026-11-19** ([manifest](../changes/2026-11-19-empty-batch-damage-allowed.yaml)): D142 — empty-batch still allows ড্যামেজ (→ damage list); picker uses lots when মজুদ ০ / no live batch; সামারি/ফেরত/দর stay locked; correct ignores damage-only stock re-check.

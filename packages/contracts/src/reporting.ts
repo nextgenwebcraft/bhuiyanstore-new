@@ -146,6 +146,39 @@ export const dashboardMonthlySchema = z.object({
 
 export type DashboardMonthly = z.infer<typeof dashboardMonthlySchema>;
 
+/** D146: the money held in a company at one date: undelivered goods + stock + market dues. */
+const companyCapitalFiguresSchema = z.object({
+  /** Billed value of goods ordered and not received yet (dashboard `undeliveredValue`). */
+  undelivered: decimalStringSchema,
+  /** Cost value of saleable stock (dashboard `stockValue`). */
+  stock: decimalStringSchema,
+  /** Market dues still open (dashboard `marketDueOutstanding`). */
+  marketDue: decimalStringSchema,
+  /** undelivered + stock + marketDue, summed on the server. */
+  total: decimalStringSchema,
+});
+
+/**
+ * D146 History → সারাংশ: how much money is held in the company, as of today and at the end of
+ * every month of a year (the current month runs to today; later months are left out). Each figure
+ * is the dashboard's own closing value for that month, never a stored total. Requires
+ * `inventory.cost_view`.
+ */
+export const companyCapitalYearSchema = z.object({
+  year: z.string().regex(/^\d{4}$/),
+  asOf: businessDateSchema,
+  current: companyCapitalFiguresSchema,
+  months: z.array(
+    companyCapitalFiguresSchema.extend({
+      month: z.string().regex(/^\d{4}-\d{2}$/),
+      /** The date the figures stand at: month end, or today for the running month. */
+      to: businessDateSchema,
+    }),
+  ),
+});
+
+export type CompanyCapitalYear = z.infer<typeof companyCapitalYearSchema>;
+
 /**
  * Day-wise মোট বিক্রি for the company dashboard chart (D128/D140 day tab): every day of the
  * selected calendar month through today. `salesProfit` needs the same permissions as monthly.

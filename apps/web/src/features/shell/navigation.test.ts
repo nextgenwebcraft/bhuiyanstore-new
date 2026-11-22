@@ -89,6 +89,7 @@ describe("hubs", () => {
       "inventory/floor-damage",
     ]);
     expect(paths("history")).toEqual([
+      "history/summary",
       "history/orders",
       "history/stock",
       "history/stock-tracking",
@@ -135,7 +136,8 @@ describe("hubs", () => {
     ]);
     expect(paths("companies")).toEqual(["master/companies"]);
     expect(paths("shares")).toEqual(["master/company-hishab"]);
-    expect(paths("shareholders")).toEqual(["master/shareholders"]);
+    expect(paths("shareholders")).toEqual(["master/shareholders", "master/shareholders/history"]);
+    expect(hubOfPath("master/shareholders/history", true)?.id).toBe("shareholders");
     expect(paths("partnerPayments")).toEqual([
       "master/partner-payments",
       "master/partner-payments/history",

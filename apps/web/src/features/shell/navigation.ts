@@ -38,6 +38,7 @@ export const navigation: readonly NavSection[] = [
       item("", "nav.dashboard", "company.view"),
       item("master/company-hishab", "nav.master.companyHishab", "company.view"),
       item("master/shareholders", "nav.master.shareholders", "company.view"),
+      item("master/shareholders/history", "nav.master.shareholders.history", "company.view"),
       item("master/partner-payments", "nav.master.partnerPayments.month", "company.view"),
       item("master/partner-payments/history", "nav.master.partnerPayments.history", "company.view"),
       item("master/previous-due", "nav.master.previousDue", "company.view"),
@@ -58,6 +59,7 @@ export const navigation: readonly NavSection[] = [
     id: "history",
     labelKey: "nav.history",
     items: [
+      item("history/summary", "nav.history.summary", "inventory.cost_view"),
       item("history/orders", "nav.history.orders", "purchase.view"),
       item("history/stock", "nav.history.stock", "purchase.view"),
       item("history/stock-tracking", "nav.history.stockTracking", "inventory.view"),
@@ -202,6 +204,7 @@ const hubDefinitions: readonly Omit<Hub, "shortcut">[] = [
     labelKey: "nav.history",
     icon: "calendar",
     tabs: [
+      { path: "history/summary" },
       { path: "history/orders" },
       { path: "history/stock" },
       { path: "history/stock-tracking" },
@@ -244,7 +247,10 @@ const masterHubDefinitions: readonly Omit<Hub, "shortcut">[] = [
     id: "shareholders",
     labelKey: "nav.master.shareholders",
     icon: "srAccounts",
-    tabs: [{ path: "master/shareholders", labelKey: "nav.master.shareholders" }],
+    tabs: [
+      { path: "master/shareholders", labelKey: "nav.master.shareholders.list" },
+      { path: "master/shareholders/history", labelKey: "nav.master.shareholders.history" },
+    ],
   },
   {
     id: "partnerPayments",

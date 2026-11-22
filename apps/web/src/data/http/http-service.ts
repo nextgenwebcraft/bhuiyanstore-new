@@ -3,6 +3,7 @@ import {
   companyWorkspaceSchema,
   damageCaseSchema,
   dashboardDailySchema,
+  companyCapitalYearSchema,
   dashboardMonthlySchema,
   dashboardSummarySchema,
   dayViewSchema,
@@ -251,6 +252,12 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
       request(
         dashboardMonthlySchema,
         `${company(companyId)}/dashboard-monthly?${new URLSearchParams({ year }).toString()}`,
+        options,
+      ),
+    getCompanyCapitalYear: (companyId, year, options) =>
+      request(
+        companyCapitalYearSchema,
+        `${company(companyId)}/capital-years?${new URLSearchParams({ year }).toString()}`,
         options,
       ),
     getDashboardDaily: (companyId, month, options) =>

@@ -6,6 +6,7 @@ import type {
   DamageCaseCreateRequest,
   DamageEventRequest,
   DashboardDaily,
+  CompanyCapitalYear,
   DashboardMonthly,
   DashboardSummary,
   DayView,
@@ -161,6 +162,12 @@ export interface DistributionService {
     year: string,
     options?: RequestOptions,
   ): Promise<DashboardMonthly>;
+  /** D146 History → সারাংশ: money held in the company, today and per month end. */
+  getCompanyCapitalYear(
+    companyId: string,
+    year: string,
+    options?: RequestOptions,
+  ): Promise<CompanyCapitalYear>;
   /** Day-wise মোট বিক্রি for the selected month (D128/D140 dashboard chart day tab). */
   getDashboardDaily(
     companyId: string,
