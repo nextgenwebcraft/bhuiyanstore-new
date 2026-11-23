@@ -224,6 +224,7 @@ export function createMockService(
     approvePendingOrders: demoReadOnly,
     discardPendingOrder: demoReadOnly,
     listDsrDays: demoReadOnly,
+    listDraftDsrDays: demoReadOnly,
     saveDsrDay: demoReadOnly,
     postDsrDay: demoReadOnly,
     reverseDsrDay: demoReadOnly,

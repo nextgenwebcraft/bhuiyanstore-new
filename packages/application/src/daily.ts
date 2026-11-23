@@ -918,6 +918,20 @@ export async function listDsrDays(
   }));
 }
 
+/**
+ * Every open draft sheet of the company, any date. A draft is stock out (D137): the sheet editor
+ * subtracts these nets so the batch figure matches what `ensureDraftSalesCover` enforces on save.
+ */
+export async function listDraftDsrDays(ctx: AppContext, companyId: string): Promise<DsrDay[]> {
+  const access = await requirePermission(ctx, companyId, "sale.view");
+  const rows = await ctx.db.dsrDay.findMany({
+    where: { companyId, status: "draft" },
+    include: dsrInclude,
+    orderBy: [{ date: "asc" }, { staff: { name: "asc" } }],
+  });
+  return rows.map((row) => toDsrDay(row, seesCost(access)));
+}
+
 async function loadDsrDay(db: Db, companyId: string, id: string): Promise<DsrRow> {
   const row = await db.dsrDay.findFirst({ where: { id, companyId }, include: dsrInclude });
   if (!row) throw invalid("", "validation.daily.notFound");

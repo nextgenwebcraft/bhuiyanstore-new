@@ -1,0 +1,22 @@
+id: 2026-11-24-batch-remaining-after-drafts
+reason: >-
+  Owner 2026-11-24: "draft মানেই stock out". Sheet showed today's posted batch stock (e.g. ৩ কার্টন
+  ১ পিস) while the save guard (D136/D137) also reserves every other open draft of any date, so a
+  save failed with a negative figure (Fresh up 500ml ব্যাচ ১: 37 − 25 own − 25 peer drafts = −13).
+  The editor's peer reservation also only covered same-date drafts. Now the batch line shows the
+  remaining after all drafts and the editor reserves the same drafts as the server.
+owners: [application, web]
+changes:
+  - packages/application daily — listDraftDsrDays (all open drafts, sale.view)
+  - apps/web api dsr-days GET ?drafts=1; port/http/mock listDraftDsrDays; useDraftDsrDays
+  - dsr-days-page — peerDraftTakesOf uses all-date drafts, skips only own staff+date (as server)
+  - dsr-sheet-entry — batch column "মজুদ" = remaining after this sheet + peer drafts (was live
+    posted closing)
+affectedActionIds: [sale.create]
+financialImpact: >-
+  None. Display and client-side pre-check only; server stock guard and ledger unchanged. Stale
+  drafts still reserve stock until posted or discarded.
+backfill: none
+tests: existing stock-guard / peer-draft-stock tests pass; typecheck application + web
+rollout: deploy
+recovery: revert commit

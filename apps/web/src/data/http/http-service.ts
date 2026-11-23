@@ -330,6 +330,8 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
       ),
     listDsrDays: (companyId, date, options) =>
       request(z.array(dsrDaySchema), `${company(companyId)}/dsr-days?date=${id(date)}`, options),
+    listDraftDsrDays: (companyId, options) =>
+      request(z.array(dsrDaySchema), `${company(companyId)}/dsr-days?drafts=1`, options),
     saveDsrDay: (companyId, input) =>
       request(dsrDaySchema, `${company(companyId)}/dsr-days`, write("PUT", input)),
     postDsrDay: (companyId, dayId, input) =>

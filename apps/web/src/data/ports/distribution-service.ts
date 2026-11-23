@@ -214,6 +214,8 @@ export interface DistributionService {
   discardPendingOrder(companyId: string, entryId: string): Promise<void>;
   /** Requires `sale.view`: every DSR sheet of the date. */
   listDsrDays(companyId: string, date: string, options?: RequestOptions): Promise<DsrDay[]>;
+  /** Requires `sale.view`: every open draft sheet, any date (draft = stock out, D137). */
+  listDraftDsrDays(companyId: string, options?: RequestOptions): Promise<DsrDay[]>;
   /** Requires `sale.create`: creates (version 0) or replaces the DSR's draft for the date. */
   saveDsrDay(companyId: string, input: DsrDaySaveRequest): Promise<DsrDay>;
   /** Requires `sale.post`. */
