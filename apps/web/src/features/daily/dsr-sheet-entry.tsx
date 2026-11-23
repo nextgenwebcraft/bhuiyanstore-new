@@ -918,9 +918,8 @@ function ReadOnlyLinesTable({
                 line.batchKey,
                 peerDraftTakes,
               );
-              const livePieces = liveView
-                ? liveBatchPieces(liveView, line.productId, line.batchKey)
-                : remaining;
+              // Draft = stock out (D137): show what is left after every draft (this sheet + other
+              // SRs, any date), not today's posted closing — that is what the save check enforces.
               const qtyLocked = batchGoneNow(line.productId, line.batchKey);
               return (
                 <tr key={line.id} className="border-t border-border">
@@ -931,7 +930,7 @@ function ReadOnlyLinesTable({
                   <td className={tdClass}>
                     <div>{batchName({ key: line.batchKey, seq })}</div>
                     <div className="text-xs text-text-muted">
-                      {t("batch.available")} {stockCartonPiece(livePieces, size)}
+                      {t("batch.available")} {stockCartonPiece(remaining, size)}
                     </div>
                   </td>
                   <td className={tdNum}>

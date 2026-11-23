@@ -339,6 +339,16 @@ export function useDsrDays(companyId: string, date: string) {
   });
 }
 
+/** Open drafts of any date: they count as stock out (D137), same as the save guard. */
+export function useDraftDsrDays(companyId: string) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.dsrDraftDays(actorId, companyId),
+    queryFn: ({ signal }) => service.listDraftDsrDays(companyId, { signal }),
+  });
+}
+
 export function useSaveDsrDay(companyId: string) {
   const service = useService();
   return usePostingMutation(companyId, "dsrDay", (input: DsrDaySaveRequest) =>

@@ -69,6 +69,7 @@ export {
   approveDsrHandoversForRange,
   approvePendingOrders,
   discardPendingOrder,
+  listDraftDsrDays,
   listMoneyEntries,
   listStockEntries,
   postDsrDay,

@@ -91,6 +91,8 @@ export const queryKeys = {
     [...companyResource(actorId, companyId, resourceIds.stockEntry), date] as const,
   dsrDays: (actorId: string, companyId: string, date: string) =>
     [...companyResource(actorId, companyId, resourceIds.dsrDay), date] as const,
+  dsrDraftDays: (actorId: string, companyId: string) =>
+    [...companyResource(actorId, companyId, resourceIds.dsrDay), "drafts"] as const,
   moneyEntries: (
     actorId: string,
     companyId: string,

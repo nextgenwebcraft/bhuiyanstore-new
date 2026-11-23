@@ -24,6 +24,7 @@ import { TableSummary, type SummaryItem } from "@/components/table-summary";
 import { describeError } from "@/data/ports/service-error";
 import {
   useDsrDayCommand,
+  useDraftDsrDays,
   useDsrDays,
   useDsrFieldDay,
   useDsrFieldDays,
@@ -255,10 +256,19 @@ function requestOf(
   return { ...base, cashHandedOver: handed || null, lines };
 }
 
-/** Other SRs' draft takes on this date (D137 soft reservation). */
-function peerDraftTakesOf(sheets: readonly DsrDay[], excludeStaffId: string): PeerDraftTake[] {
+/**
+ * Every other open draft, any date (D137: draft = stock out). Mirrors the server guard, which
+ * skips only this SR's own sheet for this date — so the batch figure here matches the save check.
+ */
+function peerDraftTakesOf(
+  sheets: readonly DsrDay[],
+  excludeStaffId: string,
+  excludeDate: string,
+): PeerDraftTake[] {
   return sheets
-    .filter((s) => s.status === "draft" && s.staffId !== excludeStaffId)
+    .filter(
+      (s) => s.status === "draft" && !(s.staffId === excludeStaffId && s.date === excludeDate),
+    )
     .flatMap((s) =>
       s.lines.map((l) => ({
         productId: l.productId,
@@ -966,6 +976,7 @@ function Sheets({
 }) {
   const records = useStaffRecords(companyId);
   const sheets = useDsrDays(companyId, date);
+  const allDrafts = useDraftDsrDays(companyId);
 
   if (records.isPending || sheets.isPending) return <ListSkeleton rows={4} action />;
   if (records.isError)
@@ -988,7 +999,8 @@ function Sheets({
         sheet={sheet}
         history={sheets.data.filter((s) => s.staffId === selected.id && s.status === "reversed")}
         view={view}
-        peerDraftTakes={peerDraftTakesOf(sheets.data, selected.id)}
+        // Fall back to this date's drafts while the all-dates list loads.
+        peerDraftTakes={peerDraftTakesOf(allDrafts.data ?? sheets.data, selected.id, date)}
       />
     );
   }
