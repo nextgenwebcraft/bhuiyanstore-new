@@ -224,11 +224,10 @@ function requestOf(
       return `${d.dsrStaffName} · ${product.productName}: ${t("validation.daily.duplicateProduct")}`;
     }
     seen.add(key);
-    const salePrice = !includePrices || d.salePrice === undefined ? undefined : clean(d.salePrice);
+    // Blank price box = no override (send nothing), not an invalid "" price.
+    const salePrice = !includePrices ? undefined : clean(d.salePrice ?? "") || undefined;
     const costPrice =
-      !includePrices || d.costPrice === undefined || !view.canSeeCost
-        ? undefined
-        : clean(d.costPrice);
+      !includePrices || !view.canSeeCost ? undefined : clean(d.costPrice ?? "") || undefined;
     if ([salePrice, costPrice].some((p) => p !== undefined && !isUnitPrice(p))) {
       return `${product.productName}: ${t("validation.unitPrice.invalid")}`;
     }
@@ -312,7 +311,8 @@ function saleOf(
   line: { productId: string; batchKey?: string | undefined; salePrice?: string | undefined },
   view: DayView,
 ) {
-  if (line.salePrice !== undefined) return line.salePrice;
+  // A blank price (edit box left empty) means "not overridden", never Decimal("").
+  if (line.salePrice !== undefined && clean(line.salePrice)) return line.salePrice;
   const product = view.products.find((p) => p.productId === line.productId);
   if (!product) return "0";
   const key = line.batchKey ?? "";
@@ -325,7 +325,7 @@ function costOf(
   line: { productId: string; batchKey?: string | undefined; costPrice?: string | undefined },
   view: DayView,
 ) {
-  if (line.costPrice !== undefined) return line.costPrice;
+  if (line.costPrice !== undefined && clean(line.costPrice)) return line.costPrice;
   const product = view.products.find((p) => p.productId === line.productId);
   if (!product) return "0";
   const key = line.batchKey ?? "";
