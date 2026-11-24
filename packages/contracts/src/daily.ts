@@ -496,6 +496,8 @@ export const moneyEntryPostRequestSchema = z
     allocation: owedAllocationSchema.nullable().default(null),
     /** Required for SR loans and repayments (D42); null for every other kind. */
     srLoanType: z.enum(srLoanTypes).nullable().default(null),
+    /** D105: total pieces on a rebate claim (cartons converted + loose pieces); omit for other kinds. */
+    pieces: wholePiecesSchema.optional(),
     /**
      * D50: a shop typed on the due page that is not in the list. Created (or, when the exact
      * name exists, reused) in the same atomic request; mutually exclusive with `shopId`.
@@ -537,6 +539,8 @@ export const moneyEntrySchema = z.object({
   /** D105: the product a companyIncentive/rebateClaim is tagged to; null for every other kind. */
   productId: idSchema.nullable(),
   productName: z.string().nullable(),
+  /** D105: total pieces on a rebate claim entry; null for all other kinds. */
+  pieces: decimalStringSchema.nullable(),
   allocation: owedAllocationSchema.nullable(),
   srLoanType: z.enum(srLoanTypes).nullable(),
   /** Set when a payroll run posted the entry; it is then reversed only with the run. */
