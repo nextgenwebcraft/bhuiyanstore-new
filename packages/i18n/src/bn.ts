@@ -1574,6 +1574,7 @@ export const bn = {
   "deposit.damage.rate": "দর (প্রতি পিস)",
   "deposit.damage.addRow": "আরেকটি পণ্য",
   "deposit.damage.total": "মোট ড্যামেজ জমা",
+  "deposit.rebate.total": "মোট রিবেট ক্লেইম",
   "order.fund.label": "অর্ডারের টাকা কোন ব্যালান্স থেকে কাটবে",
   "order.fund.shortLabel": "জমা থেকে",
   "order.fund.none": "শুধু মোট জমা থেকে",

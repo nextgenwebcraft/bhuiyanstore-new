@@ -819,6 +819,9 @@ model MoneyEntry {
   /// D105: the product a company incentive or rebate claim is tagged to, for the statement; no
   /// other kind sets it.
   productId         String?          @map("product_id")
+  /// D105: total pieces on a rebate claim entry (cartons converted + loose pieces); NULL for all
+  /// other kinds.
+  pieces            Decimal?         @db.Decimal(20, 2)
   /// Named parts of a repayment, offset or salary recovery (NULL = advance → loan → shortage).
   allocAdvance      Decimal?         @map("alloc_advance") @db.Decimal(20, 2)
   allocLoan         Decimal?         @map("alloc_loan") @db.Decimal(20, 2)

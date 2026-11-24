@@ -1,6 +1,6 @@
 "use client";
 
-import { moneyKindPermission, type DayView, type StockEntry } from "@bsd/contracts";
+import { moneyKindPermission, type DayView, type MoneyEntry, type StockEntry } from "@bsd/contracts";
 import {
   damageRateKey,
   depositInvestmentPreview,
@@ -32,8 +32,10 @@ import { StatTile } from "@/components/stat-tile";
 import { TableScroller } from "@/components/table-scroller";
 import { describeError } from "@/data/ports/service-error";
 import {
+  useMoneyEntries,
   usePostMoneyEntry,
   usePostStockEntries,
+  useReverseMoneyEntry,
   useReverseStockEntry,
   useStockEntries,
 } from "@/data/queries";
@@ -74,16 +76,24 @@ const PERMISSION = {
   rebateClaim: moneyKindPermission.rebateClaim,
 } as const;
 
-/** D105: these two kinds may name the product they are for. */
-const PRODUCT_KINDS: readonly DepositKind[] = ["companyIncentive", "rebateClaim"];
+/** D105: companyIncentive may tag one product via the shared product dropdown. rebateClaim uses its own per-row product. */
+const PRODUCT_KINDS: readonly DepositKind[] = ["companyIncentive"];
 
 type DamageRow = { key: number; lotKey: string; cartons: string; pieces: string };
+type RebateRow = { key: number; productId: string; cartons: string; pieces: string; amount: string };
 let nextRowKey = 0;
 const emptyRow = (): DamageRow => ({
   key: nextRowKey++,
   lotKey: "",
   cartons: "",
   pieces: "",
+});
+const emptyRebateRow = (): RebateRow => ({
+  key: nextRowKey++,
+  productId: "",
+  cartons: "",
+  pieces: "",
+  amount: "",
 });
 const amountPattern = /^\d+(\.\d{1,2})?$/;
 
@@ -150,6 +160,7 @@ function DepositForm({
   const [amount, setAmount] = useState("");
   const [productId, setProductId] = useState("");
   const [rows, setRows] = useState<DamageRow[]>(() => [emptyRow()]);
+  const [rebateRows, setRebateRows] = useState<RebateRow[]>(() => [emptyRebateRow()]);
   const [error, setError] = useState<string | undefined>();
   const [done, setDone] = useState(false);
   const pending = postMoney.isPending || postStock.isPending;
@@ -167,16 +178,51 @@ function DepositForm({
       ? depositInvestmentPreview(value, totalCash)
       : null;
 
+  const rebateTotal = sumAmounts([
+    "0",
+    ...rebateRows.flatMap(({ amount: a }) => {
+      const v = clean(a);
+      return amountPattern.test(v) ? [v] : [];
+    }),
+  ]);
+
   const setRow = (key: number, patch: Partial<DamageRow>) => {
     setDone(false);
     setRows((current) => current.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   };
 
+  const setRebateRow = (key: number, patch: Partial<RebateRow>) => {
+    setDone(false);
+    setRebateRows((current) => current.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+  };
+
+  const ppcOf = (productId: string) =>
+    view.products.find((p) => p.productId === productId)?.piecesPerCarton ?? "1";
+
   async function submit() {
     setError(undefined);
     setDone(false);
     try {
-      if (kind === "damageDeposit") {
+      if (kind === "rebateClaim") {
+        const posting = rebateRows.filter(
+          (r) => r.productId && amountPattern.test(clean(r.amount)) && /[1-9]/.test(clean(r.amount)),
+        );
+        if (posting.length === 0) return setError(t("godown.nothing"));
+        for (const r of posting) {
+          const totalPieces = toBaseQuantity(r.cartons, r.pieces, ppcOf(r.productId));
+          await postMoney.mutateAsync({
+            date,
+            kind: "rebateClaim",
+            amount: clean(r.amount),
+            productId: r.productId,
+            pieces: totalPieces !== "0" ? totalPieces : undefined,
+            staffId: null,
+            expenseCategoryId: null,
+            allocation: null,
+          });
+        }
+        setRebateRows([emptyRebateRow()]);
+      } else if (kind === "damageDeposit") {
         const failed = lines.find(({ line }) => line && "error" in line);
         if (failed?.line && "error" in failed.line) return setError(failed.line.error);
         const posting = lines.flatMap(({ row, line }) =>
@@ -226,6 +272,7 @@ function DepositForm({
             onChange={(event) => {
               setKind(event.target.value as DepositKind);
               setProductId("");
+              setRebateRows([emptyRebateRow()]);
               setError(undefined);
               setDone(false);
             }}
@@ -238,7 +285,7 @@ function DepositForm({
             ))}
           </select>
         </Field>
-        {kind !== "damageDeposit" ? (
+        {kind !== "damageDeposit" && kind !== "rebateClaim" ? (
           <Field id={`${id}-amount`} label={t("common.amount")}>
             <input
               id={`${id}-amount`}
@@ -277,6 +324,97 @@ function DepositForm({
         >
           {t("deposit.investmentWarning")}: <strong>{money(investment)}</strong>
         </p>
+      ) : null}
+      {kind === "rebateClaim" ? (
+        <div className="flex flex-col gap-3">
+          <TableScroller>
+            <table className={tableClass}>
+              <thead className={theadClass}>
+                <tr>
+                  <th scope="col" className={thClass}>
+                    {t("godown.column.product")}
+                  </th>
+                  <th scope="col" className={thNum}>
+                    {t("godown.column.cartons")}
+                  </th>
+                  <th scope="col" className={thNum}>
+                    {t("godown.column.pieces")}
+                  </th>
+                  <th scope="col" className={thNum}>
+                    {t("common.amount")}
+                  </th>
+                  <th scope="col" className={thClass}>
+                    <span className="sr-only">{t("common.removeLine")}</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {rebateRows.map((row) => (
+                  <tr key={row.key} className="border-t border-border">
+                    <td className={tdClass}>
+                      <select
+                        aria-label={t("godown.column.product")}
+                        value={row.productId}
+                        onChange={(event) => setRebateRow(row.key, { productId: event.target.value })}
+                        className={`${inputClass} min-w-48`}
+                      >
+                        <option value="">{t("deposit.damage.pickProduct")}</option>
+                        {view.products.map((p) => (
+                          <option key={p.productId} value={p.productId}>
+                            {p.productName}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className={tdNum}>
+                      <CellInput
+                        label={t("godown.column.cartons")}
+                        value={row.cartons}
+                        onChange={(cartons) => setRebateRow(row.key, { cartons })}
+                        width="w-16"
+                      />
+                    </td>
+                    <td className={tdNum}>
+                      <CellInput
+                        label={t("godown.column.pieces")}
+                        value={row.pieces}
+                        onChange={(pieces) => setRebateRow(row.key, { pieces })}
+                        width="w-16"
+                      />
+                    </td>
+                    <td className={tdNum}>
+                      <CellInput
+                        label={t("common.amount")}
+                        value={row.amount}
+                        onChange={(amount) => setRebateRow(row.key, { amount })}
+                        width="w-24"
+                      />
+                    </td>
+                    <td className={tdClass}>
+                      {rebateRows.length > 1 ? (
+                        <Button
+                          onClick={() =>
+                            setRebateRows((current) => current.filter((r) => r.key !== row.key))
+                          }
+                        >
+                          {t("common.removeLine")}
+                        </Button>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </TableScroller>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <Button onClick={() => setRebateRows((current) => [...current, emptyRebateRow()])}>
+              + {t("deposit.damage.addRow")}
+            </Button>
+            <p className="text-sm">
+              {t("deposit.rebate.total")}: <strong>{money(rebateTotal)}</strong>
+            </p>
+          </div>
+        </div>
       ) : null}
       {kind === "damageDeposit" ? (
         <div className="flex flex-col gap-3">
@@ -489,6 +627,87 @@ function DamageDeposits({
   );
 }
 
+function RebateClaims({
+  companyId,
+  date,
+  view,
+}: {
+  companyId: string;
+  date: string;
+  view: DayView;
+}) {
+  const { permissions } = useCurrentWorkspace();
+  const entries = useMoneyEntries(companyId, { from: date });
+  const reverse = useReverseMoneyEntry(companyId);
+  const action = useAsyncAction();
+  const canReverse = permissions.includes("payment.reverse");
+  const sizes = new Map(view.products.map((p) => [p.productId, p.piecesPerCarton]));
+  if (entries.isPending) return <TableSkeleton rows={2} columns={4} />;
+  const rows: MoneyEntry[] = (entries.data ?? []).filter((e) => e.kind === "rebateClaim");
+  if (rows.length === 0) return <EmptyListNote textKey="money.empty" />;
+  return (
+    <>
+      {action.error ? <StatePanel tone="error" title={action.error} /> : null}
+      <TableScroller>
+        <table className={tableClass}>
+          <thead className={theadClass}>
+            <tr>
+              <th scope="col" className={thClass}>
+                {t("godown.column.product")}
+              </th>
+              <th scope="col" className={thNum}>
+                {t("godown.column.quantity")}
+              </th>
+              <th scope="col" className={thNum}>
+                {t("common.amount")}
+              </th>
+              <th scope="col" className={thClass}>
+                {t("common.status")}
+              </th>
+              <th scope="col" className={thClass}>
+                <span className="sr-only">{t("common.reverse")}</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((entry) => (
+              <tr key={entry.id} className="border-t border-border">
+                <td className={tdClass}>{entry.productName ?? "—"}</td>
+                <td className={tdNum}>
+                  {entry.pieces && entry.productId && sizes.get(entry.productId) ? (
+                    <CartonQty
+                      pieces={entry.pieces}
+                      piecesPerCarton={sizes.get(entry.productId)!}
+                    />
+                  ) : entry.pieces ? (
+                    formatCount(entry.pieces)
+                  ) : (
+                    "—"
+                  )}
+                </td>
+                <td className={tdNum}>{money(entry.amount)}</td>
+                <td className={tdClass}>
+                  <StatusChip status={entry.status} />
+                </td>
+                <ReverseCell
+                  canReverse={canReverse}
+                  posted={entry.status === "posted"}
+                  pending={reverse.isPending}
+                  onReverse={() =>
+                    void action.run(() => reverse.mutateAsync(entry.id), {
+                      confirm: "money.reverseConfirm",
+                    })
+                  }
+                />
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </TableScroller>
+    </>
+  );
+}
+
 /** The company balance, its parts and our total cash at the end of the chosen date (D63). */
 function Balances({ company }: { company: NonNullable<DayView["company"]> }) {
   return (
@@ -557,7 +776,7 @@ export function SupplierDepositsPage() {
             <MoneyEntryTable
               companyId={company.id}
               date={date}
-              kinds={["supplierDeposit", "companyIncentive", "rebateClaim"]}
+              kinds={["supplierDeposit", "companyIncentive"]}
               columns={[
                 {
                   label: "common.kind",
@@ -567,6 +786,8 @@ export function SupplierDepositsPage() {
                 { label: "godown.column.product", cell: (e) => e.productName ?? "—" },
               ]}
             />
+            <SectionTitle>{t("money.kind.rebateClaim")}</SectionTitle>
+            <RebateClaims companyId={company.id} date={date} view={view} />
             <SectionTitle>{t("deposit.kind.damageDeposit")}</SectionTitle>
             <DamageDeposits companyId={company.id} date={date} view={view} />
           </>

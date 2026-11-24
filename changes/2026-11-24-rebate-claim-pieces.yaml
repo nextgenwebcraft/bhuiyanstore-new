@@ -1,0 +1,13 @@
+date: 2026-11-24
+summary: Rebate claim entry now takes a per-product table (পণ্য, কার্টন, পিস, টাকা) instead of a single amount field.
+
+changes:
+  - packages/database/prisma/schema.prisma: add nullable `pieces` field to MoneyEntry
+  - packages/database/prisma/migrations/20261124010000_rebate_claim_pieces: migration SQL
+  - packages/contracts/src/daily.ts: add `pieces` to moneyEntryPostRequestSchema and moneyEntrySchema
+  - packages/application/src/daily.ts: store and return `pieces` on money entry create/read
+  - packages/i18n/src/bn.ts: add `deposit.rebate.total` key
+  - apps/web/src/features/daily/company-deposit-page.tsx:
+      - rebateClaim form replaced with multi-row table (product, cartons, pieces, amount per row)
+      - rebateClaim removed from shared amount/product fields
+      - new RebateClaims history section shows product, quantity (CartonQty), amount, status, reverse
