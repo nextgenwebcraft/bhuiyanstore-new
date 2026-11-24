@@ -1570,6 +1570,7 @@ export const bn = {
   "deposit.damage.hint":
     "গুদামে যে ড্যামেজ মাল আছে, সেই পণ্য ও দর থেকে বাছুন। একই পণ্য আলাদা দরে আলাদা দেখায়। পিস × দর কোম্পানিতে জমায় যোগ হয় এবং সেই দরের মজুদ কমে।",
   "deposit.damage.pickProduct": "ড্যামেজ পণ্য বাছুন",
+  "deposit.pickProduct": "পণ্য বাছুন",
   "deposit.damage.held": "গুদামে ড্যামেজ",
   "deposit.damage.rate": "দর (প্রতি পিস)",
   "deposit.damage.addRow": "আরেকটি পণ্য",

@@ -358,7 +358,7 @@ function DepositForm({
                         onChange={(event) => setRebateRow(row.key, { productId: event.target.value })}
                         className={`${inputClass} min-w-48`}
                       >
-                        <option value="">{t("deposit.damage.pickProduct")}</option>
+                        <option value="">{t("deposit.pickProduct")}</option>
                         {view.products.map((p) => (
                           <option key={p.productId} value={p.productId}>
                             {p.productName}
