@@ -91,6 +91,8 @@ export {
 export {
   archiveOrderTarget,
   createOrderTarget,
+  deleteOrderTarget,
+  listOrderTargetHistory,
   listOrderTargets,
   updateOrderTarget,
 } from "./order-targets";

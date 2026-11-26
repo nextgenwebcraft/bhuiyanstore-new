@@ -1,9 +1,13 @@
 import {
+  orderTargetHistoryListSchema,
   orderTargetListSchema,
   orderTargetSchema,
   orderTargetUpdateRequestSchema,
   orderTargetUpsertRequestSchema,
   type OrderTarget,
+  type OrderTargetHistoryAction,
+  type OrderTargetHistoryEntry,
+  type OrderTargetHistoryList,
   type OrderTargetList,
 } from "@bsd/contracts";
 import {
@@ -18,7 +22,7 @@ import { requirePermission } from "./access";
 import { recordAudit } from "./audit";
 import type { AppContext, Tx } from "./context";
 import { fromDbDate, toDbDate } from "./dates";
-import { invalid, parseInput } from "./errors";
+import { AppError, invalid, parseInput } from "./errors";
 import { runIdempotent } from "./idempotency";
 import { plain } from "./numeric";
 
@@ -397,9 +401,172 @@ export async function archiveOrderTarget(
       action: "orderTarget.archive",
       resourceType: "order_target",
       resourceId: targetId,
-      before: { status: existing.status, showOnDashboard: existing.showOnDashboard },
-      after: { status: row.status, showOnDashboard: row.showOnDashboard },
+      before: snapshotOf(existing),
+      after: { ...snapshotOf(existing), status: row.status, showOnDashboard: row.showOnDashboard },
     });
   });
   return toTargetDto(ctx, await loadTarget(ctx.db, companyId, targetId), todayBusinessDate());
+}
+
+/** Full audit snapshot of a target: what the history page and the delete record show. */
+function snapshotOf(row: TargetRow) {
+  return {
+    ...auditBody(
+      row.kind,
+      row.products.map((link) => link.productId),
+      row.amount === null ? null : plain(row.amount as { toFixed(): string }),
+      row.quantityCartons === null ? null : plain(row.quantityCartons as { toFixed(): string }),
+      fromDbDate(row.startDate),
+      fromDbDate(row.endDate),
+      row.showOnDashboard,
+    ),
+    status: row.status,
+  };
+}
+
+/**
+ * D147: Super Admin permanently deletes a target (active or archived). Targets only point at
+ * products, and stock and money never reference them, so no financial record is touched. The
+ * audit row keeps the full snapshot, so the target stays visible in History → টার্গেট.
+ */
+export async function deleteOrderTarget(
+  ctx: AppContext,
+  companyId: string,
+  targetId: string,
+): Promise<void> {
+  if (!ctx.actor.isSuperAdmin) throw new AppError("FORBIDDEN");
+  await requirePermission(ctx, companyId, "company.manage", { write: true });
+  await ctx.db.$transaction(async (tx) => {
+    const existing = await tx.orderTarget.findFirst({
+      where: { id: targetId, companyId },
+      include: includeProducts,
+    });
+    if (!existing) throw invalid("id", "validation.target.unknown");
+
+    await tx.orderTarget.delete({ where: { id: targetId } });
+    await recordAudit(tx, ctx, {
+      companyId,
+      action: "orderTarget.delete",
+      resourceType: "order_target",
+      resourceId: targetId,
+      before: snapshotOf(existing),
+    });
+  });
+}
+
+const HISTORY_LIMIT = 500;
+const HISTORY_ACTIONS: Record<string, OrderTargetHistoryAction> = {
+  "orderTarget.create": "create",
+  "orderTarget.update": "update",
+  "orderTarget.archive": "archive",
+  "orderTarget.delete": "delete",
+};
+
+type Snapshot = {
+  kind: string;
+  productIds: string[];
+  amount: string | null;
+  quantityCartons: string | null;
+  startDate: string;
+  endDate: string;
+  status: string;
+};
+
+/** Reads a stored snapshot. Create/update rows predate the status field, so it defaults to active. */
+function snapshotFromJson(value: unknown): Snapshot | null {
+  if (!value || typeof value !== "object") return null;
+  const v = value as Record<string, unknown>;
+  if (typeof v.kind !== "string" || !Array.isArray(v.productIds)) return null;
+  return {
+    kind: v.kind,
+    productIds: v.productIds.filter((id): id is string => typeof id === "string"),
+    amount: typeof v.amount === "string" ? v.amount : null,
+    quantityCartons: typeof v.quantityCartons === "string" ? v.quantityCartons : null,
+    startDate: String(v.startDate),
+    endDate: String(v.endDate),
+    status: typeof v.status === "string" ? v.status : "active",
+  };
+}
+
+type HistoryEvent = {
+  id: string;
+  action: string;
+  resourceId: string;
+  actorId: string;
+  createdAt: Date;
+  before: unknown;
+  after: unknown;
+};
+
+/** Audit history of order targets, newest first. Reads audit rows, so deleted targets remain. */
+export async function listOrderTargetHistory(
+  ctx: AppContext,
+  companyId: string,
+): Promise<OrderTargetHistoryList> {
+  await requirePermission(ctx, companyId, "company.manage");
+  const events: HistoryEvent[] = await ctx.db.auditEvent.findMany({
+    where: {
+      companyId,
+      resourceType: "order_target",
+      action: { in: Object.keys(HISTORY_ACTIONS) },
+    },
+    orderBy: { createdAt: "desc" },
+    take: HISTORY_LIMIT,
+  });
+  const currentRows = await ctx.db.orderTarget.findMany({
+    where: { companyId },
+    include: includeProducts,
+  });
+  const currentById = new Map(currentRows.map((row) => [row.id, snapshotOf(row)]));
+
+  // Older archive rows carry only status/showOnDashboard: fall back to the latest earlier full snapshot, then the live row.
+  const lastFull = new Map<string, Snapshot>();
+  const resolved: { event: HistoryEvent; snapshot: Snapshot; action: OrderTargetHistoryAction }[] =
+    [];
+  for (const event of [...events].reverse()) {
+    const action = HISTORY_ACTIONS[event.action];
+    if (!action) continue;
+    const own = snapshotFromJson(event.after) ?? snapshotFromJson(event.before);
+    if (own) lastFull.set(event.resourceId, own);
+    const snapshot = own ?? lastFull.get(event.resourceId) ?? currentById.get(event.resourceId);
+    if (snapshot) resolved.push({ event, snapshot, action });
+  }
+
+  const productIds = [...new Set(resolved.flatMap((r) => r.snapshot.productIds))];
+  const [products, users] = await Promise.all([
+    productIds.length > 0
+      ? ctx.db.product.findMany({
+          where: { id: { in: productIds } },
+          select: { id: true, name: true, sku: true },
+        })
+      : Promise.resolve([]),
+    ctx.db.user.findMany({
+      where: { id: { in: [...new Set(events.map((e) => e.actorId))] } },
+      select: { id: true, name: true },
+    }),
+  ]);
+  const productById = new Map(products.map((p) => [p.id, p]));
+  const nameById = new Map(users.map((u) => [u.id, u.name]));
+
+  const items: OrderTargetHistoryEntry[] = resolved
+    .map(({ event, snapshot, action }) => ({
+      id: event.id,
+      targetId: event.resourceId,
+      action,
+      kind: snapshot.kind as OrderTargetHistoryEntry["kind"],
+      products: snapshot.productIds.flatMap((id) => {
+        const product = productById.get(id);
+        return product ? [product] : [];
+      }),
+      amount: snapshot.kind === "overall" ? snapshot.amount : null,
+      quantityCartons: snapshot.kind === "product" ? snapshot.quantityCartons : null,
+      startDate: snapshot.startDate,
+      endDate: snapshot.endDate,
+      status: snapshot.status as OrderTargetHistoryEntry["status"],
+      actorName: nameById.get(event.actorId) ?? "—",
+      createdAt: event.createdAt.toISOString(),
+    }))
+    .reverse();
+
+  return orderTargetHistoryListSchema.parse({ items });
 }

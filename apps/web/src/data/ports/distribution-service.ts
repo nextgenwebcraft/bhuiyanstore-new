@@ -25,6 +25,7 @@ import type {
   OpeningCutoffRequest,
   OpeningSectionSaveRequest,
   OrderTarget,
+  OrderTargetHistoryList,
   OrderTargetList,
   OrderTargetUpdateRequest,
   OrderTargetUpsertRequest,
@@ -328,6 +329,13 @@ export interface DistributionService {
   ): Promise<OrderTarget>;
   /** Soft-archive. Requires `company.manage`. */
   archiveOrderTarget(companyId: string, targetId: string): Promise<OrderTarget>;
+  /** D147: permanent delete. Super Admin only. The audit history keeps the target. */
+  deleteOrderTarget(companyId: string, targetId: string): Promise<void>;
+  /** Requires `company.manage`: audit history of targets, newest first (D147). */
+  listOrderTargetHistory(
+    companyId: string,
+    options?: RequestOptions,
+  ): Promise<OrderTargetHistoryList>;
 
   // Month view, reports and closing (PLAN §9 Phase F). The demo mock has none.
 

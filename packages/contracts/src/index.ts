@@ -376,6 +376,9 @@ export {
   type ShopUpsertRequest,
 } from "./shops";
 export {
+  orderTargetHistoryActions,
+  orderTargetHistoryEntrySchema,
+  orderTargetHistoryListSchema,
   orderTargetKinds,
   orderTargetListSchema,
   orderTargetProgressSchema,
@@ -385,6 +388,9 @@ export {
   orderTargetUpdateRequestSchema,
   orderTargetUpsertRequestSchema,
   type OrderTarget,
+  type OrderTargetHistoryAction,
+  type OrderTargetHistoryEntry,
+  type OrderTargetHistoryList,
   type OrderTargetKind,
   type OrderTargetList,
   type OrderTargetProduct,

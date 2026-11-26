@@ -17,6 +17,7 @@ import {
   historyStockDateSummariesSchema,
   historyStockPageSchema,
   type HistoryPageQuery,
+  orderTargetHistoryListSchema,
   orderTargetListSchema,
   orderTargetSchema,
   meSchema,
@@ -451,6 +452,14 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
       ),
     archiveOrderTarget: (companyId, targetId) =>
       request(orderTargetSchema, `${company(companyId)}/order-targets/${id(targetId)}`, remove()),
+    deleteOrderTarget: (companyId, targetId) =>
+      request(
+        z.undefined(),
+        `${company(companyId)}/order-targets/${id(targetId)}/permanent`,
+        remove(),
+      ),
+    listOrderTargetHistory: (companyId, options) =>
+      request(orderTargetHistoryListSchema, `${company(companyId)}/order-targets/history`, options),
     reverseMoneyEntry: (companyId, entryId) =>
       request(
         moneyEntrySchema,

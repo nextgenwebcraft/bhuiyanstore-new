@@ -998,6 +998,23 @@ export function useArchiveOrderTarget(companyId: string) {
   );
 }
 
+export function useDeleteOrderTarget(companyId: string) {
+  const service = useService();
+  return useMasterMutation([resourceIds.orderTarget], (targetId: string) =>
+    service.deleteOrderTarget(companyId, targetId),
+  );
+}
+
+export function useOrderTargetHistory(companyId: string, enabled = true) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.orderTargetHistory(actorId, companyId),
+    queryFn: ({ signal }) => service.listOrderTargetHistory(companyId, { signal }),
+    enabled,
+  });
+}
+
 export function useSaveShop(companyId: string) {
   const service = useService();
   return useMasterMutation(
