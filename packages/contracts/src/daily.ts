@@ -496,8 +496,10 @@ export const moneyEntryPostRequestSchema = z
     allocation: owedAllocationSchema.nullable().default(null),
     /** Required for SR loans and repayments (D42); null for every other kind. */
     srLoanType: z.enum(srLoanTypes).nullable().default(null),
-    /** D105: total pieces on a rebate claim (cartons converted + loose pieces); omit for other kinds. */
-    pieces: wholePiecesSchema.optional(),
+    /** D105: rebate claims only — total pieces (cartons converted + loose pieces). */
+    pieces: positivePiecesSchema.optional(),
+    /** D105: rebate claims only — taka per piece; amount must equal pieces × unitRate. */
+    unitRate: unitPriceSchema.optional(),
     /**
      * D50: a shop typed on the due page that is not in the list. Created (or, when the exact
      * name exists, reused) in the same atomic request; mutually exclusive with `shopId`.
@@ -521,6 +523,14 @@ export const moneyEntryPostRequestSchema = z
         ctx.addIssue({ code: "custom", path: ["newShop"], message: "validation.shop.notForKind" });
       }
     }
+    if (value.kind === "rebateClaim") {
+      if (value.pieces === undefined) {
+        ctx.addIssue({ code: "custom", path: ["pieces"], message: "validation.quantityPositive" });
+      }
+      if (value.unitRate === undefined || !/[1-9]/.test(value.unitRate)) {
+        ctx.addIssue({ code: "custom", path: ["unitRate"], message: "validation.amountPositive" });
+      }
+    }
   });
 
 export type MoneyEntryPostRequest = z.input<typeof moneyEntryPostRequestSchema>;
@@ -541,6 +551,8 @@ export const moneyEntrySchema = z.object({
   productName: z.string().nullable(),
   /** D105: total pieces on a rebate claim entry; null for all other kinds. */
   pieces: decimalStringSchema.nullable(),
+  /** D105: taka per piece on a rebate claim entry; null for all other kinds. */
+  unitRate: decimalStringSchema.nullable(),
   allocation: owedAllocationSchema.nullable(),
   srLoanType: z.enum(srLoanTypes).nullable(),
   /** Set when a payroll run posted the entry; it is then reversed only with the run. */

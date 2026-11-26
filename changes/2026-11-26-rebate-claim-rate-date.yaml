@@ -1,0 +1,16 @@
+date: 2026-11-26
+summary: Rebate claim rows take their own date (any date, including before the company cutoff) and a per-piece rate; amount = pieces x rate.
+
+changes:
+  - packages/database/prisma/schema.prisma: add nullable `unitRate` (unit_rate NUMERIC(20,6)) to MoneyEntry
+  - packages/database/prisma/migrations/20261126010000_rebate_claim_rate: migration SQL
+  - packages/contracts/src/daily.ts: rebateClaim requires pieces and unitRate on money post; read schema exposes unitRate
+  - packages/application/src/daily.ts:
+      - postingGuard takes beforeCutoff; set only for rebateClaim on post and correct
+      - insertMoneyEntry rejects rebateClaim whose amount is not pieces x unitRate (2dp)
+      - pieces and unitRate stored only for rebateClaim
+  - packages/i18n/src/bn.ts: deposit.rebate.rate, validation.rebate.incomplete, validation.rebate.amountMismatch
+  - apps/web/src/features/daily/company-deposit-page.tsx:
+      - rebate rows gain date (DatePicker, per row) and rate inputs; amount is computed, not typed
+      - rebate rows post one by one and drop out of the form once posted
+      - RebateClaims history shows date and rate
