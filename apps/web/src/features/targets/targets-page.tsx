@@ -5,6 +5,7 @@ import { formatBusinessDate, normalizeDigits, t } from "@bsd/i18n";
 import { useId, useState } from "react";
 import { Button } from "@/components/button";
 import { DatePicker } from "@/components/date-picker";
+import { DeleteButton } from "@/components/delete-button";
 import { Field, inputClass } from "@/components/field";
 import { FormDialog } from "@/components/form-dialog";
 import { PageHeader } from "@/components/page-header";
@@ -12,8 +13,10 @@ import { QueryError } from "@/components/query-error";
 import { TableSkeleton } from "@/components/skeleton";
 import { StatePanel } from "@/components/state-panel";
 import { describeError, type DescribedError } from "@/data/ports/service-error";
+import { useSession } from "@/data/http/http-provider";
 import {
   useArchiveOrderTarget,
+  useDeleteOrderTarget,
   useOrderTargets,
   useProducts,
   useSaveOrderTarget,
@@ -197,10 +200,7 @@ function TargetDialog({
           <fieldset className="flex flex-wrap gap-4">
             <legend className="mb-1 text-sm font-medium">{t("target.productScope")}</legend>
             {(["single", "multi"] as const).map((scope) => (
-              <label
-                key={scope}
-                className="flex min-h-(--touch-target) items-center gap-2 text-sm"
-              >
+              <label key={scope} className="flex min-h-(--touch-target) items-center gap-2 text-sm">
                 <input
                   type="radio"
                   name={`${id}-scope`}
@@ -262,8 +262,7 @@ function TargetDialog({
                         onChange={(event) => toggleProduct(product.id, event.target.checked)}
                       />
                       <span>
-                        {product.name}{" "}
-                        <span className="text-text-muted">({product.sku})</span>
+                        {product.name} <span className="text-text-muted">({product.sku})</span>
                       </span>
                     </label>
                   ))
@@ -382,6 +381,7 @@ function TargetCard({
   target,
   canManage,
   pinnedCount,
+  isSuperAdmin,
   onEdit,
   onArchive,
 }: {
@@ -389,10 +389,12 @@ function TargetCard({
   target: OrderTarget;
   canManage: boolean;
   pinnedCount: number;
+  isSuperAdmin: boolean;
   onEdit: () => void;
   onArchive: () => void;
 }) {
   const save = useSaveOrderTarget(companyId);
+  const remove = useDeleteOrderTarget(companyId);
   const [pinError, setPinError] = useState<string | undefined>();
   const pinBlocked = !target.showOnDashboard && pinnedCount >= MAX_DASHBOARD_PINS;
 
@@ -440,6 +442,13 @@ function TargetCard({
             <Button type="button" variant="secondary" onClick={onArchive}>
               {t("target.archive.action")}
             </Button>
+            {isSuperAdmin ? (
+              <DeleteButton
+                name={targetLabel(target)}
+                message={t("target.delete.hint")}
+                onDelete={() => remove.mutateAsync(target.id)}
+              />
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -479,6 +488,7 @@ function TargetsBody() {
   const today = useToday();
   const targets = useOrderTargets(company.id, false);
   const canManage = permissions.includes("company.manage");
+  const isSuperAdmin = useSession()?.me.isSuperAdmin === true;
   const [draft, setDraft] = useState<Draft | null>(null);
   const [archiveOf, setArchiveOf] = useState<OrderTarget | null>(null);
 
@@ -503,6 +513,7 @@ function TargetsBody() {
             target={target}
             canManage={canManage}
             pinnedCount={pinnedCount}
+            isSuperAdmin={isSuperAdmin}
             onEdit={() => setDraft(draftFrom(target))}
             onArchive={() => setArchiveOf(target)}
           />

@@ -1,0 +1,23 @@
+date: 2026-11-26
+summary: "Order targets: Super Admin permanent delete (D147) and a target change history page under History."
+
+changes:
+  - packages/contracts/src/order-targets.ts: history action, entry and list schemas
+  - packages/contracts/src/index.ts: export the history schemas and types
+  - packages/application/src/order-targets.ts:
+      - archive audit rows store the full snapshot (name, kind, products, amount or cartons, dates, status)
+      - deleteOrderTarget: FORBIDDEN unless isSuperAdmin; hard delete; audit orderTarget.delete with before snapshot
+      - listOrderTargetHistory: audit rows for order_target, newest first, limit 500; actor names; product names; fallback to nearest earlier snapshot, then the live row
+  - packages/application/src/index.ts: export deleteOrderTarget and listOrderTargetHistory
+  - apps/web/src/app/api/v1/companies/[companyId]/order-targets/history/route.ts: GET history
+  - apps/web/src/app/api/v1/companies/[companyId]/order-targets/[targetId]/permanent/route.ts: DELETE permanent
+  - apps/web/src/data/ports/distribution-service.ts, http/http-service.ts, mock/mock-service.ts: deleteOrderTarget, listOrderTargetHistory
+  - apps/web/src/data/queries.ts, query-keys.ts: useDeleteOrderTarget, useOrderTargetHistory
+  - apps/web/src/features/targets/targets-page.tsx: DeleteButton on each card, shown only when session isSuperAdmin
+  - apps/web/src/features/history/target-history-page.tsx and app/c/[companyId]/history/targets/page.tsx: new History tab
+  - apps/web/src/features/shell/navigation.ts (+ navigation.test.ts): history/targets entry in the history section and hub
+  - packages/i18n/src/bn.ts: nav.history.targets, target.delete.hint, target.history.*
+
+backfill: none (no schema change; existing archive audit rows keep their old shape and fall back on read)
+rollout: deploy; Super Admin sees the delete button on targets; history tab lists existing create, update and archive audit rows
+checks: "pnpm check:types, pnpm test (398 pass); lint clean for changed files. Not run: integration tests (need TEST_DATABASE_URL), UI in a browser"

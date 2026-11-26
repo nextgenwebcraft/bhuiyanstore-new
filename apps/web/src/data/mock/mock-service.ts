@@ -246,6 +246,8 @@ export function createMockService(
     createOrderTarget: demoReadOnly,
     updateOrderTarget: demoReadOnly,
     archiveOrderTarget: demoReadOnly,
+    deleteOrderTarget: demoReadOnly,
+    listOrderTargetHistory: demoReadOnly,
     getMonthView: demoReadOnly,
     closeMonth: demoReadOnly,
     reopenMonth: demoReadOnly,

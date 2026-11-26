@@ -146,3 +146,30 @@ export const orderTargetListSchema = z.object({
 });
 
 export type OrderTargetList = z.infer<typeof orderTargetListSchema>;
+
+export const orderTargetHistoryActions = ["create", "update", "archive", "delete"] as const;
+export type OrderTargetHistoryAction = (typeof orderTargetHistoryActions)[number];
+
+/** One audited change to an order target (D147). Survives the target's own hard delete. */
+export const orderTargetHistoryEntrySchema = z.object({
+  id: idSchema,
+  targetId: idSchema,
+  action: z.enum(orderTargetHistoryActions),
+  kind: z.enum(orderTargetKinds),
+  products: z.array(orderTargetProductSchema),
+  amount: amountSchema.nullable(),
+  quantityCartons: amountSchema.nullable(),
+  startDate: businessDateSchema,
+  endDate: businessDateSchema,
+  status: z.enum(orderTargetStatuses),
+  actorName: z.string(),
+  createdAt: z.string(),
+});
+
+export type OrderTargetHistoryEntry = z.infer<typeof orderTargetHistoryEntrySchema>;
+
+export const orderTargetHistoryListSchema = z.object({
+  items: z.array(orderTargetHistoryEntrySchema),
+});
+
+export type OrderTargetHistoryList = z.infer<typeof orderTargetHistoryListSchema>;

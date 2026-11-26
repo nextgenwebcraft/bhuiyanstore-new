@@ -100,6 +100,7 @@ describe("hubs", () => {
       "history/expenses",
       "history/company-checks",
       "history/dsr-sheets",
+      "history/targets",
     ]);
     expect(paths("shops")).toEqual(["sales/shops"]);
     expect(paths("money")).toEqual([

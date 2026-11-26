@@ -47,6 +47,8 @@ export const queryKeys = {
       ...companyResource(actorId, companyId, resourceIds.orderTarget),
       dashboardOnly ? "dashboard" : "all",
     ] as const,
+  orderTargetHistory: (actorId: string, companyId: string) =>
+    [...companyResource(actorId, companyId, resourceIds.orderTarget), "history"] as const,
   shopStatement: (actorId: string, companyId: string, shopId: string, from: string, to: string) =>
     [
       ...companyResource(actorId, companyId, resourceIds.ledger),

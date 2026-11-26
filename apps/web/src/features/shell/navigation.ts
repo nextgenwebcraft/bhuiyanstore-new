@@ -70,6 +70,7 @@ export const navigation: readonly NavSection[] = [
       item("history/expenses", "nav.history.expenses", "finance.view"),
       item("history/company-checks", "nav.history.companyChecks", "finance.view"),
       item("history/dsr-sheets", "nav.history.dsrSheets", "sale.view"),
+      item("history/targets", "nav.history.targets", "company.manage"),
     ],
   },
   {
@@ -215,6 +216,7 @@ const hubDefinitions: readonly Omit<Hub, "shortcut">[] = [
       { path: "history/expenses" },
       { path: "history/company-checks" },
       { path: "history/dsr-sheets" },
+      { path: "history/targets" },
     ],
   },
   {
