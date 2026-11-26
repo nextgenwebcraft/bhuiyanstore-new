@@ -1,13 +1,9 @@
 export { bn, labelOf, t, type TranslationKey } from "./bn";
-export {
-  normalizeDigits,
-  normalizeMoneyInput,
-  parseAmountInput,
-  toBengaliDigits,
-} from "./digits";
+export { normalizeDigits, normalizeMoneyInput, parseAmountInput, toBengaliDigits } from "./digits";
 export {
   formatAmount,
   formatBusinessDate,
+  formatCompactAmount,
   formatCount,
   formatDateTime,
   formatMoney,

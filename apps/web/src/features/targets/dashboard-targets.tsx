@@ -6,11 +6,7 @@ import { QueryError } from "@/components/query-error";
 import { useOrderTargets } from "@/data/queries";
 import { companyHref } from "@/features/shell/navigation";
 import { useCurrentWorkspace } from "@/features/shell/workspace-context";
-import {
-  TargetProgressBlock,
-  TargetProgressCompact,
-  targetLabel,
-} from "./target-progress";
+import { TargetProgressBlock, TargetProgressCompact, targetLabel } from "./target-progress";
 
 /** Up to two pinned order-target widgets (D111/D115). `column` sits beside the sales chart. */
 export function DashboardTargetStrip({ layout = "row" }: { layout?: "row" | "column" }) {
@@ -73,7 +69,7 @@ export function DashboardTargetStrip({ layout = "row" }: { layout?: "row" | "col
           >
             <div className="flex h-full flex-col rounded-xl border border-border bg-surface p-3 shadow-card">
               <p className="mb-2 truncate text-sm font-semibold text-text">{targetLabel(target)}</p>
-              <TargetProgressBlock target={target} />
+              <TargetProgressBlock target={target} compact />
             </div>
           </Link>
         ))}

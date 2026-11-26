@@ -1,7 +1,13 @@
 "use client";
 
 import type { OrderTarget, OrderTargetProgressStatus } from "@bsd/contracts";
-import { formatCount, t, toBengaliDigits, type TranslationKey } from "@bsd/i18n";
+import {
+  formatCompactAmount,
+  formatCount,
+  t,
+  toBengaliDigits,
+  type TranslationKey,
+} from "@bsd/i18n";
 import { money } from "@/components/data-table";
 
 const STATUS_TONE: Record<OrderTargetProgressStatus, string> = {
@@ -24,12 +30,33 @@ function ratioPercent(ratio: string): number {
   return Math.min(100, Math.round(n * 100));
 }
 
-/** Format the target metric: টাকা for overall, কার্টন for product-wise (D115). */
-export function targetMetric(target: OrderTarget, value: string): string {
+/**
+ * Format the target metric: টাকা for overall, কার্টন for product-wise (D115). `compact` shortens
+ * large টাকা to লাখ/কোটি for narrow dashboard cards; pair it with the full value as a title.
+ */
+export function targetMetric(target: OrderTarget, value: string, compact = false): string {
   if (target.kind === "product") {
     return `${formatCount(value)} ${t("common.cartons")}`;
   }
-  return money(value);
+  return compact ? formatCompactAmount(value) : money(value);
+}
+
+function Metric({
+  target,
+  value,
+  compact,
+}: {
+  target: OrderTarget;
+  value: string;
+  compact: boolean;
+}) {
+  const full = targetMetric(target, value);
+  const shown = targetMetric(target, value, compact);
+  return (
+    <dd className="truncate font-semibold tabular-nums" title={shown === full ? undefined : full}>
+      {shown}
+    </dd>
+  );
 }
 
 export function targetGoal(target: OrderTarget): string {
@@ -48,8 +75,14 @@ export function targetLabel(target: OrderTarget): string {
   return t("target.kind.overall");
 }
 
-/** Full progress card body used on the Setup targets page. */
-export function TargetProgressBlock({ target }: { target: OrderTarget }) {
+/** Full progress card body: Setup targets page, and (compact amounts) the dashboard column. */
+export function TargetProgressBlock({
+  target,
+  compact = false,
+}: {
+  target: OrderTarget;
+  compact?: boolean;
+}) {
   const pct = ratioPercent(target.progress.ratio);
   const goal = targetGoal(target);
   return (
@@ -72,30 +105,24 @@ export function TargetProgressBlock({ target }: { target: OrderTarget }) {
         />
       </div>
       {target.kind === "product" && target.products.length > 1 ? (
-        <p className="text-xs text-text-muted">
-          {target.products.map((p) => p.name).join(" · ")}
-        </p>
+        <p className="text-xs text-text-muted">{target.products.map((p) => p.name).join(" · ")}</p>
       ) : null}
       <dl className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
-        <div>
+        <div className="min-w-0">
           <dt className="text-[11px] text-text-muted">{t("target.ordered")}</dt>
-          <dd className="font-semibold tabular-nums">
-            {targetMetric(target, target.progress.ordered)}
-          </dd>
+          <Metric target={target} value={target.progress.ordered} compact={compact} />
         </div>
-        <div>
+        <div className="min-w-0">
           <dt className="text-[11px] text-text-muted">
             {t(target.kind === "product" ? "target.cartons" : "target.amount")}
           </dt>
-          <dd className="font-semibold tabular-nums">{targetMetric(target, goal)}</dd>
+          <Metric target={target} value={goal} compact={compact} />
         </div>
-        <div>
+        <div className="min-w-0">
           <dt className="text-[11px] text-text-muted">{t("target.remaining")}</dt>
-          <dd className="font-semibold tabular-nums">
-            {targetMetric(target, target.progress.remaining)}
-          </dd>
+          <Metric target={target} value={target.progress.remaining} compact={compact} />
         </div>
-        <div>
+        <div className="min-w-0">
           <dt className="text-[11px] text-text-muted">{t("target.daysLeft")}</dt>
           <dd className="font-semibold tabular-nums">
             {toBengaliDigits(String(target.progress.daysLeft))}
@@ -130,9 +157,12 @@ export function TargetProgressCompact({ target }: { target: OrderTarget }) {
           style={{ width: `${pct}%` }}
         />
       </div>
-      <p className="mt-1.5 truncate text-[11px] text-text-muted">
+      <p
+        className="mt-1.5 truncate text-[11px] text-text-muted"
+        title={targetMetric(target, target.progress.remaining)}
+      >
         {t("target.dashboard.remainingDays")
-          .replace("{amount}", targetMetric(target, target.progress.remaining))
+          .replace("{amount}", targetMetric(target, target.progress.remaining, true))
           .replace("{days}", toBengaliDigits(String(target.progress.daysLeft)))}
       </p>
     </div>
