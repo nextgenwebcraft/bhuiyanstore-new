@@ -822,6 +822,8 @@ model MoneyEntry {
   /// D105: total pieces on a rebate claim entry (cartons converted + loose pieces); NULL for all
   /// other kinds.
   pieces            Decimal?         @db.Decimal(20, 2)
+  /// D105: taka per piece on a rebate claim; amount = pieces × unit_rate. NULL for other kinds.
+  unitRate          Decimal?         @map("unit_rate") @db.Decimal(20, 6)
   /// Named parts of a repayment, offset or salary recovery (NULL = advance → loan → shortage).
   allocAdvance      Decimal?         @map("alloc_advance") @db.Decimal(20, 2)
   allocLoan         Decimal?         @map("alloc_loan") @db.Decimal(20, 2)

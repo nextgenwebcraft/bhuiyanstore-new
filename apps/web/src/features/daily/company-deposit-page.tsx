@@ -1,14 +1,20 @@
 "use client";
 
-import { moneyKindPermission, type DayView, type MoneyEntry, type StockEntry } from "@bsd/contracts";
+import {
+  moneyKindPermission,
+  type DayView,
+  type MoneyEntry,
+  type StockEntry,
+} from "@bsd/contracts";
 import {
   damageRateKey,
   depositInvestmentPreview,
   sumAmounts,
   toBaseQuantity,
+  todayBusinessDate,
   toDecimal,
 } from "@bsd/domain";
-import { formatCount, formatRate, t, type TranslationKey } from "@bsd/i18n";
+import { formatBusinessDate, formatCount, formatRate, t, type TranslationKey } from "@bsd/i18n";
 import { useId, useState } from "react";
 import { Button } from "@/components/button";
 import {
@@ -22,6 +28,7 @@ import {
   thNum,
   theadClass,
 } from "@/components/data-table";
+import { DatePicker } from "@/components/date-picker";
 import { EmptyListNote } from "@/components/empty-list-note";
 import { Field, inputClass } from "@/components/field";
 import { PageHeader } from "@/components/page-header";
@@ -80,7 +87,14 @@ const PERMISSION = {
 const PRODUCT_KINDS: readonly DepositKind[] = ["companyIncentive"];
 
 type DamageRow = { key: number; lotKey: string; cartons: string; pieces: string };
-type RebateRow = { key: number; productId: string; cartons: string; pieces: string; amount: string };
+type RebateRow = {
+  key: number;
+  productId: string;
+  date: string;
+  cartons: string;
+  pieces: string;
+  rate: string;
+};
 let nextRowKey = 0;
 const emptyRow = (): DamageRow => ({
   key: nextRowKey++,
@@ -88,13 +102,44 @@ const emptyRow = (): DamageRow => ({
   cartons: "",
   pieces: "",
 });
-const emptyRebateRow = (): RebateRow => ({
+const emptyRebateRow = (date: string): RebateRow => ({
   key: nextRowKey++,
   productId: "",
+  date,
   cartons: "",
   pieces: "",
-  amount: "",
+  rate: "",
 });
+const ratePattern = /^\d+(\.\d{1,6})?$/;
+
+type RebateLine = { productId: string; date: string; pieces: string; rate: string; amount: string };
+
+/** One rebate row's pieces and taka (pieces × rate, 2 decimals), or an error; null when untouched. */
+function rebateLine(
+  row: RebateRow,
+  piecesPerCarton: string,
+): RebateLine | { error: string } | null {
+  if (!row.productId && !row.cartons && !row.pieces && !row.rate) return null;
+  const cartons = clean(row.cartons) || "0";
+  const pieces = clean(row.pieces) || "0";
+  const rate = clean(row.rate);
+  const valid =
+    row.productId !== "" &&
+    ratePattern.test(rate) &&
+    /[1-9]/.test(rate) &&
+    /^\d+$/.test(cartons) &&
+    /^\d+$/.test(pieces);
+  if (!valid) return { error: t("validation.rebate.incomplete") };
+  const total = toBaseQuantity(cartons, pieces, piecesPerCarton);
+  if (total === "0") return { error: t("validation.rebate.incomplete") };
+  return {
+    productId: row.productId,
+    date: row.date,
+    pieces: total,
+    rate,
+    amount: toDecimal(total).mul(rate).toDecimalPlaces(2).toFixed(2),
+  };
+}
 const amountPattern = /^\d+(\.\d{1,2})?$/;
 
 /** One stored damage lot: a product at one rate (D109). */
@@ -160,7 +205,7 @@ function DepositForm({
   const [amount, setAmount] = useState("");
   const [productId, setProductId] = useState("");
   const [rows, setRows] = useState<DamageRow[]>(() => [emptyRow()]);
-  const [rebateRows, setRebateRows] = useState<RebateRow[]>(() => [emptyRebateRow()]);
+  const [rebateRows, setRebateRows] = useState<RebateRow[]>(() => [emptyRebateRow(date)]);
   const [error, setError] = useState<string | undefined>();
   const [done, setDone] = useState(false);
   const pending = postMoney.isPending || postStock.isPending;
@@ -178,12 +223,15 @@ function DepositForm({
       ? depositInvestmentPreview(value, totalCash)
       : null;
 
+  const ppcOf = (productId: string) =>
+    view.products.find((p) => p.productId === productId)?.piecesPerCarton ?? "1";
+  const rebateLines = rebateRows.map((row) => ({
+    row,
+    line: rebateLine(row, ppcOf(row.productId)),
+  }));
   const rebateTotal = sumAmounts([
     "0",
-    ...rebateRows.flatMap(({ amount: a }) => {
-      const v = clean(a);
-      return amountPattern.test(v) ? [v] : [];
-    }),
+    ...rebateLines.flatMap(({ line }) => (line && !("error" in line) ? [line.amount] : [])),
   ]);
 
   const setRow = (key: number, patch: Partial<DamageRow>) => {
@@ -196,32 +244,32 @@ function DepositForm({
     setRebateRows((current) => current.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   };
 
-  const ppcOf = (productId: string) =>
-    view.products.find((p) => p.productId === productId)?.piecesPerCarton ?? "1";
-
   async function submit() {
     setError(undefined);
     setDone(false);
     try {
       if (kind === "rebateClaim") {
-        const posting = rebateRows.filter(
-          (r) => r.productId && amountPattern.test(clean(r.amount)) && /[1-9]/.test(clean(r.amount)),
+        const failed = rebateLines.find(({ line }) => line && "error" in line);
+        if (failed?.line && "error" in failed.line) return setError(failed.line.error);
+        const posting = rebateLines.flatMap(({ row, line }) =>
+          line && !("error" in line) ? [{ key: row.key, line }] : [],
         );
         if (posting.length === 0) return setError(t("godown.nothing"));
-        for (const r of posting) {
-          const totalPieces = toBaseQuantity(r.cartons, r.pieces, ppcOf(r.productId));
+        for (const { key, line } of posting) {
           await postMoney.mutateAsync({
-            date,
+            date: line.date,
             kind: "rebateClaim",
-            amount: clean(r.amount),
-            productId: r.productId,
-            pieces: totalPieces !== "0" ? totalPieces : undefined,
+            amount: line.amount,
+            productId: line.productId,
+            pieces: line.pieces,
+            unitRate: line.rate,
             staffId: null,
             expenseCategoryId: null,
             allocation: null,
           });
+          setRebateRows((current) => current.filter((r) => r.key !== key));
         }
-        setRebateRows([emptyRebateRow()]);
+        setRebateRows((current) => (current.length > 0 ? current : [emptyRebateRow(date)]));
       } else if (kind === "damageDeposit") {
         const failed = lines.find(({ line }) => line && "error" in line);
         if (failed?.line && "error" in failed.line) return setError(failed.line.error);
@@ -272,7 +320,7 @@ function DepositForm({
             onChange={(event) => {
               setKind(event.target.value as DepositKind);
               setProductId("");
-              setRebateRows([emptyRebateRow()]);
+              setRebateRows([emptyRebateRow(date)]);
               setError(undefined);
               setDone(false);
             }}
@@ -334,11 +382,17 @@ function DepositForm({
                   <th scope="col" className={thClass}>
                     {t("godown.column.product")}
                   </th>
+                  <th scope="col" className={thClass}>
+                    {t("common.date")}
+                  </th>
                   <th scope="col" className={thNum}>
                     {t("godown.column.cartons")}
                   </th>
                   <th scope="col" className={thNum}>
                     {t("godown.column.pieces")}
+                  </th>
+                  <th scope="col" className={thNum}>
+                    {t("deposit.rebate.rate")}
                   </th>
                   <th scope="col" className={thNum}>
                     {t("common.amount")}
@@ -349,13 +403,15 @@ function DepositForm({
                 </tr>
               </thead>
               <tbody>
-                {rebateRows.map((row) => (
+                {rebateLines.map(({ row, line }) => (
                   <tr key={row.key} className="border-t border-border">
                     <td className={tdClass}>
                       <select
                         aria-label={t("godown.column.product")}
                         value={row.productId}
-                        onChange={(event) => setRebateRow(row.key, { productId: event.target.value })}
+                        onChange={(event) =>
+                          setRebateRow(row.key, { productId: event.target.value })
+                        }
                         className={`${inputClass} min-w-48`}
                       >
                         <option value="">{t("deposit.pickProduct")}</option>
@@ -365,6 +421,16 @@ function DepositForm({
                           </option>
                         ))}
                       </select>
+                    </td>
+                    <td className={tdClass}>
+                      <DatePicker
+                        id={`${id}-rebate-date-${row.key}`}
+                        value={row.date}
+                        max={todayBusinessDate()}
+                        label={t("common.date")}
+                        onChange={(next) => next && setRebateRow(row.key, { date: next })}
+                        className="w-40"
+                      />
                     </td>
                     <td className={tdNum}>
                       <CellInput
@@ -384,11 +450,15 @@ function DepositForm({
                     </td>
                     <td className={tdNum}>
                       <CellInput
-                        label={t("common.amount")}
-                        value={row.amount}
-                        onChange={(amount) => setRebateRow(row.key, { amount })}
+                        label={t("deposit.rebate.rate")}
+                        value={row.rate}
+                        onChange={(rate) => setRebateRow(row.key, { rate })}
                         width="w-24"
+                        mode="decimal"
                       />
+                    </td>
+                    <td className={tdNum}>
+                      {line && !("error" in line) ? money(line.amount) : "—"}
                     </td>
                     <td className={tdClass}>
                       {rebateRows.length > 1 ? (
@@ -407,7 +477,7 @@ function DepositForm({
             </table>
           </TableScroller>
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <Button onClick={() => setRebateRows((current) => [...current, emptyRebateRow()])}>
+            <Button onClick={() => setRebateRows((current) => [...current, emptyRebateRow(date)])}>
               + {t("deposit.damage.addRow")}
             </Button>
             <p className="text-sm">
@@ -642,7 +712,7 @@ function RebateClaims({
   const action = useAsyncAction();
   const canReverse = permissions.includes("payment.reverse");
   const sizes = new Map(view.products.map((p) => [p.productId, p.piecesPerCarton]));
-  if (entries.isPending) return <TableSkeleton rows={2} columns={4} />;
+  if (entries.isPending) return <TableSkeleton rows={2} columns={6} />;
   const rows: MoneyEntry[] = (entries.data ?? []).filter((e) => e.kind === "rebateClaim");
   if (rows.length === 0) return <EmptyListNote textKey="money.empty" />;
   return (
@@ -655,8 +725,14 @@ function RebateClaims({
               <th scope="col" className={thClass}>
                 {t("godown.column.product")}
               </th>
+              <th scope="col" className={thClass}>
+                {t("common.date")}
+              </th>
               <th scope="col" className={thNum}>
                 {t("godown.column.quantity")}
+              </th>
+              <th scope="col" className={thNum}>
+                {t("deposit.rebate.rate")}
               </th>
               <th scope="col" className={thNum}>
                 {t("common.amount")}
@@ -673,18 +749,18 @@ function RebateClaims({
             {rows.map((entry) => (
               <tr key={entry.id} className="border-t border-border">
                 <td className={tdClass}>{entry.productName ?? "—"}</td>
+                <td className={tdClass}>{formatBusinessDate(entry.date)}</td>
                 <td className={tdNum}>
-                  {entry.pieces && entry.productId && sizes.get(entry.productId) ? (
+                  {entry.pieces ? (
                     <CartonQty
                       pieces={entry.pieces}
-                      piecesPerCarton={sizes.get(entry.productId)!}
+                      piecesPerCarton={sizes.get(entry.productId ?? "") ?? "1"}
                     />
-                  ) : entry.pieces ? (
-                    formatCount(entry.pieces)
                   ) : (
                     "—"
                   )}
                 </td>
+                <td className={tdNum}>{entry.unitRate ? formatRate(entry.unitRate) : "—"}</td>
                 <td className={tdNum}>{money(entry.amount)}</td>
                 <td className={tdClass}>
                   <StatusChip status={entry.status} />

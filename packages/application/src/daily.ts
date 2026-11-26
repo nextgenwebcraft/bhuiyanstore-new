@@ -113,7 +113,12 @@ export function requireAll(access: CompanyAccess, permissions: Iterable<Permissi
  * Posting needs a live opening (a saved cutoff date, D43), a date from the cutoff to today and an open month. The shared
  * company lock makes a concurrent month close wait for in-flight postings.
  */
-export async function postingGuard(tx: Tx, companyId: string, date: string): Promise<void> {
+export async function postingGuard(
+  tx: Tx,
+  companyId: string,
+  date: string,
+  options: { beforeCutoff?: boolean } = {},
+): Promise<void> {
   await tx.$queryRaw`SELECT id FROM company WHERE id = ${companyId} FOR SHARE`;
   const session = await tx.openingSession.findUnique({
     where: { companyId },
@@ -122,7 +127,9 @@ export async function postingGuard(tx: Tx, companyId: string, date: string): Pro
   if (!session?.cutoffDate) {
     throw invalid("date", "validation.daily.noOpening");
   }
-  if (date < fromDbDate(session.cutoffDate)) throw invalid("date", "validation.daily.beforeCutoff");
+  if (!options.beforeCutoff && date < fromDbDate(session.cutoffDate)) {
+    throw invalid("date", "validation.daily.beforeCutoff");
+  }
   if (date > todayBusinessDate()) throw invalid("date", "validation.daily.future");
   const closed = await tx.monthClose.findUnique({
     where: { companyId_month: { companyId, month: monthOf(date) } },
@@ -1654,7 +1661,8 @@ function toMoneyEntry(row: MoneyRow): MoneyEntry {
     categoryName: row.expenseCategory?.name ?? null,
     productId: row.productId,
     productName: row.product?.name ?? null,
-    pieces: row.pieces !== null && row.pieces !== undefined ? plain(row.pieces) : null,
+    pieces: row.pieces === null ? null : plain(row.pieces),
+    unitRate: row.unitRate === null ? null : plain(row.unitRate),
     allocation: allocationOf(row),
     srLoanType: row.srLoanType,
     payrollRunId: row.payrollRunId,
@@ -1871,6 +1879,15 @@ async function insertMoneyEntry(
     if (!sheetOwner) throw invalid("sheetStaffId", "validation.daily.staffNotAssigned");
   }
   await checkOwedLimits(tx, access, request, allocation);
+  if (request.kind === "rebateClaim") {
+    const billed = toDecimal(request.pieces ?? "0")
+      .mul(request.unitRate ?? "0")
+      .toDecimalPlaces(2)
+      .toFixed(2);
+    if (billed !== toDecimal(request.amount).toFixed(2)) {
+      throw invalid("amount", "validation.rebate.amountMismatch");
+    }
+  }
   const row = await tx.moneyEntry.create({
     data: {
       tenantId: access.company.tenantId,
@@ -1882,7 +1899,8 @@ async function insertMoneyEntry(
       shopId,
       expenseCategoryId: request.expenseCategoryId,
       productId: request.productId,
-      pieces: request.pieces ?? null,
+      pieces: request.kind === "rebateClaim" ? (request.pieces ?? null) : null,
+      unitRate: request.kind === "rebateClaim" ? (request.unitRate ?? null) : null,
       allocAdvance: allocation?.advance ?? null,
       allocLoan: allocation?.loan ?? null,
       allocShortage: allocation?.shortage ?? null,
@@ -1934,7 +1952,9 @@ export async function postMoneyEntry(
       { scope: companyId, action: "money.post", requestKey },
       request,
       async (tx) => {
-        await postingGuard(tx, companyId, request.date);
+        await postingGuard(tx, companyId, request.date, {
+          beforeCutoff: request.kind === "rebateClaim",
+        });
         await assertDateHandoverEditable(tx, ctx, companyId, request.date);
         return insertMoneyEntry(tx, ctx, access, companyId, request, "money.post");
       },
@@ -1977,7 +1997,7 @@ export async function correctMoneyEntry(
         assertMoneyEntryReversible(row);
         const date = fromDbDate(row.date);
         if (request.date !== date) throw invalid("date", "validation.money.correctDateFixed");
-        await postingGuard(tx, companyId, date);
+        await postingGuard(tx, companyId, date, { beforeCutoff: row.kind === "rebateClaim" });
         await assertDateHandoverEditable(tx, ctx, companyId, date);
         const reversed = await tx.moneyEntry.updateMany({
           where: { id: entryId, status: "posted" },
