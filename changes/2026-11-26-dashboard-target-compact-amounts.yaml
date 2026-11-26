@@ -1,0 +1,13 @@
+date: 2026-11-26
+summary: "Dashboard target cards show large টাকা amounts in short form (৪৪.৪১ লাখ, ১.২৩ কোটি) so they no longer overflow."
+
+changes:
+  - packages/i18n/src/format.ts: formatCompactAmount (string-exact; লাখ from 10^5, কোটি from 10^7; ≤2 places, trailing zeros dropped; 100 লাখ rolls over to কোটি; below 1 লাখ falls back to formatAmount)
+  - packages/i18n/src/index.ts: export formatCompactAmount
+  - packages/i18n/src/format.test.ts: formatCompactAmount cases
+  - apps/web/src/features/targets/target-progress.tsx: targetMetric(…, compact); TargetProgressBlock `compact` prop; metric cells truncate with the full amount as title; dashboard strip uses the short form
+  - apps/web/src/features/targets/dashboard-targets.tsx: column cards pass `compact`
+
+backfill: none (display only)
+rollout: deploy; Setup targets page still shows full amounts
+checks: "pnpm check:types, pnpm test (401 pass), eslint and prettier clean for changed files. Not run: UI in a browser"

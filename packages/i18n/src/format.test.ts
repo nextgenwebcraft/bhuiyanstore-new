@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatAmount,
   formatBusinessDate,
+  formatCompactAmount,
   formatCount,
   formatDateTime,
   formatMoney,
@@ -84,5 +85,27 @@ describe("formatDateTime", () => {
     expect(text).toContain("২");
     expect(text).toContain("অক্টো");
     expect(formatDateTime("2026-10-01T19:30:00Z")).toBe(text);
+  });
+});
+
+describe("formatCompactAmount", () => {
+  it("shortens to লাখ / কোটি with at most 2 places", () => {
+    expect(formatCompactAmount("4441096.38")).toBe("৪৪.৪১ লাখ");
+    expect(formatCompactAmount("9693329")).toBe("৯৬.৯৩ লাখ");
+    expect(formatCompactAmount("5252232.62")).toBe("৫২.৫২ লাখ");
+    expect(formatCompactAmount("100000")).toBe("১ লাখ");
+    expect(formatCompactAmount("150000.00")).toBe("১.৫ লাখ");
+    expect(formatCompactAmount("12345678")).toBe("১.২৩ কোটি");
+    expect(formatCompactAmount("1234567890")).toBe("১২৩.৪৬ কোটি");
+    expect(formatCompactAmount("-4441096.38")).toBe("-৪৪.৪১ লাখ");
+  });
+
+  it("rolls 100 লাখ over to কোটি", () => {
+    expect(formatCompactAmount("9999999.99")).toBe("১ কোটি");
+  });
+
+  it("keeps the full amount under one লাখ", () => {
+    expect(formatCompactAmount("99999.50")).toBe("৯৯,৯৯৯.৫০");
+    expect(formatCompactAmount("0")).toBe("০");
   });
 });

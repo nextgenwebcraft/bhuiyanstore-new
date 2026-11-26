@@ -114,6 +114,46 @@ function toMoneyPlaces(value: string): string {
   return negative && /[1-9]/.test(rounded) ? `-${rounded}` : rounded;
 }
 
+/** South Asian short units, largest first: কোটি = 10^7, লাখ = 10^5. */
+const COMPACT_UNITS = [
+  { places: 7, label: "কোটি" },
+  { places: 5, label: "লাখ" },
+] as const;
+
+/** Move the decimal point `places` digits left in a non-negative decimal string (exact). */
+function shiftLeft(value: string, places: number): string {
+  const [integer = "0", fraction = ""] = value.split(".");
+  const padded = integer.padStart(places + 1, "0");
+  const head = padded.slice(0, -places).replace(/^0+(?=\d)/, "");
+  return `${head}.${padded.slice(-places)}${fraction}`;
+}
+
+/**
+ * A short amount for tight spaces: ৪৪.৪১ লাখ, ১.২৩ কোটি; under one লাখ it is the full
+ * {@link formatAmount}. At most 2 places, trailing zeros dropped. Display only (D61, guide 21.1):
+ * pair it with the full value (e.g. a title) wherever the exact figure matters.
+ */
+export function formatCompactAmount(value: string): string {
+  const negative = value.startsWith("-");
+  const abs = negative ? value.slice(1) : value;
+  const integer = abs.split(".")[0] ?? "0";
+  const digits = integer.replace(/^0+/, "").length;
+  for (const [i, unit] of COMPACT_UNITS.entries()) {
+    if (digits <= unit.places) continue;
+    let rounded = roundForDisplay(shiftLeft(abs, unit.places));
+    let label: string = unit.label;
+    // 99.999 লাখ rounds up to 100 লাখ: show it in the next unit (১ কোটি) instead.
+    const larger = COMPACT_UNITS[i - 1];
+    if (larger && (rounded.split(".")[0] ?? "").length > larger.places - unit.places) {
+      rounded = roundForDisplay(shiftLeft(abs, larger.places));
+      label = larger.label;
+    }
+    const trimmed = rounded.includes(".") ? rounded.replace(/\.?0+$/, "") : rounded;
+    return `${toBengaliDigits(negative ? `-${trimmed}` : trimmed)} ${label}`;
+  }
+  return formatAmount(value);
+}
+
 /** Money for display, at most 2 decimal places; `null` (hidden or unknown) shows a dash. */
 export function formatMoney(value: string | null): string {
   return value === null ? "—" : formatAmount(value);
