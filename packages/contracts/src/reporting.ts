@@ -158,26 +158,168 @@ const companyCapitalFiguresSchema = z.object({
   total: decimalStringSchema,
 });
 
+/** D150: one day of the money held in a company (the day's closing figures). */
+const companyCapitalDaySchema = companyCapitalFiguresSchema.extend({ date: businessDateSchema });
+
+/** D150: the daily average of the money held, and its lowest and highest day. */
+const companyCapitalStatsSchema = z.object({
+  /** Days averaged (from the opening cutoff, through today for the running month). */
+  days: z.number().int().positive(),
+  /** Σ each day's closing figures ÷ days, per part and in total. */
+  average: companyCapitalFiguresSchema,
+  lowest: z.object({ date: businessDateSchema, total: decimalStringSchema }),
+  highest: z.object({ date: businessDateSchema, total: decimalStringSchema }),
+});
+
 /**
- * D146 History → সারাংশ: how much money is held in the company, as of today and at the end of
- * every month of a year (the current month runs to today; later months are left out). Each figure
- * is the dashboard's own closing value for that month, never a stored total. Requires
+ * D146 / D150 History → সারাংশ: how much money is held in the company (আনডেলিভারি + মজুদ মাল +
+ * বাজারের বাকি), as of today, at the end of every month of a year (the current month runs to
+ * today; later months are left out), and every day of the year with each month's and the year's
+ * daily average, lowest and highest day. Each day is the engine's own closing for that day, so a
+ * month end matches the dashboard for that month. Never a stored total. Requires
  * `inventory.cost_view`.
  */
 export const companyCapitalYearSchema = z.object({
   year: z.string().regex(/^\d{4}$/),
   asOf: businessDateSchema,
   current: companyCapitalFiguresSchema,
+  /** Null when the year has no day from the opening cutoff on. */
+  yearStats: companyCapitalStatsSchema.nullable(),
   months: z.array(
     companyCapitalFiguresSchema.extend({
       month: z.string().regex(/^\d{4}-\d{2}$/),
       /** The date the figures stand at: month end, or today for the running month. */
       to: businessDateSchema,
+      /** Null for a month wholly before the opening cutoff. */
+      stats: companyCapitalStatsSchema.nullable(),
     }),
   ),
+  /** Every day from the year start (or the cutoff) through the year end (or today), oldest first. */
+  days: z.array(companyCapitalDaySchema),
 });
 
 export type CompanyCapitalYear = z.infer<typeof companyCapitalYearSchema>;
+
+/** D148: one staff member's খরচ for the month (salary accrual + expenses booked on them). */
+const monthStaffKhorochSchema = z.object({
+  staffId: idSchema,
+  staffName: z.string(),
+  salary: decimalStringSchema,
+  expenses: decimalStringSchema,
+  total: decimalStringSchema,
+});
+
+/**
+ * D148 History → মাসিক সারসংক্ষেপ: one month of a company — order, receive, sale, commission,
+ * operating cost, each staff role's খরচ (বেতনসহ) and the net profit after all of them. Order,
+ * receive, sale, commission and sales profit are the dashboard's figures for the month; khoroch
+ * split and net profit are `@bsd/domain` `monthKhoroch` / `monthNetProfit`. Requires
+ * `report.profit_view`, `inventory.cost_view` and `finance.view`.
+ */
+export const monthlySummarySchema = z.object({
+  month: z.string().regex(/^\d{4}-\d{2}$/),
+  from: businessDateSchema,
+  /** Month end, or today for the running month. */
+  to: businessDateSchema,
+  cutoffDate: businessDateSchema.nullable(),
+  /** মোট অর্ডার: Σ order bills in the month (engine companyPayable.orders). */
+  totalOrder: decimalStringSchema,
+  /** মোট রিসিভ: billed value of goods received (dashboard receivedValue). */
+  totalReceive: decimalStringSchema,
+  /** মোট বিক্রি (dashboard totalSales). */
+  totalSales: decimalStringSchema,
+  /** ডিলার/দোকান কমিশন (dashboard commission). */
+  commission: decimalStringSchema,
+  /** বিক্রয় লাভ (dashboard salesProfit), the base the khoroch come off. */
+  salesProfit: decimalStringSchema,
+  /** Category expenses with no staff. */
+  operatingCost: decimalStringSchema,
+  /** One row per non-SR staff role of the tenant (zero rows kept), then any other role found. */
+  roles: z.array(
+    z.object({
+      roleId: z.string(),
+      roleName: z.string(),
+      salary: decimalStringSchema,
+      expenses: decimalStringSchema,
+      total: decimalStringSchema,
+      staff: z.array(monthStaffKhorochSchema),
+    }),
+  ),
+  staffTotal: decimalStringSchema,
+  /** salesProfit − operatingCost − staffTotal. */
+  netProfit: decimalStringSchema,
+  /** The dashboard's নিট প্রফিট for the same month (cash-based staff cost), for comparison. */
+  dashboardNetProfit: decimalStringSchema,
+  /** Payroll people whose salary for this month is not posted yet (salary khoroch still missing). */
+  salaryPendingCount: z.number().int().nonnegative(),
+});
+
+export type MonthlySummary = z.infer<typeof monthlySummarySchema>;
+
+/**
+ * D149 History → বেতন ইতিহাস: one posted salary line — what the person earned, what was kept back
+ * (absent fee, advance, loan, shortage) and what reached their hand.
+ */
+export const salaryHistoryRowSchema = z.object({
+  runId: idSchema,
+  month: z.string().regex(/^\d{4}-\d{2}$/),
+  staffId: idSchema,
+  staffName: z.string(),
+  roleName: z.string(),
+  salary: decimalStringSchema,
+  /** Absent fee: lowers the payable only; never taken from a balance (D67). */
+  absent: decimalStringSchema,
+  /** salary − absent (the salary booked as expense). */
+  payable: decimalStringSchema,
+  /** What the person owed when the salary was posted. */
+  owed: z.object({
+    advance: decimalStringSchema,
+    loan: decimalStringSchema,
+    shortage: decimalStringSchema,
+  }),
+  recovery: z.object({
+    advance: decimalStringSchema,
+    loan: decimalStringSchema,
+    shortage: decimalStringSchema,
+  }),
+  /** owed − recovery: what is still owed after this salary. */
+  remaining: z.object({
+    advance: decimalStringSchema,
+    loan: decimalStringSchema,
+    shortage: decimalStringSchema,
+  }),
+  recoveryTotal: decimalStringSchema,
+  /** ক্যাশ পাবে: payable − recovery. */
+  cashPay: decimalStringSchema,
+  /** Cash actually paid (posted salaryPaid); 0 until paid. */
+  cashPaid: decimalStringSchema,
+  /** The salary posting date and the cash payment date (null until paid). */
+  postedDate: businessDateSchema,
+  paidDate: businessDateSchema.nullable(),
+});
+
+/** D149: the year's posted salary lines, filtered by month / staff; totals cover the shown rows. */
+export const salaryHistorySchema = z.object({
+  year: z.string().regex(/^\d{4}$/),
+  month: z
+    .string()
+    .regex(/^\d{4}-\d{2}$/)
+    .nullable(),
+  staffId: idSchema.nullable(),
+  /** Everyone with a posted salary in the year (for the staff filter). */
+  staffOptions: z.array(z.object({ staffId: idSchema, staffName: z.string() })),
+  rows: z.array(salaryHistoryRowSchema),
+  totals: z.object({
+    salary: decimalStringSchema,
+    absent: decimalStringSchema,
+    recovery: decimalStringSchema,
+    cashPay: decimalStringSchema,
+    cashPaid: decimalStringSchema,
+  }),
+});
+
+export type SalaryHistoryRow = z.infer<typeof salaryHistoryRowSchema>;
+export type SalaryHistory = z.infer<typeof salaryHistorySchema>;
 
 /**
  * Day-wise মোট বিক্রি for the company dashboard chart (D128/D140 day tab): every day of the

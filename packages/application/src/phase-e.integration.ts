@@ -3,6 +3,7 @@ import { moneyEntryKinds, type MoneyEntryKind } from "@bsd/contracts";
 import {
   MONEY_KIND_EFFECTS,
   computeMonth,
+  roundSettlement,
   toDecimal,
   type BatchReceiptInput,
   type DayInput,
@@ -17,6 +18,7 @@ import { createRole, createUser } from "./administration";
 import { createCompany } from "./companies";
 import { expenseCategories, staffRoles } from "./configuration";
 import type { AppContext } from "./context";
+import { listHistoryDsrDays } from "./history";
 import {
   getCompanyCapitalYear,
   getDashboardSummary,
@@ -65,8 +67,8 @@ const id = {
   shop: "",
 };
 
-function must<T>(value: T | undefined): T {
-  if (value === undefined) throw new Error("expected a value");
+function must<T>(value: T | undefined | null): T {
+  if (value === undefined || value === null) throw new Error("expected a value");
   return value;
 }
 
@@ -693,6 +695,28 @@ describe("Phase E: daily entry", () => {
     // Newest month first; a month before the opening reads zero.
     expect((capital.months[0]?.month ?? "") >= "2026-08").toBe(true);
     expect(capital.months.find((row) => row.month === "2026-01")?.total).toBe("0.00");
+    // D150: the month's daily average, lowest and highest come from its own days.
+    const augustDays = capital.days.filter((day) => day.date.startsWith("2026-08"));
+    expect(augustDays.at(-1)?.total).toBe(august.total);
+    const stats = must(august.stats);
+    expect(stats.days).toBe(augustDays.length);
+    const sum = augustDays.reduce((total, day) => total.add(day.total), toDecimal("0"));
+    expect(stats.average.total).toBe(roundSettlement(sum.div(String(augustDays.length))));
+    const totals = augustDays.map((day) => toDecimal(day.total));
+    expect(toDecimal(stats.lowest.total).eq(totals.reduce((m, v) => (v.lt(m) ? v : m)))).toBe(true);
+    expect(toDecimal(stats.highest.total).eq(totals.reduce((m, v) => (v.gt(m) ? v : m)))).toBe(
+      true,
+    );
+    expect(capital.months.find((row) => row.month === "2026-01")?.stats).toBeNull();
+  });
+
+  it("History → সামারি lists posted sheets with each line's DSR", async () => {
+    const page = await listHistoryDsrDays(ctx, company, { status: "posted", pageSize: "25" });
+    expect(page.items.length).toBeGreaterThan(0);
+    for (const line of page.items.flatMap((item) => item.lines)) {
+      expect(line.dsrStaffId).toBeTruthy();
+      expect(line.dsrStaffName).toBeTruthy();
+    }
   });
 
   it("corrects by reversal, replays idempotent posts and protects posted sheets", async () => {

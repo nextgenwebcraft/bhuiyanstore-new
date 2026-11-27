@@ -60,6 +60,8 @@ export const navigation: readonly NavSection[] = [
     labelKey: "nav.history",
     items: [
       item("history/summary", "nav.history.summary", "inventory.cost_view"),
+      item("history/monthly-summary", "nav.history.monthlySummary", "report.profit_view"),
+      item("history/salaries", "nav.history.salaries", "compensation.view"),
       item("history/orders", "nav.history.orders", "purchase.view"),
       item("history/stock", "nav.history.stock", "purchase.view"),
       item("history/stock-tracking", "nav.history.stockTracking", "inventory.view"),
@@ -206,6 +208,8 @@ const hubDefinitions: readonly Omit<Hub, "shortcut">[] = [
     icon: "calendar",
     tabs: [
       { path: "history/summary" },
+      { path: "history/monthly-summary" },
+      { path: "history/salaries" },
       { path: "history/orders" },
       { path: "history/stock" },
       { path: "history/stock-tracking" },

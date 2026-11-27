@@ -1,0 +1,46 @@
+id: 2026-11-27-history-summary-salaries-manager
+reason: >-
+  Owner 2026-11-27 change request. History gets two new pages — মাসিক সারসংক্ষেপ (month order,
+  receive, sale, commission, operating cost, Manager / DSR / Driver খরচ with salary, net profit;
+  D148) and বেতন ইতিহাস (what each staff got in hand and what was kept back; D149). History →
+  সারাংশ explains how the money held is worked out and shows the daily average with the lowest and
+  highest day (D150). Manager dashboard shows the full সারসংক্ষেপ like Super Admin (D151).
+owners: [domain, contracts, application, web, i18n, docs]
+changes:
+  - >-
+    packages/domain — month/capital.ts (capitalDays: each day's undelivered + stock + walked market
+    due; capitalStats: daily average, lowest, highest); month/monthly-summary.ts (monthKhoroch:
+    salary accrual + staff-booked category expenses per role, operating = unbooked category
+    expenses; monthNetProfit); unit tests incl. the screenshot's Sojib salary (11000 − 366.66 =
+    10633.34; recovery 1292 + 1321; cash 8020.34)
+  - >-
+    packages/contracts reporting.ts — companyCapitalYearSchema gains yearStats, months[].stats and
+    days[]; new monthlySummarySchema; salaryHistoryRowSchema / salaryHistorySchema
+  - >-
+    packages/application — getCompanyCapitalYear: one engine run over the year instead of one
+    dashboard run per month; dashboardOf also returns orderTotal; new history-reports.ts
+    (getMonthlySummary, listSalaryHistory); payroll.ts unpostedSalaryCount; fixed-roles.ts Manager
+    gains report.profit_view
+  - >-
+    apps/web — API GET monthly-summaries?month and salary-history?year[&month][&staffId]; data
+    ports/http/mock/queries/query-keys; History tabs history/monthly-summary and history/salaries
+    (+ navigation.test.ts); company-capital-page.tsx rewritten (formula box, month average tiles,
+    line chart with average / lowest / highest, year table columns)
+  - packages/i18n — nav.history.monthlySummary, nav.history.salaries, capital.*, monthlySummary.*, salaryHistory.*
+  - docs — D148, D149, D150, D151; implementation-status
+affectedActionIds: []
+financialImpact: >-
+  None posted. Month engine, cash, stock, staff balances, payroll posting and partner payouts are
+  unchanged. The absent fee already moved no balance (D67/D75; engine test kept) and only lowers
+  the posted salary accrual. The monthly summary's net profit is accrual-based (salary posted,
+  advances not counted) and is labelled next to the dashboard's cash-based নিট প্রফিট, which still
+  feeds Company Hishab. Manager can now see sales profit / net profit on the dashboard.
+backfill: none
+tests:
+  - pnpm test (406 passed) incl. domain capital-summary.test.ts
+  - pnpm check:types (all packages)
+  - pnpm lint — 15 errors / 2 warnings, all pre-existing at HEAD (none in changed lines); pnpm format:check fails only on older changes/2026-11-07…2026-11-13 manifests
+  - pnpm test:integration phase-g phase-e — 2 files, 26 passed (capital stats vs its days, month end vs dashboard; salary history + monthly summary after Pay Now)
+  - not run: browser walk-through
+rollout: deploy (no migration); Manager role permissions sync on next workspace load
+recovery: revert the commit; remove report.profit_view from MANAGER_PERMISSIONS and reload a workspace to resync

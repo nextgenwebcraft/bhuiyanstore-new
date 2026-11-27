@@ -4,6 +4,8 @@ import {
   damageCaseSchema,
   dashboardDailySchema,
   companyCapitalYearSchema,
+  monthlySummarySchema,
+  salaryHistorySchema,
   dashboardMonthlySchema,
   dashboardSummarySchema,
   dayViewSchema,
@@ -259,6 +261,22 @@ export function createHttpService(onUnauthenticated: () => void): HttpDistributi
       request(
         companyCapitalYearSchema,
         `${company(companyId)}/capital-years?${new URLSearchParams({ year }).toString()}`,
+        options,
+      ),
+    getMonthlySummary: (companyId, month, options) =>
+      request(
+        monthlySummarySchema,
+        `${company(companyId)}/monthly-summaries?${new URLSearchParams({ month }).toString()}`,
+        options,
+      ),
+    getSalaryHistory: (companyId, filter, options) =>
+      request(
+        salaryHistorySchema,
+        `${company(companyId)}/salary-history?${new URLSearchParams({
+          year: filter.year,
+          ...(filter.month ? { month: filter.month } : {}),
+          ...(filter.staffId ? { staffId: filter.staffId } : {}),
+        }).toString()}`,
         options,
       ),
     getDashboardDaily: (companyId, month, options) =>

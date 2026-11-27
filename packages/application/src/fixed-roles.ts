@@ -61,6 +61,8 @@ export const MANAGER_PERMISSIONS: readonly PermissionId[] = [
   "dsr_due.allocate_to_salary",
   "report.view",
   "report.export",
+  /** D151: Manager dashboard shows the full সারসংক্ষেপ (sales profit, net profit) like Super Admin. */
+  "report.profit_view",
   "opening.prepare",
   "membership.manage",
 ];

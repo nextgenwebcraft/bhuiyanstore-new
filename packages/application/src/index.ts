@@ -9,6 +9,7 @@ export {
   reverseDamageEvent,
 } from "./damage";
 export { getPayrollRun, payrollCommand, savePayrollRun } from "./payroll";
+export { getMonthlySummary, listSalaryHistory } from "./history-reports";
 export {
   createRole,
   createUser,

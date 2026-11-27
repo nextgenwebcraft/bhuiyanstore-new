@@ -93,6 +93,16 @@ export {
 } from "./month/order-funding";
 export { companyStatement, type CompanyStatementLine } from "./month/company-statement";
 export { srCost, summarizeDay, type DaySummary, type DsrDaySummary } from "./month/day-summary";
+export { capitalDays, capitalStats, type CapitalDay, type CapitalStats } from "./month/capital";
+export {
+  monthKhoroch,
+  monthNetProfit,
+  type KhorochEntry,
+  type MonthKhoroch,
+  type RoleKhoroch,
+  type StaffKhoroch,
+  type StaffRoleRef,
+} from "./month/monthly-summary";
 export {
   dashboardDamageTotal,
   dashboardTotals,

@@ -1,5 +1,6 @@
 import { bootstrapSuperAdmin, type Actor } from "@bsd/auth";
 import type { OpeningBalanceKind, PayrollRun, PermissionId } from "@bsd/contracts";
+import { toDecimal } from "@bsd/domain";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadCompanyAccess } from "./access";
 import { exportStaffStatement, getStaffAccounts, getStaffStatement } from "./accounts";
@@ -27,6 +28,7 @@ import { runLedger } from "./ledger";
 import { getMonthView } from "./month";
 import { getOpening } from "./opening";
 import { getPayrollRun, payrollCommand, savePayrollRun } from "./payroll";
+import { getMonthlySummary, listSalaryHistory } from "./history-reports";
 import { createProduct } from "./products";
 import { createStaff } from "./staff";
 import { contextFor, resetTestSchema, saveWholeOpening, testDatabase } from "./test-support";
@@ -611,6 +613,36 @@ describe("Phase G: payroll runs", () => {
       salaryPayable: "0",
     });
     expect((await getDayView(ctx, company, "2026-09-30")).money.cashOut).toBe("6500");
+
+    // D149: বেতন ইতিহাস shows the paid line; the absent fee lowers only the payable.
+    const history = await listSalaryHistory(ctx, company, { year: "2026", month: "2026-09" });
+    const selimRow = must(history.rows.find((r) => r.staffId === id.selim));
+    expect(selimRow).toMatchObject({
+      salary: "10500.00",
+      absent: "500.00",
+      payable: "10000.00",
+      recoveryTotal: "3500.00",
+      cashPay: "6500.00",
+      cashPaid: "6500.00",
+      paidDate: "2026-09-30",
+      remaining: { advance: "0.00", loan: "0.00", shortage: "0.00" },
+    });
+    expect(history.rows.some((r) => r.staffId === id.rohim)).toBe(false);
+    expect(history.totals.cashPaid).toBe("6500.00");
+    expect(
+      (await listSalaryHistory(ctx, company, { year: "2026", staffId: id.rohim })).rows,
+    ).toEqual([]);
+
+    // D148: মাসিক সারসংক্ষেপ books the posted salary (salary − absent) under the person's role.
+    const summary = await getMonthlySummary(ctx, company, "2026-09");
+    const selimKhoroch = must(
+      summary.roles.flatMap((r) => r.staff).find((x) => x.staffId === id.selim),
+    );
+    expect(selimKhoroch.salary).toBe("10000.00");
+    expect(summary.salaryPendingCount).toBeGreaterThan(0);
+    expect(summary.netProfit).toBe(
+      toDecimal(summary.salesProfit).sub(summary.operatingCost).sub(summary.staffTotal).toFixed(2),
+    );
 
     await expectField(
       payrollCommand(ctx, company, "2026-09", "payStaff", {

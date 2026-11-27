@@ -690,3 +690,15 @@ export async function payrollCommand(
     },
   );
 }
+
+/**
+ * D148: payroll people whose salary for `month` is not posted yet (no run, or a draft line without
+ * its posted snapshot), so the monthly summary can say its salary khoroch is still incomplete.
+ */
+export async function unpostedSalaryCount(db: Db, companyId: string, month: string) {
+  const run = await liveRun(db, companyId, month);
+  if (run && run.status !== "draft") return 0;
+  const posted = new Set(run?.lines.filter((l) => snapshotOf(l)).map((l) => l.staffId));
+  const people = await eligibleStaff(db, companyId, month);
+  return people.filter((p) => !posted.has(p.id)).length;
+}
