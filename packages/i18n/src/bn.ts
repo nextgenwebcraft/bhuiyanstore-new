@@ -823,10 +823,8 @@ export const bn = {
   "target.archive.title": "টার্গেট আর্কাইভ করবেন?",
   "target.archive.confirm": "আর্কাইভ করুন",
   "target.archive.hint": "“{name}” আর সক্রিয় থাকবে না এবং ড্যাশবোর্ড থেকে সরবে।",
-  "target.delete.hint":
-    "“{name}” টার্গেটটি স্থায়ীভাবে মুছে যাবে। এর পরিবর্তনের ইতিহাস হিস্ট্রি → টার্গেটে থাকবে।",
-  "target.history.description":
-    "অর্ডার টার্গেটের সব পরিবর্তন: তৈরি, সম্পাদনা, আর্কাইভ ও মুছে ফেলা। মুছে ফেলা টার্গেটও এখানে থাকে।",
+  "target.delete.hint": "“{name}” টার্গেটটি স্থায়ীভাবে মুছে যাবে।",
+  "target.history.description": "অর্ডার টার্গেটের সব পরিবর্তন: তৈরি, সম্পাদনা ও আর্কাইভ।",
   "target.history.empty": "এখনো কোনো টার্গেটের ইতিহাস নেই।",
   "target.history.when": "তারিখ",
   "target.history.action": "ক্রিয়া",

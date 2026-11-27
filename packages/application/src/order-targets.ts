@@ -455,11 +455,11 @@ export async function deleteOrderTarget(
 }
 
 const HISTORY_LIMIT = 500;
+/** Permanent deletes stay in the audit log but are not listed in History → টার্গেট. */
 const HISTORY_ACTIONS: Record<string, OrderTargetHistoryAction> = {
   "orderTarget.create": "create",
   "orderTarget.update": "update",
   "orderTarget.archive": "archive",
-  "orderTarget.delete": "delete",
 };
 
 type Snapshot = {
