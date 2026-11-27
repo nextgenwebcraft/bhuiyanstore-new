@@ -7,6 +7,8 @@ import type {
   DamageEventRequest,
   DashboardDaily,
   CompanyCapitalYear,
+  MonthlySummary,
+  SalaryHistory,
   DashboardMonthly,
   DashboardSummary,
   DayView,
@@ -111,6 +113,9 @@ import type {
 
 export type RequestOptions = { signal?: AbortSignal };
 
+/** D149 বেতন ইতিহাস filter: a year, optionally one month and one person. */
+export type SalaryHistoryFilter = { year: string; month?: string | null; staffId?: string | null };
+
 /**
  * Service port shared by the mock adapter (Phase 1) and the HTTP adapter (after client
  * approval). Both return the same contract DTOs (guide section 6.1). The actor comes from the
@@ -169,6 +174,18 @@ export interface DistributionService {
     year: string,
     options?: RequestOptions,
   ): Promise<CompanyCapitalYear>;
+  /** D148 History → মাসিক সারসংক্ষেপ for one month. */
+  getMonthlySummary(
+    companyId: string,
+    month: string,
+    options?: RequestOptions,
+  ): Promise<MonthlySummary>;
+  /** D149 History → বেতন ইতিহাস: posted salary lines of one year. */
+  getSalaryHistory(
+    companyId: string,
+    filter: SalaryHistoryFilter,
+    options?: RequestOptions,
+  ): Promise<SalaryHistory>;
   /** Day-wise মোট বিক্রি for the selected month (D128/D140 dashboard chart day tab). */
   getDashboardDaily(
     companyId: string,

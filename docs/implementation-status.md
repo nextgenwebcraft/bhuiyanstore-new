@@ -6,6 +6,8 @@ Evidence-based progress. Mark an item done only with evidence.
 
 The canonical plan is now [PLAN.md](PLAN.md). The owner approved backend integration (D30).
 
+**2026-11-27** ([manifest](../changes/2026-11-27-history-summary-salaries-manager.yaml)): D148 — History → মাসিক সারসংক্ষেপ (order, receive, sale, commission, operating cost, each role's খরচ বেতনসহ, net profit); D149 — History → বেতন ইতিহাস (posted salary lines: absent fee, advance/loan/short recovery, cash paid + date, line-by-line breakdown); D150 — History → সারাংশ explains the formula and adds daily average + lowest/highest (line chart); D151 — Manager dashboard shows the full সারসংক্ষেপ (`report.profit_view`). No migration.
+
 **2026-11-26** ([manifest](../changes/2026-11-26-target-delete-history.yaml)): D147 — Super Admin permanently deletes an order target (সেটআপ → অর্ডার টার্গেট); History → টার্গেট lists every target change from the audit log. No migration.
 
 **2026-11-23** ([manifest](../changes/2026-11-23-invest-months-cheque-dates-capital.yaml)): D144 — invest changes once per month (record per month, «এই মাসে বদলেছে», change log), summary cards above the invest table, পেমেন্ট ইতিহাস = paid partners only (year/month filters; invest, profit received, paid date); D145 — কোম্পানি চেক shows only cheques with an open due (unused cheques not listed) with dated records + running due, repay date picker, completed → History with completion date; D146 — History → সারাংশ (আনডেলিভারি + মজুদ + বাজারের বাকি, today and per month end). No migration.

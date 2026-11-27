@@ -90,6 +90,8 @@ describe("hubs", () => {
     ]);
     expect(paths("history")).toEqual([
       "history/summary",
+      "history/monthly-summary",
+      "history/salaries",
       "history/orders",
       "history/stock",
       "history/stock-tracking",

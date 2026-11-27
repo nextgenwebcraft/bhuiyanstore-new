@@ -54,7 +54,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import type { ConfigListId, ConfigLists } from "./ports/distribution-service";
+import type { ConfigListId, ConfigLists, SalaryHistoryFilter } from "./ports/distribution-service";
 import { postingEffects, queryKeys, resourceKey } from "./query-keys";
 import { useActorId, useService } from "./service-context";
 
@@ -171,6 +171,34 @@ export function useCompanyCapitalYear(companyId: string, year: string) {
   return useQuery({
     queryKey: queryKeys.companyCapitalYear(actorId, companyId, year),
     queryFn: ({ signal }) => service.getCompanyCapitalYear(companyId, year, { signal }),
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** D148 History → মাসিক সারসংক্ষেপ. */
+export function useMonthlySummary(companyId: string, month: string) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.monthlySummary(actorId, companyId, month),
+    queryFn: ({ signal }) => service.getMonthlySummary(companyId, month, { signal }),
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** D149 History → বেতন ইতিহাস. */
+export function useSalaryHistory(companyId: string, filter: SalaryHistoryFilter) {
+  const service = useService();
+  const actorId = useActorId();
+  return useQuery({
+    queryKey: queryKeys.salaryHistory(
+      actorId,
+      companyId,
+      filter.year,
+      filter.month ?? "",
+      filter.staffId ?? "",
+    ),
+    queryFn: ({ signal }) => service.getSalaryHistory(companyId, filter, { signal }),
     placeholderData: keepPreviousData,
   });
 }

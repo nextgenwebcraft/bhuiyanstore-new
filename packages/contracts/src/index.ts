@@ -409,6 +409,9 @@ export {
   dsrDayRowSchema,
   masterMonthSchema,
   masterSummarySchema,
+  monthlySummarySchema,
+  salaryHistoryRowSchema,
+  salaryHistorySchema,
   type CompanyCapitalYear,
   type DashboardDaily,
   type DashboardMonthly,
@@ -417,6 +420,9 @@ export {
   type DsrDayRow,
   type MasterMonth,
   type MasterSummary,
+  type MonthlySummary,
+  type SalaryHistory,
+  type SalaryHistoryRow,
 } from "./reporting";
 export {
   companyHishabYearSchema,

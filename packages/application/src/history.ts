@@ -79,7 +79,10 @@ const moneyInclude = {
 const dsrInclude = {
   staff: { select: { name: true } },
   lines: {
-    include: { product: { select: { sku: true, name: true } } },
+    include: {
+      product: { select: { sku: true, name: true } },
+      dsrStaff: { select: { name: true } },
+    },
     orderBy: [{ product: { sku: "asc" } }, { batchSeq: "asc" }],
   },
 } satisfies Prisma.DsrDayInclude;
@@ -413,6 +416,8 @@ export async function listHistoryDsrDays(ctx: AppContext, companyId: string, que
       cashHandedOver: plain(row.cashHandedOver),
       lines: row.lines.map((line) => ({
         productId: line.productId,
+        dsrStaffId: line.dsrStaffId,
+        dsrStaffName: line.dsrStaff.name,
         sku: line.product.sku,
         productName: line.product.name,
         piecesPerCarton: String(line.piecesPerCarton),

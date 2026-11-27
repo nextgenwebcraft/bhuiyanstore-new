@@ -37,6 +37,9 @@ import type { Prisma } from "@bsd/database";
 import { randomUUID } from "node:crypto";
 import {
   MONEY_KIND_EFFECTS,
+  capitalDays,
+  capitalStats,
+  type CapitalDay,
   datesBetween,
   firstOfMonth,
   lastOfMonth,
@@ -2310,10 +2313,11 @@ export async function getDashboardMonthly(
 }
 
 /**
- * D146 History → সারাংশ: money held in the company (অপ্রাপ্ত মাল + মজুদ মাল + বাজার বাকি) as of
- * today and at each month end of a year. Each figure is the dashboard's own closing value for
- * that range (`dashboardOf`), so it always matches the dashboard; the running month stops at
- * today and later months are left out.
+ * D146 / D150 History → সারাংশ: money held in the company (আনডেলিভারি + মজুদ মাল + বাজারের বাকি).
+ * One engine run over the year (from the cutoff, through today) gives every day's closing figures
+ * (`capitalDays`); a month's figures are its last day, so they match the dashboard's closing for
+ * that month. Each month and the year get the daily average, lowest and highest day
+ * (`capitalStats`). Months after today are left out.
  */
 export async function getCompanyCapitalYear(
   ctx: AppContext,
@@ -2325,38 +2329,50 @@ export async function getCompanyCapitalYear(
   const year =
     typeof yearInput === "string" && /^\d{4}$/.test(yearInput) ? yearInput : todayDate.slice(0, 4);
   const today = monthOf(todayDate);
-  const figuresAt = async (month: string) => {
-    const monthEnd = lastOfMonth(month);
-    const to = monthEnd > todayDate ? todayDate : monthEnd;
-    const { summary } = await dashboardOf(ctx, access, { from: firstOfMonth(month), to });
-    const undelivered = summary.undeliveredValue ?? "0.00";
-    const stock = summary.stockValue ?? "0.00";
-    const marketDue = summary.marketDueOutstanding;
-    return {
-      month,
-      to,
-      undelivered: roundSettlement(undelivered),
-      stock: roundSettlement(stock),
-      marketDue: roundSettlement(marketDue),
-      total: sumAmounts([undelivered, stock, marketDue]),
-    };
+  const yearEnd = `${year}-12-31`;
+  const active = await liveOpening(ctx.db, companyId);
+  const daysOf = async (from: string, to: string): Promise<CapitalDay[]> => {
+    if (to < from) return [];
+    const run = await rangeRun(ctx.db, access, from, to, active);
+    return run ? capitalDays(run.output.days, run.output.month.marketDue.opening) : [];
   };
-  const labels = Array.from(
+  const days = await daysOf(`${year}-01-01`, yearEnd > todayDate ? todayDate : yearEnd);
+  const zero = { undelivered: "0.00", stock: "0.00", marketDue: "0.00", total: "0.00" };
+  const figures = (day: CapitalDay | undefined) =>
+    day
+      ? {
+          undelivered: day.undelivered,
+          stock: day.stock,
+          marketDue: day.marketDue,
+          total: day.total,
+        }
+      : zero;
+  const months = Array.from(
     { length: 12 },
     (_, index) => `${year}-${String(index + 1).padStart(2, "0")}`,
-  ).filter((month) => month <= today);
-  const months = await Promise.all(labels.map(figuresAt));
-  const running = months.find((row) => row.month === today) ?? (await figuresAt(today));
+  )
+    .filter((month) => month <= today)
+    .map((month) => {
+      const monthEnd = lastOfMonth(month);
+      const inMonth = days.filter((day) => day.date.startsWith(month));
+      return {
+        month,
+        to: monthEnd > todayDate ? todayDate : monthEnd,
+        ...figures(inMonth.at(-1)),
+        stats: capitalStats(inMonth),
+      };
+    });
+  const todayRow =
+    year === todayDate.slice(0, 4)
+      ? days.at(-1)
+      : (await daysOf(firstOfMonth(today), todayDate)).at(-1);
   return companyCapitalYearSchema.parse({
     year,
-    asOf: running.to,
-    current: {
-      undelivered: running.undelivered,
-      stock: running.stock,
-      marketDue: running.marketDue,
-      total: running.total,
-    },
+    asOf: todayDate,
+    current: figures(todayRow),
+    yearStats: capitalStats(days),
     months: [...months].reverse(),
+    days,
   });
 }
 
@@ -2427,6 +2443,8 @@ export async function dashboardOf(
 ): Promise<{
   summary: DashboardSummary;
   profit: MonthOutput["month"]["profit"] | null;
+  /** D148: Σ order bills in the range (engine companyPayable.orders); "0.00" before the cutoff. */
+  orderTotal: string;
 }> {
   const companyId = access.company.id;
   const canSeeCost = access.permissions.includes("inventory.cost_view");
@@ -2582,5 +2600,9 @@ export async function dashboardOf(
         }
       : {}),
   });
-  return { summary, profit: canSeeProfit && run ? run.output.month.profit : null };
+  return {
+    summary,
+    profit: canSeeProfit && run ? run.output.month.profit : null,
+    orderTotal: roundSettlement(run?.output.month.companyPayable.orders ?? "0"),
+  };
 }
